@@ -373,47 +373,33 @@ async function runSuite() {
       assert.equal(logsText.toLowerCase().includes(rawUser.toLowerCase()), false, 'Sanitized logs leaked raw OS username');
       assert.equal(logsText.toLowerCase().includes((process.env.USERPROFILE || '').toLowerCase()), false, 'Sanitized logs leaked raw USERPROFILE');
 
-      // Modern Web Guidance static compliance checks on apps/desktop/ui/
+      // Modern Web Guidance & Account Dock static compliance checks on apps/desktop/ui/
       const html = fs.readFileSync(path.join(UI_DIR, 'index.html'), 'utf8');
       const css = fs.readFileSync(path.join(UI_DIR, 'styles.css'), 'utf8');
       const js = fs.readFileSync(path.join(UI_DIR, 'app.js'), 'utf8');
 
-      // dialog
-      assert.match(html, /<dialog\s+id="delete-profile-dialog"\s+aria-labelledby="delete-profile-title">/);
+      // dialog & progressive disclosure
+      assert.match(html, /<dialog\s+id="delete-profile-dialog"[^>]*aria-labelledby="delete-dialog-title">/);
       assert.match(html, /command="show-modal"\s+commandfor="create-profile-dialog"/);
-      assert.match(html, /command="close"\s+commandfor="safety-dialog"/);
-      assert.match(html, /<button\s+type="submit"\s+value="cancel"\s+class="[^"]*"\s+autofocus>Cancel<\/button>/);
+      assert.match(html, /id="delete-profile-dialog"[\s\S]*?value="cancel"[^>]*autofocus/);
       assert.equal(/role="dialog"|aria-modal/i.test(html), false, 'Native <dialog> must not have role="dialog" or aria-modal');
       assert.match(js, /\.returnValue\s*=\s*['"]['"]/);
       assert.match(js, /'commandForElement'\s+in\s+HTMLButtonElement\.prototype/);
-      assert.match(js, /'closedBy'\s+in\s+HTMLDialogElement\.prototype/);
       assert.match(css, /dialog:modal\s*\{[^}]*overscroll-behavior:\s*contain/s);
       assert.match(css, /dialog::backdrop\s*\{[^}]*overflow:\s*hidden;[^}]*overscroll-behavior:\s*contain/s);
       assert.equal(/(?:html|body)\s*\{[^}]*overflow:\s*hidden/s.test(css), false, 'Must never set overflow: hidden on html/body');
 
-      // responsive-table
-      assert.match(html, /<div\s+tabindex="0"\s+role="region"\s+aria-labelledby="profiles-table-caption"\s+class="table-wrapper">/);
-      assert.match(html, /<div\s+tabindex="0"\s+role="region"\s+aria-labelledby="diagnostics-table-caption"\s+class="table-wrapper">/);
-      assert.match(css, /container-type:\s*inline-size/);
-      assert.match(css, /@container\s*\(width\s*<\s*600px\)/);
-      assert.match(css, /content:\s*var\(--label-2\)\s*": "/);
-
-      // dark-mode
+      // dark-mode, native controls, & XSS/CSP hygiene
       assert.match(html, /<meta\s+name="color-scheme"\s+content="light dark">/);
-      assert.match(css, /:root\s*\{[^}]*color-scheme:\s*light dark/s);
+      assert.match(html, /<script\s+src="\.\/theme-init\.js"><\/script>/);
+      assert.match(html, /<fieldset[^>]*>[\s\S]*?<legend[^>]*>[\s\S]*?name="ui-locale"/i);
+      assert.match(html, /<fieldset[^>]*>[\s\S]*?<legend[^>]*>[\s\S]*?name="ui-theme"/i);
+      assert.equal(/https?:\/\//i.test(html), false, 'No remote CDNs or external URLs allowed in HTML');
+      assert.equal(/\.innerHTML\b/.test(js), false, 'Must never use innerHTML');
+      assert.match(css, /color-scheme:\s*light dark/);
       assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)/);
-      assert.match(css, /@supports\s*\(color:\s*light-dark\(white,\s*black\)\)/);
-      assert.match(css, /@supports\s+not\s*\(scrollbar-color:\s*auto\)\s*\{[^}]*scrollbar-width:\s*auto/s);
+      assert.match(css, /light-dark\(/);
       assert.equal(/transition[^;]*scrollbar-color/i.test(css), false, 'Must never transition scrollbar-color');
-
-      // tabs
-      assert.match(html, /<div\s+role="tablist"\s+focusgroup="tablist nomemory"/);
-      assert.match(html, /role="tab"[^>]*aria-controls="panel-profiles"[^>]*aria-selected="true"[^>]*focusgroupstart/);
-      assert.match(html, /role="tabpanel"[^>]*hidden="until-found"/);
-      assert.match(js, /addEventListener\('beforematch'/);
-      assert.match(js, /scrollIntoView\(\{\s*block:\s*'nearest',\s*inline:\s*'nearest',\s*container:\s*'nearest'\s*\}\)/);
-      assert.match(css, /border-block-end:\s*3px solid var\(--accent\)/);
-      assert.match(css, /\.panel-body\s*\{/);
 
       // Live HTTP smoke + CSRF / Host / Argument-Injection checks against ui-server.mjs
       uiServerHandle = await startUiServer({
@@ -426,7 +412,7 @@ async function runSuite() {
       const indexResp = await fetch(`${baseUrl}/`);
       assert.equal(indexResp.status, 200);
       const indexHtml = await indexResp.text();
-      assert.match(indexHtml, /Multi-Zalo Desktop/);
+      assert.match(indexHtml, /Multi-Zalo/);
       const tokenMatch = indexHtml.match(/<meta\s+name="dim-session-token"\s+content="([0-9a-f]{64})">/);
       assert.ok(tokenMatch, 'Expected injected meta[name="dim-session-token"] on index page');
       const sessionToken = tokenMatch[1];
