@@ -618,34 +618,87 @@ namespace DesktopInstanceManager.Host
 
         private ProfileStoreFile LoadStore()
         {
-            EnsureStorageInitialized();
-            string raw = File.ReadAllText(_metadataFile, Encoding.UTF8);
-            if (string.IsNullOrWhiteSpace(raw))
+            using (AcquireStoreLockScope())
             {
-                throw new InvalidOperationException("JSON_ERROR: profiles.json exists but is empty or whitespace-only. This indicates a corrupted metadata file (possibly from an interrupted write). The original file has NOT been modified. Recovery: restore from a backup or delete profiles.json to reinitialize.");
+                EnsureStorageInitialized();
+                if (Directory.Exists(_metadataFile) || IsReparsePoint(_metadataFile))
+                {
+                    throw new InvalidOperationException("JSON_ERROR: corrupted profiles.json (path is a directory or reparse point); original preserved untouched for recovery.");
+                }
+                byte[] rawBytes = File.ReadAllBytes(_metadataFile);
+                if (rawBytes == null || rawBytes.Length == 0)
+                {
+                    throw new InvalidOperationException("JSON_ERROR: corrupted profiles.json (file is 0 bytes); original file preserved untouched for recovery (restore from backup or repair JSON manually).");
+                }
+                string raw;
+                try
+                {
+                    UTF8Encoding strictUtf8 = new UTF8Encoding(false, true);
+                    raw = strictUtf8.GetString(rawBytes);
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException("JSON_ERROR: corrupted profiles.json (invalid UTF-8: " + ex.Message + "); original file preserved untouched for recovery.");
+                }
+                if (raw.Length > 0 && raw[0] == '\uFEFF')
+                {
+                    raw = raw.Substring(1);
+                }
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    throw new InvalidOperationException("JSON_ERROR: corrupted profiles.json (whitespace-only); original file preserved untouched for recovery.");
+                }
+
+                Dictionary<string, object> rootObj;
+                try
+                {
+                    rootObj = _json.DeserializeObject(raw) as Dictionary<string, object>;
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException("JSON_ERROR: corrupted profiles.json (invalid JSON syntax: " + ex.Message + "); original file preserved untouched for recovery.");
+                }
+                if (rootObj == null)
+                {
+                    throw new InvalidOperationException("JSON_ERROR: corrupted profiles.json (root value must be a JSON object); original file preserved untouched for recovery.");
+                }
+                if (!rootObj.ContainsKey("schema_version") || rootObj["schema_version"] == null)
+                {
+                    throw new InvalidOperationException("SCHEMA_ERROR: missing schema_version in profiles.json; original file preserved untouched for recovery.");
+                }
+                int schemaVer;
+                try
+                {
+                    schemaVer = Convert.ToInt32(rootObj["schema_version"], CultureInfo.InvariantCulture);
+                }
+                catch
+                {
+                    throw new InvalidOperationException("SCHEMA_ERROR: invalid non-integer schema_version in profiles.json; original file preserved untouched for recovery.");
+                }
+                if (schemaVer != 1)
+                {
+                    throw new InvalidOperationException("SCHEMA_ERROR: unsupported profiles.json schema_version " + schemaVer + " (expected 1); original file preserved untouched for recovery.");
+                }
+
+                ProfileStoreFile store;
+                try
+                {
+                    store = _json.Deserialize<ProfileStoreFile>(raw);
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException("JSON_ERROR: malformed profiles.json schema (" + ex.Message + "); original file preserved untouched for recovery.");
+                }
+                if (store == null)
+                {
+                    throw new InvalidOperationException("JSON_ERROR: deserialized profiles.json was null; original file preserved untouched for recovery.");
+                }
+                if (store.profiles == null)
+                {
+                    store.profiles = new List<ProfileRecord>();
+                }
+                return store;
             }
-            ProfileStoreFile store;
-            try
-            {
-                store = _json.Deserialize<ProfileStoreFile>(raw);
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("JSON_ERROR: profiles.json contains invalid JSON: " + ex.Message + ". The original file has NOT been modified. Recovery: restore from a backup or delete profiles.json to reinitialize.");
-            }
-            if (store == null)
-            {
-                store = new ProfileStoreFile();
-            }
-            if (store.schema_version <= 0)
-            {
-                store.schema_version = 1;
-            }
-            if (store.profiles == null)
-            {
-                store.profiles = new List<ProfileRecord>();
-            }
-            return store;
         }
 
         private void CleanStaleProfilesTmpFiles()
@@ -3572,42 +3625,43 @@ namespace DesktopInstanceManager.Host
                 else if (cmd == "discover") output = DiscoverApp(appPath, nodeFixture);
                 else if (cmd == "create")
                 {
-                    if (positional.Count < 2) output = Fail("MISSING_ARG", "Usage: create <name> [--notes <text>]");
+                    if (positional.Count < 2) output = Fail("INVALID_NAME", "Usage: create <name> [--notes <text>]");
                     else output = CreateProfile(positional[1], positional.Count >= 3 ? positional[2] : notesOpt);
                 }
                 else if (cmd == "rename")
                 {
-                    if (positional.Count < 3) output = Fail("MISSING_ARG", "Usage: rename <id> <newName>");
+                    if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: rename <id> <newName>");
+                    else if (positional.Count < 3) output = Fail("INVALID_NAME", "Usage: rename <id> <newName>");
                     else output = RenameProfile(positional[1], positional[2]);
                 }
                 else if (cmd == "delete")
                 {
-                    if (positional.Count < 2) output = Fail("MISSING_ARG", "Usage: delete <id> --confirm");
+                    if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: delete <id> --confirm");
                     else output = DeleteProfile(positional[1], confirm);
                 }
                 else if (cmd == "launch")
                 {
-                    if (positional.Count < 2) output = Fail("MISSING_ARG", "Usage: launch <id> [--app-path <exeOrScript>] [--node-fixture]");
+                    if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: launch <id> [--app-path <exeOrScript>] [--node-fixture]");
                     else output = LaunchProfile(positional[1], appPath, nodeFixture, crash, crashDelayMs, fixtureUserIdOpt);
                 }
                 else if (cmd == "focus")
                 {
-                    if (positional.Count < 2) output = Fail("MISSING_ARG", "Usage: focus <id>");
+                    if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: focus <id>");
                     else output = FocusProfile(positional[1], appPath, nodeFixture);
                 }
                 else if (cmd == "stop")
                 {
-                    if (positional.Count < 2) output = Fail("MISSING_ARG", "Usage: stop <id>");
+                    if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: stop <id>");
                     else output = StopProfile(positional[1], appPath, nodeFixture);
                 }
                 else if (cmd == "backup")
                 {
-                    if (positional.Count < 2) output = Fail("MISSING_ARG", "Usage: backup <id> [--dest <dir>]");
+                    if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: backup <id> [--dest <dir>]");
                     else output = BackupProfile(positional[1], dest);
                 }
                 else if (cmd == "restore")
                 {
-                    if (positional.Count < 2) output = Fail("MISSING_ARG", "Usage: restore <backupDir> [--name <newName>]");
+                    if (positional.Count < 2) output = Fail("BACKUP_ERROR", "Usage: restore <backupDir> [--name <newName>]");
                     else output = RestoreBackup(positional[1], newNameOpt);
                 }
                 else if (cmd == "backups") output = ListBackups();
