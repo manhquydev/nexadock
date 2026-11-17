@@ -226,8 +226,65 @@ test('consumer-facing Account Dock copy avoids technical jargon on Home and Add 
   const forbidden = /\b(PID|sandbox|IPC|Authenticode|loopback)\b/i;
 
   for (const dict of [vi, en]) {
-    const consumerSections = [dict.app, dict.nav, dict.statusBar, dict.accounts?.states, dict.accounts?.actions, dict.accounts?.primaryZalo, dict.dialogs?.create, dict.dialogs?.help];
+    const consumerSections = [dict.app, dict.nav, dict.statusBar, dict.accounts?.states, dict.accounts?.actions, dict.accounts?.primaryZalo, dict.dialogs?.create, dict.dialogs?.help, dict.help];
     const serialized = JSON.stringify(consumerSections);
     assert.doesNotMatch(serialized, forbidden, 'Consumer copy must not contain technical jargon');
+  }
+});
+
+test('every Rust DimError::code() and bridge error code resolves to localized non-fallback copy in vi-VN and en-US', () => {
+  const rustErrorCodes = [
+    'INVALID_NAME',
+    'DUPLICATE_NAME',
+    'NOT_FOUND',
+    'PROFILE_RUNNING',
+    'PROFILE_MARKER_MISMATCH',
+    'PROTECTED_PRIMARY_PROCESS',
+    'PROTECTED_PRIMARY_PATH',
+    'DUPLICATE_ZALO_USER_ID',
+    'INSUFFICIENT_DISK_SPACE',
+    'PATH_TRAVERSAL',
+    'FOLDER_REDIRECTION_DETECTED',
+    'INSTALL_NOT_FOUND',
+    'UNVERIFIED_BINARY',
+    'NOT_RUNNING',
+    'UNSUPPORTED_PLATFORM',
+    'BACKUP_ERROR',
+    'RESTORE_ERROR',
+    'PROCESS_ERROR',
+    'SCHEMA_ERROR',
+    'CONFIRM_REQUIRED',
+    'IO_ERROR',
+    'JSON_ERROR'
+  ];
+  const bridgeErrorCodes = [
+    'HOST_EXEC_FAILED',
+    'HOST_TIMEOUT',
+    'UNAUTHORIZED',
+    'RATE_LIMITED'
+  ];
+  const allCodes = [...rustErrorCodes, ...bridgeErrorCodes];
+
+  try {
+    for (const locale of ['vi-VN', 'en-US']) {
+      setLocale(locale);
+      const fallback = t('errors.UNKNOWN');
+      assert.ok(fallback.trim().length > 0 && fallback !== 'errors.UNKNOWN', `Missing errors.UNKNOWN in ${locale}`);
+
+      for (const code of allCodes) {
+        const info = resolveErrorInfo(code, 'raw technical context');
+        assert.equal(info.rawCode, code, `rawCode mismatch for ${code} in ${locale}`);
+        assert.ok(info.userMessage.trim().length > 0, `Empty error message for ${code} in ${locale}`);
+        assert.notEqual(info.userMessage, `errors.${code}`, `Missing translation key for ${code} in ${locale}`);
+        assert.notEqual(info.userMessage, fallback, `Error code ${code} fell back to errors.UNKNOWN in ${locale}`);
+        assert.equal(info.userMessage, DICTIONARIES[locale].errors[code], `Expected localized ${locale} string for ${code}`);
+      }
+
+      const unknownInfo = resolveErrorInfo('UNKNOWN');
+      assert.equal(unknownInfo.rawCode, 'UNKNOWN');
+      assert.equal(unknownInfo.userMessage, fallback, `UNKNOWN must resolve to errors.UNKNOWN in ${locale}`);
+    }
+  } finally {
+    setLocale('vi-VN');
   }
 });

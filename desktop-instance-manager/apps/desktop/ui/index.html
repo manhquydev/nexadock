@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <a href="#main-content" class="skip-link visually-hidden" data-i18n="nav.accounts">Tài khoản</a>
+  <a href="#main-content" class="skip-link visually-hidden" data-i18n="nav.skipToMain">Chuyển đến nội dung chính</a>
 
   <div class="app-shell">
     <!-- Compact Top Application Bar -->
@@ -34,7 +34,7 @@
           </span>
         </div>
 
-        <nav class="topbar-nav" data-i18n-aria-label="nav.ariaLabel" aria-label="Điều hướng chính">
+        <nav class="topbar-nav" data-i18n-aria-label="nav.ariaLabel" aria-label="Chính">
           <button type="button" class="top-nav-btn is-active" data-view="profiles" aria-current="page">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -59,7 +59,7 @@
             </svg>
             <span data-i18n="nav.settings">Cài đặt</span>
           </button>
-          <button type="button" class="top-nav-btn" id="btn-safety-spec" command="show-modal" commandfor="safety-dialog">
+          <button type="button" class="top-nav-btn" id="btn-nav-help" data-view="help">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <circle cx="12" cy="12" r="10"/>
               <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
@@ -67,9 +67,11 @@
             </svg>
             <span data-i18n="nav.help">Trợ giúp</span>
           </button>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh" data-i18n="accounts.actions.refresh">Làm mới</button>
-          <button type="button" class="btn btn-primary btn-sm" id="btn-open-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
         </nav>
+
+        <div class="topbar-actions">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-open-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
+        </div>
       </div>
     </header>
 
@@ -97,19 +99,23 @@
             <h1 class="page-title" data-i18n="accounts.title">Tài khoản Zalo</h1>
             <p class="page-subtitle" data-i18n="accounts.subtitle">Mở nhiều tài khoản Zalo cùng lúc trong các cửa sổ riêng.</p>
           </div>
-          <div class="header-search-wrap" id="search-wrap">
-            <label for="profile-search" class="visually-hidden" data-i18n="accounts.searchAria">Tìm kiếm tài khoản</label>
-            <input
-              type="search"
-              id="profile-search"
-              class="search-input"
-              data-i18n-placeholder="accounts.searchPlaceholder"
-              placeholder="Tìm tài khoản..."
-            >
+          <div class="page-actions" id="home-toolbar">
+            <span id="accounts-count-summary" class="accounts-count-summary" hidden></span>
+            <div class="header-search-wrap" id="search-wrap">
+              <label for="profile-search" class="visually-hidden" data-i18n="accounts.searchAria">Tìm kiếm tài khoản</label>
+              <input
+                type="search"
+                id="profile-search"
+                class="search-input"
+                data-i18n-placeholder="accounts.searchPlaceholder"
+                placeholder="Tìm tài khoản..."
+              >
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh" data-i18n="accounts.actions.refresh">Làm mới</button>
           </div>
         </div>
 
-        <ul id="profiles-list" class="account-grid" aria-live="polite"></ul>
+        <ul id="profiles-list" class="account-grid" role="list"></ul>
 
         <div id="profiles-empty" class="empty-state empty-hero" hidden>
           <div class="empty-icon" aria-hidden="true">
@@ -129,7 +135,10 @@
             <div class="account-avatar avatar-protected" aria-hidden="true">Z</div>
             <div class="primary-zalo-meta">
               <div class="primary-zalo-title" data-i18n="accounts.primaryZalo.heading">Zalo đang dùng trên máy</div>
-              <div class="primary-zalo-desc" id="primary-zalo-desc"></div>
+              <div class="account-state-row is-unknown" id="primary-zalo-state-row">
+                <span class="state-dot" aria-hidden="true"></span>
+                <span class="primary-zalo-desc" id="primary-zalo-desc"></span>
+              </div>
             </div>
           </div>
         </section>
@@ -157,6 +166,7 @@
 
         <div class="table-wrap" id="backups-table-wrap">
           <table class="data-table">
+            <caption class="visually-hidden" data-i18n="backups.tableCaption">Danh sách các bản sao lưu tài khoản</caption>
             <thead>
               <tr>
                 <th scope="col" data-i18n="backups.cols.name">Bản sao lưu</th>
@@ -274,6 +284,7 @@
             <dl class="kv-list" id="diag-security-list"></dl>
             <div class="table-wrap table-wrap-spaced">
               <table class="data-table">
+                <caption class="visually-hidden" data-i18n="diagnostics.checks.tableCaption">Kết quả kiểm tra tách biệt dữ liệu</caption>
                 <thead>
                   <tr>
                     <th scope="col" data-i18n="diagnostics.checks.check">Hạng mục</th>
@@ -296,6 +307,7 @@
             <dl class="kv-list" id="diag-env-list"></dl>
             <div class="table-wrap table-wrap-spaced">
               <table class="data-table">
+                <caption class="visually-hidden" data-i18n="diagnostics.readiness.tableCaption">Mức độ hỗ trợ theo hệ điều hành</caption>
                 <thead>
                   <tr>
                     <th scope="col" data-i18n="diagnostics.readiness.platform">Nền tảng</th>
@@ -313,6 +325,49 @@
             <h2 class="panel-title" data-i18n="diagnostics.groups.logs">Nhật ký hệ thống (đã lọc)</h2>
             <pre class="log-box" id="sanitized-log-output"></pre>
           </section>
+        </div>
+      </section>
+
+      <!-- View 5: Help -->
+      <section id="view-help" class="view" hidden>
+        <div class="view-back-bar">
+          <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
+        </div>
+        <div class="page-header">
+          <div>
+            <h1 class="page-title" data-i18n="help.title">Hướng dẫn sử dụng</h1>
+            <p class="page-subtitle" data-i18n="help.subtitle">Cách dùng nhiều tài khoản Zalo an toàn và xử lý các tình huống thường gặp.</p>
+          </div>
+        </div>
+
+        <div class="help-grid">
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="help.cards.mentalModel.title">1. Công cụ này làm gì (và không làm gì)?</h2>
+            <p class="help-body" data-i18n="help.cards.mentalModel.body">Multi-Zalo tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn.</p>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="help.cards.signIn.title">2. Cách thêm và đăng nhập tài khoản</h2>
+            <p class="help-body" data-i18n="help.cards.signIn.body">Nhấn Thêm tài khoản, đặt tên dễ nhớ (ví dụ: Công việc, Bán hàng) và chọn màu nhận diện, sau đó nhấn Mở Zalo để đăng nhập trực tiếp trong cửa sổ Zalo Desktop bằng mã QR hoặc mật khẩu.</p>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="help.cards.windowState.title">3. Ý nghĩa trạng thái &amp; bảo vệ Zalo gốc</h2>
+            <p class="help-body" data-i18n="help.cards.windowState.body">Trạng thái "Cửa sổ đang mở" cho biết cửa sổ Zalo đang chạy trên máy, không mặc định bạn đã đăng nhập bên trong. Ứng dụng Zalo bạn cài sẵn từ trước luôn được bảo vệ riêng, không thể đóng hoặc xóa từ đây.</p>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="help.cards.commonIssues.title">4. Xử lý lỗi thường gặp &amp; giới hạn thực tế</h2>
+            <p class="help-body" data-i18n="help.cards.commonIssues.body">• Không mở được Zalo: hãy kiểm tra máy đã cài Zalo Desktop chính thức chưa.
+• Không sao lưu hoặc xóa được: hãy nhấn Đóng Zalo trên thẻ tài khoản trước.
+• Báo trùng tài khoản: cùng một tài khoản Zalo không nên đăng nhập ở hai cửa sổ cùng lúc.
+• Giới hạn cuộc gọi: Zalo Desktop dùng chung kênh cuộc gọi hệ thống nên gọi thoại/video đồng thời trên nhiều cửa sổ có thể bị giới hạn.</p>
+          </section>
+        </div>
+
+        <div class="panel help-footer-bar">
+          <span data-i18n="help.troubleshootPrompt">Cần kiểm tra chi tiết cài đặt hoặc nhật ký hệ thống?</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-help-diagnostics" data-i18n="help.openTroubleshoot">Mở Kiểm tra sự cố</button>
         </div>
       </section>
     </main>
@@ -359,6 +414,8 @@
           >
         </div>
 
+        <p id="create-step1-error" class="form-error" role="alert" hidden></p>
+
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" id="btn-cancel-create" data-i18n="dialogs.cancel">Hủy</button>
           <button type="submit" class="btn btn-primary" id="btn-submit-create" data-i18n="dialogs.create.submit">Tiếp tục</button>
@@ -386,6 +443,10 @@
         <label for="rename-profile-name" data-i18n="dialogs.rename.nameLabel">Tên mới</label>
         <input type="text" id="rename-profile-name" required maxlength="80" autofocus>
       </div>
+      <fieldset class="color-fieldset">
+        <legend data-i18n="dialogs.create.colorLabel">Màu nhận diện</legend>
+        <div class="color-palette" id="rename-color-palette"></div>
+      </fieldset>
       <div class="dialog-actions">
         <button type="submit" class="btn btn-secondary" value="cancel" formnovalidate data-i18n="dialogs.cancel">Hủy</button>
         <button type="submit" class="btn btn-primary" value="rename" data-i18n="dialogs.rename.submit">Lưu tên mới</button>
@@ -438,17 +499,6 @@
       <summary data-i18n="accounts.details.technicalSummary">Thông tin nâng cao</summary>
       <dl class="kv-list kv-list-spaced" id="profile-details-advanced-list"></dl>
     </details>
-    <form method="dialog">
-      <div class="dialog-actions">
-        <button type="submit" class="btn btn-primary" value="close" autofocus data-i18n="dialogs.close">Đóng</button>
-      </div>
-    </form>
-  </dialog>
-
-  <!-- Dialog 6: Help -->
-  <dialog id="safety-dialog" class="modal" aria-labelledby="safety-dialog-title">
-    <h2 id="safety-dialog-title" class="modal-title" data-i18n="dialogs.help.title">Cách hoạt động của Multi-Zalo</h2>
-    <ul class="spec-list" id="safety-spec-list"></ul>
     <form method="dialog">
       <div class="dialog-actions">
         <button type="submit" class="btn btn-primary" value="close" autofocus data-i18n="dialogs.close">Đóng</button>

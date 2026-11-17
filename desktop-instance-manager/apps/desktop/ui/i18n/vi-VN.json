@@ -12,7 +12,8 @@
     "noneOpen": "Chưa có cửa sổ nào đang mở"
   },
   "nav": {
-    "ariaLabel": "Điều hướng chính",
+    "ariaLabel": "Chính",
+    "skipToMain": "Chuyển đến nội dung chính",
     "accounts": "Tài khoản",
     "backups": "Sao lưu",
     "settings": "Cài đặt",
@@ -28,42 +29,49 @@
   },
   "accounts": {
     "title": "Tài khoản Zalo",
-    "subtitle": "Mở nhiều tài khoản Zalo cùng lúc trong các cửa sổ riêng.",
+    "subtitle": "Mỗi mục dưới đây là một không gian riêng để bạn đăng nhập tài khoản Zalo có sẵn.",
     "searchPlaceholder": "Tìm tài khoản...",
     "searchAria": "Tìm kiếm tài khoản",
     "add": "Thêm tài khoản",
     "emptyTitle": "Dùng nhiều tài khoản Zalo trên một máy",
-    "emptyHint": "Thêm một tài khoản để mở Zalo trong cửa sổ riêng mà không cần đăng xuất.",
+    "emptyHint": "Tạo một không gian riêng để mở và đăng nhập thêm tài khoản Zalo có sẵn mà không cần đăng xuất.",
+    "countSummary": "Hiển thị {shown} / {total} tài khoản",
     "noMatches": "Không tìm thấy tài khoản nào khớp với \"{query}\".",
     "states": {
-      "running": "Đang mở",
+      "running": "Cửa sổ đang mở",
       "stopped": "Đã đóng",
       "starting": "Đang mở ứng dụng...",
       "stopping": "Đang đóng ứng dụng...",
-      "unknown": "Không xác định",
+      "unknown": "Chưa xác định",
       "error": "Có sự cố",
       "loginNotVerified": "Chưa xác minh đăng nhập"
     },
     "actions": {
       "launch": "Mở Zalo",
+      "launchAria": "Mở Zalo — {name}",
       "focus": "Chuyển đến",
+      "focusAria": "Chuyển đến — {name}",
       "stop": "Đóng Zalo",
+      "stopAria": "Đóng Zalo — {name}",
       "more": "Tùy chọn cho {name}",
       "rename": "Đổi tên",
       "backup": "Sao lưu",
       "details": "Thông tin tài khoản",
       "delete": "Xóa tài khoản",
+      "closeFirstHint": "Đóng Zalo trước",
       "refresh": "Làm mới"
     },
     "primaryZalo": {
       "heading": "Zalo đang dùng trên máy",
-      "running": "Đang mở · Được bảo vệ, không thể đóng hoặc xóa từ đây",
-      "stopped": "Đang đóng · Tài khoản Zalo gốc của máy luôn được giữ nguyên"
+      "running": "Cửa sổ đang mở · Được bảo vệ, không thể đóng hoặc xóa từ đây",
+      "stopped": "Đã đóng · Tài khoản Zalo gốc của máy luôn được giữ nguyên",
+      "unknown": "Chưa xác định · Chưa kiểm tra được trạng thái Zalo gốc trên máy"
     },
     "details": {
       "title": "Thông tin tài khoản",
       "subtitle": "Thông tin lưu trữ và phiên chạy của tài khoản này.",
       "name": "Tên tài khoản",
+      "color": "Màu nhận diện",
       "state": "Trạng thái",
       "createdAt": "Ngày tạo",
       "lastLaunched": "Mở gần nhất",
@@ -90,6 +98,7 @@
     "warningBody": "Khôi phục luôn tạo một tài khoản MỚI, không ghi đè lên tài khoản đang có hay Zalo gốc trên máy.",
     "emptyTitle": "Chưa có bản sao lưu nào",
     "emptyHint": "Đóng Zalo của một tài khoản rồi chọn Sao lưu trong menu tùy chọn (⋯).",
+    "tableCaption": "Danh sách các bản sao lưu tài khoản",
     "cols": {
       "name": "Bản sao lưu",
       "source": "Tài khoản nguồn",
@@ -147,6 +156,7 @@
       "redirectedNo": "Không"
     },
     "checks": {
+      "tableCaption": "Kết quả kiểm tra tách biệt dữ liệu",
       "check": "Hạng mục",
       "result": "Kết quả",
       "detail": "Chi tiết",
@@ -158,6 +168,7 @@
       "unknown": "KHÔNG XÁC ĐỊNH"
     },
     "readiness": {
+      "tableCaption": "Mức độ hỗ trợ theo hệ điều hành",
       "platform": "Nền tảng",
       "status": "Mức độ hỗ trợ",
       "strategy": "Cơ chế",
@@ -198,13 +209,37 @@
       "openDiagnostics": "Kiểm tra sự cố"
     }
   },
+  "help": {
+    "title": "Hướng dẫn sử dụng",
+    "subtitle": "Cách dùng nhiều tài khoản Zalo an toàn và xử lý các tình huống thường gặp.",
+    "cards": {
+      "mentalModel": {
+        "title": "1. Công cụ này làm gì (và không làm gì)?",
+        "body": "Multi-Zalo tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn."
+      },
+      "signIn": {
+        "title": "2. Cách thêm và đăng nhập tài khoản",
+        "body": "Nhấn Thêm tài khoản, đặt tên dễ nhớ (ví dụ: Công việc, Bán hàng) và chọn màu nhận diện, sau đó nhấn Mở Zalo để đăng nhập trực tiếp trong cửa sổ Zalo Desktop bằng mã QR hoặc mật khẩu."
+      },
+      "windowState": {
+        "title": "3. Ý nghĩa trạng thái & bảo vệ Zalo gốc",
+        "body": "Trạng thái \"Cửa sổ đang mở\" cho biết cửa sổ Zalo đang chạy trên máy, không mặc định bạn đã đăng nhập bên trong. Ứng dụng Zalo bạn cài sẵn từ trước luôn được bảo vệ riêng, không thể đóng hoặc xóa từ đây."
+      },
+      "commonIssues": {
+        "title": "4. Xử lý lỗi thường gặp & giới hạn thực tế",
+        "body": "• Không mở được Zalo: hãy kiểm tra máy đã cài Zalo Desktop chính thức chưa.\n• Không sao lưu hoặc xóa được: hãy nhấn Đóng Zalo trên thẻ tài khoản trước.\n• Báo trùng tài khoản: cùng một tài khoản Zalo không nên đăng nhập ở hai cửa sổ cùng lúc.\n• Giới hạn cuộc gọi: Zalo Desktop dùng chung kênh cuộc gọi hệ thống nên gọi thoại/video đồng thời trên nhiều cửa sổ có thể bị giới hạn."
+      }
+    },
+    "troubleshootPrompt": "Cần kiểm tra chi tiết cài đặt hoặc nhật ký hệ thống?",
+    "openTroubleshoot": "Mở Kiểm tra sự cố"
+  },
   "dialogs": {
     "close": "Đóng",
     "cancel": "Hủy",
     "confirm": "Xác nhận",
     "create": {
       "title": "Thêm tài khoản Zalo",
-      "subtitle": "Đặt tên để phân biệt tài khoản này. Bạn sẽ đăng nhập trực tiếp trong ứng dụng Zalo.",
+      "subtitle": "Tạo không gian Zalo riêng trên máy. Bạn sẽ tự đăng nhập tài khoản Zalo có sẵn trong Zalo Desktop — ứng dụng không tạo tài khoản mới và không lưu mật khẩu hay mã OTP.",
       "nameLabel": "Tên tài khoản",
       "namePlaceholder": "Ví dụ: Công việc, Cá nhân, Bán hàng",
       "suggestionsLabel": "Gợi ý nhanh",
@@ -218,8 +253,9 @@
       "notesLabel": "Ghi chú ngắn (không bắt buộc)",
       "notesPlaceholder": "Ví dụ: Nhóm lớp học hoặc tài khoản công ty",
       "submit": "Tiếp tục",
-      "step2Title": "Tài khoản \"{name}\" đã sẵn sàng",
-      "step2Body": "Không gian dữ liệu riêng đã được tạo. Hãy mở Zalo Desktop để đăng nhập tài khoản này.",
+      "submitting": "Đang tạo...",
+      "step2Title": "Không gian \"{name}\" đã sẵn sàng",
+      "step2Body": "Không gian dùng Zalo riêng đã tạo xong. Mở Zalo Desktop ngay để đăng nhập tài khoản hiện có bằng mã QR hoặc mật khẩu (hoặc mở lại bất cứ lúc nào từ màn hình chính).",
       "step2Launch": "Mở Zalo để đăng nhập",
       "step2Later": "Để sau"
     },
@@ -299,7 +335,18 @@
     "RESTORE_ERROR": "Không thể khôi phục từ bản sao lưu này.",
     "PROCESS_ERROR": "Không thể mở Zalo. Thử lại.",
     "CONFIRMATION_REQUIRED": "Cần xác nhận trước khi xóa tài khoản.",
+    "CONFIRM_REQUIRED": "Cần xác nhận trước khi xóa tài khoản.",
+    "PROFILE_MARKER_MISMATCH": "Phát hiện xung đột thông tin tài khoản. Hãy kiểm tra trong phần Nâng cao.",
+    "PROTECTED_PRIMARY_PATH": "Thư mục dữ liệu của Zalo gốc trên máy được bảo vệ và không thể ghi đè.",
+    "UNVERIFIED_BINARY": "Không xác minh được chữ ký của ứng dụng Zalo trên máy. Hãy cài đặt lại Zalo Desktop chính thức.",
+    "NOT_RUNNING": "Cửa sổ Zalo của tài khoản này hiện đã đóng. Hãy nhấn Mở Zalo trước.",
+    "SCHEMA_ERROR": "Dữ liệu cấu hình tài khoản bị lỗi định dạng. Hãy mở Kiểm tra sự cố trong Cài đặt.",
+    "IO_ERROR": "Không thể đọc hoặc ghi dữ liệu trên ổ đĩa. Hãy kiểm tra dung lượng trống và quyền truy cập.",
+    "JSON_ERROR": "Dữ liệu phản hồi không đúng định dạng. Hãy thử làm mới lại.",
     "HOST_EXEC_FAILED": "Không thể kết nối với ứng dụng. Thử lại.",
+    "HOST_TIMEOUT": "Thao tác phản hồi quá lâu. Hãy thử lại sau giây lát.",
+    "UNAUTHORIZED": "Phiên kết nối cục bộ đã hết hạn. Hãy tải lại ứng dụng.",
+    "RATE_LIMITED": "Bạn thao tác quá nhanh. Vui lòng đợi vài giây rồi thử lại.",
     "UNKNOWN": "Đã xảy ra sự cố. Thử lại hoặc xem chi tiết kỹ thuật."
   }
 }

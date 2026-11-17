@@ -39,6 +39,7 @@ const state = {
   activeRenameId: null,
   activeDeleteId: null,
   activeRestoreBackupDir: null,
+  activeRestoreSourceId: null,
   createdAccountForStep2: null,
   openDialogContext: null,
   openMenuProfileId: null,
@@ -72,7 +73,7 @@ function loadAccountColorsMap() {
   return {};
 }
 
-function saveAccountColor(profileId, colorId) {
+export function saveAccountColor(profileId, colorId) {
   if (!profileId || !ACCOUNT_COLORS.some((c) => c.id === colorId)) return;
   try {
     if (typeof localStorage !== 'undefined') {
@@ -85,19 +86,47 @@ function saveAccountColor(profileId, colorId) {
   }
 }
 
-export function getAccountColorVar(prof) {
+export function removeAccountColor(profileId) {
+  if (!profileId) return;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const map = loadAccountColorsMap();
+      if (Object.hasOwn(map, profileId)) {
+        delete map[profileId];
+        localStorage.setItem(ACCOUNT_COLORS_STORAGE_KEY, JSON.stringify(map));
+      }
+    }
+  } catch (_err) {
+    // Ignore storage errors
+  }
+}
+
+export function getAccountColorId(prof) {
   const map = loadAccountColorsMap();
   const saved = prof?.id ? map[prof.id] : null;
   const matched = ACCOUNT_COLORS.find((c) => c.id === saved);
-  if (matched) return `var(${matched.cssVar})`;
+  if (matched) return matched.id;
 
   const seed = String(prof?.id || prof?.name || 'z');
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
     hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
   }
-  const picked = ACCOUNT_COLORS[Math.abs(hash) % ACCOUNT_COLORS.length];
-  return `var(${picked.cssVar})`;
+  return ACCOUNT_COLORS[Math.abs(hash) % ACCOUNT_COLORS.length].id;
+}
+
+export function getAccountColorVar(prof) {
+  const colorId = getAccountColorId(prof);
+  const matched = ACCOUNT_COLORS.find((c) => c.id === colorId) || ACCOUNT_COLORS[0];
+  return `var(${matched.cssVar})`;
+}
+
+export function pickNextAvailableColorId(profiles = []) {
+  const list = Array.isArray(profiles) ? profiles : [];
+  const used = new Set(list.map((p) => getAccountColorId(p)));
+  const available = ACCOUNT_COLORS.find((c) => !used.has(c.id));
+  if (available) return available.id;
+  return ACCOUNT_COLORS[list.length % ACCOUNT_COLORS.length].id;
 }
 
 export function getAccountInitials(name) {
@@ -118,6 +147,7 @@ export function getAccountInitials(name) {
 function updateConnectionBadge(mode = state.connectionMode, ok = state.connectionOk) {
   state.connectionMode = mode;
   state.connectionOk = ok;
+  if (typeof document === 'undefined') return;
   const pill = document.getElementById('connection-pill');
   const label = document.getElementById('connection-label');
   if (!pill || !label) return;
@@ -130,6 +160,11 @@ function updateConnectionBadge(mode = state.connectionMode, ok = state.connectio
   label.textContent = t('app.disconnected');
 }
 
+export function getSessionToken() {
+  if (typeof document === 'undefined') return '';
+  return document.querySelector('meta[name="dim-session-token"]')?.content || '';
+}
+
 export async function apiCall(route, method = 'GET', body = null, tauriCmd = null, tauriArgs = {}) {
   const invoke = getTauriInvoke();
   if (invoke && tauriCmd) {
@@ -139,7 +174,9 @@ export async function apiCall(route, method = 'GET', body = null, tauriCmd = nul
       return result;
     } catch (err) {
       updateConnectionBadge('tauri', false);
-      throw new Error(typeof err === 'string' ? err : err?.message || t('errors.HOST_EXEC_FAILED'));
+      const tauriErr = new Error(typeof err === 'string' ? err : err?.message || t('errors.HOST_EXEC_FAILED'));
+      tauriErr.errorCode = 'HOST_EXEC_FAILED';
+      throw tauriErr;
     }
   }
 
@@ -147,17 +184,68 @@ export async function apiCall(route, method = 'GET', body = null, tauriCmd = nul
     method,
     headers: { Accept: 'application/json' }
   };
+  const token = getSessionToken();
+  if (token) {
+    opts.headers['X-DIM-Session-Token'] = token;
+  }
   if (body !== null) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch(route, opts);
-  const data = await res.json().catch(() => ({ ok: false, message: `HTTP ${res.status}` }));
-  updateConnectionBadge('bridge', true);
-  if (!res.ok && data && data.ok === undefined) {
-    data.ok = false;
+
+  const timeoutMs = Number(globalThis.__MZ_API_TIMEOUT_MS) > 0
+    ? Number(globalThis.__MZ_API_TIMEOUT_MS)
+    : 32000;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  if (controller) {
+    opts.signal = controller.signal;
   }
-  return data;
+  const timer = controller
+    ? setTimeout(() => {
+      controller.abort();
+    }, timeoutMs)
+    : null;
+
+  try {
+    const res = await fetch(route, opts);
+    const rawData = await res.json().catch(() => ({ ok: false, message: `HTTP ${res.status}` }));
+    const data = rawData && typeof rawData === 'object' ? rawData : { ok: res.ok, data: rawData };
+    const isInfraError = res.status === 401
+      || res.status >= 500
+      || data?.error_code === 'HOST_EXEC_FAILED'
+      || data?.error_code === 'HOST_TIMEOUT'
+      || data?.error_code === 'UNAUTHORIZED';
+    updateConnectionBadge('bridge', !isInfraError);
+    if (!res.ok && data) {
+      if (data.ok === undefined) data.ok = false;
+      if (!data.error_code) {
+        if (res.status === 401) data.error_code = 'UNAUTHORIZED';
+        else if (res.status === 504) data.error_code = 'HOST_TIMEOUT';
+        else if (res.status >= 500) data.error_code = 'HOST_EXEC_FAILED';
+      }
+    }
+    return data;
+  } catch (err) {
+    updateConnectionBadge('bridge', false);
+    if (err?.name === 'AbortError' || controller?.signal?.aborted) {
+      const timeoutErr = new Error(err?.message || `Request timed out after ${timeoutMs}ms`);
+      timeoutErr.errorCode = 'HOST_TIMEOUT';
+      throw timeoutErr;
+    }
+    if (err && typeof err === 'object') {
+      try {
+        err.errorCode = 'HOST_EXEC_FAILED';
+      } catch (_ignore) {
+        // Ignore non-extensible error objects
+      }
+      throw err;
+    }
+    const wrappedErr = new Error(String(err || 'Fetch failed'));
+    wrappedErr.errorCode = 'HOST_EXEC_FAILED';
+    throw wrappedErr;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function renderBanner() {
@@ -305,8 +393,24 @@ function updatePendingControls() {
   if (btnEmptyCreate) btnEmptyCreate.disabled = isCreating;
 }
 
+function updateDocumentTitle(viewName = state.activeView) {
+  if (typeof document === 'undefined') return;
+  const viewTitles = {
+    profiles: t('nav.accounts'),
+    backups: t('nav.backups'),
+    settings: t('nav.settings'),
+    diagnostics: t('diagnostics.title'),
+    help: t('help.title')
+  };
+  const viewTitle = viewTitles[viewName] || t('nav.accounts');
+  document.title = `${t('app.name')} — ${viewTitle}`;
+}
+
 function selectView(viewName) {
   state.activeView = viewName;
+  if (state.banner && state.banner.kind !== 'error') {
+    clearBanner();
+  }
   for (const btn of document.querySelectorAll('.top-nav-btn[data-view]')) {
     const active = btn.getAttribute('data-view') === viewName;
     btn.classList.toggle('is-active', active);
@@ -316,6 +420,11 @@ function selectView(viewName) {
   for (const view of document.querySelectorAll('.view')) {
     view.hidden = view.id !== `view-${viewName}`;
   }
+  const btnOpenCreate = document.getElementById('btn-open-create');
+  if (btnOpenCreate) {
+    btnOpenCreate.hidden = viewName !== 'profiles';
+  }
+  updateDocumentTitle(viewName);
 }
 
 function makeBadge(text, variant = 'neutral') {
@@ -325,12 +434,15 @@ function makeBadge(text, variant = 'neutral') {
   return span;
 }
 
-function makeButton(label, variantClass, onClick, { disabled = false, sizeClass = 'btn-sm' } = {}) {
+function makeButton(label, variantClass, onClick, { disabled = false, sizeClass = 'btn-sm', ariaLabel = null } = {}) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = `btn ${variantClass} ${sizeClass}`.trim();
   btn.textContent = label;
   btn.disabled = disabled;
+  if (ariaLabel) {
+    btn.setAttribute('aria-label', ariaLabel);
+  }
   btn.addEventListener('click', onClick);
   return btn;
 }
@@ -395,18 +507,22 @@ function renderTopbarSummary() {
 
 function renderPrimaryZalo() {
   const section = document.getElementById('primary-zalo-section');
+  const rowEl = document.getElementById('primary-zalo-state-row');
   const descEl = document.getElementById('primary-zalo-desc');
   if (!section || !descEl) return;
 
-  const primary = state.status?.primary_zalo;
-  if (!primary) {
-    section.hidden = true;
-    return;
-  }
   section.hidden = false;
-  descEl.textContent = primary.is_running
-    ? t('accounts.primaryZalo.running')
-    : t('accounts.primaryZalo.stopped');
+  const primary = state.status?.primary_zalo;
+  if (!state.connectionOk || !primary || typeof primary.is_running !== 'boolean') {
+    if (rowEl) rowEl.className = 'account-state-row is-unknown';
+    descEl.textContent = t('accounts.primaryZalo.unknown');
+  } else if (primary.is_running === true) {
+    if (rowEl) rowEl.className = 'account-state-row is-running';
+    descEl.textContent = t('accounts.primaryZalo.running');
+  } else {
+    if (rowEl) rowEl.className = 'account-state-row is-stopped';
+    descEl.textContent = t('accounts.primaryZalo.stopped');
+  }
 }
 
 function filterProfiles(profiles, query) {
@@ -420,9 +536,15 @@ function filterProfiles(profiles, query) {
 
 function positionMenu(trigger, menuList) {
   const rect = trigger.getBoundingClientRect();
-  const menuWidth = 200;
+  const menuWidth = menuList.offsetWidth || 200;
+  const menuHeight = menuList.offsetHeight || 190;
   const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
-  const top = Math.min(rect.bottom + 4, window.innerHeight - 190);
+  let top;
+  if (rect.bottom + 4 + menuHeight > window.innerHeight - 8 && rect.top > menuHeight + 8) {
+    top = Math.max(8, rect.top - menuHeight - 4);
+  } else {
+    top = Math.min(rect.bottom + 4, Math.max(8, window.innerHeight - menuHeight - 8));
+  }
   menuList.style.left = `${left}px`;
   menuList.style.top = `${top}px`;
 }
@@ -432,7 +554,7 @@ function buildOverflowMenu(prof, isPending) {
   const menuWrap = document.createElement('div');
   menuWrap.className = 'menu-wrap';
 
-  const supportsPopover = Object.hasOwn(HTMLElement.prototype, 'popover');
+  const supportsPopover = typeof HTMLElement !== 'undefined' && Object.hasOwn(HTMLElement.prototype, 'popover');
 
   const moreBtn = document.createElement('button');
   moreBtn.type = 'button';
@@ -461,8 +583,8 @@ function buildOverflowMenu(prof, isPending) {
     if (isPending) return;
     state.openMenuProfileId = prof.id;
     if (supportsPopover) {
-      positionMenu(moreBtn, menuList);
       if (!isOpen()) menuList.showPopover();
+      positionMenu(moreBtn, menuList);
     } else {
       menuList.hidden = false;
       menuList.classList.add('is-fallback-open');
@@ -567,13 +689,24 @@ function buildOverflowMenu(prof, isPending) {
     }
   });
 
-  const addMenuItem = (label, onSelect, { disabled = false, danger = false } = {}) => {
+  const addMenuItem = (label, onSelect, { disabled = false, danger = false, hint = '' } = {}) => {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = danger ? 'menu-item menu-item-danger' : 'menu-item';
     item.setAttribute('role', 'menuitem');
     item.tabIndex = -1;
-    item.textContent = label;
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    item.appendChild(labelSpan);
+
+    if (disabled && hint) {
+      const hintSpan = document.createElement('span');
+      hintSpan.className = 'menu-item-hint';
+      hintSpan.textContent = hint;
+      item.appendChild(hintSpan);
+    }
+
     item.disabled = disabled || isPending;
     item.addEventListener('click', () => {
       closeMenu({ restoreFocus: false });
@@ -583,9 +716,17 @@ function buildOverflowMenu(prof, isPending) {
   };
 
   addMenuItem(t('accounts.actions.rename'), () => openRenameDialog(prof));
-  addMenuItem(t('accounts.actions.backup'), () => runProfileAction('backup', prof), { disabled: Boolean(prof.running) });
+  addMenuItem(
+    t('accounts.actions.backup'),
+    () => runProfileAction('backup', prof),
+    { disabled: Boolean(prof.running), hint: t('accounts.actions.closeFirstHint') }
+  );
   addMenuItem(t('accounts.actions.details'), () => openDetailsDialog(prof));
-  addMenuItem(t('accounts.actions.delete'), () => openDeleteDialog(prof), { disabled: Boolean(prof.running), danger: true });
+  addMenuItem(
+    t('accounts.actions.delete'),
+    () => openDeleteDialog(prof),
+    { disabled: Boolean(prof.running), danger: true, hint: t('accounts.actions.closeFirstHint') }
+  );
 
   menuWrap.appendChild(moreBtn);
   menuWrap.appendChild(menuList);
@@ -599,6 +740,7 @@ function renderProfiles() {
   const emptyHint = document.getElementById('profiles-empty-hint');
   const emptyBtn = document.getElementById('btn-empty-create');
   const searchWrap = document.getElementById('search-wrap');
+  const countSummary = document.getElementById('accounts-count-summary');
   if (!list || !emptyEl) return;
 
   const reopenMenuId = state.openMenuProfileId;
@@ -607,9 +749,23 @@ function renderProfiles() {
   list.replaceChildren();
   const allProfiles = state.status?.profiles || [];
   const filtered = filterProfiles(allProfiles, state.searchQuery);
+  const hasQuery = state.searchQuery.trim().length > 0;
 
   if (searchWrap) {
-    searchWrap.hidden = allProfiles.length === 0;
+    searchWrap.hidden = allProfiles.length < 2;
+  }
+
+  if (countSummary) {
+    if (allProfiles.length > 0 && (allProfiles.length >= 6 || hasQuery)) {
+      countSummary.textContent = t('accounts.countSummary', {
+        shown: formatNumber(filtered.length),
+        total: formatNumber(allProfiles.length)
+      });
+      countSummary.hidden = false;
+    } else {
+      countSummary.textContent = '';
+      countSummary.hidden = true;
+    }
   }
 
   if (allProfiles.length === 0) {
@@ -682,18 +838,38 @@ function renderProfiles() {
     const actions = document.createElement('div');
     actions.className = 'account-card-actions';
 
-    const leftActions = document.createElement('div');
-    leftActions.className = 'account-actions-left';
+    const primaryActions = document.createElement('div');
+    primaryActions.className = 'account-actions-primary';
+
+    const secondaryActions = document.createElement('div');
+    secondaryActions.className = 'account-actions-secondary';
 
     if (prof.running) {
-      leftActions.appendChild(makeButton(t('accounts.actions.focus'), 'btn-primary', () => runProfileAction('focus', prof), { disabled: isPending }));
-      leftActions.appendChild(makeButton(t('accounts.actions.stop'), 'btn-subtle-danger', () => runProfileAction('stop', prof), { disabled: isPending }));
+      primaryActions.appendChild(makeButton(
+        t('accounts.actions.focus'),
+        'btn-primary',
+        () => runProfileAction('focus', prof),
+        { disabled: isPending, ariaLabel: t('accounts.actions.focusAria', { name: prof.name }) }
+      ));
+      secondaryActions.appendChild(makeButton(
+        t('accounts.actions.stop'),
+        'btn-subtle-danger',
+        () => runProfileAction('stop', prof),
+        { disabled: isPending, ariaLabel: t('accounts.actions.stopAria', { name: prof.name }) }
+      ));
     } else {
-      leftActions.appendChild(makeButton(t('accounts.actions.launch'), 'btn-primary', () => runProfileAction('launch', prof), { disabled: isPending }));
+      primaryActions.appendChild(makeButton(
+        t('accounts.actions.launch'),
+        'btn-primary',
+        () => runProfileAction('launch', prof),
+        { disabled: isPending, ariaLabel: t('accounts.actions.launchAria', { name: prof.name }) }
+      ));
     }
 
-    actions.appendChild(leftActions);
-    actions.appendChild(buildOverflowMenu(prof, isPending));
+    secondaryActions.appendChild(buildOverflowMenu(prof, isPending));
+
+    actions.appendChild(primaryActions);
+    actions.appendChild(secondaryActions);
 
     li.appendChild(head);
     li.appendChild(actions);
@@ -707,13 +883,13 @@ function renderProfiles() {
     const trigger = row?.querySelector('button[aria-haspopup="menu"]');
     const menu = row?.querySelector('.overflow-menu');
     if (trigger && menu && !trigger.disabled) {
-      if (Object.hasOwn(HTMLElement.prototype, 'popover')) {
-        positionMenu(trigger, menu);
+      if (typeof HTMLElement !== 'undefined' && Object.hasOwn(HTMLElement.prototype, 'popover')) {
         try {
           menu.showPopover();
         } catch (_err) {
           // Ignore if already open
         }
+        positionMenu(trigger, menu);
       } else {
         menu.hidden = false;
         menu.classList.add('is-fallback-open');
@@ -749,11 +925,12 @@ function renderBackups() {
   for (const bk of state.backups) {
     const tr = document.createElement('tr');
 
-    const nameTd = document.createElement('td');
+    const nameTh = document.createElement('th');
+    nameTh.scope = 'row';
     const nameStrong = document.createElement('strong');
     nameStrong.textContent = bk.backup_name || bk.backup_id || '—';
-    nameTd.appendChild(nameStrong);
-    tr.appendChild(nameTd);
+    nameTh.appendChild(nameStrong);
+    tr.appendChild(nameTh);
 
     const srcTd = document.createElement('td');
     srcTd.textContent = bk.source_profile_name || bk.source_profile?.name || '—';
@@ -870,11 +1047,12 @@ function renderDiagnostics() {
     } else {
       for (const chk of checks) {
         const tr = document.createElement('tr');
-        const nameTd = document.createElement('td');
+        const nameTh = document.createElement('th');
+        nameTh.scope = 'row';
         const strong = document.createElement('strong');
         strong.textContent = chk.check_name || '—';
-        nameTd.appendChild(strong);
-        tr.appendChild(nameTd);
+        nameTh.appendChild(strong);
+        tr.appendChild(nameTh);
 
         const resInfo = resolveIsolationCheckResult(chk);
         const resTd = document.createElement('td');
@@ -903,14 +1081,15 @@ function renderDiagnostics() {
     } else {
       for (const row of matrix) {
         const tr = document.createElement('tr');
-        const platTd = document.createElement('td');
-        platTd.textContent = row.platform || '—';
-        tr.appendChild(platTd);
+        const platTh = document.createElement('th');
+        platTh.scope = 'row';
+        platTh.textContent = row.platform || '—';
+        tr.appendChild(platTh);
 
         const { code, label } = translateSupportStatus(row.status);
-        const variant = code === 'SUPPORTED_AND_TESTED' ? 'badge-pass'
-          : (code === 'PARTIALLY_SUPPORTED' ? 'badge-warn'
-            : (code === 'UNSUPPORTED' || code === 'BLOCKED' ? 'badge-fail' : 'badge-neutral'));
+        const variant = code === 'SUPPORTED_AND_TESTED' ? 'pass'
+          : (code === 'PARTIALLY_SUPPORTED' ? 'warn'
+            : (code === 'UNSUPPORTED' || code === 'BLOCKED' ? 'fail' : 'neutral'));
         const stTd = document.createElement('td');
         stTd.appendChild(makeBadge(`${label} (${code})`, variant));
         tr.appendChild(stTd);
@@ -951,45 +1130,59 @@ function renderSettingsAbout() {
   appendKvRow(aboutList, t('settings.about.connection'), connText);
 }
 
-function renderHelpList() {
-  const list = document.getElementById('safety-spec-list');
-  if (!list) return;
-  list.replaceChildren();
-  for (let i = 0; i < 4; i += 1) {
-    const text = t(`dialogs.help.items.${i}`);
-    if (text && text !== `dialogs.help.items.${i}`) {
-      const li = document.createElement('li');
-      li.textContent = text;
-      list.appendChild(li);
-    }
-  }
-}
-
-function renderCreateColorPalette() {
-  const palette = document.getElementById('create-color-palette');
+function renderColorPalette(containerId, radioName, selectedColorId = 'blue') {
+  const palette = document.getElementById(containerId);
   if (!palette) return;
-  const current = palette.querySelector('input[name="create-account-color"]:checked')?.value || 'blue';
+  const activeId = ACCOUNT_COLORS.some((c) => c.id === selectedColorId) ? selectedColorId : ACCOUNT_COLORS[0].id;
   palette.replaceChildren();
 
   for (const color of ACCOUNT_COLORS) {
     const label = document.createElement('label');
     label.className = 'color-swatch';
-    label.setAttribute('aria-label', t(`colors.${color.id}`));
+    const colorLabel = t(`colors.${color.id}`);
+    label.title = colorLabel;
 
     const input = document.createElement('input');
     input.type = 'radio';
-    input.name = 'create-account-color';
+    input.name = radioName;
     input.value = color.id;
-    input.checked = color.id === current;
+    input.checked = color.id === activeId;
 
     const dot = document.createElement('span');
     dot.className = 'color-swatch-dot';
     dot.style.setProperty('--swatch-color', `var(${color.cssVar})`);
 
+    const srText = document.createElement('span');
+    srText.className = 'visually-hidden';
+    srText.textContent = colorLabel;
+
     label.appendChild(input);
     label.appendChild(dot);
+    label.appendChild(srText);
     palette.appendChild(label);
   }
+}
+
+function renderCreateColorPalette(explicitColorId = null) {
+  const palette = document.getElementById('create-color-palette');
+  if (!palette) return;
+  const createDialog = document.getElementById('create-profile-dialog');
+  let selected = explicitColorId;
+  if (!selected) {
+    selected = createDialog?.open
+      ? (palette.querySelector('input[name="create-account-color"]:checked')?.value || pickNextAvailableColorId(state.status?.profiles || []))
+      : pickNextAvailableColorId(state.status?.profiles || []);
+  }
+  renderColorPalette('create-color-palette', 'create-account-color', selected);
+}
+
+function renderRenameColorPalette(explicitColorId = null) {
+  const palette = document.getElementById('rename-color-palette');
+  if (!palette) return;
+  const selected = explicitColorId
+    || palette.querySelector('input[name="rename-account-color"]:checked')?.value
+    || 'blue';
+  renderColorPalette('rename-color-palette', 'rename-account-color', selected);
 }
 
 function refreshOpenDialogTranslations() {
@@ -1026,11 +1219,12 @@ function renderAll() {
   renderBackups();
   renderDiagnostics();
   renderSettingsAbout();
-  renderHelpList();
   renderCreateColorPalette();
+  renderRenameColorPalette();
   updateLanguageControls();
   updateAppearanceControls();
   updatePendingControls();
+  updateDocumentTitle(state.activeView);
   refreshOpenDialogTranslations();
 }
 
@@ -1053,14 +1247,25 @@ export async function refreshAll({ isVerify = false } = {}) {
       apiCall('/api/verify-isolation', 'GET', null, 'verify_isolation', {})
     ]);
     if (seq !== state.refreshSeq) return;
-    state.status = statusData;
-    state.backups = backupsData?.backups || [];
-    state.diagnostics = diagData;
-    state.isolation = isoData;
+    if (statusData && statusData.ok === false) {
+      updateConnectionBadge(state.connectionMode || 'bridge', false);
+      showErrorBanner(statusData.error_code || 'HOST_EXEC_FAILED', statusData.message || '');
+    } else {
+      state.status = statusData;
+    }
+    if (backupsData && backupsData.ok !== false) {
+      state.backups = backupsData.backups || [];
+    }
+    if (diagData && diagData.ok !== false) {
+      state.diagnostics = diagData;
+    }
+    if (isoData && isoData.ok !== false) {
+      state.isolation = isoData;
+    }
   } catch (err) {
     if (seq !== state.refreshSeq) return;
     updateConnectionBadge(state.connectionMode || 'bridge', false);
-    showErrorBanner('HOST_EXEC_FAILED', err?.message || '');
+    showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
   } finally {
     state.pendingGlobalActions.delete(key);
     renderAll();
@@ -1088,16 +1293,49 @@ async function runProfileAction(action, prof) {
       showErrorBanner(res.error_code, res.message);
     } else if (action === 'backup' && res?.ok !== false) {
       showKeyBanner('messages.backupCreated', {}, 'success');
-    } else if (res?.message) {
-      showKeyBanner('messages.actionSuccess', {}, 'success');
     }
     await refreshAll();
   } catch (err) {
-    showErrorBanner('UNKNOWN', err?.message || '');
+    showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
   } finally {
     state.pendingProfileActions.delete(prof.id);
     renderProfiles();
   }
+}
+
+function clearCreateStep1Error() {
+  const errEl = document.getElementById('create-step1-error');
+  const nameInput = document.getElementById('create-profile-name');
+  if (errEl) {
+    errEl.textContent = '';
+    errEl.hidden = true;
+  }
+  if (nameInput) {
+    nameInput.removeAttribute('aria-invalid');
+    if (nameInput.getAttribute('aria-describedby') === 'create-step1-error') {
+      nameInput.removeAttribute('aria-describedby');
+    }
+  }
+}
+
+function showCreateStep1Error(errorCode, rawDetail = '') {
+  const errEl = document.getElementById('create-step1-error');
+  const nameInput = document.getElementById('create-profile-name');
+  if (!errEl) return;
+  const info = resolveErrorInfo(errorCode, rawDetail);
+  errEl.textContent = info.userMessage;
+  errEl.hidden = false;
+  if (nameInput) {
+    nameInput.setAttribute('aria-invalid', 'true');
+    nameInput.setAttribute('aria-describedby', 'create-step1-error');
+  }
+}
+
+function needsFocusRestore(activeEl) {
+  if (!activeEl || activeEl === document.body || activeEl === document.documentElement) return true;
+  if (!activeEl.isConnected || activeEl.hidden || activeEl.closest?.('[hidden]')) return true;
+  if (typeof getComputedStyle === 'function' && getComputedStyle(activeEl).display === 'none') return true;
+  return false;
 }
 
 function resetCreateDialogToStep1() {
@@ -1106,8 +1344,14 @@ function resetCreateDialogToStep1() {
   document.getElementById('create-step-2').hidden = true;
   document.getElementById('create-profile-name').value = '';
   document.getElementById('create-profile-notes').value = '';
+  clearCreateStep1Error();
+  renderCreateColorPalette(pickNextAvailableColorId(state.status?.profiles || []));
   const submitBtn = document.getElementById('btn-submit-create');
-  if (submitBtn) submitBtn.disabled = false;
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = t('dialogs.create.submit');
+    submitBtn.removeAttribute('aria-busy');
+  }
 }
 
 function showCreateStep2(prof) {
@@ -1133,6 +1377,7 @@ function openRenameDialog(prof) {
     name: prof.name
   });
   document.getElementById('rename-profile-name').value = prof.name;
+  renderRenameColorPalette(getAccountColorId(prof));
   document.getElementById('rename-profile-dialog').showModal();
 }
 
@@ -1147,6 +1392,7 @@ function openDeleteDialog(prof) {
 
 function openRestoreDialog(bk) {
   state.activeRestoreBackupDir = bk.backup_dir;
+  state.activeRestoreSourceId = bk.source_profile_id || bk.source_profile?.id || null;
   state.openDialogContext = { type: 'restore', bk };
   document.getElementById('restore-backup-subtitle').textContent = t('dialogs.restore.subtitle', {
     backupName: bk.backup_name || bk.backup_id || ''
@@ -1165,6 +1411,7 @@ function populateDetailsDialog(prof) {
   const accState = resolveAccountState(prof);
   appendKvRow(list, t('accounts.details.name'), prof.name);
   appendKvRow(list, t('accounts.details.state'), accState.label);
+  appendKvRow(list, t('accounts.details.color'), t(`colors.${getAccountColorId(prof)}`));
   appendKvRow(list, t('accounts.details.createdAt'), formatDateTime(prof.created_at));
   appendKvRow(list, t('accounts.details.lastLaunched'), formatDateTime(prof.last_launched_at));
   appendKvRow(list, t('accounts.details.notes'), prof.notes || '—');
@@ -1191,7 +1438,14 @@ function openDetailsDialog(prof) {
 }
 
 function wireDialogsAndFallbacks() {
-  if (!('commandForElement' in HTMLButtonElement.prototype)) {
+  for (const btnId of ['btn-open-create', 'btn-empty-create']) {
+    document.getElementById(btnId)?.addEventListener('click', () => {
+      clearCreateStep1Error();
+      renderCreateColorPalette(pickNextAvailableColorId(state.status?.profiles || []));
+    });
+  }
+
+  if (typeof HTMLButtonElement === 'undefined' || !('commandForElement' in HTMLButtonElement.prototype)) {
     for (const btn of document.querySelectorAll('button[command="show-modal"][commandfor]')) {
       btn.addEventListener('click', () => {
         const target = document.getElementById(btn.getAttribute('commandfor'));
@@ -1207,27 +1461,32 @@ function wireDialogsAndFallbacks() {
   const createDialog = document.getElementById('create-profile-dialog');
   const createForm = document.getElementById('create-profile-form');
 
+  document.getElementById('create-profile-name')?.addEventListener('input', () => {
+    clearCreateStep1Error();
+  });
+
   for (const chip of document.querySelectorAll('.chip-btn[data-suggest-key]')) {
     chip.addEventListener('click', () => {
       const input = document.getElementById('create-profile-name');
       if (input) {
         input.value = t(chip.getAttribute('data-suggest-key'));
+        clearCreateStep1Error();
         input.focus();
       }
     });
   }
 
   document.getElementById('btn-cancel-create')?.addEventListener('click', () => {
-    createDialog.close('cancel');
+    createDialog?.close('cancel');
   });
 
   document.getElementById('btn-create-later')?.addEventListener('click', () => {
-    createDialog.close('done');
+    createDialog?.close('done');
   });
 
   document.getElementById('btn-create-launch')?.addEventListener('click', async () => {
     const prof = state.createdAccountForStep2;
-    createDialog.close('launch');
+    createDialog?.close('launch');
     if (prof) {
       await runProfileAction('launch', prof);
     }
@@ -1242,50 +1501,89 @@ function wireDialogsAndFallbacks() {
     const colorInput = document.querySelector('input[name="create-account-color"]:checked');
     const name = nameInput.value.trim();
     const notes = notesInput.value.trim();
-    const chosenColor = colorInput?.value || 'blue';
-    if (!name) return;
+    const chosenColor = colorInput?.value || pickNextAvailableColorId(state.status?.profiles || []);
+    if (!name) {
+      nameInput?.focus();
+      return;
+    }
 
+    clearCreateStep1Error();
     const submitBtn = document.getElementById('btn-submit-create');
-    if (submitBtn) submitBtn.disabled = true;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = t('dialogs.create.submitting');
+      submitBtn.setAttribute('aria-busy', 'true');
+    }
     state.pendingGlobalActions.add('create');
     updatePendingControls();
 
     try {
       const res = await apiCall('/api/profiles', 'POST', { name, notes }, 'create_profile', { name, notes });
       if (res && res.ok === false) {
-        showErrorBanner(res.error_code, res.message);
-        createDialog.close('error');
+        showCreateStep1Error(res.error_code, res.message);
+        nameInput?.focus();
         return;
       }
 
+      if (res?.data?.id) {
+        saveAccountColor(res.data.id, chosenColor);
+      }
       await refreshAll();
       const created = res?.data
         || (state.status?.profiles || []).find((p) => p.name === name)
         || { id: res?.id || name, name, notes };
       if (created?.id) {
+        if (!state.status || typeof state.status !== 'object') {
+          state.status = { profiles: [] };
+        }
+        if (!Array.isArray(state.status.profiles)) {
+          state.status.profiles = [];
+        }
+        if (!state.status.profiles.some((p) => p.id === created.id)) {
+          state.status.profiles.push(created);
+        }
         saveAccountColor(created.id, chosenColor);
         renderProfiles();
+        renderTopbarSummary();
       }
       showKeyBanner('messages.accountCreated', {}, 'success');
       showCreateStep2(created);
     } catch (err) {
-      showErrorBanner('UNKNOWN', err?.message || '');
-      createDialog.close('error');
+      showCreateStep1Error(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
+      nameInput?.focus();
     } finally {
       state.pendingGlobalActions.delete('create');
-      if (submitBtn) submitBtn.disabled = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = t('dialogs.create.submit');
+        submitBtn.removeAttribute('aria-busy');
+      }
       updatePendingControls();
     }
   });
 
-  createDialog.addEventListener('close', () => {
+  createDialog?.addEventListener('close', () => {
+    const step2Id = state.createdAccountForStep2?.id || null;
     createDialog.returnValue = '';
     state.openDialogContext = null;
     resetCreateDialogToStep1();
+    if (needsFocusRestore(document.activeElement)) {
+      const targetCardBtn = step2Id
+        ? Array.from(document.querySelectorAll('#profiles-list .account-card'))
+          .find((el) => el.dataset.profileId === step2Id)
+          ?.querySelector('.btn-primary')
+        : null;
+      const fallbackBtn = document.getElementById('btn-open-create');
+      if (targetCardBtn && !targetCardBtn.disabled && !needsFocusRestore(targetCardBtn)) {
+        targetCardBtn.focus();
+      } else if (fallbackBtn && !needsFocusRestore(fallbackBtn)) {
+        fallbackBtn.focus();
+      }
+    }
   });
 
   const renameDialog = document.getElementById('rename-profile-dialog');
-  renameDialog.addEventListener('close', async () => {
+  renameDialog?.addEventListener('close', async () => {
     const action = renameDialog.returnValue;
     renameDialog.returnValue = '';
     state.openDialogContext = null;
@@ -1296,6 +1594,11 @@ function wireDialogsAndFallbacks() {
     const newName = document.getElementById('rename-profile-name').value.trim();
     if (!newName) return;
 
+    const chosenColor = document.querySelector('input[name="rename-account-color"]:checked')?.value;
+    if (chosenColor) {
+      saveAccountColor(targetId, chosenColor);
+    }
+
     state.pendingProfileActions.set(targetId, 'rename');
     renderProfiles();
     try {
@@ -1304,7 +1607,7 @@ function wireDialogsAndFallbacks() {
       else showKeyBanner('messages.accountRenamed', {}, 'success');
       await refreshAll();
     } catch (err) {
-      showErrorBanner('UNKNOWN', err?.message || '');
+      showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
     } finally {
       state.pendingProfileActions.delete(targetId);
       renderProfiles();
@@ -1312,7 +1615,7 @@ function wireDialogsAndFallbacks() {
   });
 
   const deleteDialog = document.getElementById('delete-profile-dialog');
-  deleteDialog.addEventListener('close', async () => {
+  deleteDialog?.addEventListener('close', async () => {
     const action = deleteDialog.returnValue;
     deleteDialog.returnValue = '';
     state.openDialogContext = null;
@@ -1323,38 +1626,73 @@ function wireDialogsAndFallbacks() {
     state.pendingProfileActions.set(targetId, 'delete');
     renderProfiles();
     try {
-      const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}`, 'DELETE', { confirm: true }, 'delete_profile', { id: targetId });
-      if (res && res.ok === false) showErrorBanner(res.error_code, res.message);
-      else showKeyBanner('messages.accountDeleted', {}, 'success');
+      const res = await apiCall(
+        `/api/profiles/${encodeURIComponent(targetId)}`,
+        'DELETE',
+        { confirm: true },
+        'delete_profile',
+        { id: targetId, confirm: true }
+      );
+      if (res && res.ok === false) {
+        showErrorBanner(res.error_code, res.message);
+      } else {
+        removeAccountColor(targetId);
+        showKeyBanner('messages.accountDeleted', {}, 'success');
+      }
       await refreshAll();
     } catch (err) {
-      showErrorBanner('UNKNOWN', err?.message || '');
+      showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
     } finally {
       state.pendingProfileActions.delete(targetId);
       renderProfiles();
+      if (needsFocusRestore(document.activeElement)) {
+        const firstCardBtn = document.querySelector('#profiles-list .account-card .btn-primary');
+        const emptyCreateBtn = document.getElementById('btn-empty-create');
+        const openCreateBtn = document.getElementById('btn-open-create');
+        if (firstCardBtn && !firstCardBtn.disabled && !needsFocusRestore(firstCardBtn)) {
+          firstCardBtn.focus();
+        } else if (emptyCreateBtn && !needsFocusRestore(emptyCreateBtn)) {
+          emptyCreateBtn.focus();
+        } else if (openCreateBtn && !needsFocusRestore(openCreateBtn)) {
+          openCreateBtn.focus();
+        }
+      }
     }
   });
 
   const restoreDialog = document.getElementById('restore-backup-dialog');
-  restoreDialog.addEventListener('close', async () => {
+  restoreDialog?.addEventListener('close', async () => {
     const action = restoreDialog.returnValue;
     restoreDialog.returnValue = '';
     state.openDialogContext = null;
     const backupDir = state.activeRestoreBackupDir;
+    const sourceId = state.activeRestoreSourceId;
     state.activeRestoreBackupDir = null;
+    state.activeRestoreSourceId = null;
     if (action !== 'restore' || !backupDir || state.pendingGlobalActions.has('restore')) return;
 
+    const preRestoreIds = new Set((state.status?.profiles || []).map((p) => p.id));
     const name = document.getElementById('restore-profile-name').value.trim();
     state.pendingGlobalActions.add('restore');
     updatePendingControls();
     renderBackups();
     try {
       const res = await apiCall('/api/backups/restore', 'POST', { backupDir, name }, 'restore_backup', { backupDir, name });
-      if (res && res.ok === false) showErrorBanner(res.error_code, res.message);
-      else showKeyBanner('messages.backupRestored', {}, 'success');
-      await refreshAll();
+      if (res && res.ok === false) {
+        showErrorBanner(res.error_code, res.message);
+        await refreshAll();
+      } else {
+        showKeyBanner('messages.backupRestored', {}, 'success');
+        await refreshAll();
+        const restoredProfile = (state.status?.profiles || []).find((p) => !preRestoreIds.has(p.id));
+        const restoredId = res?.data?.id || restoredProfile?.id || null;
+        if (restoredId && sourceId) {
+          saveAccountColor(restoredId, getAccountColorId({ id: sourceId }));
+          renderProfiles();
+        }
+      }
     } catch (err) {
-      showErrorBanner('UNKNOWN', err?.message || '');
+      showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
     } finally {
       state.pendingGlobalActions.delete('restore');
       updatePendingControls();
@@ -1362,23 +1700,21 @@ function wireDialogsAndFallbacks() {
     }
   });
 
-  document.getElementById('profile-details-dialog').addEventListener('close', (e) => {
+  document.getElementById('profile-details-dialog')?.addEventListener('close', (e) => {
     e.currentTarget.returnValue = '';
     state.openDialogContext = null;
-  });
-
-  document.getElementById('safety-dialog').addEventListener('close', (e) => {
-    e.currentTarget.returnValue = '';
   });
 }
 
 export async function initApp() {
   await initI18n();
   applyDomTranslations();
+  applyThemePreference(getSavedThemePreference());
   renderCreateColorPalette();
-  renderHelpList();
+  renderRenameColorPalette();
   updateLanguageControls();
   updateAppearanceControls();
+  updateDocumentTitle(state.activeView);
   wireDialogsAndFallbacks();
 
   document.getElementById('btn-brand-home')?.addEventListener('click', () => {
@@ -1401,9 +1737,22 @@ export async function initApp() {
     selectView('diagnostics');
   });
 
-  document.getElementById('profile-search')?.addEventListener('input', (event) => {
+  document.getElementById('btn-help-diagnostics')?.addEventListener('click', () => {
+    selectView('diagnostics');
+  });
+
+  const searchInput = document.getElementById('profile-search');
+  searchInput?.addEventListener('input', (event) => {
     state.searchQuery = event.target.value;
     renderProfiles();
+  });
+  searchInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && searchInput.value) {
+      event.preventDefault();
+      searchInput.value = '';
+      state.searchQuery = '';
+      renderProfiles();
+    }
   });
 
   document.getElementById('btn-refresh')?.addEventListener('click', () => refreshAll());
@@ -1442,7 +1791,7 @@ export async function initApp() {
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (event) => {
       if (event.key === THEME_STORAGE_KEY) {
-        updateAppearanceControls();
+        applyThemePreference(getSavedThemePreference());
       }
     });
   }

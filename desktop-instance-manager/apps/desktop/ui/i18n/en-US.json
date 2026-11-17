@@ -12,7 +12,8 @@
     "noneOpen": "No windows open"
   },
   "nav": {
-    "ariaLabel": "Primary navigation",
+    "ariaLabel": "Primary",
+    "skipToMain": "Skip to main content",
     "accounts": "Accounts",
     "backups": "Backups",
     "settings": "Settings",
@@ -28,15 +29,16 @@
   },
   "accounts": {
     "title": "Zalo Accounts",
-    "subtitle": "Open multiple Zalo accounts side by side in separate windows.",
+    "subtitle": "Each card below is a separate space where you sign in to an existing Zalo account.",
     "searchPlaceholder": "Search accounts...",
     "searchAria": "Search accounts",
     "add": "Add account",
     "emptyTitle": "Use multiple Zalo accounts on one computer",
-    "emptyHint": "Add an account to open Zalo in its own window without signing out.",
+    "emptyHint": "Create a separate space to open and sign in to another existing Zalo account without signing out.",
+    "countSummary": "Showing {shown} of {total} accounts",
     "noMatches": "No accounts match \"{query}\".",
     "states": {
-      "running": "Open",
+      "running": "Window open",
       "stopped": "Closed",
       "starting": "Opening Zalo...",
       "stopping": "Closing Zalo...",
@@ -46,24 +48,30 @@
     },
     "actions": {
       "launch": "Open Zalo",
+      "launchAria": "Open Zalo — {name}",
       "focus": "Switch to window",
+      "focusAria": "Switch to window — {name}",
       "stop": "Close Zalo",
+      "stopAria": "Close Zalo — {name}",
       "more": "More options for {name}",
       "rename": "Rename",
       "backup": "Back up",
       "details": "Account info",
       "delete": "Remove account",
+      "closeFirstHint": "Close Zalo first",
       "refresh": "Refresh"
     },
     "primaryZalo": {
       "heading": "Zalo already on this computer",
-      "running": "Open · Protected; cannot be closed or removed from here",
-      "stopped": "Closed · Your main Zalo installation always stays untouched"
+      "running": "Window open · Protected; cannot be closed or removed from here",
+      "stopped": "Closed · Your main Zalo installation always stays untouched",
+      "unknown": "Unknown · Could not verify your main Zalo status right now"
     },
     "details": {
       "title": "Account info",
       "subtitle": "Storage and session details for this account.",
       "name": "Account name",
+      "color": "Account color",
       "state": "Status",
       "createdAt": "Created",
       "lastLaunched": "Last opened",
@@ -90,6 +98,7 @@
     "warningBody": "Restoring always creates a NEW account and never overwrites an existing account or your main Zalo.",
     "emptyTitle": "No backups yet",
     "emptyHint": "Close an account's Zalo window, then choose Back up from its menu (⋯).",
+    "tableCaption": "Account backups list",
     "cols": {
       "name": "Backup",
       "source": "Source account",
@@ -147,6 +156,7 @@
       "redirectedNo": "None"
     },
     "checks": {
+      "tableCaption": "Data isolation check results",
       "check": "Check",
       "result": "Result",
       "detail": "Details",
@@ -158,6 +168,7 @@
       "unknown": "UNKNOWN"
     },
     "readiness": {
+      "tableCaption": "Operating system support matrix",
       "platform": "Platform",
       "status": "Support status",
       "strategy": "Mechanism",
@@ -198,13 +209,37 @@
       "openDiagnostics": "Troubleshoot"
     }
   },
+  "help": {
+    "title": "Quick guide",
+    "subtitle": "How to use multiple Zalo accounts safely and handle common situations.",
+    "cards": {
+      "mentalModel": {
+        "title": "1. What this app does (and doesn't do)",
+        "body": "Multi-Zalo creates separate data spaces so you can run multiple Zalo Desktop windows side by side. It does not register new Zalo accounts and never asks for or stores your passwords, OTP codes, or messages."
+      },
+      "signIn": {
+        "title": "2. Adding and signing in to an account",
+        "body": "Click Add account, pick a memorable name (such as Work or Sales) and color, then click Open Zalo to sign in directly inside the Zalo Desktop window via QR code or password."
+      },
+      "windowState": {
+        "title": "3. Window status & main Zalo protection",
+        "body": "\"Window open\" means the Zalo window is running on your computer — it does not assume you are signed in inside Zalo. Your existing main Zalo installation always stays untouched and cannot be closed or removed here."
+      },
+      "commonIssues": {
+        "title": "4. Common issues & known limits",
+        "body": "• Cannot open Zalo: make sure official Zalo Desktop is installed on this computer.\n• Cannot back up or remove: click Close Zalo on that account card first.\n• Duplicate account warning: avoid signing in to the same Zalo account in two windows at once.\n• Voice/video call limit: Zalo Desktop shares a system call channel, so simultaneous calls across multiple windows may be limited."
+      }
+    },
+    "troubleshootPrompt": "Need deeper installation or system checks?",
+    "openTroubleshoot": "Open Troubleshoot"
+  },
   "dialogs": {
     "close": "Close",
     "cancel": "Cancel",
     "confirm": "Confirm",
     "create": {
       "title": "Add Zalo account",
-      "subtitle": "Give this account a name. You will sign in directly inside Zalo Desktop.",
+      "subtitle": "Creates a separate Zalo space on this computer. You sign in to an existing account inside Zalo Desktop — this app never creates new Zalo accounts or stores passwords or OTPs.",
       "nameLabel": "Account name",
       "namePlaceholder": "e.g. Work, Personal, Sales",
       "suggestionsLabel": "Quick ideas",
@@ -218,8 +253,9 @@
       "notesLabel": "Short note (optional)",
       "notesPlaceholder": "e.g. Storefront or team groups",
       "submit": "Continue",
-      "step2Title": "\"{name}\" is ready",
-      "step2Body": "Its separate space is ready. Open Zalo Desktop now to sign in to this account.",
+      "submitting": "Creating...",
+      "step2Title": "Space \"{name}\" is ready",
+      "step2Body": "Its separate Zalo space is ready. Open Zalo Desktop now to sign in with QR or password (or open it anytime from the main screen).",
       "step2Launch": "Open Zalo to sign in",
       "step2Later": "Later"
     },
@@ -299,7 +335,18 @@
     "RESTORE_ERROR": "Could not restore from this backup.",
     "PROCESS_ERROR": "Could not open Zalo. Try again.",
     "CONFIRMATION_REQUIRED": "Confirmation is required before removing an account.",
+    "CONFIRM_REQUIRED": "Confirmation is required before removing an account.",
+    "PROFILE_MARKER_MISMATCH": "Account data conflict detected. Check Troubleshoot in Settings.",
+    "PROTECTED_PRIMARY_PATH": "Your main Zalo data folder is protected and cannot be modified.",
+    "UNVERIFIED_BINARY": "Could not verify the Zalo Desktop app signature. Please reinstall official Zalo Desktop.",
+    "NOT_RUNNING": "This account's Zalo window is closed. Click Open Zalo first.",
+    "SCHEMA_ERROR": "Account configuration data could not be read. Open Troubleshoot in Settings.",
+    "IO_ERROR": "Could not read or write files on disk. Check free disk space and folder permissions.",
+    "JSON_ERROR": "Received an invalid data response. Please try refreshing.",
     "HOST_EXEC_FAILED": "Could not connect to the app. Try again.",
+    "HOST_TIMEOUT": "The app took too long to respond. Please try again in a moment.",
+    "UNAUTHORIZED": "Local connection session expired. Please reload the app.",
+    "RATE_LIMITED": "Too many actions at once. Please wait a few seconds and try again.",
     "UNKNOWN": "Something went wrong. Try again or check technical details."
   }
 }

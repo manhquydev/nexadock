@@ -69,14 +69,14 @@
   --shadow-card-dark: 0 1px 2px rgba(0, 0, 0, 0.28);
   --shadow-menu-dark: 0 10px 28px rgba(0, 0, 0, 0.45);
 
-  /* Curated account identity palette */
-  --id-blue: #2563eb;
-  --id-teal: #0d9488;
-  --id-green: #16a34a;
-  --id-amber: #d97706;
-  --id-coral: #e11d48;
-  --id-plum: #9333ea;
-  --id-indigo: #4f46e5;
+  /* Curated account identity palette (WCAG 2.2 AA >= 4.5:1 against #ffffff) */
+  --id-blue: #1d4ed8;
+  --id-teal: #0f766e;
+  --id-green: #15803d;
+  --id-amber: #b45309;
+  --id-coral: #be123c;
+  --id-plum: #7e22ce;
+  --id-indigo: #4338ca;
   --id-slate: #475569;
 
   /* Default resolved tokens (light) */
@@ -107,6 +107,14 @@
   --focus-ring: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
 
   accent-color: var(--accent);
+
+  &:has(> head > meta[name="color-scheme"][content="dark"]) {
+    color-scheme: dark;
+  }
+
+  &:has(> head > meta[name="color-scheme"][content="light"]) {
+    color-scheme: light;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -383,6 +391,17 @@ html, body {
   font-weight: 600;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+.topbar-actions:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
 /* Main Content */
 .main-content {
   width: 100%;
@@ -431,8 +450,14 @@ html, body {
   flex-wrap: wrap;
 }
 
+.accounts-count-summary {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .header-search-wrap {
-  min-width: 220px;
+  min-width: min(220px, 100%);
   max-width: 280px;
   flex: 1 1 220px;
 }
@@ -695,10 +720,29 @@ html, body {
 
 .account-state-row.is-running .state-dot {
   background: var(--ok-fg);
+  box-shadow: 0 0 0 2px var(--ok-bg);
+}
+
+.account-state-row.is-stopped .state-dot {
+  background: transparent;
+  border: 2px solid var(--text-muted);
+}
+
+.account-state-row.is-pending .state-dot {
+  background: transparent;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
 }
 
 .account-state-row.is-error .state-dot {
   background: var(--danger-fg);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.account-state-row.is-unknown .state-dot {
+  background: transparent;
+  border: 1.5px dashed var(--text-muted);
 }
 
 .account-note {
@@ -712,16 +756,23 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
+  flex-wrap: wrap;
   padding-top: var(--sp-3);
   border-top: 1px solid var(--border);
 }
 
-.account-actions-left {
+.account-actions-primary {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  flex-wrap: wrap;
+}
+
+.account-actions-secondary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-inline-start: auto;
 }
 
 /* Primary Zalo Read-Only Section */
@@ -792,7 +843,8 @@ html, body {
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
   min-height: 34px;
   padding: 6px var(--sp-3);
   border: 0;
@@ -803,6 +855,13 @@ html, body {
   font-size: 13px;
   text-align: left;
   cursor: pointer;
+}
+
+.menu-item-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .menu-item:hover:not(:disabled),
@@ -986,12 +1045,18 @@ html, body {
   vertical-align: middle;
 }
 
-.data-table th {
+.data-table thead th {
   background: var(--bg-subtle);
   color: var(--text-secondary);
   font-weight: 500;
 }
 
+.data-table tbody th {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.data-table tbody tr:last-child th,
 .data-table tbody tr:last-child td {
   border-bottom: 0;
 }
@@ -1184,20 +1249,40 @@ dialog::backdrop {
 }
 
 .color-swatch-dot {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--swatch-color);
   border: 2px solid transparent;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .color-swatch input:checked + .color-swatch-dot {
   box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--text-primary);
 }
 
+.color-swatch input:checked + .color-swatch-dot::after {
+  content: "✓";
+}
+
 .color-swatch input:focus-visible + .color-swatch-dot {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
+}
+
+.form-error {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .step2-badge {
@@ -1243,17 +1328,40 @@ dialog::backdrop {
   color: var(--text-secondary);
 }
 
+/* Help View */
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.help-body {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.help-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 /* Responsive */
 @media (max-width: 719px) {
-  .topbar-inner {
-    padding: var(--sp-3) var(--sp-4);
-  }
-
   .main-content {
     padding: var(--sp-4);
   }
 
-  .account-grid {
+  .account-grid,
+  .help-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1264,6 +1372,39 @@ dialog::backdrop {
 
   .kv-list dd {
     margin-bottom: var(--sp-2);
+  }
+}
+
+@media (max-width: 719px), (max-height: 520px) {
+  .topbar {
+    position: static;
+  }
+
+  .topbar-inner {
+    padding: var(--sp-2) var(--sp-4);
+    gap: var(--sp-2);
+  }
+}
+
+@media (forced-colors: active) {
+  .color-swatch-dot {
+    forced-color-adjust: none;
+  }
+
+  .color-swatch input:checked + .color-swatch-dot {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  .account-state-row.is-running .state-dot,
+  .account-state-row.is-error .state-dot {
+    background: CanvasText;
+    box-shadow: none;
+  }
+
+  .account-avatar,
+  .step2-badge {
+    border: 1px solid CanvasText;
   }
 }
 

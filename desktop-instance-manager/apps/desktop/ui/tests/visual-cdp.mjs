@@ -21,6 +21,8 @@ if (!browserBin) {
   process.exit(1);
 }
 
+const SESSION_TOKEN = 'test-token-123';
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -30,9 +32,15 @@ const MIME = {
 
 function createMockState() {
   return {
+    nextProfileSeq: 101,
     delayNextLaunchMs: 0,
+    delayNextCreateMs: 0,
+    delayNextStatusMs: 0,
     failNextAction: null,
+    failNextCreate: null,
+    statusOkFalse: null,
     disconnectStatus: false,
+    statusDelayQueue: [],
     status: {
       app_version: '0.1.0',
       platform: 'windows',
@@ -42,11 +50,11 @@ function createMockState() {
       profiles: [
         {
           id: 'prof-1',
-          name: 'Đức - Công việc (Hồ sơ tên dài kiểm tra xuống dòng)',
+          name: 'Đức — Công việc & Đối tác miền Nam',
           directory_name: 'profile-duc-work',
           created_at: '2026-01-10T08:00:00Z',
           last_launched_at: '2026-02-01T09:15:00Z',
-          zalo_user_id: '84901234567',
+          zalo_user_id: '100204819',
           notes: 'Tài khoản công ty',
           running: true,
           main_pid: 8820,
@@ -81,7 +89,7 @@ function createMockState() {
           backup_name: 'duc-work-20260201.zip',
           backup_dir: 'C:\\Backups\\bk-1',
           source_profile_id: 'prof-1',
-          source_profile_name: 'Đức - Công việc',
+          source_profile_name: 'Đức — Công việc & Đối tác miền Nam',
           created_at: '2026-02-01T12:00:00Z',
           file_count: 142,
           total_bytes: 104857600
@@ -113,6 +121,53 @@ function createMockState() {
   };
 }
 
+function buildSyntheticProfiles(count) {
+  const catalog = [
+    ['Đức — Công việc & Đối tác miền Nam', 'Tài khoản công ty', true],
+    ['Cá nhân', '', false],
+    ['Bán hàng Online', 'Đơn hàng và tư vấn', true],
+    ['Hỗ trợ khách hàng', 'Ca sáng', true],
+    ['Kế toán nội bộ', 'Hóa đơn và chứng từ', false],
+    ['Nhân sự & Tuyển dụng', '', false],
+    ['Đối tác miền Bắc', 'Khu vực Hà Nội', true],
+    ['Kho vận TP.HCM', 'Điều phối giao nhận', false],
+    ['Marketing & Sự kiện', 'Chiến dịch quý 2', true],
+    ['Dự án Sản phẩm mới', '', false],
+    ['Chăm sóc khách hàng thân thiết', 'Nhóm ưu tiên', false],
+    ['Quản trị Cộng đồng', '', true],
+    ['Chi nhánh Đà Nẵng', 'Văn phòng miền Trung', false],
+    ['Đối tác Vận chuyển', '', false],
+    ['Đào tạo nội bộ', 'Lớp hội nhập', false],
+    ['Mua hàng & Nhà cung cấp', '', false],
+    ['Kênh Đại lý', 'Hệ thống phân phối', true],
+    ['Tài chính — Thu chi', '', false],
+    ['Pháp chế & Hợp đồng', '', false],
+    ['Ban điều hành', 'Họp giao ban tuần', false]
+  ];
+  const out = [];
+  for (let i = 0; i < count; i += 1) {
+    const [name, notes, running] = catalog[i % catalog.length];
+    const id = `prof-${i + 1}`;
+    out.push({
+      id,
+      name: i < catalog.length ? name : `${name} (${i + 1})`,
+      directory_name: `profile-${i + 1}`,
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: running ? '2026-02-01T09:15:00Z' : null,
+      zalo_user_id: i === 0 ? '100204819' : null,
+      notes,
+      running,
+      main_pid: running ? 8820 + i : null,
+      process_count: running ? 2 : 0,
+      window_title: running ? 'Zalo' : null,
+      total_working_set_bytes: running ? 180 * 1024 * 1024 : 0,
+      data_size_bytes: 120 * 1024 * 1024,
+      stale_lockfile_detected: false
+    });
+  }
+  return out;
+}
+
 let mockData = createMockState();
 const recordedRequests = [];
 
@@ -132,15 +187,30 @@ function readJsonBody(req) {
 
 const server = http.createServer(async (req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
+  const token = req.headers['x-dim-session-token'] || null;
   const json = (code, payload) => {
+    if (res.writableEnded || res.destroyed) return;
     res.writeHead(code, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payload));
   };
 
+  if (mockData.disconnectStatus && urlPath.startsWith('/api/')) {
+    recordedRequests.push({ method: req.method, urlPath, body: null, token });
+    res.destroy();
+    return;
+  }
+
   if (urlPath === '/api/status') {
-    if (mockData.disconnectStatus) {
-      res.destroy();
-      return;
+    recordedRequests.push({ method: req.method, urlPath, body: null, token });
+    if (mockData.delayNextStatusMs > 0) {
+      const delay = mockData.delayNextStatusMs;
+      mockData.delayNextStatusMs = 0;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    if (mockData.statusOkFalse) {
+      const err = mockData.statusOkFalse;
+      mockData.statusOkFalse = null;
+      return json(typeof err === 'object' && err.httpStatus ? err.httpStatus : 200, typeof err === 'object' ? err : { ok: false, error_code: 'HOST_EXEC_FAILED', message: 'Status error' });
     }
     if (Array.isArray(mockData.statusDelayQueue) && mockData.statusDelayQueue.length > 0) {
       const next = mockData.statusDelayQueue.shift();
@@ -149,17 +219,38 @@ const server = http.createServer(async (req, res) => {
     }
     return json(200, mockData.status);
   }
-  if (urlPath === '/api/backups') return json(200, mockData.backups);
-  if (urlPath === '/api/diagnostics') return json(200, mockData.diagnostics);
-  if (urlPath === '/api/verify-isolation') return json(200, mockData.isolation);
+
+  if (urlPath === '/api/backups') {
+    recordedRequests.push({ method: req.method, urlPath, body: null, token });
+    return json(200, mockData.backups);
+  }
+  if (urlPath === '/api/diagnostics') {
+    recordedRequests.push({ method: req.method, urlPath, body: null, token });
+    return json(200, mockData.diagnostics);
+  }
+  if (urlPath === '/api/verify-isolation') {
+    recordedRequests.push({ method: req.method, urlPath, body: null, token });
+    return json(200, mockData.isolation);
+  }
 
   if (urlPath === '/api/profiles' && req.method === 'POST') {
     const body = await readJsonBody(req);
-    recordedRequests.push({ method: req.method, urlPath, body });
+    recordedRequests.push({ method: req.method, urlPath, body, token });
+    if (mockData.delayNextCreateMs > 0) {
+      const delay = mockData.delayNextCreateMs;
+      mockData.delayNextCreateMs = 0;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    if (mockData.failNextCreate) {
+      const err = mockData.failNextCreate;
+      mockData.failNextCreate = null;
+      return json(400, err);
+    }
+    const seq = mockData.nextProfileSeq++;
     const created = {
-      id: `prof-${mockData.status.profiles.length + 1}`,
-      name: body.name || 'New Profile',
-      directory_name: `profile-${mockData.status.profiles.length + 1}`,
+      id: `prof-${seq}`,
+      name: body.name || 'Tài khoản mới',
+      directory_name: `profile-${seq}`,
       created_at: new Date().toISOString(),
       last_launched_at: null,
       zalo_user_id: null,
@@ -178,8 +269,26 @@ const server = http.createServer(async (req, res) => {
 
   if (urlPath === '/api/backups/restore' && req.method === 'POST') {
     const body = await readJsonBody(req);
-    recordedRequests.push({ method: req.method, urlPath, body });
-    return json(200, { ok: true, message: `Restored ${body.name || 'auto'}` });
+    recordedRequests.push({ method: req.method, urlPath, body, token });
+    const seq = mockData.nextProfileSeq++;
+    const restored = {
+      id: `prof-${seq}`,
+      name: body.name || `Bản khôi phục ${seq}`,
+      directory_name: `profile-${seq}`,
+      created_at: new Date().toISOString(),
+      last_launched_at: null,
+      zalo_user_id: null,
+      notes: '',
+      running: false,
+      main_pid: null,
+      process_count: 0,
+      window_title: null,
+      total_working_set_bytes: 0,
+      data_size_bytes: 104857600,
+      stale_lockfile_detected: false
+    };
+    mockData.status.profiles.push(restored);
+    return json(200, { ok: true, message: `Restored ${restored.name}`, data: restored });
   }
 
   const profMatch = urlPath.match(/^\/api\/profiles\/([^/]+)(?:\/(launch|focus|stop|backup|rename))?$/);
@@ -188,7 +297,7 @@ const server = http.createServer(async (req, res) => {
     const action = profMatch[2];
     const prof = mockData.status.profiles.find((p) => p.id === id);
     const body = req.method === 'GET' ? {} : await readJsonBody(req);
-    recordedRequests.push({ method: req.method, urlPath, body });
+    recordedRequests.push({ method: req.method, urlPath, body, token });
 
     if (mockData.failNextAction) {
       const err = mockData.failNextAction;
@@ -242,6 +351,14 @@ const server = http.createServer(async (req, res) => {
     'Content-Type': MIME[ext] || 'application/octet-stream',
     'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:;"
   });
+  if (rel === 'index.html') {
+    const html = fs.readFileSync(fullPath, 'utf8').replace(
+      '</head>',
+      `  <meta name="dim-session-token" content="${SESSION_TOKEN}">\n</head>`
+    );
+    res.end(html);
+    return;
+  }
   res.end(fs.readFileSync(fullPath));
 });
 
@@ -284,6 +401,7 @@ try {
 
   let nextId = 1;
   const pending = new Map();
+  const eventWaiters = new Map();
   const runtimeErrors = [];
 
   ws.addEventListener('message', (ev) => {
@@ -296,12 +414,30 @@ try {
     } else if (msg.method === 'Runtime.exceptionThrown') {
       runtimeErrors.push(msg.params?.exceptionDetails?.text || 'Runtime exception');
     }
+    if (msg.method && eventWaiters.has(msg.method)) {
+      const list = eventWaiters.get(msg.method);
+      eventWaiters.delete(msg.method);
+      for (const cb of list) cb(msg.params);
+    }
   });
 
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const id = nextId++;
     pending.set(id, { resolve, reject });
     ws.send(JSON.stringify({ id, method, params }));
+  });
+
+  const waitForEvent = (method, timeoutMs = 5000) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      eventWaiters.delete(method);
+      reject(new Error(`Timed out waiting for CDP event ${method}`));
+    }, timeoutMs);
+    const list = eventWaiters.get(method) || [];
+    list.push((params) => {
+      clearTimeout(timer);
+      resolve(params);
+    });
+    eventWaiters.set(method, list);
   });
 
   await send('Page.enable');
@@ -336,7 +472,15 @@ try {
 
   await new Promise((r) => setTimeout(r, 600));
 
-  // 1. Matrix verification + screenshots across viewports x locales x themes
+  // (a) Verify X-DIM-Session-Token sent on all initial bridge API requests
+  const metaToken = await evalJs(`document.querySelector('meta[name="dim-session-token"]')?.content || ''`);
+  assert.equal(metaToken, SESSION_TOKEN);
+  assert.ok(recordedRequests.length >= 4, 'Expected initial API calls on load');
+  for (const r of recordedRequests) {
+    assert.equal(r.token, SESSION_TOKEN, `Missing X-DIM-Session-Token on ${r.method} ${r.urlPath}`);
+  }
+
+  // 1. Matrix verification + screenshots across 16 viewport x locale x theme combinations
   const viewports = [
     [1160, 780],
     [900, 650],
@@ -353,6 +497,7 @@ try {
           scrollWidth: document.documentElement.scrollWidth,
           innerWidth: window.innerWidth,
           lang: document.documentElement.lang,
+          dataTheme: document.documentElement.getAttribute('data-theme'),
           themeMeta: document.querySelector('meta[name="color-scheme"]').content,
           accountCount: document.querySelectorAll('#profiles-list .account-card').length,
           primaryVisible: !document.getElementById('primary-zalo-section').hidden
@@ -360,6 +505,7 @@ try {
         assert.ok(metrics.scrollWidth <= metrics.innerWidth, `Overflow at ${width}x${height} (${locale}/${theme})`);
         assert.equal(metrics.accountCount, 2);
         assert.equal(metrics.primaryVisible, true);
+        assert.equal(metrics.dataTheme, theme);
         assert.equal(metrics.themeMeta, theme);
         assert.equal(metrics.lang, locale === 'vi-VN' ? 'vi' : 'en');
         if (width === 1160 || (locale === 'vi-VN' && theme === 'light')) {
@@ -369,38 +515,172 @@ try {
     }
   }
 
-  // Reset to vi-VN / light / 1160x780 for Journey & Accessibility tests
+  // (b) Theme reload persistence: select dark, reload, verify immediately after reload, then reset to vi-VN / light
+  await setViewport(1160, 780);
+  await evalJs(`(() => {
+    const r = document.querySelector('input[name="ui-theme"][value="dark"]');
+    r.checked = true;
+    r.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  assert.equal(await evalJs(`localStorage.getItem('multi-zalo.theme')`), 'dark');
+
+  recordedRequests.length = 0;
+  const loadDone = waitForEvent('Page.loadEventFired');
+  await send('Page.reload');
+  await loadDone;
+
+  const immediateTheme = await evalJs(`({
+    dataTheme: document.documentElement.getAttribute('data-theme'),
+    themeMeta: document.querySelector('meta[name="color-scheme"]')?.getAttribute('content')
+  })`);
+  assert.equal(immediateTheme.dataTheme, 'dark', 'data-theme must be dark immediately after reload');
+  assert.equal(immediateTheme.themeMeta, 'dark', 'meta[name="color-scheme"] must be dark immediately after reload');
+
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(await evalJs(`document.querySelector('input[name="ui-theme"][value="dark"]')?.checked`), true);
+  for (const r of recordedRequests) {
+    assert.equal(r.token, SESSION_TOKEN, `Missing X-DIM-Session-Token after reload on ${r.method} ${r.urlPath}`);
+  }
+
+  // Reset cleanly to vi-VN / light / 1160x780
   await evalJs(`(() => {
     const l = document.querySelector('input[name="ui-locale"][value="vi-VN"]'); l.checked = true; l.dispatchEvent(new Event('change', { bubbles: true }));
     const t = document.querySelector('input[name="ui-theme"][value="light"]'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
-  await setViewport(1160, 780);
+  assert.equal(await evalJs(`document.documentElement.getAttribute('data-theme')`), 'light');
+  assert.equal(await evalJs(`document.documentElement.lang`), 'vi');
 
-  // Journey A: Empty state (0 accounts) -> Add Account 2-step onboarding -> Launch
+  // (c) & (d): Scale 0 -> Add Account Step 1 (double-submit, pending, inline error DUPLICATE_NAME, edit, Step 2, Launch PROCESS_ERROR -> card remains on Home) -> Scale 1
   const savedProfiles = JSON.parse(JSON.stringify(mockData.status.profiles));
   mockData.status.profiles = [];
   await evalJs(`document.getElementById('btn-refresh').click()`);
   await new Promise((r) => setTimeout(r, 150));
-  const emptyVisible = await evalJs(`!document.getElementById('profiles-empty').hidden`);
-  assert.equal(emptyVisible, true);
+  const emptyCheck = await evalJs(`({
+    emptyVisible: !document.getElementById('profiles-empty').hidden,
+    searchHidden: document.getElementById('search-wrap').hidden,
+    summaryHidden: document.getElementById('accounts-count-summary').hidden,
+    noOverflow: document.documentElement.scrollWidth <= window.innerWidth
+  })`);
+  assert.deepEqual(emptyCheck, { emptyVisible: true, searchHidden: true, summaryHidden: true, noOverflow: true });
   await snap('account-dock-empty-vi-light.png');
 
   await evalJs(`document.getElementById('btn-empty-create').click()`);
   await snap('account-dock-add-step1-vi-light.png');
+
+  mockData.delayNextCreateMs = 250;
+  mockData.failNextCreate = { ok: false, error_code: 'DUPLICATE_NAME', message: 'Profile name already exists' };
+  const beforeCreatePosts = recordedRequests.filter((r) => r.method === 'POST' && r.urlPath === '/api/profiles').length;
+
   await evalJs(`(() => {
-    document.querySelector('.chip-btn[data-suggest-key="dialogs.create.suggestions.sales"]').click();
+    document.getElementById('create-profile-name').value = 'Công việc';
+    document.getElementById('create-profile-notes').value = 'Nhóm dự án nội bộ';
     const color = document.querySelector('input[name="create-account-color"][value="teal"]');
     if (color) color.checked = true;
+    document.getElementById('btn-submit-create').click();
     document.getElementById('create-profile-form').requestSubmit();
   })()`);
-  await new Promise((r) => setTimeout(r, 200));
-  const step2Visible = await evalJs(`!document.getElementById('create-step-2').hidden`);
-  assert.equal(step2Visible, true);
-  await snap('account-dock-add-step2-vi-light.png');
-  await evalJs(`document.getElementById('btn-create-launch').click()`);
-  await new Promise((r) => setTimeout(r, 150));
 
-  // Restore 3 accounts (2 running) for Journey B
+  await new Promise((r) => setTimeout(r, 60));
+  const pendingCreate = await evalJs(`(() => {
+    const btn = document.getElementById('btn-submit-create');
+    return {
+      disabled: btn.disabled,
+      ariaBusy: btn.getAttribute('aria-busy'),
+      text: btn.textContent
+    };
+  })()`);
+  assert.equal(pendingCreate.disabled, true);
+  assert.equal(pendingCreate.ariaBusy, 'true');
+  assert.equal(pendingCreate.text, 'Đang tạo...');
+
+  await new Promise((r) => setTimeout(r, 280));
+  const afterCreatePosts = recordedRequests.filter((r) => r.method === 'POST' && r.urlPath === '/api/profiles').length;
+  assert.equal(afterCreatePosts - beforeCreatePosts, 1, 'Double-submit must send only 1 POST /api/profiles');
+
+  const step1ErrState = await evalJs(`(() => {
+    const dialog = document.getElementById('create-profile-dialog');
+    const nameEl = document.getElementById('create-profile-name');
+    const notesEl = document.getElementById('create-profile-notes');
+    const errEl = document.getElementById('create-step1-error');
+    return {
+      dialogOpen: dialog.open,
+      step1Visible: !document.getElementById('create-step-1').hidden,
+      step2Hidden: document.getElementById('create-step-2').hidden,
+      nameVal: nameEl.value,
+      notesVal: notesEl.value,
+      errHidden: errEl.hidden,
+      errText: errEl.textContent,
+      ariaInvalid: nameEl.getAttribute('aria-invalid'),
+      ariaDescribedBy: nameEl.getAttribute('aria-describedby')
+    };
+  })()`);
+  assert.equal(step1ErrState.dialogOpen, true);
+  assert.equal(step1ErrState.step1Visible, true);
+  assert.equal(step1ErrState.step2Hidden, true);
+  assert.equal(step1ErrState.nameVal, 'Công việc');
+  assert.equal(step1ErrState.notesVal, 'Nhóm dự án nội bộ');
+  assert.equal(step1ErrState.errHidden, false);
+  assert.match(step1ErrState.errText, /Tên tài khoản này đã tồn tại/);
+  assert.equal(step1ErrState.ariaInvalid, 'true');
+  assert.equal(step1ErrState.ariaDescribedBy, 'create-step1-error');
+
+  // Edit name clears inline error and succeeds to Step 2 with monotonic prof-101 ID
+  await evalJs(`(() => {
+    const nameEl = document.getElementById('create-profile-name');
+    nameEl.value = 'Bán hàng';
+    nameEl.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  assert.equal(await evalJs(`document.getElementById('create-step1-error').hidden`), true);
+  assert.equal(await evalJs(`document.getElementById('create-profile-name').hasAttribute('aria-invalid')`), false);
+
+  await evalJs(`document.getElementById('create-profile-form').requestSubmit()`);
+  await new Promise((r) => setTimeout(r, 200));
+  const step2State = await evalJs(`({
+    step2Visible: !document.getElementById('create-step-2').hidden,
+    step1Hidden: document.getElementById('create-step-1').hidden,
+    title: document.getElementById('create-step2-title').textContent
+  })`);
+  assert.equal(step2State.step2Visible, true);
+  assert.equal(step2State.step1Hidden, true);
+  assert.equal(mockData.status.profiles[0]?.id, 'prof-101', 'New profile ID must use monotonic seq >= 101');
+  await snap('account-dock-add-step2-vi-light.png');
+
+  // Step 2 Launch failure (PROCESS_ERROR): dialog closes, error banner appears, newly created card remains on Home for retry
+  mockData.failNextAction = { ok: false, error_code: 'PROCESS_ERROR', message: 'Failed to launch Zalo executable' };
+  await evalJs(`document.getElementById('btn-create-launch').click()`);
+  await new Promise((r) => setTimeout(r, 180));
+  const afterStep2Fail = await evalJs(`(() => {
+    const card = document.querySelector('#profiles-list .account-card[data-profile-id="prof-101"]');
+    return {
+      dialogOpen: document.getElementById('create-profile-dialog').open,
+      bannerVisible: !document.getElementById('status-banner').hidden,
+      bannerText: document.getElementById('status-banner-text').textContent,
+      bannerRaw: document.getElementById('status-banner-raw').textContent,
+      cardVisible: Boolean(card),
+      launchEnabled: card ? !card.querySelector('.btn-primary').disabled : false,
+      totalCards: document.querySelectorAll('#profiles-list .account-card').length,
+      searchHidden: document.getElementById('search-wrap').hidden,
+      summaryHidden: document.getElementById('accounts-count-summary').hidden,
+      noOverflow: document.documentElement.scrollWidth <= window.innerWidth
+    };
+  })()`);
+  assert.equal(afterStep2Fail.dialogOpen, false);
+  assert.equal(afterStep2Fail.bannerVisible, true);
+  assert.match(afterStep2Fail.bannerText, /Không thể mở Zalo/);
+  assert.match(afterStep2Fail.bannerRaw, /PROCESS_ERROR/);
+  assert.equal(afterStep2Fail.cardVisible, true);
+  assert.equal(afterStep2Fail.launchEnabled, true);
+  assert.equal(afterStep2Fail.totalCards, 1);
+  assert.equal(afterStep2Fail.searchHidden, true);
+  assert.equal(afterStep2Fail.summaryHidden, true);
+  assert.equal(afterStep2Fail.noOverflow, true);
+
+  // Retry launch from Home card succeeds and clears error banner
+  await evalJs(`document.querySelector('#profiles-list .account-card[data-profile-id="prof-101"] .btn-primary').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(await evalJs(`document.getElementById('status-banner').hidden`), true);
+
+  // Restore 3 accounts (2 running) for Journey B, Search + Escape, Menu, Help, Settings, Diagnostics, Backups
   mockData.status.profiles = [
     ...savedProfiles,
     {
@@ -422,18 +702,60 @@ try {
   ];
   await evalJs(`document.getElementById('btn-refresh').click()`);
   await new Promise((r) => setTimeout(r, 150));
+  const threeScale = await evalJs(`({
+    cards: document.querySelectorAll('#profiles-list .account-card').length,
+    searchHidden: document.getElementById('search-wrap').hidden,
+    summaryHidden: document.getElementById('accounts-count-summary').hidden,
+    noOverflow: document.documentElement.scrollWidth <= window.innerWidth
+  })`);
+  assert.deepEqual(threeScale, { cards: 3, searchHidden: false, summaryHidden: true, noOverflow: true });
   await snap('account-dock-3accounts-vi-light.png');
 
-  // 2. WAI-ARIA Menu Button keyboard navigation test (Journey D)
+  // Search filter + summary visible while searching + Escape clears search
+  await evalJs(`(() => {
+    const inp = document.getElementById('profile-search');
+    inp.value = 'Bán hàng';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.focus();
+  })()`);
+  const searchActive = await evalJs(`({
+    cards: document.querySelectorAll('#profiles-list .account-card').length,
+    summaryHidden: document.getElementById('accounts-count-summary').hidden,
+    summaryText: document.getElementById('accounts-count-summary').textContent
+  })`);
+  assert.equal(searchActive.cards, 1);
+  assert.equal(searchActive.summaryHidden, false);
+  assert.equal(searchActive.summaryText, 'Hiển thị 1 / 3 tài khoản');
+  await pressKey('Escape', 'Escape', 27);
+  const searchCleared = await evalJs(`({
+    val: document.getElementById('profile-search').value,
+    cards: document.querySelectorAll('#profiles-list .account-card').length,
+    summaryHidden: document.getElementById('accounts-count-summary').hidden
+  })`);
+  assert.deepEqual(searchCleared, { val: '', cards: 3, summaryHidden: true });
+
+  // (j) WAI-ARIA Menu Button keyboard navigation + disabled menu item hints (Đóng Zalo trước)
   await evalJs(`document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]').focus()`);
   await pressKey('Enter', 'Enter', 13);
   const menuOpened = await evalJs(`(() => {
-    const btn = document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]');
-    const activeRole = document.activeElement?.getAttribute('role');
-    return { expanded: btn.getAttribute('aria-expanded'), activeRole };
+    const card = document.querySelector('#profiles-list .account-card:first-child');
+    const btn = card.querySelector('button[aria-haspopup="menu"]');
+    const items = Array.from(card.querySelectorAll('[role="menuitem"]'));
+    return {
+      expanded: btn.getAttribute('aria-expanded'),
+      activeRole: document.activeElement?.getAttribute('role'),
+      backupDisabled: items[1]?.disabled,
+      backupHint: items[1]?.querySelector('.menu-item-hint')?.textContent,
+      deleteDisabled: items[3]?.disabled,
+      deleteHint: items[3]?.querySelector('.menu-item-hint')?.textContent
+    };
   })()`);
   assert.equal(menuOpened.expanded, 'true');
   assert.equal(menuOpened.activeRole, 'menuitem');
+  assert.equal(menuOpened.backupDisabled, true);
+  assert.equal(menuOpened.backupHint, 'Đóng Zalo trước');
+  assert.equal(menuOpened.deleteDisabled, true);
+  assert.equal(menuOpened.deleteHint, 'Đóng Zalo trước');
   await snap('account-dock-menu-vi-light.png');
   await pressKey('ArrowDown', 'ArrowDown', 40);
   await pressKey('Escape', 'Escape', 27);
@@ -444,7 +766,33 @@ try {
   assert.equal(menuClosed.expanded, 'false');
   assert.equal(menuClosed.focusedBack, true);
 
-  // 3. Native Radio Group keyboard navigation in Settings + Advanced Diagnostics (Journey E)
+  // (i) Help view (#btn-nav-help -> #view-help, 4 guide cards, #btn-help-diagnostics -> #view-diagnostics)
+  await evalJs(`document.getElementById('btn-nav-help').click()`);
+  const helpState = await evalJs(`({
+    helpVisible: !document.getElementById('view-help').hidden,
+    profilesHidden: document.getElementById('view-profiles').hidden,
+    createHidden: document.getElementById('btn-open-create').hidden,
+    navActive: document.getElementById('btn-nav-help').classList.contains('is-active'),
+    ariaCurrent: document.getElementById('btn-nav-help').getAttribute('aria-current'),
+    cardCount: document.querySelectorAll('#view-help .help-grid .panel').length,
+    title: document.title
+  })`);
+  assert.deepEqual(helpState, {
+    helpVisible: true,
+    profilesHidden: true,
+    createHidden: true,
+    navActive: true,
+    ariaCurrent: 'page',
+    cardCount: 4,
+    title: 'Multi-Zalo — Hướng dẫn sử dụng'
+  });
+  await snap('account-dock-help-vi-light.png');
+
+  await evalJs(`document.getElementById('btn-help-diagnostics').click()`);
+  assert.equal(await evalJs(`!document.getElementById('view-diagnostics').hidden`), true);
+  assert.equal(await evalJs(`document.getElementById('view-help').hidden`), true);
+
+  // 3. Native Radio Group keyboard navigation in Settings + Advanced Diagnostics
   await evalJs(`document.querySelector('.top-nav-btn[data-view="settings"]').click()`);
   await snap('account-dock-settings-vi-light.png');
   await evalJs(`document.querySelector('input[name="ui-locale"][value="vi-VN"]').focus()`);
@@ -463,7 +811,7 @@ try {
   await evalJs(`document.querySelector('.top-nav-btn[data-view="backups"]').click()`);
   await snap('account-dock-backups-vi-light.png');
 
-  // 5. Async per-account pending isolation + Error Banner (Journey C) + Dialogs
+  // 5. Async per-account pending isolation + Error Banner + Details + 200% Zoom
   await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
   mockData.delayNextLaunchMs = 250;
   await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(2) .btn-primary').click()`);
@@ -490,8 +838,15 @@ try {
   await snap('account-dock-error-vi-light.png');
 
   await evalJs(`document.querySelector('#profiles-list .account-card:first-child [role="menuitem"]:nth-child(3)').click()`);
+  const detailsCheck = await evalJs(`({
+    basic: document.getElementById('profile-details-list').textContent,
+    advanced: document.getElementById('profile-details-advanced-list').textContent
+  })`);
+  assert.match(detailsCheck.basic, /Màu nhận diện/);
+  assert.match(detailsCheck.advanced, /100204819/);
   await snap('account-dock-details-vi-light.png');
   await evalJs(`document.getElementById('profile-details-dialog').close('close')`);
+  await evalJs(`document.getElementById('btn-dismiss-banner')?.click()`);
 
   // Zoom 200% simulation (580x390 CSS px)
   await setViewport(580, 390, 2);
@@ -499,7 +854,7 @@ try {
   assert.ok(zoomMetrics.scrollWidth <= zoomMetrics.innerWidth, 'Overflow at 200% zoom');
   await snap('account-dock-zoom-200-vi-light.png');
 
-  // 6. Full API operations + double-click dedup + out-of-order status + menu open across re-render
+  // 6. Full API operations + double-click dedup + (e) Color persistence across rename, delete removes color, restore preserves source color
   await setViewport(1160, 780, 1);
   await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(2) .btn-subtle-danger')?.click()`);
   await new Promise((r) => setTimeout(r, 150));
@@ -521,29 +876,75 @@ try {
   await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(2) [role="menuitem"]:nth-child(2)').click()`);
   await new Promise((r) => setTimeout(r, 120));
 
+  // (e.1) Rename prof-1 changing color to 'plum', then rename prof-1 again preserving 'plum'
   await evalJs(`(() => {
-    document.querySelector('#profiles-list .account-card:nth-child(3) [role="menuitem"]:nth-child(1)').click();
-    document.getElementById('rename-profile-name').value = 'QA Renamed';
-    document.getElementById('rename-profile-dialog').close('rename');
+    document.querySelector('#profiles-list .account-card[data-profile-id="prof-1"] [role="menuitem"]:nth-child(1)').click();
+    const plumRadio = document.querySelector('input[name="rename-account-color"][value="plum"]');
+    plumRadio.checked = true;
+    document.getElementById('rename-profile-name').value = 'Đức — Công việc (Đổi màu)';
+    document.querySelector('#rename-profile-dialog button[value="rename"]').click();
   })()`);
   await new Promise((r) => setTimeout(r, 150));
-
-  await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(3) .btn-subtle-danger').click()`);
-  await new Promise((r) => setTimeout(r, 150));
+  const prof1AfterColorChange = await evalJs(`({
+    avatarVar: document.querySelector('#profiles-list .account-card[data-profile-id="prof-1"] .account-avatar').style.getPropertyValue('--avatar-color'),
+    storedColor: JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}')['prof-1']
+  })`);
+  assert.equal(prof1AfterColorChange.avatarVar, 'var(--id-plum)');
+  assert.equal(prof1AfterColorChange.storedColor, 'plum');
 
   await evalJs(`(() => {
-    document.querySelector('#profiles-list .account-card:nth-child(3) [role="menuitem"]:nth-child(4)').click();
-    document.getElementById('delete-profile-dialog').close('delete');
+    document.querySelector('#profiles-list .account-card[data-profile-id="prof-1"] [role="menuitem"]:nth-child(1)').click();
+  })()`);
+  assert.equal(await evalJs(`document.querySelector('input[name="rename-account-color"][value="plum"]')?.checked`), true);
+  await evalJs(`(() => {
+    document.getElementById('rename-profile-name').value = 'Đức — Công việc & Đối tác miền Nam';
+    document.querySelector('#rename-profile-dialog button[value="rename"]').click();
   })()`);
   await new Promise((r) => setTimeout(r, 150));
+  const prof1AfterSecondRename = await evalJs(`({
+    avatarVar: document.querySelector('#profiles-list .account-card[data-profile-id="prof-1"] .account-avatar').style.getPropertyValue('--avatar-color'),
+    storedColor: JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}')['prof-1']
+  })`);
+  assert.equal(prof1AfterSecondRename.avatarVar, 'var(--id-plum)');
+  assert.equal(prof1AfterSecondRename.storedColor, 'plum');
 
+  // (e.2) Rename prof-3 with coral, stop prof-3, delete prof-3 -> removes color from localStorage
+  await evalJs(`(() => {
+    document.querySelector('#profiles-list .account-card[data-profile-id="prof-3"] [role="menuitem"]:nth-child(1)').click();
+    document.querySelector('input[name="rename-account-color"][value="coral"]').checked = true;
+    document.getElementById('rename-profile-name').value = 'Bán hàng (Cập nhật)';
+    document.querySelector('#rename-profile-dialog button[value="rename"]').click();
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(await evalJs(`JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}')['prof-3']`), 'coral');
+
+  await evalJs(`document.querySelector('#profiles-list .account-card[data-profile-id="prof-3"] .btn-subtle-danger').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  await evalJs(`(() => {
+    document.querySelector('#profiles-list .account-card[data-profile-id="prof-3"] [role="menuitem"]:nth-child(4)').click();
+    document.querySelector('#delete-profile-dialog button[value="delete"]').click();
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const prof3ColorRemoved = await evalJs(`Object.hasOwn(JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}'), 'prof-3')`);
+  assert.equal(prof3ColorRemoved, false, 'Deleting profile must remove its saved color from localStorage');
+
+  // (e.3) Restore backup bk-1 (source_profile_id = 'prof-1') -> preserves 'plum' on newly restored profile
   await evalJs(`(() => {
     document.querySelector('.top-nav-btn[data-view="backups"]').click();
     document.querySelector('#backups-tbody .btn-primary').click();
-    document.getElementById('restore-profile-name').value = 'Restored QA';
-    document.getElementById('restore-backup-dialog').close('restore');
+    document.getElementById('restore-profile-name').value = 'Khôi phục từ sao lưu';
+    document.querySelector('#restore-backup-dialog button[value="restore"]').click();
   })()`);
-  await new Promise((r) => setTimeout(r, 150));
+  await new Promise((r) => setTimeout(r, 200));
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
+  const restoredProfile = mockData.status.profiles.find((p) => p.name === 'Khôi phục từ sao lưu');
+  assert.ok(restoredProfile, 'Restored profile should exist in mockData');
+  const restoredColorState = await evalJs(`({
+    avatarVar: document.querySelector('#profiles-list .account-card[data-profile-id="${restoredProfile.id}"] .account-avatar')?.style.getPropertyValue('--avatar-color'),
+    storedColor: JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}')['${restoredProfile.id}']
+  })`);
+  assert.equal(restoredColorState.avatarVar, 'var(--id-plum)', 'Restored account must inherit source_profile_id color');
+  assert.equal(restoredColorState.storedColor, 'plum');
 
   const seenRoutes = new Set(recordedRequests.map((r) => `${r.method} ${r.urlPath}`));
   for (const expected of [
@@ -551,15 +952,166 @@ try {
     'POST /api/profiles/prof-1/focus',
     'POST /api/profiles/prof-2/stop',
     'POST /api/profiles/prof-2/backup',
+    'POST /api/profiles/prof-1/rename',
     'POST /api/profiles/prof-3/rename',
     'DELETE /api/profiles/prof-3',
     'POST /api/backups/restore'
   ]) {
     assert.ok(seenRoutes.has(expected), `Missing recorded route: ${expected}`);
   }
+  for (const r of recordedRequests) {
+    assert.equal(r.token, SESSION_TOKEN, `Missing X-DIM-Session-Token on ${r.method} ${r.urlPath}`);
+  }
 
-  // Out-of-order /api/status responses
-  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
+  // (f) Primary Zalo honest states: true, false, null, disconnectStatus = true, and statusOkFalse
+  await evalJs(`document.getElementById('btn-dismiss-banner')?.click()`);
+  const readPrimary = () => evalJs(`({
+    classes: document.getElementById('primary-zalo-state-row').className,
+    desc: document.getElementById('primary-zalo-desc').textContent,
+    buttons: document.querySelectorAll('#primary-zalo-section button').length,
+    connHidden: document.getElementById('connection-pill').hidden,
+    bannerVisible: !document.getElementById('status-banner').hidden
+  })`);
+
+  let primaryState = await readPrimary();
+  assert.match(primaryState.classes, /\bis-running\b/);
+  assert.match(primaryState.desc, /Cửa sổ đang mở/);
+  assert.equal(primaryState.buttons, 0);
+
+  mockData.status.primary_zalo.is_running = false;
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  primaryState = await readPrimary();
+  assert.match(primaryState.classes, /\bis-stopped\b/);
+  assert.match(primaryState.desc, /Đã đóng/);
+  assert.equal(primaryState.buttons, 0);
+
+  mockData.status.primary_zalo.is_running = null;
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  primaryState = await readPrimary();
+  assert.match(primaryState.classes, /\bis-unknown\b/);
+  assert.match(primaryState.desc, /Chưa xác định/);
+  assert.equal(primaryState.buttons, 0);
+
+  // Cache running:true then disconnect bridge -> must become unknown, never fake running
+  mockData.status.primary_zalo.is_running = true;
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  mockData.disconnectStatus = true;
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 200));
+  primaryState = await readPrimary();
+  assert.match(primaryState.classes, /\bis-unknown\b/);
+  assert.match(primaryState.desc, /Chưa xác định/);
+  assert.doesNotMatch(primaryState.desc, /Cửa sổ đang mở/);
+  assert.equal(primaryState.buttons, 0);
+  assert.equal(primaryState.connHidden, false);
+
+  mockData.disconnectStatus = false;
+  mockData.statusOkFalse = { ok: false, error_code: 'HOST_EXEC_FAILED', message: 'Status failure' };
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  primaryState = await readPrimary();
+  assert.match(primaryState.classes, /\bis-unknown\b/);
+  assert.match(primaryState.desc, /Chưa xác định/);
+  assert.equal(primaryState.bannerVisible, true);
+
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  await evalJs(`document.getElementById('btn-dismiss-banner')?.click()`);
+  assert.equal(await evalJs(`document.getElementById('connection-pill').hidden`), true);
+
+  // (g) Network timeout (window.__MZ_API_TIMEOUT_MS = 120 + delayed /api/status) -> HOST_TIMEOUT banner
+  mockData.delayNextStatusMs = 350;
+  await evalJs(`window.__MZ_API_TIMEOUT_MS = 120; document.getElementById('btn-refresh').click();`);
+  await new Promise((r) => setTimeout(r, 220));
+  const timeoutBanner = await evalJs(`({
+    visible: !document.getElementById('status-banner').hidden,
+    text: document.getElementById('status-banner-text').textContent,
+    raw: document.getElementById('status-banner-raw').textContent,
+    connHidden: document.getElementById('connection-pill').hidden
+  })`);
+  assert.equal(timeoutBanner.visible, true);
+  assert.match(timeoutBanner.text, /Thao tác phản hồi quá lâu/);
+  assert.match(timeoutBanner.raw, /HOST_TIMEOUT/);
+  assert.equal(timeoutBanner.connHidden, false);
+
+  await new Promise((r) => setTimeout(r, 200));
+  await evalJs(`delete window.__MZ_API_TIMEOUT_MS; document.getElementById('btn-refresh').click();`);
+  await new Promise((r) => setTimeout(r, 150));
+  await evalJs(`document.getElementById('btn-dismiss-banner')?.click()`);
+
+  // (h) Mock window.__TAURI_INTERNALS__.invoke in-page for delete_profile ({ id, confirm: true }) and get_status
+  const tauriTmpProfile = {
+    id: 'prof-tauri-tmp',
+    name: 'Tài khoản tạm Tauri',
+    directory_name: 'profile-tauri-tmp',
+    created_at: '2026-02-12T08:00:00Z',
+    last_launched_at: null,
+    zalo_user_id: null,
+    notes: '',
+    running: false,
+    main_pid: null,
+    process_count: 0,
+    window_title: null,
+    total_working_set_bytes: 0,
+    data_size_bytes: null,
+    stale_lockfile_detected: false
+  };
+  mockData.status.profiles.push(tauriTmpProfile);
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+
+  const tauriSnapshot = JSON.stringify(mockData.status);
+  const tauriDiag = JSON.stringify(mockData.diagnostics);
+  await evalJs(`(() => {
+    const statusObj = ${tauriSnapshot};
+    const diagObj = ${tauriDiag};
+    window.__TAURI_CALLS__ = [];
+    window.__TAURI_INTERNALS__ = {
+      invoke: async (cmd, args) => {
+        window.__TAURI_CALLS__.push({ cmd, args });
+        if (cmd === 'delete_profile') {
+          statusObj.profiles = statusObj.profiles.filter((p) => p.id !== args?.id);
+          return { ok: true, message: 'Deleted' };
+        }
+        if (cmd === 'get_status') return statusObj;
+        if (cmd === 'list_backups') return { backups: [] };
+        if (cmd === 'get_diagnostics') return diagObj;
+        if (cmd === 'verify_isolation') return { ok: true, checks: [] };
+        return { ok: true };
+      }
+    };
+  })()`);
+
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 120));
+  await evalJs(`(() => {
+    document.querySelector('#profiles-list .account-card[data-profile-id="prof-tauri-tmp"] [role="menuitem"]:nth-child(4)').click();
+    document.querySelector('#delete-profile-dialog button[value="delete"]').click();
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+
+  const tauriCalls = await evalJs(`(() => {
+    const calls = window.__TAURI_CALLS__;
+    delete window.__TAURI_INTERNALS__;
+    delete window.__TAURI_CALLS__;
+    return calls;
+  })()`);
+  const getStatusCall = tauriCalls.find((c) => c.cmd === 'get_status');
+  const deleteProfileCall = tauriCalls.find((c) => c.cmd === 'delete_profile');
+  assert.ok(getStatusCall, 'Expected Tauri invoke(get_status)');
+  assert.ok(deleteProfileCall, 'Expected Tauri invoke(delete_profile)');
+  assert.deepEqual(deleteProfileCall.args, { id: 'prof-tauri-tmp', confirm: true });
+
+  mockData.status.profiles = mockData.status.profiles.filter((p) => p.id !== 'prof-tauri-tmp');
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  await evalJs(`document.getElementById('btn-dismiss-banner')?.click()`);
+
+  // (j) Out-of-order /api/status responses + Overflow menu stays open across refresh
+  const expectedCount = mockData.status.profiles.length;
   const staleStatus = JSON.parse(JSON.stringify(mockData.status));
   staleStatus.profiles = [staleStatus.profiles[0]];
   const freshStatus = JSON.parse(JSON.stringify(mockData.status));
@@ -571,16 +1123,67 @@ try {
   await new Promise((r) => setTimeout(r, 30));
   await evalJs(`document.getElementById('btn-refresh').click()`);
   await new Promise((r) => setTimeout(r, 320));
-  assert.equal(await evalJs(`document.querySelectorAll('#profiles-list .account-card').length`), 2);
+  assert.equal(await evalJs(`document.querySelectorAll('#profiles-list .account-card').length`), expectedCount);
 
-  // Overflow menu stays open when accounts re-render
   await evalJs(`document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]').click()`);
   await evalJs(`document.getElementById('btn-refresh').click()`);
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(await evalJs(`document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]').getAttribute('aria-expanded')`), 'true');
+  await pressKey('Escape', 'Escape', 27);
+
+  // (c) Scale 10 & 20 accounts + search at scale + account-dock-20accounts-vi-light.png
+  await evalJs(`document.getElementById('btn-dismiss-banner')?.click()`);
+  mockData.status.profiles = buildSyntheticProfiles(10);
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const scale10 = await evalJs(`({
+    cards: document.querySelectorAll('#profiles-list .account-card').length,
+    searchHidden: document.getElementById('search-wrap').hidden,
+    summaryHidden: document.getElementById('accounts-count-summary').hidden,
+    summaryText: document.getElementById('accounts-count-summary').textContent,
+    noOverflow: document.documentElement.scrollWidth <= window.innerWidth
+  })`);
+  assert.deepEqual(scale10, {
+    cards: 10,
+    searchHidden: false,
+    summaryHidden: false,
+    summaryText: 'Hiển thị 10 / 10 tài khoản',
+    noOverflow: true
+  });
+
+  mockData.status.profiles = buildSyntheticProfiles(20);
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const scale20 = await evalJs(`({
+    cards: document.querySelectorAll('#profiles-list .account-card').length,
+    searchHidden: document.getElementById('search-wrap').hidden,
+    summaryHidden: document.getElementById('accounts-count-summary').hidden,
+    summaryText: document.getElementById('accounts-count-summary').textContent,
+    noOverflow: document.documentElement.scrollWidth <= window.innerWidth
+  })`);
+  assert.deepEqual(scale20, {
+    cards: 20,
+    searchHidden: false,
+    summaryHidden: false,
+    summaryText: 'Hiển thị 20 / 20 tài khoản',
+    noOverflow: true
+  });
+  await snap('account-dock-20accounts-vi-light.png');
+
+  await evalJs(`(() => {
+    const inp = document.getElementById('profile-search');
+    inp.value = 'Đà Nẵng';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.focus();
+  })()`);
+  assert.equal(await evalJs(`document.querySelectorAll('#profiles-list .account-card').length`), 1);
+  assert.equal(await evalJs(`document.getElementById('accounts-count-summary').textContent`), 'Hiển thị 1 / 20 tài khoản');
+  await pressKey('Escape', 'Escape', 27);
+  assert.equal(await evalJs(`document.querySelectorAll('#profiles-list .account-card').length`), 20);
+  assert.equal(await evalJs(`document.getElementById('accounts-count-summary').textContent`), 'Hiển thị 20 / 20 tài khoản');
 
   assert.deepEqual(runtimeErrors, [], `Runtime errors: ${runtimeErrors.join('; ')}`);
-  console.log('PASS (Account Dock: 16 matrix combinations, Journeys A-E, WAI-ARIA menu, native radios, async pending, out-of-order status, 200% zoom, 0 runtime errors)');
+  console.log('PASS (Account Dock: 16 matrix combinations, session token, theme reload, scale 0/1/3/10/20, Step1/Step2 resilience, color persistence/restore, primary Zalo honest states, timeout, Tauri invoke, Help view, WAI-ARIA menu, out-of-order status, 200% zoom, 0 runtime errors)');
   ws.close();
 } finally {
   proc.kill();

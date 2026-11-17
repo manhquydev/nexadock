@@ -4,7 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveIsolationCheckResult, getAccountInitials } from '../app.js';
+import {
+  resolveIsolationCheckResult,
+  getAccountInitials,
+  getAccountColorId,
+  saveAccountColor,
+  removeAccountColor,
+  pickNextAvailableColorId
+} from '../app.js';
 import { initI18n, setLocale, getLocale, LOCALE_STORAGE_KEY } from '../i18n/index.js';
 
 await initI18n();
@@ -15,6 +22,7 @@ const uiDir = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(uiDir, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(uiDir, 'styles.css'), 'utf8');
 const appJs = fs.readFileSync(path.join(uiDir, 'app.js'), 'utf8');
+const themeInitJs = fs.readFileSync(path.join(uiDir, 'theme-init.js'), 'utf8');
 const i18nJs = fs.readFileSync(path.join(uiDir, 'i18n', 'index.js'), 'utf8');
 
 test('HTML adheres to Modern Web Guidance, native radio groups, & CSP rules', () => {
@@ -76,6 +84,32 @@ test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forb
   for (const route of requiredRoutes) {
     assert.ok(appJs.includes(route), `Missing HTTP route ${route}`);
   }
+
+  assert.match(
+    appJs,
+    /'delete_profile'\s*,\s*\{[^}]*\bconfirm:\s*true\b/,
+    'delete_profile must pass confirm: true in tauriArgs'
+  );
+  assert.match(
+    appJs,
+    /meta\[name="dim-session-token"\]/,
+    'app.js must read dim-session-token meta tag'
+  );
+  assert.match(
+    appJs,
+    /['"]X-DIM-Session-Token['"]/,
+    'app.js must attach X-DIM-Session-Token request header'
+  );
+  assert.match(
+    themeInitJs,
+    /['"]multi-zalo\.theme['"]/,
+    'theme-init.js must read multi-zalo.theme'
+  );
+  assert.match(
+    appJs,
+    /['"]multi-zalo\.theme['"]/,
+    'app.js must persist theme under multi-zalo.theme'
+  );
 });
 
 test('resolveIsolationCheckResult never converts NOT_TESTED, BLOCKED, or UNKNOWN into PASS', () => {
@@ -94,29 +128,120 @@ test('getAccountInitials derives clean initials for single and multi-word Vietna
   assert.equal(getAccountInitials(''), 'Z');
 });
 
-test('locale persistence updates localStorage and document.documentElement.lang', () => {
+function createMockLocalStorage() {
   const store = new Map();
-  globalThis.localStorage = {
-    getItem: (k) => (store.has(k) ? store.get(k) : null),
-    setItem: (k, v) => store.set(k, String(v)),
-    removeItem: (k) => store.delete(k)
+  return {
+    store,
+    storage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k)
+    }
   };
+}
+
+test('account color persistence saves by profile id, survives rename, avoids 8-way collision, and removes cleanly', () => {
+  const prevStorage = globalThis.localStorage;
+  const { store, storage } = createMockLocalStorage();
+  globalThis.localStorage = storage;
+
+  try {
+    saveAccountColor('prof-persist-1', 'coral');
+    assert.equal(getAccountColorId({ id: 'prof-persist-1', name: 'Công việc' }), 'coral');
+    assert.equal(getAccountColorId({ id: 'prof-persist-1', name: 'Tên mới sau khi đổi' }), 'coral');
+
+    saveAccountColor('prof-persist-1', 'plum');
+    assert.equal(getAccountColorId({ id: 'prof-persist-1', name: 'Đức — Đối tác' }), 'plum');
+
+    removeAccountColor('prof-persist-1');
+    const savedAfterDelete = JSON.parse(store.get('multi-zalo.accountColors') || '{}');
+    assert.equal(Object.hasOwn(savedAfterDelete, 'prof-persist-1'), false);
+
+    const profiles = [];
+    const assigned = [];
+    for (let i = 1; i <= 8; i += 1) {
+      const nextColor = pickNextAvailableColorId(profiles);
+      assigned.push(nextColor);
+      const id = `prof-seq-${i}`;
+      saveAccountColor(id, nextColor);
+      profiles.push({ id, name: `Tài khoản ${i}` });
+    }
+    assert.equal(assigned.length, 8);
+    assert.equal(new Set(assigned).size, 8, `Expected 8 distinct colors, got ${assigned.join(', ')}`);
+
+    removeAccountColor('prof-seq-4');
+    const mapAfterOneRemoved = JSON.parse(store.get('multi-zalo.accountColors') || '{}');
+    assert.equal(Object.hasOwn(mapAfterOneRemoved, 'prof-seq-4'), false);
+    assert.equal(Object.keys(mapAfterOneRemoved).length, 7);
+  } finally {
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+  }
+});
+
+function relativeLuminance(hex) {
+  const clean = hex.replace(/^#/, '');
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+function contrastRatioAgainstWhite(hex) {
+  const lum = relativeLuminance(hex);
+  return (1.0 + 0.05) / (lum + 0.05);
+}
+
+test('all 8 account identity --id-* hex colors in styles.css meet WCAG 2.2 AA >= 4.5:1 against #ffffff', () => {
+  const expectedTokens = [
+    '--id-blue',
+    '--id-teal',
+    '--id-green',
+    '--id-amber',
+    '--id-coral',
+    '--id-plum',
+    '--id-indigo',
+    '--id-slate'
+  ];
+  const tokens = new Map();
+  for (const match of css.matchAll(/(--id-[a-z]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/g)) {
+    tokens.set(match[1], match[2]);
+  }
+  assert.equal(tokens.size, 8, `Expected 8 --id-* hex tokens, found ${tokens.size}`);
+  for (const token of expectedTokens) {
+    const hex = tokens.get(token);
+    assert.ok(hex, `Missing hex value for ${token} in styles.css`);
+    const ratio = contrastRatioAgainstWhite(hex);
+    assert.ok(ratio >= 4.5, `${token} (${hex}) contrast against #ffffff is ${ratio.toFixed(2)}:1, expected >= 4.5:1`);
+  }
+});
+
+test('locale persistence updates localStorage and document.documentElement.lang', () => {
+  const prevStorage = globalThis.localStorage;
+  const prevDocument = globalThis.document;
+  const { store, storage } = createMockLocalStorage();
+  globalThis.localStorage = storage;
   globalThis.document = {
     documentElement: { lang: 'vi' },
     title: '',
     querySelectorAll: () => []
   };
 
-  setLocale('en-US');
-  assert.equal(getLocale(), 'en-US');
-  assert.equal(store.get(LOCALE_STORAGE_KEY), 'en-US');
-  assert.equal(globalThis.document.documentElement.lang, 'en');
+  try {
+    setLocale('en-US');
+    assert.equal(getLocale(), 'en-US');
+    assert.equal(store.get(LOCALE_STORAGE_KEY), 'en-US');
+    assert.equal(globalThis.document.documentElement.lang, 'en');
 
-  setLocale('vi-VN');
-  assert.equal(getLocale(), 'vi-VN');
-  assert.equal(store.get(LOCALE_STORAGE_KEY), 'vi-VN');
-  assert.equal(globalThis.document.documentElement.lang, 'vi');
-
-  delete globalThis.localStorage;
-  delete globalThis.document;
+    setLocale('vi-VN');
+    assert.equal(getLocale(), 'vi-VN');
+    assert.equal(store.get(LOCALE_STORAGE_KEY), 'vi-VN');
+    assert.equal(globalThis.document.documentElement.lang, 'vi');
+  } finally {
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+  }
 });
