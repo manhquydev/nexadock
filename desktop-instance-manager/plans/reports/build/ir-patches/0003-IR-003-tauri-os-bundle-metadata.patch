@@ -1,0 +1,66 @@
+From f7840d1efce0ee2f94a3f4bb7455759d4930a48c Mon Sep 17 00:00:00 2001
+From: Multi-Zalo Build Engineering <build@multizalodesktop.local>
+Date: Wed, 18 Nov 2026 01:06:51 +0700
+Subject: [PATCH] build(tauri): add explicit Windows, macOS, and Ubuntu 24.04
+ bundle metadata (IR-003)
+
+Configure downloadBootstrapper WebView2 & currentUser NSIS on Windows, minimumSystemVersion 11.0 & hardenedRuntime on macOS, and Ubuntu 24.04 WebKitGTK 4.1 / Ayatana AppIndicator dependencies on Linux.
+---
+ .../apps/desktop/src-tauri/tauri.conf.json    | 41 +++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/desktop-instance-manager/apps/desktop/src-tauri/tauri.conf.json b/desktop-instance-manager/apps/desktop/src-tauri/tauri.conf.json
+index d0d3147..9e11512 100644
+--- a/desktop-instance-manager/apps/desktop/src-tauri/tauri.conf.json
++++ b/desktop-instance-manager/apps/desktop/src-tauri/tauri.conf.json
+@@ -25,6 +25,47 @@
+   "bundle": {
+     "active": true,
+     "targets": "all",
++    "publisher": "MultiZaloDesktop Contributors",
++    "category": "Utility",
++    "shortDescription": "Isolated multi-instance desktop profile manager for Zalo (zero VNG binaries bundled)",
++    "longDescription": "User-mode desktop profile and process isolation manager. Never bundles, modifies, or redistributes proprietary third-party messaging binaries.",
++    "license": "MIT OR Apache-2.0",
++    "windows": {
++      "certificateThumbprint": null,
++      "digestAlgorithm": "sha256",
++      "timestampUrl": "",
++      "webviewInstallMode": {
++        "type": "downloadBootstrapper",
++        "silent": true
++      },
++      "wix": {
++        "language": "en-US"
++      },
++      "nsis": {
++        "installMode": "currentUser",
++        "installerIcon": "icons/icon.ico"
++      }
++    },
++    "macOS": {
++      "minimumSystemVersion": "11.0",
++      "hardenedRuntime": true,
++      "signingIdentity": null,
++      "entitlements": null
++    },
++    "linux": {
++      "deb": {
++        "section": "utils",
++        "priority": "optional",
++        "depends": [
++          "libwebkit2gtk-4.1-0",
++          "libgtk-3-0t64 | libgtk-3-0",
++          "libayatana-appindicator3-1 | libappindicator3-1"
++        ]
++      },
++      "appimage": {
++        "bundleMediaFramework": false
++      }
++    },
+     "icon": [
+       "icons/32x32.png",
+       "icons/128x128.png",
+-- 
+2.56.1.windows.1
+

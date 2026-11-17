@@ -1,0 +1,40 @@
+From e9900d527555ef9478ae32497b4668672ce3a810 Mon Sep 17 00:00:00 2001
+From: Multi-Zalo Build Engineering <build@multizalodesktop.local>
+Date: Wed, 18 Nov 2026 01:06:49 +0700
+Subject: [PATCH] build(msrv): align workspace rust-version to 1.90 (IR-001)
+
+Align desktop-instance-manager/Cargo.toml rust-version with apps/desktop/src-tauri/Cargo.toml (1.90) and refresh ADR-002 MSRV documentation.
+---
+ desktop-instance-manager/Cargo.toml                             | 2 +-
+ .../docs/architecture/adr-002-rust-tauri-and-sac-host-bridge.md | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/desktop-instance-manager/Cargo.toml b/desktop-instance-manager/Cargo.toml
+index 3103761..3f2a7d9 100644
+--- a/desktop-instance-manager/Cargo.toml
++++ b/desktop-instance-manager/Cargo.toml
+@@ -16,7 +16,7 @@ exclude = [
+ [workspace.package]
+ version = "0.1.0"
+ edition = "2021"
+-rust-version = "1.85"
++rust-version = "1.90"
+ license = "MIT OR Apache-2.0"
+ 
+ [workspace.dependencies]
+diff --git a/desktop-instance-manager/docs/architecture/adr-002-rust-tauri-and-sac-host-bridge.md b/desktop-instance-manager/docs/architecture/adr-002-rust-tauri-and-sac-host-bridge.md
+index 7002fec..f558f5f 100644
+--- a/desktop-instance-manager/docs/architecture/adr-002-rust-tauri-and-sac-host-bridge.md
++++ b/desktop-instance-manager/docs/architecture/adr-002-rust-tauri-and-sac-host-bridge.md
+@@ -34,7 +34,7 @@ Weights: SAC Compatibility Today (`25%`), Long-Term Cross-Platform Architecture
+ We adopt a **dual-host execution architecture** sharing one canonical domain contract and one Modern Web UI:
+ 
+ 1. **Canonical Rust Workspace + Tauri 2 (`Cargo.toml`, `crates/*`, `apps/desktop/src-tauri/`):**
+-   - Edition 2021, MSRV `1.78`, `license = "MIT OR Apache-2.0"`, strict workspace lints (`unsafe_op_in_unsafe_fn = "deny"`, `clippy::unwrap_used = "warn"`, `clippy::expect_used = "warn"`).
++   - Edition 2021, MSRV `1.90`, `license = "MIT OR Apache-2.0"`, strict workspace lints (`unsafe_op_in_unsafe_fn = "deny"`, `clippy::unwrap_used = "warn"`, `clippy::expect_used = "warn"`).
+    - `deny.toml` enforces `rustls` (banning `openssl`/`openssl-sys`), permissive OSS licenses (`MIT`, `Apache-2.0`, `BSD-*`, `ISC`, `Zlib`, `Unicode-3.0`), crates.io-only sources, and advisory checks.
+    - `apps/desktop/src-tauri/` wraps `dim-core`, `dim-profile-store`, `dim-process-manager`, and `dim-platform-*` into Tauri 2 IPC commands (`commands.rs`), compiled and tested on CI (`windows-latest`, `macos-latest`, `ubuntu-latest`).
+ 2. **Windows SAC Signed-Host Bridge (`scripts/dim-host.ps1` + `apps/desktop/ui-server.mjs`):**
+-- 
+2.56.1.windows.1
+

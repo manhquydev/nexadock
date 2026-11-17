@@ -1,0 +1,94 @@
+From 6cabfe8250e90d2ee8348282cafb935633de4421 Mon Sep 17 00:00:00 2001
+From: Multi-Zalo Build Engineering <build@multizalodesktop.local>
+Date: Wed, 18 Nov 2026 01:06:53 +0700
+Subject: [PATCH] build(release): add release LTO/strip profile, MSVC GUARD_CF,
+ and explicit Windows manifest (IR-006)
+
+Configure thin-LTO release profile in Cargo.toml and src-tauri/.cargo/config.toml, enable MSVC Control Flow Guard checks, and embed explicit asInvoker + PerMonitorV2 + Win10/11 compatibility manifest in build.rs.
+---
+ desktop-instance-manager/Cargo.toml           |  6 +++
+ .../apps/desktop/src-tauri/.cargo/config.toml |  8 ++++
+ .../apps/desktop/src-tauri/build.rs           | 42 ++++++++++++++++++-
+ 3 files changed, 55 insertions(+), 1 deletion(-)
+ create mode 100644 desktop-instance-manager/apps/desktop/src-tauri/.cargo/config.toml
+
+diff --git a/desktop-instance-manager/Cargo.toml b/desktop-instance-manager/Cargo.toml
+index 3103761..da8f070 100644
+--- a/desktop-instance-manager/Cargo.toml
++++ b/desktop-instance-manager/Cargo.toml
+@@ -42,3 +42,9 @@ missing_docs = "warn"
+ all = { level = "warn", priority = -1 }
+ unwrap_used = "warn"
+ expect_used = "warn"
++
++[profile.release]
++lto = "thin"
++codegen-units = 1
++strip = "symbols"
++panic = "abort"
+diff --git a/desktop-instance-manager/apps/desktop/src-tauri/.cargo/config.toml b/desktop-instance-manager/apps/desktop/src-tauri/.cargo/config.toml
+new file mode 100644
+index 0000000..3d1f73c
+--- /dev/null
++++ b/desktop-instance-manager/apps/desktop/src-tauri/.cargo/config.toml
+@@ -0,0 +1,8 @@
++[profile.release]
++lto = "thin"
++codegen-units = 1
++strip = "symbols"
++panic = "abort"
++
++[target.x86_64-pc-windows-msvc]
++rustflags = ["-C", "control-flow-guard=checks"]
+diff --git a/desktop-instance-manager/apps/desktop/src-tauri/build.rs b/desktop-instance-manager/apps/desktop/src-tauri/build.rs
+index 261851f..f07cd15 100644
+--- a/desktop-instance-manager/apps/desktop/src-tauri/build.rs
++++ b/desktop-instance-manager/apps/desktop/src-tauri/build.rs
+@@ -1,3 +1,43 @@
++const WINDOWS_APP_MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
++<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
++  <dependency>
++    <dependentAssembly>
++      <assemblyIdentity
++        type="win32"
++        name="Microsoft.Windows.Common-Controls"
++        version="6.0.0.0"
++        processorArchitecture="*"
++        publicKeyToken="6595b64144ccf1df"
++        language="*"
++      />
++    </dependentAssembly>
++  </dependency>
++  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
++    <application>
++      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
++    </application>
++  </compatibility>
++  <asmv3:application>
++    <asmv3:windowsSettings>
++      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
++      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
++      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
++    </asmv3:windowsSettings>
++  </asmv3:application>
++  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
++    <security>
++      <requestedPrivileges>
++        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
++      </requestedPrivileges>
++    </security>
++  </trustInfo>
++</assembly>"#;
++
+ fn main() {
+-    tauri_build::build();
++    let windows = tauri_build::WindowsAttributes::new().app_manifest(WINDOWS_APP_MANIFEST);
++    let attrs = tauri_build::Attributes::new().windows_attributes(windows);
++    if let Err(err) = tauri_build::try_build(attrs) {
++        eprintln!("tauri-build failed: {err}");
++        std::process::exit(1);
++    }
+ }
+-- 
+2.56.1.windows.1
+

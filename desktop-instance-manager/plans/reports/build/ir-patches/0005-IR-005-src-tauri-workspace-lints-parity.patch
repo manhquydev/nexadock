@@ -1,0 +1,62 @@
+From d60cd3142e7e99767a1e7f89057cb965484c8dab Mon Sep 17 00:00:00 2001
+From: Multi-Zalo Build Engineering <build@multizalodesktop.local>
+Date: Wed, 18 Nov 2026 01:06:52 +0700
+Subject: [PATCH] build(lints): enforce workspace-equivalent Rust and Clippy
+ lints in src-tauri (IR-005)
+
+Add unsafe_op_in_unsafe_fn=deny, unwrap_used=warn, and expect_used=warn to apps/desktop/src-tauri/Cargo.toml and replace startup .expect() calls with structured exit handling.
+---
+ .../apps/desktop/src-tauri/Cargo.toml             |  7 +++++++
+ .../apps/desktop/src-tauri/src/main.rs            | 15 ++++++++++++---
+ 2 files changed, 19 insertions(+), 3 deletions(-)
+
+diff --git a/desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml b/desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
+index 63e2676..c483683 100644
+--- a/desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
++++ b/desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
+@@ -28,3 +28,10 @@ dim-platform-linux = { path = "../../../crates/platform-linux" }
+ 
+ [workspace]
+ 
++[lints.rust]
++unsafe_op_in_unsafe_fn = "deny"
++
++[lints.clippy]
++all = { level = "warn", priority = -1 }
++unwrap_used = "warn"
++expect_used = "warn"
+diff --git a/desktop-instance-manager/apps/desktop/src-tauri/src/main.rs b/desktop-instance-manager/apps/desktop/src-tauri/src/main.rs
+index 5735717..70f139b 100644
+--- a/desktop-instance-manager/apps/desktop/src-tauri/src/main.rs
++++ b/desktop-instance-manager/apps/desktop/src-tauri/src/main.rs
+@@ -5,9 +5,15 @@ mod commands;
+ use commands::AppState;
+ 
+ fn main() {
+-    let app_state = AppState::initialize().expect("failed to initialize Multi-Zalo Desktop state");
++    let app_state = match AppState::initialize() {
++        Ok(state) => state,
++        Err(err) => {
++            eprintln!("failed to initialize Multi-Zalo Desktop state: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    tauri::Builder::default()
++    if let Err(err) = tauri::Builder::default()
+         .manage(app_state)
+         .invoke_handler(tauri::generate_handler![
+             commands::get_status,
+@@ -24,5 +30,8 @@ fn main() {
+             commands::verify_isolation,
+         ])
+         .run(tauri::generate_context!())
+-        .expect("error while running Multi-Zalo Desktop Tauri application");
++    {
++        eprintln!("error while running Multi-Zalo Desktop Tauri application: {err}");
++        std::process::exit(1);
++    }
+ }
+-- 
+2.56.1.windows.1
+
