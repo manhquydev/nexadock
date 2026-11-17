@@ -1,0 +1,220 @@
+﻿{
+    "executed_at_utc":  "2026-11-17T04:38:01.3719846Z",
+    "zalo_version":  "26.10.20",
+    "primary_zalo_preserved":  true,
+    "results":  [
+                    {
+                        "id":  "Test-1",
+                        "name":  "Single Isolated Instance",
+                        "status":  "PASS",
+                        "detail":  "Profile IT Alpha launched with independent MainPid=11172, WindowHandle=9110846",
+                        "metrics":  {
+                                        "startup_ms":  1932,
+                                        "main_pid":  11172,
+                                        "process_count":  9,
+                                        "working_set_mb":  1030.28
+                                    }
+                    },
+                    {
+                        "id":  "Test-2",
+                        "name":  "Two Isolated Instances Concurrently",
+                        "status":  "PASS",
+                        "detail":  "Two isolated Zalo Desktop windows running simultaneously (PID 11172 \u0026 PID 8020) alongside Primary PID 12980",
+                        "metrics":  {
+                                        "beta_startup_ms":  2187,
+                                        "pids":  [
+                                                     11172,
+                                                     8020
+                                                 ],
+                                        "hwnds":  [
+                                                      9110846,
+                                                      984404
+                                                  ]
+                                    }
+                    },
+                    {
+                        "id":  "Test-3",
+                        "name":  "Three Isolated Instances Concurrently (4 total with Primary)",
+                        "status":  "PASS",
+                        "detail":  "3 isolated instances + 1 primary running simultaneously. Unique isolated PIDs: 11172, 8020, 2432",
+                        "metrics":  {
+                                        "gamma_startup_ms":  2381,
+                                        "isolated_pids":  [
+                                                              11172,
+                                                              8020,
+                                                              2432
+                                                          ],
+                                        "primary_pids":  [
+                                                             12980
+                                                         ]
+                                    }
+                    },
+                    {
+                        "id":  "Test-9",
+                        "name":  "Resource Usage (CPU, RAM, Disk, Startup)",
+                        "status":  "PASS",
+                        "detail":  "Measured 3 concurrent isolated instances: total WorkingSet=3231.61 MB",
+                        "metrics":  [
+                                        {
+                                            "profile":  "IT Alpha",
+                                            "main_pid":  11172,
+                                            "process_count":  9,
+                                            "working_set_mb":  1074.84,
+                                            "private_mb":  650.68,
+                                            "disk_mb":  32.46,
+                                            "total_cpu_sec":  18.39
+                                        },
+                                        {
+                                            "profile":  "IT Beta",
+                                            "main_pid":  8020,
+                                            "process_count":  9,
+                                            "working_set_mb":  1041.58,
+                                            "private_mb":  618.05,
+                                            "disk_mb":  26.39,
+                                            "total_cpu_sec":  18.89
+                                        },
+                                        {
+                                            "profile":  "IT Gamma",
+                                            "main_pid":  2432,
+                                            "process_count":  9,
+                                            "working_set_mb":  1115.19,
+                                            "private_mb":  700.57,
+                                            "disk_mb":  19.06,
+                                            "total_cpu_sec":  17.17
+                                        }
+                                    ]
+                    },
+                    {
+                        "id":  "Test-5",
+                        "name":  "Data Isolation \u0026 Non-Contamination",
+                        "status":  "PASS",
+                        "detail":  "All profiles hold independent lockfile, Local State, config.json, and migrate-config.json outside primary ZaloData",
+                        "metrics":  {
+                                        "isolation_checks":  [
+                                                                 {
+                                                                     "CheckName":  "OfficialZaloInstallation",
+                                                                     "Passed":  true,
+                                                                     "Detail":  "Version=26.10.20, Exe=C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\Zalo.exe, Auth=Signed (VNG)"
+                                                                 },
+                                                                 {
+                                                                     "CheckName":  "PrimaryZaloDataSeparation",
+                                                                     "Passed":  true,
+                                                                     "Detail":  "All managed profiles reside strictly outside primary C:\\Users\\manhquy\\AppData\\Roaming\\ZaloData"
+                                                                 },
+                                                                 {
+                                                                     "CheckName":  "DistinctProfilePaths",
+                                                                     "Passed":  true,
+                                                                     "Detail":  "Checked 3 profile(s), unique ZaloData paths=3"
+                                                                 },
+                                                                 {
+                                                                     "CheckName":  "DistinctProcessAndLockfileOwnership",
+                                                                     "Passed":  true,
+                                                                     "Detail":  "Running managed instances=3, Primary locking PIDs=[12980]"
+                                                                 }
+                                                             ],
+                                        "artifacts":  [
+                                                          {
+                                                              "profile":  "IT Alpha",
+                                                              "zalo_data_path":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_IT\\Profiles\\it-alpha_fdffd815\\AppData\\Roaming\\ZaloData",
+                                                              "has_lockfile":  true,
+                                                              "has_local_state":  true,
+                                                              "has_config":  true,
+                                                              "has_migrate_config":  true
+                                                          },
+                                                          {
+                                                              "profile":  "IT Beta",
+                                                              "zalo_data_path":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_IT\\Profiles\\it-beta_760f21b3\\AppData\\Roaming\\ZaloData",
+                                                              "has_lockfile":  true,
+                                                              "has_local_state":  true,
+                                                              "has_config":  true,
+                                                              "has_migrate_config":  true
+                                                          },
+                                                          {
+                                                              "profile":  "IT Gamma",
+                                                              "zalo_data_path":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_IT\\Profiles\\it-gamma_6f22584b\\AppData\\Roaming\\ZaloData",
+                                                              "has_lockfile":  true,
+                                                              "has_local_state":  true,
+                                                              "has_config":  true,
+                                                              "has_migrate_config":  true
+                                                          }
+                                                      ]
+                                    }
+                    },
+                    {
+                        "id":  "Test-4",
+                        "name":  "Rename, Selective Close \u0026 Restart Persistence",
+                        "status":  "PASS",
+                        "detail":  "Renamed running profile without breaking handles; closed IT Beta in 1640 ms without disturbing Alpha/Gamma/Primary; restarted IT Beta (new PID 1392)",
+                        "metrics":  {
+                                        "stop_ms":  1640,
+                                        "restart_ms":  2178,
+                                        "new_pid":  1392
+                                    }
+                    },
+                    {
+                        "id":  "Test-11",
+                        "name":  "Failure Recovery \u0026 Safety Guards",
+                        "status":  "PASS",
+                        "detail":  "Duplicate launch focused existing PID (11172); delete guards rejected running/unconfirmed deletes; crashed profile recovered cleanly with new PID 23348",
+                        "metrics":  {
+                                        "dup_same_pid":  true,
+                                        "delete_guards_ok":  true,
+                                        "recovered_pid":  23348
+                                    }
+                    },
+                    {
+                        "id":  "Test-10",
+                        "name":  "Update Mechanism \u0026 Official Binary Integrity",
+                        "status":  "PASS",
+                        "detail":  "Official Zalo binary dynamically discovered (Zalo-26.10.20), SHA-256 unchanged, Authenticode=Signed (VNG)",
+                        "metrics":  {
+                                        "version":  "26.10.20",
+                                        "sha256_unchanged":  true
+                                    }
+                    },
+                    {
+                        "id":  "Test-12",
+                        "name":  "Security \u0026 Non-Interference Audit",
+                        "status":  "PASS",
+                        "detail":  "Zero secrets in metadata, non-elevated execution, restrictive user NTFS ACLs, primary ZaloData files SHA-256 identical",
+                        "metrics":  {
+                                        "no_secrets_in_metadata":  true,
+                                        "non_elevated":  true,
+                                        "no_broad_acl":  true,
+                                        "primary_zalodata_untouched":  true
+                                    }
+                    },
+                    {
+                        "id":  "GUI-Smoke",
+                        "name":  "WPF Desktop Manager UI Launch",
+                        "status":  "PASS",
+                        "detail":  "WPF window \u0027Multi-Zalo Desktop\u0027 (HWND=7997028) opened cleanly in 2951 ms and closed cleanly",
+                        "metrics":  {
+                                        "startup_ms":  2951,
+                                        "window_detected":  true,
+                                        "hwnd":  7997028
+                                    }
+                    },
+                    {
+                        "id":  "Test-6",
+                        "name":  "Desktop Notifications across Multiple Logged-In Accounts",
+                        "status":  "BLOCKED",
+                        "detail":  "Requires two or more live authenticated Zalo accounts receiving messages simultaneously. Static analysis confirms per-instance Electron Notification + shared AUMID com.vng.zalo.",
+                        "metrics":  null
+                    },
+                    {
+                        "id":  "Test-7",
+                        "name":  "File Handling (Send/Receive/Open/Save) across Multiple Accounts",
+                        "status":  "BLOCKED",
+                        "detail":  "Requires authenticated sessions. Static path audit confirms Documents\\\\Zalo Received Files and ZaloData\\\\media resolve inside each profile\u0027s isolated USERPROFILE/APPDATA.",
+                        "metrics":  null
+                    },
+                    {
+                        "id":  "Test-8",
+                        "name":  "Voice \u0026 Video Calls across Multiple Accounts",
+                        "status":  "BLOCKED",
+                        "detail":  "Requires authenticated accounts and audio/video call peers. Static IPC audit of main.js shows ZaloCall.exe binds global named pipes \\\\\\\\.\\\\pipe\\\\PipeZCallSend and \\\\\\\\.\\\\pipe\\\\PipeZCallRecv (secondary instances catch EADDRINUSE).",
+                        "metrics":  null
+                    }
+                ]
+}

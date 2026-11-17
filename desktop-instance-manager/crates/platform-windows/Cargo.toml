@@ -1,0 +1,19 @@
+[package]
+name = "dim-platform-windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Windows 10/11 platform adapter: Zalo discovery, Folder Redirection check, CreateProcessW env isolation, Restart Manager PID tracking, and junction-safe cleanup"
+
+[lints]
+workspace = true
+
+[dependencies]
+dim-core = { workspace = true }
+dim-profile-store = { workspace = true }
+dim-process-manager = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

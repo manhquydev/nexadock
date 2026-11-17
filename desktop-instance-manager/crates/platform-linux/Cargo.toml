@@ -1,0 +1,22 @@
+[package]
+name = "dim-platform-linux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Linux platform adapter: Unsupported for official VNG Zalo Desktop; Experimental XDG/HOME/bwrap isolation for local AppImage and test fixture"
+
+[lints]
+workspace = true
+
+[dependencies]
+dim-core = { workspace = true }
+dim-profile-store = { workspace = true }
+dim-process-manager = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

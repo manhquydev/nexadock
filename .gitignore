@@ -1,0 +1,20 @@
+# External cloned repository (managed separately)
+rea/
+
+# Rust / Cargo build artifacts
+target/
+**/*.rs.bk
+
+# Node.js / Frontend
+node_modules/
+.pnpm-store/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Logs & OS files
+*.log
+.DS_Store
+Thumbs.db

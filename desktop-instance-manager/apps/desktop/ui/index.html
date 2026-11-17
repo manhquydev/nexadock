@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Multi-Zalo Desktop — Instance Manager</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-block">
+        <h1>Multi-Zalo Desktop</h1>
+        <p class="subtitle">Isolated multi-profile launcher &amp; signed-host supervisor</p>
+      </div>
+      <div class="header-actions">
+        <span id="host-mode-badge" class="badge badge-neutral">Connecting...</span>
+        <button type="button" id="btn-refresh" class="btn btn-secondary">Refresh</button>
+        <button type="button" class="btn btn-secondary" command="show-modal" commandfor="safety-dialog">Safety Spec</button>
+        <button type="button" class="btn btn-primary" command="show-modal" commandfor="create-profile-dialog">New Profile</button>
+      </div>
+    </header>
+
+    <section class="summary-strip" aria-label="Environment Summary">
+      <article class="stat-card">
+        <span class="stat-label">App Discovery</span>
+        <strong id="stat-app" class="stat-value">Checking...</strong>
+        <span id="stat-app-meta" class="stat-meta">VNG Authenticode &amp; path</span>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">Primary Zalo</span>
+        <strong id="stat-primary" class="stat-value">Checking...</strong>
+        <span id="stat-primary-meta" class="stat-meta">Protected (%APPDATA%\ZaloData)</span>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">Isolated Profiles</span>
+        <strong id="stat-profiles" class="stat-value">0 / 0 running</strong>
+        <span id="stat-data-dir" class="stat-meta">Data dir loading...</span>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">Host Security</span>
+        <strong id="stat-security" class="stat-value">Checking...</strong>
+        <span id="stat-security-meta" class="stat-meta">UAC &amp; Smart App Control</span>
+      </article>
+    </section>
+
+    <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
+
+    <main class="tabs" id="main-tabs">
+      <div focusgroup="tablist nomemory" aria-label="Workspace Views" class="tablist">
+        <button type="button" role="tab" id="tab-profiles" aria-selected="true" focusgroupstart>Profiles</button>
+        <button type="button" role="tab" id="tab-backups" aria-selected="false">Backups</button>
+        <button type="button" role="tab" id="tab-diagnostics" aria-selected="false">Diagnostics</button>
+        <button type="button" role="tab" id="tab-os-readiness" aria-selected="false">OS Readiness</button>
+      </div>
+
+      <div role="tabpanel" id="panel-profiles" aria-labelledby="tab-profiles" tabindex="0">
+        <div class="panel-body">
+          <div class="panel-toolbar">
+            <div>
+              <h2>Isolated Profiles</h2>
+              <p class="panel-hint">Each profile runs in its own isolated <code>USERPROFILE</code>, <code>APPDATA</code>, and <code>TEMP</code> sandbox without touching primary Zalo.</p>
+            </div>
+            <div class="toolbar-controls">
+              <label class="checkbox-label">
+                <input type="checkbox" id="toggle-sizes">
+                <span>Measure disk sizes</span>
+              </label>
+              <button type="button" class="btn btn-primary" command="show-modal" commandfor="create-profile-dialog">New Profile</button>
+            </div>
+          </div>
+
+          <div tabindex="0" role="region" aria-labelledby="profiles-table-caption" class="table-wrapper">
+            <table class="data-table profiles-table">
+              <caption id="profiles-table-caption">Isolated Zalo Desktop Profiles</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Profile</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">PID / Window</th>
+                  <th scope="col">Zalo User ID</th>
+                  <th scope="col">Memory / Disk</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="profiles-tbody">
+                <tr>
+                  <th scope="row">Loading...</th>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div role="tabpanel" id="panel-backups" aria-labelledby="tab-backups" hidden="until-found">
+        <div class="panel-body">
+          <div class="panel-toolbar">
+            <div>
+              <h2>Offline Atomic Backups</h2>
+              <p class="panel-hint">Backups require the profile to be stopped, verify SHA-256 manifests, and always restore into a brand-new profile.</p>
+            </div>
+            <button type="button" id="btn-refresh-backups" class="btn btn-secondary">Reload Backups</button>
+          </div>
+
+          <div tabindex="0" role="region" aria-labelledby="backups-table-caption" class="table-wrapper">
+            <table class="data-table backups-table">
+              <caption id="backups-table-caption">Verified Profile Backups</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Backup</th>
+                  <th scope="col">Source Profile</th>
+                  <th scope="col">Files / Size</th>
+                  <th scope="col">Created (UTC)</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="backups-tbody">
+                <tr>
+                  <th scope="row">No backups yet</th>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div role="tabpanel" id="panel-diagnostics" aria-labelledby="tab-diagnostics" hidden="until-found">
+        <div class="panel-body">
+          <div class="panel-toolbar">
+            <div>
+              <h2>Isolation &amp; Security Diagnostics</h2>
+              <p class="panel-hint">Verifies path boundaries, NTFS ACLs, Restart Manager lockfile ownership, and redacted host logs.</p>
+            </div>
+            <button type="button" id="btn-run-isolation" class="btn btn-secondary">Run Verify-Isolation</button>
+          </div>
+
+          <div tabindex="0" role="region" aria-labelledby="diagnostics-table-caption" class="table-wrapper">
+            <table class="data-table diagnostics-table">
+              <caption id="diagnostics-table-caption">Isolation &amp; Host Security Checks</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Check</th>
+                  <th scope="col">Result</th>
+                  <th scope="col">Detail</th>
+                </tr>
+              </thead>
+              <tbody id="diagnostics-tbody">
+                <tr>
+                  <th scope="row">Loading...</th>
+                  <td>—</td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="log-section">
+            <h3>Sanitized Diagnostic Log</h3>
+            <pre id="sanitized-log-output" class="log-viewer" tabindex="0">No events recorded yet.</pre>
+          </div>
+        </div>
+      </div>
+
+      <div role="tabpanel" id="panel-os-readiness" aria-labelledby="tab-os-readiness" hidden="until-found">
+        <div class="panel-body">
+          <div class="panel-toolbar">
+            <div>
+              <h2>Platform &amp; OS Readiness Matrix</h2>
+              <p class="panel-hint">Honest compatibility assessment across Windows 10/11, macOS, and Ubuntu LTS without binary patching.</p>
+            </div>
+          </div>
+
+          <div tabindex="0" role="region" aria-labelledby="readiness-table-caption" class="table-wrapper">
+            <table class="data-table readiness-table">
+              <caption id="readiness-table-caption">Cross-Platform Support &amp; Limitations</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Platform</th>
+                  <th scope="col">Support Status</th>
+                  <th scope="col">Isolation Strategy</th>
+                  <th scope="col">Known Limits</th>
+                </tr>
+              </thead>
+              <tbody id="readiness-tbody">
+                <tr>
+                  <th scope="row">Loading...</th>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Create Profile Modal -->
+  <dialog id="create-profile-dialog" aria-labelledby="create-profile-title" closedby="any">
+    <div class="dialog-header">
+      <h2 id="create-profile-title">Create Isolated Profile</h2>
+    </div>
+    <form method="dialog" id="create-profile-form" class="dialog-form">
+      <div class="form-field">
+        <label for="create-profile-name">Profile Display Name</label>
+        <input id="create-profile-name" name="name" type="text" required maxlength="64" placeholder="e.g. Đức - Công việc" autofocus>
+      </div>
+      <div class="form-field">
+        <label for="create-profile-notes">Notes (optional, non-secret)</label>
+        <input id="create-profile-notes" name="notes" type="text" maxlength="200" placeholder="Work account">
+      </div>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn btn-secondary" formnovalidate>Cancel</button>
+        <button type="submit" value="create" class="btn btn-primary">Create Profile</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Rename Profile Modal -->
+  <dialog id="rename-profile-dialog" aria-labelledby="rename-profile-title" closedby="any">
+    <div class="dialog-header">
+      <h2 id="rename-profile-title">Rename Profile</h2>
+    </div>
+    <form method="dialog" id="rename-profile-form" class="dialog-form">
+      <p id="rename-profile-subtitle" class="dialog-copy"></p>
+      <div class="form-field">
+        <label for="rename-profile-name">New Display Name</label>
+        <input id="rename-profile-name" name="newName" type="text" required maxlength="64" autofocus>
+      </div>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn btn-secondary" formnovalidate>Cancel</button>
+        <button type="submit" value="rename" class="btn btn-primary">Save Name</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Delete Profile Confirmation Modal (safe Cancel button gets autofocus) -->
+  <dialog id="delete-profile-dialog" aria-labelledby="delete-profile-title">
+    <div class="dialog-header">
+      <h2 id="delete-profile-title">Delete Profile &amp; Isolated Data?</h2>
+    </div>
+    <form method="dialog" id="delete-profile-form" class="dialog-form">
+      <p id="delete-profile-warning" class="dialog-copy">This permanently removes the isolated directory and unlinks any NTFS junctions safely. Primary Zalo data is never touched.</p>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn btn-secondary" autofocus>Cancel</button>
+        <button type="submit" value="delete" class="btn btn-danger">Delete Profile</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Restore Backup Modal -->
+  <dialog id="restore-backup-dialog" aria-labelledby="restore-backup-title" closedby="any">
+    <div class="dialog-header">
+      <h2 id="restore-backup-title">Restore Backup to New Profile</h2>
+    </div>
+    <form method="dialog" id="restore-backup-form" class="dialog-form">
+      <p id="restore-backup-subtitle" class="dialog-copy">Non-destructive restore verifies SHA-256 checksums and always creates a new profile.</p>
+      <div class="form-field">
+        <label for="restore-profile-name">New Profile Name (optional)</label>
+        <input id="restore-profile-name" name="restoredName" type="text" maxlength="64" placeholder="Leave blank for automatic name" autofocus>
+      </div>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn btn-secondary" formnovalidate>Cancel</button>
+        <button type="submit" value="restore" class="btn btn-primary">Verify &amp; Restore</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Safety Specification Modal (uses declarative command="close" outside <form>) -->
+  <dialog id="safety-dialog" aria-labelledby="safety-dialog-title" closedby="any">
+    <div class="dialog-header">
+      <h2 id="safety-dialog-title">Isolation &amp; Security Guarantees</h2>
+    </div>
+    <div class="dialog-body">
+      <ul class="safety-list">
+        <li><strong>Non-privileged execution:</strong> Runs strictly as standard user (<code>asInvoker</code>), zero drivers or HKLM writes.</li>
+        <li><strong>Primary Zalo protection:</strong> Inspects <code>%APPDATA%\ZaloData\lockfile</code> via Restart Manager and blocks any stop/kill targeting primary PIDs.</li>
+        <li><strong>Duplicate account guard:</strong> Blocks launching two profiles with the same logged-in <code>zalo_user_id</code> simultaneously.</li>
+        <li><strong>Offline atomic backups:</strong> Staged via <code>.partial</code> with SHA-256 <code>backup.json</code>; restores strictly into a new profile.</li>
+        <li><strong>Known OS limits:</strong> Concurrent voice/video calls remain blocked by global named pipe <code>PipeZCallRecv</code>; notifications share AUMID <code>com.vng.zalo</code>.</li>
+      </ul>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-primary" command="close" commandfor="safety-dialog" autofocus>Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

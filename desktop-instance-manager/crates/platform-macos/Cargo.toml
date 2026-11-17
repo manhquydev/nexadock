@@ -1,0 +1,22 @@
+[package]
+name = "dim-platform-macos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "macOS platform adapter (NotTested on hardware): CFFIXED_USER_HOME isolation, SingletonLock parser, and ZaloCall socket diagnostics"
+
+[lints]
+workspace = true
+
+[dependencies]
+dim-core = { workspace = true }
+dim-profile-store = { workspace = true }
+dim-process-manager = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

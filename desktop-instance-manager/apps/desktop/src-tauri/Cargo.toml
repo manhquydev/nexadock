@@ -1,0 +1,30 @@
+[package]
+name = "dim-desktop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+license = "MIT OR Apache-2.0"
+description = "Tauri 2 desktop shell for MultiZaloDesktop isolated instance manager"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dim-core = { path = "../../../crates/core" }
+dim-profile-store = { path = "../../../crates/profile-store" }
+dim-process-manager = { path = "../../../crates/process-manager" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+dim-platform-windows = { path = "../../../crates/platform-windows" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+dim-platform-macos = { path = "../../../crates/platform-macos" }
+
+[target.'cfg(all(not(target_os = "windows"), not(target_os = "macos")))'.dependencies]
+dim-platform-linux = { path = "../../../crates/platform-linux" }
+
+[workspace]
+

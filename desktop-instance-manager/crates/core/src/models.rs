@@ -1,0 +1,387 @@
+//! Domain data models and schemas shared across storage, process management, and adapters.
+
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+use crate::error::DimError;
+
+/// Current version of `profiles.json`.
+pub const PROFILES_SCHEMA_VERSION: u32 = 1;
+
+/// Current version of `backup.json` manifests.
+pub const BACKUP_SCHEMA_VERSION: u32 = 1;
+
+/// Minimum free disk threshold required before creating profiles or backups (5 GiB).
+pub const MIN_FREE_DISK_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+
+/// Hidden marker file stored inside each profile's `ZaloData` directory to bind identity.
+pub const ZALO_PROFILE_ID_FILE: &str = ".zalo-profile-id";
+
+/// Environment variable overriding the default application data root.
+pub const DIM_DATA_DIR_ENV: &str = "DIM_DATA_DIR";
+
+/// Default application directory name under the OS data root.
+pub const APP_DIR_NAME: &str = "MultiZaloDesktop";
+
+/// Supported target desktop platforms.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PlatformKind {
+    /// Microsoft Windows 10/11.
+    Windows,
+    /// Apple macOS.
+    MacOs,
+    /// Linux desktop environments.
+    Linux,
+}
+
+impl PlatformKind {
+    /// Detects the compile-time host platform.
+    #[must_use]
+    pub const fn current() -> Self {
+        if cfg!(target_os = "windows") {
+            Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::MacOs
+        } else {
+            Self::Linux
+        }
+    }
+
+    /// Returns lowercase canonical identifier string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::MacOs => "macos",
+            Self::Linux => "linux",
+        }
+    }
+}
+
+/// Honest feature and platform support matrix status.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SupportStatus {
+    /// Verified and tested on target OS.
+    SupportedAndTested,
+    /// Core flows work with documented feature limitations (e.g., concurrent calls blocked).
+    PartiallySupported,
+    /// Supported only for local fixtures or user-supplied local bundles.
+    Experimental,
+    /// Blocked by an external OS or application constraint.
+    Blocked,
+    /// Not supported on this platform.
+    Unsupported,
+    /// Architecture implemented but requires verification on target hardware.
+    NotTested,
+}
+
+/// Single profile entry in `profiles.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProfileRecord {
+    /// 8-character lowercase hexadecimal identifier.
+    pub id: String,
+    /// User-facing display name.
+    pub name: String,
+    /// Sanitized folder name `<slug>_<8hex>` under `<data_dir>/Profiles/`.
+    pub directory_name: String,
+    /// Creation timestamp formatted as RFC 3339 UTC.
+    pub created_at: String,
+    /// Timestamp of most recent launch formatted as RFC 3339 UTC, or `null`.
+    #[serde(default)]
+    pub last_launched_at: Option<String>,
+    /// Detected numeric Zalo user ID (`Database/_production/<6+ digits>`), or `null`.
+    #[serde(default)]
+    pub zalo_user_id: Option<String>,
+    /// Optional user notes.
+    #[serde(default)]
+    pub notes: String,
+}
+
+/// Root document persisted in `<data_dir>/profiles.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProfilesDocument {
+    /// Schema format version (must equal [`PROFILES_SCHEMA_VERSION`]).
+    pub schema_version: u32,
+    /// Ordered list of managed profiles.
+    pub profiles: Vec<ProfileRecord>,
+}
+
+impl Default for ProfilesDocument {
+    fn default() -> Self {
+        Self {
+            schema_version: PROFILES_SCHEMA_VERSION,
+            profiles: Vec::new(),
+        }
+    }
+}
+
+/// Discovered target desktop application installation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApplicationInstallation {
+    /// Whether a valid runnable application was discovered.
+    pub is_valid: bool,
+    /// Platform this installation applies to.
+    pub platform: PlatformKind,
+    /// Root installation path (e.g., `%LOCALAPPDATA%\Programs\Zalo` or `/Applications/Zalo.app`).
+    pub install_root: PathBuf,
+    /// Optional stub launcher executable.
+    pub launcher_path: Option<PathBuf>,
+    /// Primary Electron/runtime executable or bundle path.
+    pub executable_path: Option<PathBuf>,
+    /// Located `app.asar` bundle path when applicable.
+    pub app_asar_path: Option<PathBuf>,
+    /// Parsed semantic version string.
+    pub version: Option<String>,
+    /// Authenticode / code-signature status summary.
+    pub signature_status: String,
+    /// Signer subject CN if present.
+    pub signer_subject: Option<String>,
+    /// Support classification for this installation.
+    pub support_status: SupportStatus,
+    /// Informative notes or warnings.
+    pub notes: Vec<String>,
+    /// Diagnostic error if `is_valid` is `false`.
+    pub error: Option<String>,
+}
+
+/// Target application invocation descriptor.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LaunchTarget {
+    /// Official VNG Zalo Desktop installation.
+    OfficialZalo {
+        /// Optional override directory instead of standard OS install path.
+        custom_install_root: Option<PathBuf>,
+    },
+    /// User-supplied local executable or AppImage (e.g., Linux AppImage or compiled fixture).
+    CustomExecutable {
+        /// Absolute path to executable.
+        path: PathBuf,
+        /// Additional CLI arguments.
+        args: Vec<String>,
+    },
+    /// Node.js test fixture (`fixture-app.mjs`) executed via signed `node`.
+    NodeFixture {
+        /// Optional path to `node` binary (defaults to `"node"` in `PATH`).
+        node_path: Option<PathBuf>,
+        /// Absolute path to `fixture-app.mjs`.
+        script_path: PathBuf,
+        /// Additional CLI arguments passed to `fixture-app.mjs`.
+        extra_args: Vec<String>,
+    },
+}
+
+/// Observed runtime state of an isolated profile instance.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProfileRuntimeState {
+    /// Profile 8-hex identifier.
+    pub profile_id: String,
+    /// Profile display name.
+    pub profile_name: String,
+    /// Isolated profile root directory (`<data_dir>/Profiles/<directory_name>`).
+    pub profile_dir: PathBuf,
+    /// Isolated `ZaloData` path inside the profile directory.
+    pub zalo_data_dir: PathBuf,
+    /// Path to Chromium single-instance lockfile (`lockfile` or `SingletonLock`).
+    pub lockfile_path: PathBuf,
+    /// True if an active owning process is verified alive.
+    pub running: bool,
+    /// True if lockfile/signal remnants exist on disk without an alive process.
+    pub stale_lock_detected: bool,
+    /// Main process PID if running.
+    pub main_pid: Option<u32>,
+    /// All descendant process IDs belonging to this profile's process tree.
+    pub process_ids: Vec<u32>,
+    /// Number of active processes in this profile's process tree.
+    pub process_count: usize,
+    /// Aggregate working-set memory in bytes across active profile processes.
+    pub working_set_bytes: u64,
+    /// Native window handle if detected on Windows.
+    pub window_handle: Option<u64>,
+    /// Visible window title if detected.
+    pub window_title: Option<String>,
+    /// Detected numeric Zalo user ID (`Database/_production/<6+ digits>`).
+    pub detected_zalo_user_id: Option<String>,
+    /// Total bytes occupied on disk by the profile directory.
+    pub disk_usage_bytes: u64,
+    /// Human-readable status summary.
+    pub status_label: String,
+}
+
+/// Inspection status of the user's untouched primary Zalo Desktop installation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PrimaryInstanceStatus {
+    /// Primary user `ZaloData` directory (e.g., `%APPDATA%\ZaloData`).
+    pub zalo_data_dir: PathBuf,
+    /// Primary `lockfile` or `SingletonLock` path.
+    pub lockfile_path: PathBuf,
+    /// True if primary Zalo Desktop is currently running.
+    pub running: bool,
+    /// Protected PIDs belonging to primary Zalo that must NEVER be terminated.
+    pub protected_pids: Vec<u32>,
+    /// Process tree count of primary Zalo if running.
+    pub process_count: usize,
+    /// Diagnostic observations.
+    pub notes: Vec<String>,
+}
+
+/// Platform capability and limitation report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlatformCapabilityReport {
+    /// Target platform.
+    pub platform: PlatformKind,
+    /// Overall platform status.
+    pub overall_status: SupportStatus,
+    /// Status for official VNG Zalo Desktop.
+    pub official_zalo_status: SupportStatus,
+    /// Status for the local multi-instance test desktop fixture.
+    pub fixture_status: SupportStatus,
+    /// Status for user-supplied local AppImage (Linux only).
+    pub appimage_status: Option<SupportStatus>,
+    /// Status for concurrent audio/video calls across multiple instances.
+    pub concurrent_calls_status: SupportStatus,
+    /// True if Windows Folder Redirection moves `AppData` away from `%USERPROFILE%`.
+    pub folder_redirection_detected: bool,
+    /// Unexpanded registry value if Folder Redirection was detected.
+    pub folder_redirection_path: Option<String>,
+    /// Explicit technical limitations on this platform.
+    pub limitations: Vec<String>,
+    /// Additional diagnostic checks.
+    pub diagnostics: Vec<String>,
+}
+
+/// Single file entry recorded inside `backup.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupFileEntry {
+    /// Forward-slash normalized relative path within the backup payload.
+    pub relative_path: String,
+    /// Exact byte size of the file.
+    pub size_bytes: u64,
+    /// Lowercase hex SHA-256 digest.
+    pub sha256: String,
+}
+
+/// Atomic backup manifest stored as `<backup_dir>/backup.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupManifest {
+    /// Schema version (`1`).
+    pub schema_version: u32,
+    /// Unique backup identifier.
+    pub backup_id: String,
+    /// Creation timestamp formatted as RFC 3339 UTC.
+    pub created_at: String,
+    /// Source profile 8-hex ID.
+    pub source_profile_id: String,
+    /// Source profile display name.
+    pub source_profile_name: String,
+    /// Source directory name.
+    pub source_directory_name: String,
+    /// Source detected Zalo user ID, if known.
+    pub zalo_user_id: Option<String>,
+    /// Total backed-up files.
+    pub file_count: u64,
+    /// Total backed-up payload bytes.
+    pub total_bytes: u64,
+    /// Per-file SHA-256 inventory.
+    pub files: Vec<BackupFileEntry>,
+}
+
+/// Result returned when an atomic offline backup completes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupResult {
+    /// Final committed backup directory path.
+    pub backup_dir: PathBuf,
+    /// Path to `backup.json` manifest.
+    pub manifest_path: PathBuf,
+    /// Verified manifest written into the backup.
+    pub manifest: BackupManifest,
+}
+
+/// Summary of stale lock/crash recovery actions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecoveryReport {
+    /// Whether any stale artifacts were removed.
+    pub recovered: bool,
+    /// Relative names or paths of removed stale lock/signal files.
+    pub removed_files: Vec<String>,
+    /// Human-readable explanation.
+    pub summary: String,
+}
+
+/// Resolves the active application data directory.
+///
+/// Precedence:
+/// 1. Explicit `override_dir` argument
+/// 2. `DIM_DATA_DIR` environment variable (if non-empty)
+/// 3. OS-specific standard location (`%LOCALAPPDATA%\MultiZaloDesktop`,
+///    `~/Library/Application Support/MultiZaloDesktop`, or
+///    `$XDG_DATA_HOME/MultiZaloDesktop`).
+pub fn resolve_data_dir(override_dir: Option<&Path>) -> Result<PathBuf, DimError> {
+    resolve_data_dir_for_platform(PlatformKind::current(), override_dir, &|key| {
+        std::env::var(key).ok()
+    })
+}
+
+/// Deterministic platform-parameterized variant of [`resolve_data_dir`] for testing.
+pub fn resolve_data_dir_for_platform(
+    platform: PlatformKind,
+    override_dir: Option<&Path>,
+    env_lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<PathBuf, DimError> {
+    if let Some(explicit) = override_dir {
+        if !explicit.as_os_str().is_empty() {
+            return Ok(explicit.to_path_buf());
+        }
+    }
+
+    if let Some(env_override) = env_lookup(DIM_DATA_DIR_ENV) {
+        let trimmed = env_override.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed));
+        }
+    }
+
+    match platform {
+        PlatformKind::Windows => {
+            if let Some(local) = env_lookup("LOCALAPPDATA").filter(|s| !s.trim().is_empty()) {
+                return Ok(PathBuf::from(local).join(APP_DIR_NAME));
+            }
+            if let Some(home) = env_lookup("USERPROFILE").filter(|s| !s.trim().is_empty()) {
+                return Ok(PathBuf::from(home)
+                    .join("AppData")
+                    .join("Local")
+                    .join(APP_DIR_NAME));
+            }
+            Err(DimError::SchemaError(
+                "cannot resolve %LOCALAPPDATA% or %USERPROFILE% on Windows".to_owned(),
+            ))
+        }
+        PlatformKind::MacOs => {
+            if let Some(home) = env_lookup("HOME").filter(|s| !s.trim().is_empty()) {
+                return Ok(PathBuf::from(home)
+                    .join("Library")
+                    .join("Application Support")
+                    .join(APP_DIR_NAME));
+            }
+            Err(DimError::SchemaError(
+                "cannot resolve $HOME on macOS".to_owned(),
+            ))
+        }
+        PlatformKind::Linux => {
+            if let Some(xdg) = env_lookup("XDG_DATA_HOME").filter(|s| !s.trim().is_empty()) {
+                return Ok(PathBuf::from(xdg).join(APP_DIR_NAME));
+            }
+            if let Some(home) = env_lookup("HOME").filter(|s| !s.trim().is_empty()) {
+                return Ok(PathBuf::from(home)
+                    .join(".local")
+                    .join("share")
+                    .join(APP_DIR_NAME));
+            }
+            Err(DimError::SchemaError(
+                "cannot resolve $XDG_DATA_HOME or $HOME on Linux".to_owned(),
+            ))
+        }
+    }
+}

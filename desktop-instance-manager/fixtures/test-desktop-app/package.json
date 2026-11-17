@@ -1,0 +1,11 @@
+{
+  "name": "dim-test-desktop-app-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Zero-dependency signed-Node.js multi-instance desktop app test fixture mimicking Zalo Desktop single-instance locking, signals, and state",
+  "main": "fixture-app.mjs",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

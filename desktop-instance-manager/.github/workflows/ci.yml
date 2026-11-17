@@ -1,0 +1,131 @@
+name: MultiZaloDesktop CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-workspace:
+    name: Rust fmt, clippy, and unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy with warnings denied
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run workspace unit tests
+        run: cargo test --workspace --all-targets
+
+  cargo-deny:
+    name: Dependency licenses & security advisories (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run cargo-deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          manifest-path: Cargo.toml
+          arguments: --all-features
+
+  node-fixture-integration:
+    name: Node.js fixture & host integration tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify fixture-app.mjs syntax
+        run: node --check fixtures/test-desktop-app/fixture-app.mjs
+
+      - name: Run cross-platform fixture smoke check
+        shell: bash
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFileSync } from 'node:child_process';
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+
+          const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dim-ci-'));
+          execFileSync(process.execPath, ['fixtures/test-desktop-app/fixture-app.mjs', '--stay-ms=100'], {
+            env: { ...process.env, APPDATA: tmp, HOME: tmp, XDG_CONFIG_HOME: tmp },
+            stdio: 'inherit'
+          });
+          fs.rmSync(tmp, { recursive: true, force: true });
+          EOF
+
+      - name: Run full Windows PowerShell + UI integration suite
+        if: runner.os == 'Windows' && hashFiles('tests/run-fixture-tests.mjs') != ''
+        run: node tests/run-fixture-tests.mjs
+
+  tauri-desktop-check:
+    name: Tauri desktop crate check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux GTK/WebKitGTK dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Check Tauri desktop crate if present
+        shell: bash
+        run: |
+          if [ -f "apps/desktop/src-tauri/Cargo.toml" ]; then
+            cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+          else
+            echo "apps/desktop/src-tauri/Cargo.toml not present; skipping."
+          fi

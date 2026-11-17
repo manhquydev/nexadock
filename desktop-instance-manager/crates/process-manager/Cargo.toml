@@ -1,0 +1,17 @@
+[package]
+name = "dim-process-manager"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Primary Zalo protection guard, graceful quit orchestration, stale lock recovery, and duplicate account enforcement"
+
+[lints]
+workspace = true
+
+[dependencies]
+dim-core = { workspace = true }
+dim-profile-store = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

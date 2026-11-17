@@ -1,0 +1,165 @@
+﻿{
+    "executed_at_utc":  "2026-11-17T13:32:12.762Z",
+    "zalo_discovery":  {
+                           "version":  "26.10.20",
+                           "version_dir":  "Zalo-26.10.20",
+                           "authenticode_status":  "Signed (VNG)",
+                           "signer_subject":  "CN=VNG GROUP JSC, O=VNG GROUP JSC, S=Ho Chi Minh City, C=VN, SERIALNUMBER=0303490096, OID.2.5.4.15=Private Organization, OID.1.3.6.1.4.1.311.60.2.1.2=Ho Chi Minh City, OID.1.3.6.1.4.1.311.60.2.1.3=VN",
+                           "executable_sha256":  "75dc85559079ec2037d511a312b704b44ca3293e74da1900ccfe84e6299cac3e",
+                           "app_asar_sha256":  "d83256230e5d1d4483c2411f71936c3dc1562fb8a885fd8752cab17d229201e6"
+                       },
+    "primary_zalo_baseline":  {
+                                  "is_running":  true,
+                                  "process_count":  11,
+                                  "hashes_before":  {
+                                                        "config_json":  "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+                                                        "startup_log":  "91ebcb61b8fa2394d521a0fe613408e662e745bab82d7a8fadba8aa1bc43c963",
+                                                        "log_log":  "697b03394998d201e6621285bf2c31c229cc200315d49caa0574145a52a0a3c0"
+                                                    }
+                              },
+    "concurrency_checks":  {
+                               "two_concurrent_ok":  true,
+                               "three_concurrent_ok":  true,
+                               "startup_latency_ms":  {
+                                                          "alpha":  3437,
+                                                          "beta":  3832,
+                                                          "gamma":  4034,
+                                                          "beta_relaunch":  4144,
+                                                          "gamma_crash_recover":  4243
+                                                      },
+                               "resource_metrics":  [
+                                                        {
+                                                            "profile_id":  "f6c41071",
+                                                            "profile_name":  "PoC Alpha",
+                                                            "main_pid":  24868,
+                                                            "process_count":  9,
+                                                            "window_handle":  5768750,
+                                                            "working_set_mb":  1108.05,
+                                                            "private_mb":  653.98,
+                                                            "disk_mb":  32.43,
+                                                            "cpu_seconds":  20.39
+                                                        },
+                                                        {
+                                                            "profile_id":  "74a8bb74",
+                                                            "profile_name":  "PoC Beta",
+                                                            "main_pid":  24312,
+                                                            "process_count":  9,
+                                                            "window_handle":  919440,
+                                                            "working_set_mb":  1061.85,
+                                                            "private_mb":  626.84,
+                                                            "disk_mb":  20.3,
+                                                            "cpu_seconds":  20.2
+                                                        },
+                                                        {
+                                                            "profile_id":  "7e42562c",
+                                                            "profile_name":  "PoC Gamma",
+                                                            "main_pid":  24656,
+                                                            "process_count":  9,
+                                                            "window_handle":  4327148,
+                                                            "working_set_mb":  1197.27,
+                                                            "private_mb":  784.45,
+                                                            "disk_mb":  9.95,
+                                                            "cpu_seconds":  18.45
+                                                        }
+                                                    ],
+                               "per_profile_artifacts":  [
+                                                             {
+                                                                 "profile_id":  "f6c41071",
+                                                                 "has_lockfile":  true,
+                                                                 "has_local_state":  true,
+                                                                 "has_config_json":  true,
+                                                                 "has_migrate_config":  true,
+                                                                 "has_zalo_profile_id":  true
+                                                             },
+                                                             {
+                                                                 "profile_id":  "74a8bb74",
+                                                                 "has_lockfile":  true,
+                                                                 "has_local_state":  true,
+                                                                 "has_config_json":  true,
+                                                                 "has_migrate_config":  true,
+                                                                 "has_zalo_profile_id":  true
+                                                             },
+                                                             {
+                                                                 "profile_id":  "7e42562c",
+                                                                 "has_lockfile":  true,
+                                                                 "has_local_state":  true,
+                                                                 "has_config_json":  true,
+                                                                 "has_migrate_config":  true,
+                                                                 "has_zalo_profile_id":  true
+                                                             }
+                                                         ]
+                           },
+    "lifecycle_checks":  {
+                             "focus_ok":  true,
+                             "rename_while_running_ok":  true,
+                             "selective_stop_ok":  true,
+                             "selective_stop_ms":  3038,
+                             "relaunch_ok":  true,
+                             "crash_recovery_ok":  true,
+                             "crash_recovered_flag":  false
+                         },
+    "isolation_verification":  {
+                                   "ok":  true,
+                                   "all_passed":  true,
+                                   "timestamp_utc":  "2026-11-17T13:31:31.327Z",
+                                   "checks":  [
+                                                  {
+                                                      "check_name":  "ApplicationDiscovery",
+                                                      "passed":  true,
+                                                      "detail":  "Mode=official-zalo, Auth=Signed (VNG)"
+                                                  },
+                                                  {
+                                                      "check_name":  "PrimaryZaloDataSeparation",
+                                                      "passed":  true,
+                                                      "detail":  "All profiles isolated outside primary APPDATA\\ZaloData"
+                                                  },
+                                                  {
+                                                      "check_name":  "DistinctProfilePathsAndMarkers",
+                                                      "passed":  true,
+                                                      "detail":  "Checked 3 profile(s), markers_valid=True"
+                                                  },
+                                                  {
+                                                      "check_name":  "DistinctProcessOwnership",
+                                                      "passed":  true,
+                                                      "detail":  "Active isolated PIDs=3, Primary PIDs=11"
+                                                  },
+                                                  {
+                                                      "check_name":  "DistinctZaloUserIds",
+                                                      "passed":  true,
+                                                      "detail":  "No duplicate logged-in zalo_user_id among running instances"
+                                                  },
+                                                  {
+                                                      "check_name":  "RestrictiveNtfsAcls",
+                                                      "passed":  true,
+                                                      "detail":  "No Everyone or BUILTIN\\Users write access on Profiles directory"
+                                                  },
+                                                  {
+                                                      "check_name":  "FolderRedirectionCheck",
+                                                      "passed":  true,
+                                                      "detail":  "AppData resolves locally under USERPROFILE"
+                                                  }
+                                              ]
+                               },
+    "diagnostics_summary":  {
+                                "is_elevated":  false,
+                                "smart_app_control_state":  0,
+                                "folder_redirection":  {
+                                                           "redirected":  false,
+                                                           "is_unc":  false,
+                                                           "registry_value_sanitized":  "%USERPROFILE%\\AppData\\Roaming",
+                                                           "warning":  null
+                                                       },
+                                "disk_free_ok":  true,
+                                "profiles_acl_safe":  true
+                            },
+    "primary_integrity_checks":  {
+                                     "primary_hashes_after":  {
+                                                                  "config_json":  "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+                                                                  "startup_log":  "91ebcb61b8fa2394d521a0fe613408e662e745bab82d7a8fadba8aa1bc43c963",
+                                                                  "log_log":  "697b03394998d201e6621285bf2c31c229cc200315d49caa0574145a52a0a3c0"
+                                                              },
+                                     "primary_files_sha256_identical":  true,
+                                     "primary_process_preserved":  true,
+                                     "official_binary_sha256_unchanged":  true
+                                 }
+}
