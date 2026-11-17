@@ -602,6 +602,7 @@ namespace DesktopInstanceManager.Host
                         if (Directory.GetLastWriteTimeUtc(d) < cutoffUtc)
                         {
                             UnlinkJunctionsRecursively(d);
+                            VerifyZeroReparsePointsRemaining(d);
                             Directory.Delete(d, true);
                         }
                     }
@@ -1929,6 +1930,64 @@ namespace DesktopInstanceManager.Host
             File.WriteAllText(markerPath, profileId, new UTF8Encoding(false));
         }
 
+        private static void VerifyZeroReparsePointsRemaining(string rootPath)
+        {
+            if (string.IsNullOrEmpty(rootPath) || (!Directory.Exists(rootPath) && !File.Exists(rootPath))) return;
+            if (IsReparsePoint(rootPath))
+            {
+                throw new InvalidOperationException("IO_ERROR: Aborted recursive delete because root path '" + rootPath + "' is still a reparse point.");
+            }
+            if (!Directory.Exists(rootPath)) return;
+
+            Stack<string> stack = new Stack<string>();
+            stack.Push(rootPath);
+            while (stack.Count > 0)
+            {
+                string cur = stack.Pop();
+                string[] files = Directory.GetFiles(cur);
+                for (int i = 0; i < files.Length; i++)
+                {
+                    if (IsReparsePoint(files[i]))
+                    {
+                        throw new InvalidOperationException("IO_ERROR: Aborted recursive delete because remaining reparse point '" + files[i] + "' could not be unlinked.");
+                    }
+                }
+                string[] dirs = Directory.GetDirectories(cur);
+                for (int i = 0; i < dirs.Length; i++)
+                {
+                    if (IsReparsePoint(dirs[i]))
+                    {
+                        throw new InvalidOperationException("IO_ERROR: Aborted recursive delete because remaining directory junction '" + dirs[i] + "' could not be unlinked.");
+                    }
+                    stack.Push(dirs[i]);
+                }
+            }
+        }
+
+        private static void DeleteDirectoryContentsPreservingOpLock(string dirPath)
+        {
+            string[] files = Directory.GetFiles(dirPath);
+            for (int i = 0; i < files.Length; i++)
+            {
+                string name = Path.GetFileName(files[i]);
+                if (string.Equals(name, ".dim-profile.lock", StringComparison.OrdinalIgnoreCase)) continue;
+                if (IsReparsePoint(files[i]))
+                {
+                    throw new InvalidOperationException("IO_ERROR: Unexpected reparse point encountered during delete: " + files[i]);
+                }
+                File.Delete(files[i]);
+            }
+            string[] dirs = Directory.GetDirectories(dirPath);
+            for (int i = 0; i < dirs.Length; i++)
+            {
+                if (IsReparsePoint(dirs[i]))
+                {
+                    throw new InvalidOperationException("IO_ERROR: Unexpected directory junction encountered during delete: " + dirs[i]);
+                }
+                Directory.Delete(dirs[i], true);
+            }
+        }
+
         private static int UnlinkJunctionsRecursively(string dirPath)
         {
             if (!Directory.Exists(dirPath)) return 0;
@@ -2274,6 +2333,14 @@ namespace DesktopInstanceManager.Host
                 }
 
                 string profilePath = GetProfilePath(target);
+                string primaryZaloData = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZaloData")).TrimEnd('\\');
+                string trimmedProfile = Path.GetFullPath(profilePath).TrimEnd('\\');
+                if (string.Equals(trimmedProfile, primaryZaloData, StringComparison.OrdinalIgnoreCase) ||
+                    trimmedProfile.StartsWith(primaryZaloData + "\\", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Fail("PROTECTED_PRIMARY_PATH", "Refused delete: target path overlaps primary ZaloData.");
+                }
+
                 int unlinked = 0;
                 if (Directory.Exists(profilePath))
                 {
@@ -2287,8 +2354,45 @@ namespace DesktopInstanceManager.Host
                     }
                     else
                     {
-                        unlinked = UnlinkJunctionsRecursively(profilePath);
-                        Directory.Delete(profilePath, true);
+                        IDisposable opLock = null;
+                        try
+                        {
+                            opLock = AcquireProfileLockScope(profilePath, 0);
+                        }
+                        catch (Exception ex)
+                        {
+                            return Fail("PROFILE_RUNNING", ex.Message);
+                        }
+                        try
+                        {
+                            ProcessTreeSnapshot recheckSnap = CaptureProcessTreeSnapshot();
+                            Dictionary<string, object> recheckState = InspectProfileRuntime(target, recheckSnap, false);
+                            if ((bool)recheckState["running"])
+                            {
+                                return Fail("PROFILE_RUNNING", "Stop the running instance before deleting profile '" + target.name + "'.");
+                            }
+
+                            string markerPath = Path.Combine(profilePath, "AppData", "Roaming", "ZaloData", ".zalo-profile-id");
+                            if (File.Exists(markerPath))
+                            {
+                                string markerVal = File.ReadAllText(markerPath, Encoding.UTF8).Trim();
+                                if (!string.IsNullOrEmpty(markerVal) && !string.Equals(markerVal, target.id, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    return Fail("PROFILE_MARKER_MISMATCH", "Profile directory marker belongs to another profile (" + markerVal + ").");
+                                }
+                            }
+
+                            unlinked = UnlinkJunctionsRecursively(profilePath);
+                            VerifyZeroReparsePointsRemaining(profilePath);
+                            DeleteDirectoryContentsPreservingOpLock(profilePath);
+                        }
+                        finally
+                        {
+                            if (opLock != null) opLock.Dispose();
+                        }
+                        string opLockFile = Path.Combine(profilePath, ".dim-profile.lock");
+                        try { if (File.Exists(opLockFile)) File.Delete(opLockFile); } catch { }
+                        Directory.Delete(profilePath, false);
                     }
                 }
 

@@ -8,7 +8,7 @@ pub use backup::{
 };
 pub use store::{
     is_symlink_or_reparse, unlink_reparse_points_safe, verify_profile_id_marker,
-    write_profile_id_marker, JsonProfileStore,
+    verify_zero_reparse_points_remaining, write_profile_id_marker, JsonProfileStore,
 };
 
 #[cfg(test)]

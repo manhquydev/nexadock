@@ -388,7 +388,8 @@ pub fn sweep_abandoned_staging_dirs(root: &Path, max_age: Duration) -> Result<us
         let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
         let age = now.duration_since(modified).unwrap_or(Duration::ZERO);
         if age >= max_age {
-            let _ = unlink_reparse_points_safe(&path);
+            let _ = unlink_reparse_points_safe(&path)?;
+            crate::store::verify_zero_reparse_points_remaining(&path)?;
             fs::remove_dir_all(&path)?;
             swept += 1;
         }
