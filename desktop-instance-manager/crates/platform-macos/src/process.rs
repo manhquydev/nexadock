@@ -42,6 +42,7 @@ pub const MACOS_STALE_ZALODATA_ARTIFACTS: &[&str] = &[
     ".focus-signal",
     ".window-state.json",
     ".helper-pids.json",
+    "children.json",
 ];
 
 /// Structured launch provenance file persisted inside `<profile_dir>/.runtime-launch.json`.
@@ -806,8 +807,17 @@ pub fn stop_isolated_profile_tree(
         owned_tokens.insert(pid, tok);
     }
     let initial_count = u32::try_from(live_tree.process_ids.len()).unwrap_or(1);
+    let launch_rec = read_runtime_launch_record(profile_dir);
+    let is_headless_node_fixture = launch_rec.as_ref().is_some_and(|r| {
+        let lower = r.executable_path.to_ascii_lowercase();
+        lower.ends_with(".mjs") || lower.ends_with(".js")
+    });
+    let is_official_zalo = launch_rec.as_ref().is_some_and(|r| {
+        let lower = r.executable_path.to_ascii_lowercase();
+        lower.ends_with(".app") || lower.contains(".app/contents/macos/")
+    });
 
-    // Rule 2: Cooperative `.quit-signal` + Cocoa `NSRunningApplication.terminate()`.
+    // Rule 2: Cooperative `.quit-signal` + Cocoa `NSRunningApplication.terminate()` (for non-headless apps).
     if fs::symlink_metadata(zalo_data_dir).is_ok_and(|m| m.is_dir()) {
         let _ = write_signal_json_atomic(
             &zalo_data_dir.join(".quit-signal"),
@@ -817,7 +827,9 @@ pub fn stop_isolated_profile_tree(
             }),
         );
     }
-    let _ = request_graceful_app_terminate(ops, main_pid);
+    if !is_headless_node_fixture {
+        let _ = request_graceful_app_terminate(ops, main_pid);
+    }
 
     // Rule 3 & 6: Dedicated graceful window BEFORE any SIGTERM is ever sent.
     let effective_timeout_ms = timeout_ms.max(150);
@@ -883,7 +895,60 @@ pub fn stop_isolated_profile_tree(
         std::thread::sleep(Duration::from_millis(30));
     }
 
-    // Rule 8: Final fail-closed verification — never falsely report stopped if any owned PID hung!
+    // Rule 8 (`IR-MAC-02` + `LC-09` / `REL-07`):
+    // - Never send `SIGKILL` to `OfficialZalo` or any profile with active SQLite `-wal` files in
+    //   `Database/_production/`; fail closed with `DimError::ProcessError` and keep `.runtime-launch.json`.
+    // - For WAL-free non-Zalo fixture/helper trees ignoring `SIGTERM`, re-verify ownership + `start_token`
+    //   and escalate to isolated `SIGKILL`, reporting `Ok` ONLY once 0 owned PIDs survive.
+    let surviving_after_sigterm = collect_all_surviving_owned_pids(
+        ops,
+        profile_id,
+        profile_dir,
+        zalo_data_dir,
+        &owned_tokens,
+        &protected_set,
+    )?;
+    if surviving_after_sigterm.is_empty() {
+        finalize_clean_stop(ops, profile_id, profile_dir, zalo_data_dir);
+        return Ok(initial_count);
+    }
+
+    if is_official_zalo || has_active_sqlite_wal(zalo_data_dir) {
+        return Err(DimError::ProcessError(format!(
+            "profile '{profile_id}' failed to exit within {effective_timeout_ms}ms while SQLite WAL or OfficialZalo session is active; withholding SIGKILL to prevent database corruption (surviving owned PIDs: {surviving_after_sigterm:?})"
+        )));
+    }
+
+    for &pid in surviving_after_sigterm
+        .iter()
+        .filter(|&&p| p != main_pid)
+        .rev()
+    {
+        if !protected_set.contains(&pid) {
+            let _ = ops.send_sigkill(pid);
+        }
+    }
+    if surviving_after_sigterm.contains(&main_pid) && !protected_set.contains(&main_pid) {
+        let _ = ops.send_sigkill(main_pid);
+    }
+
+    let sigkill_deadline = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < sigkill_deadline {
+        let rem = collect_all_surviving_owned_pids(
+            ops,
+            profile_id,
+            profile_dir,
+            zalo_data_dir,
+            &owned_tokens,
+            &protected_set,
+        )?;
+        if rem.is_empty() {
+            finalize_clean_stop_after_forced_kill(ops, profile_id, profile_dir, zalo_data_dir);
+            return Ok(initial_count);
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
     let final_surviving = collect_all_surviving_owned_pids(
         ops,
         profile_id,
@@ -893,7 +958,7 @@ pub fn stop_isolated_profile_tree(
         &protected_set,
     )?;
     if final_surviving.is_empty() {
-        finalize_clean_stop(ops, profile_id, profile_dir, zalo_data_dir);
+        finalize_clean_stop_after_forced_kill(ops, profile_id, profile_dir, zalo_data_dir);
         Ok(initial_count)
     } else {
         Err(DimError::ProcessError(format!(
@@ -1278,10 +1343,69 @@ fn finalize_clean_stop(
     let _ = clear_runtime_launch_files(profile_dir);
     let _ = remove_file_no_follow(&zalo_data_dir.join(".quit-signal"));
     let _ = remove_file_no_follow(&zalo_data_dir.join(".helper-pids.json"));
+    let _ = remove_file_no_follow(&zalo_data_dir.join("children.json"));
     let _ = cleanup_profile_short_tmpdir(ops, profile_id);
 }
 
-/// Discovers live child/orphan helper PIDs recorded by `fixture-macos-app.mjs` on hosts where `/bin/ps` is absent.
+fn finalize_clean_stop_after_forced_kill(
+    ops: &dyn MacOsSystemOps,
+    profile_id: &str,
+    profile_dir: &Path,
+    zalo_data_dir: &Path,
+) {
+    finalize_clean_stop(ops, profile_id, profile_dir, zalo_data_dir);
+    for artifact in MACOS_STALE_ZALODATA_ARTIFACTS {
+        let _ = remove_file_no_follow(&zalo_data_dir.join(artifact));
+    }
+    if let Ok(entries) = fs::read_dir(zalo_data_dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name();
+            let s = fname.to_string_lossy();
+            if s.starts_with("worker-") && s.ends_with(".pid") {
+                let _ = remove_file_no_follow(&entry.path());
+            }
+        }
+    }
+}
+
+/// Checks whether `<zalo_data_dir>/Database/_production` contains any active SQLite `-wal` file (`IR-MAC-02`).
+#[must_use]
+pub fn has_active_sqlite_wal(zalo_data_dir: &Path) -> bool {
+    let prod_root = zalo_data_dir.join("Database").join("_production");
+    let Ok(meta) = fs::symlink_metadata(&prod_root) else {
+        return false;
+    };
+    if is_symlink_or_reparse(&meta) || !meta.is_dir() {
+        return false;
+    }
+    has_wal_recursive(&prod_root, 2)
+}
+
+fn has_wal_recursive(dir: &Path, depth: usize) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if is_symlink_or_reparse(&meta) {
+            continue;
+        }
+        if meta.is_file() {
+            let lower = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if lower.ends_with("-wal") {
+                return true;
+            }
+        } else if meta.is_dir() && depth > 0 && has_wal_recursive(&path, depth - 1) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Discovers live child/orphan helper PIDs recorded by `fixture-macos-app.mjs` or `xf-fixture.mjs` on hosts where `/bin/ps` is absent.
 fn augment_with_live_fixture_helpers(
     ops: &dyn MacOsSystemOps,
     zalo_data_dir: &Path,
@@ -1329,6 +1453,30 @@ fn augment_with_live_fixture_helpers(
                                 .and_then(|n| u32::try_from(n).ok())
                                 .unwrap_or(1);
                             candidate_helpers.push((hpid, ppid));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let children_file = zalo_data_dir.join("children.json");
+    if fs::symlink_metadata(&children_file).is_ok_and(|m| m.is_file()) {
+        if let Ok(raw) = fs::read_to_string(&children_file) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                let parent_pid = val
+                    .get("parent_pid")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(1);
+                if let Some(arr) = val.get("child_pids").and_then(serde_json::Value::as_array) {
+                    for item in arr {
+                        if let Some(cpid) = item
+                            .as_u64()
+                            .and_then(|n| u32::try_from(n).ok())
+                            .filter(|&p| p > 0)
+                        {
+                            candidate_helpers.push((cpid, parent_pid));
                         }
                     }
                 }

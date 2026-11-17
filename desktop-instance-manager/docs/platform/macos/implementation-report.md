@@ -3,11 +3,12 @@
 **Branch:** `feat/macos-multi-instance`  
 **Baseline Commit (`main`):** `a5feb4a520798064c1508c26fe4c4ac17a3a03cf`  
 **Stage 1 Commit:** `fb2abcfc419c56b9579eee124a3a169697ec2740`  
+**Stage 2 Commit:** `862822433a833f277004ffb5511c5bdbe28c6b09`  
 **Target Crate:** [`desktop-instance-manager/crates/platform-macos`](../../../crates/platform-macos/src/lib.rs)  
 **Verification Classification (6-State Taxonomy):**
 - **Compiler & Darwin Cross-Targets (`aarch64-apple-darwin`, `x86_64-apple-darwin`):** **`STATIC_VERIFIED`**
-- **Host Mock & Live Detached Process Harness (`39` Rust tests + `15` CLI E2E scenarios):** **`WINDOWS_HOST_FIXTURE_TESTED`**
-- **Native Darwin Kernel Execution (`macos-15` / `macos-15-intel`):** **`NOT_TESTED`** (**`BLOCKED`** locally — no physical Mac attached; remote GitHub Actions gated by `gh` `'workflow'` scope & 10x macOS billing policy)
+- **Host Mock & Live Detached Process Harness (`40` Rust tests + `15` CLI E2E scenarios + C2 `xf-test-runner` scratch overlay):** **`WINDOWS_HOST_FIXTURE_TESTED`**
+- **Native Darwin Kernel Execution (`macos-15` / `macos-15-intel`):** **`NOT_TESTED`** (**`BLOCKED`** locally — no physical Mac attached; remote GitHub Actions gated by default-branch workflow registration, `gh auth refresh -h github.com -s workflow`, & `$0.062/min` 10x macOS billing policy)
 - **Live Official VNG `/Applications/Zalo.app` Execution:** **`NOT_TESTED`** (`LIVE_ZALO_NOT_TESTED` / `SupportStatus::NotTested`)
 
 ---

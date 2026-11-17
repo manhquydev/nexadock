@@ -529,7 +529,9 @@ pub fn discover_zalo_bundle(
         if fs::symlink_metadata(explicit).is_err() {
             return Ok(None);
         }
-        return Ok(Some(inspect_bundle_at(ops, explicit)?));
+        return Ok(Some(inspect_bundle_at_with_stub_policy(
+            ops, explicit, true,
+        )?));
     }
 
     let mut candidates = vec![PathBuf::from(DEFAULT_SYSTEM_ZALO_APP)];
@@ -539,7 +541,7 @@ pub fn discover_zalo_bundle(
 
     for cand in &candidates {
         if fs::symlink_metadata(cand).is_ok() {
-            return Ok(Some(inspect_bundle_at(ops, cand)?));
+            return Ok(Some(inspect_bundle_at_with_stub_policy(ops, cand, false)?));
         }
     }
 
@@ -557,7 +559,9 @@ pub fn discover_zalo_bundle(
                         let cand = PathBuf::from(trimmed);
                         if validate_macos_path(&cand).is_ok() && fs::symlink_metadata(&cand).is_ok()
                         {
-                            return Ok(Some(inspect_bundle_at(ops, &cand)?));
+                            return Ok(Some(inspect_bundle_at_with_stub_policy(
+                                ops, &cand, false,
+                            )?));
                         }
                     }
                 }
@@ -572,6 +576,14 @@ pub fn discover_zalo_bundle(
 pub fn inspect_bundle_at(
     ops: &dyn MacOsSystemOps,
     bundle_path: &Path,
+) -> Result<ValidatedMacOsBundle, DimError> {
+    inspect_bundle_at_with_stub_policy(ops, bundle_path, false)
+}
+
+fn inspect_bundle_at_with_stub_policy(
+    ops: &dyn MacOsSystemOps,
+    bundle_path: &Path,
+    allow_custom_stub: bool,
 ) -> Result<ValidatedMacOsBundle, DimError> {
     validate_macos_path(bundle_path)?;
 
@@ -726,6 +738,7 @@ pub fn inspect_bundle_at(
         }
     }
 
+    let raw_prefix = read_header_prefix(&executable_path);
     let macho = inspect_macho_file(&executable_path).ok();
     let mut arch_error: Option<String> = None;
     let mut structural_tier = Some(AppIdentityVerificationTier::BundlePresent);
@@ -755,19 +768,32 @@ pub fn inspect_bundle_at(
             }
         }
         _ => {
-            notes.push("Executable header is non-Mach-O placeholder.".to_owned());
-            if ops.is_native_macos() {
+            if raw_prefix.starts_with(b"#!") {
+                arch_error = Some(format!(
+                    "script disguise (`#!`) rejected for macOS bundle executable {}",
+                    executable_path.display()
+                ));
+            } else if has_corrupt_macho_magic(&raw_prefix) {
+                arch_error = Some(format!(
+                    "corrupt Mach-O or Universal2 fat header in {}",
+                    executable_path.display()
+                ));
+            } else if ops.is_native_macos() && !allow_custom_stub {
                 arch_error = Some(format!(
                     "invalid Mach-O header in bundle executable {}",
                     executable_path.display()
                 ));
-                structural_tier = None;
+            } else {
+                notes.push(
+                    "Executable header is non-Mach-O placeholder (Tier 1 BUNDLE_PRESENT only; launch blocked)."
+                        .to_owned(),
+                );
             }
         }
     }
 
     if arch_error.is_some() {
-        structural_tier = Some(AppIdentityVerificationTier::BundlePresent);
+        structural_tier = None;
     }
 
     Ok(ValidatedMacOsBundle {
@@ -938,4 +964,25 @@ fn extract_ascii_runs(bytes: &[u8]) -> Vec<String> {
         }
     }
     runs
+}
+
+fn read_header_prefix(path: &Path) -> Vec<u8> {
+    let Ok(mut f) = File::open(path) else {
+        return Vec::new();
+    };
+    let mut buf = [0u8; 16];
+    let Ok(n) = f.read(&mut buf) else {
+        return Vec::new();
+    };
+    buf[..n].to_vec()
+}
+
+fn has_corrupt_macho_magic(prefix: &[u8]) -> bool {
+    let Ok(magic4) = <[u8; 4]>::try_from(prefix.get(0..4).unwrap_or(&[])) else {
+        return false;
+    };
+    let be = u32::from_be_bytes(magic4);
+    let le = u32::from_le_bytes(magic4);
+    matches!(be, FAT_MAGIC | FAT_CIGAM | FAT_MAGIC_64 | FAT_CIGAM_64)
+        || matches!(le, MH_MAGIC_64 | MH_CIGAM_64 | MH_MAGIC | MH_CIGAM)
 }

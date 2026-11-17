@@ -594,29 +594,43 @@ pub fn verify_external_db_path_isolated(
     let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
         return Ok(());
     };
-    let Some(loc_str) = val
+
+    let mut configured_locations: Vec<(&str, &str)> = Vec::new();
+    if let Some(db_loc) = val
         .get("db_path")
         .and_then(|d| d.get("location"))
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
-    else {
-        return Ok(());
-    };
+    {
+        configured_locations.push(("db_path.location", db_loc));
+    }
+    if let Some(res_obj) = val.get("resource").and_then(|r| r.get("location")) {
+        if let Some(res_str) = res_obj
+            .as_str()
+            .or_else(|| res_obj.get("path").and_then(serde_json::Value::as_str))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            configured_locations.push(("resource.location", res_str));
+        }
+    }
 
-    let ext_path = Path::new(loc_str);
-    ensure_not_macos_primary_path(ext_path, real_home)?;
-
-    let ext_key = normalize_macos_path_key(ext_path).to_lowercase();
     let prof_key = normalize_macos_path_key(profile_dir).to_lowercase();
-    if let Some(idx) = ext_key.find("/profiles/") {
-        let after = &ext_key[idx + "/profiles/".len()..];
-        let seg: String = after.chars().take_while(|&c| c != '/').collect();
-        if !seg.is_empty() && !prof_key.ends_with(&format!("/profiles/{seg}")) {
-            return Err(DimError::PathTraversal(format!(
-                "config.json db_path.location '{}' points into another managed profile",
-                ext_path.display()
-            )));
+    for (field_name, loc_str) in configured_locations {
+        let ext_path = Path::new(loc_str);
+        ensure_not_macos_primary_path(ext_path, real_home)?;
+
+        let ext_key = normalize_macos_path_key(ext_path).to_lowercase();
+        if let Some(idx) = ext_key.find("/profiles/") {
+            let after = &ext_key[idx + "/profiles/".len()..];
+            let seg: String = after.chars().take_while(|&c| c != '/').collect();
+            if !seg.is_empty() && !prof_key.ends_with(&format!("/profiles/{seg}")) {
+                return Err(DimError::PathTraversal(format!(
+                    "config.json {field_name} '{}' points into another managed profile",
+                    ext_path.display()
+                )));
+            }
         }
     }
     Ok(())
@@ -778,6 +792,71 @@ pub fn inspect_call_sockets_at(paths: &[&Path]) -> Vec<String> {
         }
     }
     active
+}
+
+/// Passively queries `/usr/sbin/lsof -nP -F pcu -U -- <socket>` for existing Unix domain sockets
+/// (`IR-MAC-04` / `TC-H5`, last-writer-wins owner diagnostics) without opening, connecting, or unlinking them.
+#[must_use]
+pub fn inspect_call_socket_owners(ops: &dyn MacOsSystemOps, paths: &[&Path]) -> Vec<String> {
+    if !ops.is_native_macos() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for &p in paths {
+        if fs::symlink_metadata(p).is_err() {
+            continue;
+        }
+        let args = vec![
+            "-nP".to_owned(),
+            "-F".to_owned(),
+            "pcu".to_owned(),
+            "-U".to_owned(),
+            "--".to_owned(),
+            p.to_string_lossy().into_owned(),
+        ];
+        if let Ok(res) = ops.run_command(Path::new("/usr/sbin/lsof"), &args, &[]) {
+            if res.success() {
+                for (pid, cmd, uid) in parse_lsof_socket_owners(&res.stdout_lossy()) {
+                    let cmd_label = cmd.unwrap_or_else(|| "unknown".to_owned());
+                    let uid_label = uid.map_or_else(|| "unknown".to_owned(), |u| u.to_string());
+                    out.push(format!(
+                        "call_socket_owner[{}]: pid={pid} cmd={cmd_label} uid={uid_label} (last-writer-wins)",
+                        p.display()
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Parses `lsof -F pcu` machine-readable field lines (`p<pid>`, `c<command>`, `u<uid>`).
+#[must_use]
+pub fn parse_lsof_socket_owners(lsof_stdout: &str) -> Vec<(u32, Option<String>, Option<u32>)> {
+    let mut owners = Vec::new();
+    let mut cur_pid: Option<u32> = None;
+    let mut cur_cmd: Option<String> = None;
+    let mut cur_uid: Option<u32> = None;
+
+    for raw_line in lsof_stdout.lines() {
+        let line = raw_line.trim();
+        if let Some(rest) = line.strip_prefix('p') {
+            if let Some(prev_pid) = cur_pid.take() {
+                owners.push((prev_pid, cur_cmd.take(), cur_uid.take()));
+            }
+            cur_pid = rest.parse::<u32>().ok().filter(|&p| p > 0);
+        } else if let Some(rest) = line.strip_prefix('c') {
+            if !rest.is_empty() {
+                cur_cmd = Some(rest.to_owned());
+            }
+        } else if let Some(rest) = line.strip_prefix('u') {
+            cur_uid = rest.parse::<u32>().ok();
+        }
+    }
+    if let Some(last_pid) = cur_pid {
+        owners.push((last_pid, cur_cmd, cur_uid));
+    }
+    owners
 }
 
 /// Normalizes a filesystem path into a forward-slash, trailing-slash-trimmed, NFD-canonical string

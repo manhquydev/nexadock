@@ -34,12 +34,13 @@ pub use layout::{
     cleanup_profile_short_tmpdir, derive_fixture_user_id, ensure_macos_profile_layout,
     ensure_macos_profile_layout_with_ops, ensure_macos_user_symlinks,
     ensure_macos_user_symlinks_with_options, ensure_not_macos_primary_path,
-    extract_plist_short_version, inspect_call_sockets_at, macos_zalo_data_dir,
-    normalize_macos_path_key, normalize_macos_unicode_key, parse_singleton_lock_target,
-    resolve_effective_tmpdir, verify_external_db_path_isolated, MacOsLayoutOptions,
-    MacOsResolvedLayout, DARWIN_SUN_PATH_MAX, MACOS_12_ISOLATED_SURFACES, MACOS_CALL_SOCKETS,
-    MACOS_OPT_IN_USER_SYMLINKS, MACOS_PROFILE_META_FILE, MACOS_SAFE_TMPDIR_MAX_BYTES,
-    MACOS_SUN_PATH_MAX, MACOS_SYMLINK_DIRS, MAC_CHROMIUM_TMPDIR_MAX_BYTES,
+    extract_plist_short_version, inspect_call_socket_owners, inspect_call_sockets_at,
+    macos_zalo_data_dir, normalize_macos_path_key, normalize_macos_unicode_key,
+    parse_lsof_socket_owners, parse_singleton_lock_target, resolve_effective_tmpdir,
+    verify_external_db_path_isolated, MacOsLayoutOptions, MacOsResolvedLayout, DARWIN_SUN_PATH_MAX,
+    MACOS_12_ISOLATED_SURFACES, MACOS_CALL_SOCKETS, MACOS_OPT_IN_USER_SYMLINKS,
+    MACOS_PROFILE_META_FILE, MACOS_SAFE_TMPDIR_MAX_BYTES, MACOS_SUN_PATH_MAX, MACOS_SYMLINK_DIRS,
+    MAC_CHROMIUM_TMPDIR_MAX_BYTES,
 };
 pub use ops::{
     CommandOutput, HostFixtureMacOsOps, MacOsSystemOps, MockMacOsSystemOps, MockSigtermHandler,
@@ -47,7 +48,7 @@ pub use ops::{
 };
 pub use process::{
     clear_runtime_launch_files, collect_descendant_pids, collect_profile_owned_pids,
-    compute_profile_disk_usage_bytes, inspect_primary_macos, parse_ps_table,
+    compute_profile_disk_usage_bytes, has_active_sqlite_wal, inspect_primary_macos, parse_ps_table,
     read_runtime_launch_record, read_runtime_pid, recover_macos_stale_artifacts,
     recover_macos_stale_artifacts_with_ops, remove_file_no_follow, resolve_owned_profile_tree,
     stop_isolated_profile_tree, symlink_or_file_present, write_runtime_launch_record,
@@ -56,8 +57,8 @@ pub use process::{
 };
 pub use window::{
     activate_profile_window, inspect_profile_window, parse_activation_stdout,
-    parse_jxa_windows_json, request_graceful_app_terminate, WindowActivationOutcome,
-    MACOS_WINDOW_STATE_FILE,
+    parse_jxa_windows_json, request_graceful_app_terminate, signal_fixture_focus_only,
+    WindowActivationOutcome, MACOS_WINDOW_STATE_FILE,
 };
 
 #[cfg(test)]

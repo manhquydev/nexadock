@@ -11,8 +11,9 @@
 
 - **Repository Baseline (`main`):** `a5feb4a520798064c1508c26fe4c4ac17a3a03cf`
 - **Stage 1 Commit (`Mission A`):** `fb2abcfc419c56b9579eee124a3a169697ec2740`
-- **Stage 2 Commit (`Mission A2` `HEAD`):** Top commit on `feat/macos-multi-instance` directly parenting `fb2abcfc419c56b9579eee124a3a169697ec2740` (`git -C C:/Users/manhquy/Downloads/zalo-macos-worktree rev-parse HEAD`; exact SHA reported on the swarm message board at handoff).
-- **`Cargo.lock` & `crates/platform-macos/Cargo.toml` Diff:** **Zero bytes changed (`100%` untouched).**
+- **Stage 2 Commit (`Mission A2`):** `862822433a833f277004ffb5511c5bdbe28c6b09`
+- **Stage 2-Delta Commit (`C2`/`D2`/`E2` & `67b7447` Integration Alignment `HEAD`):** Top commit on `feat/macos-multi-instance` directly parenting `862822433a833f277004ffb5511c5bdbe28c6b09` (`git -C C:/Users/manhquy/Downloads/zalo-macos-worktree rev-parse HEAD`; exact SHA reported on the swarm board at handoff).
+- **`Cargo.lock` & `crates/platform-macos/Cargo.toml` Diff:** **Zero bytes changed (`100%` untouched; `0` `git merge-tree` conflicts with `zalo-integration` @ `67b7447`).**
 
 ---
 
@@ -75,11 +76,14 @@ All modifications from baseline `a5feb4a520798064c1508c26fe4c4ac17a3a03cf` resid
 | **`P0-4` / `DEFECT-06`** | `layout.rs`, `adapter.rs` | Default symlinks broke `CT-03` (`LC-09`) on Unix | Default `symlink_user_dirs: false, symlink_keychain: false` yields `0` symlinks unless explicitly opted in. |
 | **`P1-1`** | `layout.rs`, `process.rs` | Flat `/tmp/dim-zalo-<uid>-<id>` (`54B` threshold) left leftover dirs on stop | Hardened to `/tmp/dz-<uid>/<id>` (`<= 49B`, `MAC_CHROMIUM_TMPDIR`, atomic non-recursive `0o700`, `lstat` anti-squat) + `cleanup_profile_short_tmpdir`. |
 | **`P1-2`** | `process.rs`, `ops.rs` | `SIGTERM` could fire prematurely; hung processes reported stopped | Enforced dedicated `2/3` graceful window before `SIGTERM`, `ppid == 1` orphan reaping, and fail-closed `Err(DimError::ProcessError)` when hung. |
-| **`P1-3`** | `window.rs`, `adapter.rs` | `System Events` triggered TCC prompts; macOS 14+ `activate() -> false` ignored; focus didn't re-verify PID ownership | Removed `System Events`, verified `activated=true` & `active=true` fail-closed, and re-verified live ownership in `focus_or_restore` before touching `.focus-signal` or `osascript`. |
+| **`P1-3` / `Delta-P0-2`** | `window.rs`, `adapter.rs` | `System Events` triggered TCC prompts; macOS 14+ `activate() -> false` ignored; headless `NodeFixture` failed `NSRunningApplication` (`LC-06`) | Removed `System Events` (`IR-MAC-03`), verified `activated=true` & `active=true` fail-closed on GUI apps, wrote `.focus-signal` directly for headless `NodeFixture` (`LC-06`), and re-verified live ownership before focus. |
+| **`Delta-P0-1`** | `bundle.rs`, `adapter.rs` | `XP-MAC-01` synthetic `b"macho-stub"` failed `discover_installation` when `is_native_macos() == true` | Separated locator structural validity (`is_valid`, rejecting `#!` scripts, corrupt Fat headers, wrong arch, and `Tampered`/`GatekeeperRejected`/`WrongPublisher`) from fail-closed `launch(OfficialZalo)` (`ValidMachO` + Tier-5 `VerifiedPublisher` required -> `UNVERIFIED_BINARY`). |
+| **`Delta-P0-3` / `IR-MAC-02`** | `ops.rs`, `process.rs` | `LC-09` & `REL-07` hung WAL-free fixtures ignore `SIGTERM`, whereas `IR-MAC-02` forbids `SIGKILL` when SQLite `-wal` is active | Added `has_active_sqlite_wal` + `send_sigkill`: **withholds `SIGKILL`** and fails closed (`PROCESS_ERROR`) on `OfficialZalo` or active `Database/_production/*-wal`, while re-verifying `lstart` and reaping WAL-free hung fixtures + `children.json` / `ppid=1` orphans in `LC-09` & `REL-07`. |
+| **`F-CORE-01` / `IR-MAC-04`** | `layout.rs`, `adapter.rs` | `config.json -> resource.location.path` & passive `ZaloCall` socket owner (`TC-H5`) | Extended `verify_external_db_path_isolated` to `resource.location.path` and added passive `inspect_call_socket_owners` (`lsof -nP -F pcu -U`, `F-MAC-04`, `F-MAC-05`). |
 
 ---
 
-## 6. Regression Test IDs (`39/39` Rust + `15/15` E2E CLI Scenarios)
+## 6. Regression Test IDs (`40/40` Rust + `15/15` E2E CLI Scenarios)
 
 - **Rust Unit Tests (`crates/platform-macos/src/lib.rs`):**
   - `tests::singleton_lock_parser_handles_hyphenated_hostnames`
@@ -96,18 +100,20 @@ All modifications from baseline `a5feb4a520798064c1508c26fe4c4ac17a3a03cf` resid
   - `p1_3_all_four_macos_14_window_activation_and_zero_tcc_cases`
   - `scenario_7_concurrent_duplicate_launch_guard_blocks_parallel_race`
   - `scenario_10_11_12_13_symlink_unlink_unicode_nfc_nfd_path_max_and_permissions`
+  - `stage_2_delta_c2_d2_native_darwin_parity_regressions` (`XP-MAC-01`, `LC-06`, `LC-09`, `REL-07`, `IR-MAC-02..04`, `F-CORE-01`)
 - **Live E2E CLI Scenarios (`tests/platform-macos/run-macos-fixture-tests.mjs`):**
   - Scenarios `1..13` (`single_session`, `two_sessions`, `three_sessions`, `isolated_data_12_surfaces`, `relaunch`, `individual_close`, `duplicate_operation_guard`, `crash_recovery`, `ownership_and_primary_protection`, `safe_symlink_deletion`, `unicode_nfc_nfd`, `long_paths_sun_len_path_max`, `permission_failures`) + Scenario `14` (`slow_prelock_and_auto_userid`) + Scenario `15` (`graceful_delayed_hung_orphan_shutdown`).
+- **D2 Cross-Reference Matrix:** `F-MAC-01` (`IR-MAC-01`, `TC-H3`), `F-MAC-02` (`IR-MAC-02`, `TC-H4`), `F-MAC-03` (`IR-MAC-03`, `TC-H4`), `F-MAC-04` & `F-MAC-05` (`IR-MAC-04`, `TC-H5`), `F-CORE-01` (`TC-H7`), `F-CORE-02` (`Squirrel.Mac` update guidance).
 
 ---
 
 ## 7. Native macOS Test Evidence & Exact Blocker Analysis
 
-- **Local Execution Evidence (`WINDOWS_HOST_FIXTURE_TESTED` & `STATIC_VERIFIED`):** Executed on Windows x64 (`rustc 1.100.0`, `node v26.13.1`); all `39/39` workspace Rust tests and `15/15` E2E CLI scenarios passed with `0` warnings across host + `aarch64-apple-darwin` + `x86_64-apple-darwin`.
+- **Local Execution Evidence (`WINDOWS_HOST_FIXTURE_TESTED` & `STATIC_VERIFIED`):** Executed on Windows x64 (`rustc 1.100.0`, `node v26.13.1`); all `40/40` workspace Rust tests, `15/15` E2E CLI scenarios, and overlaid C2 `xf-test-runner --mode release-regression` checks in `$TEMP` against `67b7447` passed with `0` warnings across host + `aarch64-apple-darwin` + `x86_64-apple-darwin`.
 - **Native Darwin Execution (`DARWIN_NATIVE_TESTED`):** **`NOT_TESTED` (`BLOCKED` in this local environment)** due to three verified facts:
   1. No physical Apple Silicon or Intel Mac is attached to this Windows workstation.
-  2. Local `gh` (`2.104.0`) OAuth token has scopes `'gist, read:org, repo'` and lacks `'workflow'`, and `origin/main` currently has `0` registered GitHub Actions workflows.
-  3. Triggering private-repository GitHub-hosted macOS runners incurs a 10x Actions billing multiplier (`$0.062/min`) and pushing branches to `origin` is unauthorized under our swarm scope rules.
+  2. `.github/workflows/cross-platform-validation.yml` (`macos-arm64-build` on `macos-15`, `macos-intel-build` on `macos-15-intel`) is staged in `zalo-integration` (`67b7447`) and not yet on default branch `origin/main` (`0` registered remote workflows), and local `gh` (`2.104.0`) lacks `'workflow'` OAuth scope (grant least-privilege via `gh auth refresh -h github.com -s workflow` without `,user`).
+  3. Private-repository GitHub Actions uses USD-based metering (`$12.00/mo` Free credit, `$18.00/mo` Pro; `ubuntu-24.04` `$0.006/min` `1x`, `windows-2022` `$0.010/min` `2x`, `macos-15` & `macos-15-intel` `$0.062/min` `10x` multiplier; default Ubuntu+Windows dispatch `~$0.246/run` vs full 4-OS dispatch `~$2.044/run` = **88.0% savings**), so opt-in Darwin runs require explicit user/coordinator authorization.
 
 ---
 

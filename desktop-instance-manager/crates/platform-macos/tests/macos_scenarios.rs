@@ -404,12 +404,28 @@ fn p0_1_all_seven_bundle_and_codesign_identity_failure_modes_plus_tier5_verified
     let unpinned_adapter = MacOsPlatformAdapter::with_system_ops(Arc::new(unpinned_mock));
     let unpinned_disc = unpinned_adapter.discover_installation(Some(&app)).unwrap();
     assert!(
-        !unpinned_disc.is_valid,
-        "Default unpinned adapter must NOT claim VerifiedPublisher!"
+        !unpinned_disc
+            .signature_status
+            .starts_with("VerifiedPublisher"),
+        "Default unpinned adapter must NEVER claim VerifiedPublisher!"
     );
     assert!(unpinned_disc
         .signature_status
         .contains("UnverifiedPublisher"));
+    let unpinned_launch_err = unpinned_adapter
+        .launch(
+            &LaunchTarget::OfficialZalo {
+                custom_install_root: Some(app.clone()),
+            },
+            &prof,
+            &tmp.path().join("Profiles").join("unpinned_aabbccdd"),
+        )
+        .unwrap_err();
+    assert_eq!(
+        unpinned_launch_err.code(),
+        "UNVERIFIED_BINARY",
+        "Unpinned OfficialZalo launch must fail closed with UNVERIFIED_BINARY!"
+    );
 
     // Positive Tier 5 (`VerifiedPublisherIdentity`): explicit pinned policy + `-R=...` + nested helpers verified.
     let pinned_mock =
@@ -1405,4 +1421,226 @@ fn scenario_10_11_12_13_symlink_unlink_unicode_nfc_nfd_path_max_and_permissions(
         .unwrap();
     assert!(!d_link.exists());
     assert_eq!(fs::read_to_string(&sentinel).unwrap(), "HOST_DATA_INTACT");
+}
+
+#[test]
+fn stage_2_delta_c2_d2_native_darwin_parity_regressions() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // 1. Delta-P0-1 (`XP-MAC-01` on native Darwin): `b"macho-stub"` custom locator bundle returns
+    //    `is_valid == true` & `NotTested` with honest `Unsigned` status, while `launch()` rejects it!
+    let stub_bundle = tmp.path().join("Zalo.app");
+    fs::create_dir_all(stub_bundle.join("Contents/MacOS")).unwrap();
+    fs::create_dir_all(stub_bundle.join("Contents/Resources")).unwrap();
+    fs::write(stub_bundle.join("Contents/MacOS/Zalo"), b"macho-stub").unwrap();
+    fs::write(
+        stub_bundle.join("Contents/Resources/app.asar"),
+        b"asar-stub",
+    )
+    .unwrap();
+    fs::write(
+        stub_bundle.join("Contents/Info.plist"),
+        r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>26.10.20</string></dict></plist>"#,
+    )
+    .unwrap();
+
+    let darwin_unsigned_mock =
+        MockMacOsSystemOps::new_macos(tmp.path().join("h_xp"), tmp.path().join("s_xp"))
+            .with_command_handler(Arc::new(|prog, args, _| {
+                if prog.to_string_lossy().ends_with("codesign")
+                    && args.iter().any(|a| a == "--verify")
+                {
+                    return Ok(CommandOutput {
+                        status_code: Some(1),
+                        stdout: Vec::new(),
+                        stderr: b"Zalo.app: code object is not signed at all\n".to_vec(),
+                    });
+                }
+                Ok(CommandOutput {
+                    status_code: Some(0),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            }));
+    let darwin_adapter = MacOsPlatformAdapter::with_system_ops(Arc::new(darwin_unsigned_mock));
+    let xp_disc = darwin_adapter
+        .discover_installation(Some(&stub_bundle))
+        .unwrap();
+    assert!(xp_disc.is_valid);
+    assert_eq!(xp_disc.version.as_deref(), Some("26.10.20"));
+    assert_eq!(xp_disc.support_status, SupportStatus::NotTested);
+    assert_eq!(xp_disc.signature_status, "Unsigned");
+
+    let stub_prof = make_profile("1122aabb", "Stub Block", "stub_1122aabb");
+    let stub_pdir = tmp.path().join("Profiles").join(&stub_prof.directory_name);
+    let stub_launch_err = darwin_adapter
+        .launch(
+            &LaunchTarget::OfficialZalo {
+                custom_install_root: Some(stub_bundle),
+            },
+            &stub_prof,
+            &stub_pdir,
+        )
+        .unwrap_err();
+    assert_eq!(stub_launch_err.code(), "UNVERIFIED_BINARY");
+
+    // Script disguise (`#!`) in bundle executable MUST return `is_valid == false` even in discover_installation!
+    let script_bundle = tmp.path().join("ScriptDisguise.app");
+    fs::create_dir_all(script_bundle.join("Contents/MacOS")).unwrap();
+    fs::write(
+        script_bundle.join("Contents/MacOS/Zalo"),
+        b"#!/bin/sh\necho pwn\n",
+    )
+    .unwrap();
+    fs::write(
+        script_bundle.join("Contents/Info.plist"),
+        r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>1.0</string></dict></plist>"#,
+    )
+    .unwrap();
+    assert!(
+        !darwin_adapter
+            .discover_installation(Some(&script_bundle))
+            .unwrap()
+            .is_valid
+    );
+
+    // 2. Delta-P0-2 (`LC-06` headless `NodeFixture` focus on Darwin): writes `.focus-signal` without `osascript`!
+    let focus_prof = make_profile("3344ccdd", "Headless Node Focus", "focus_3344ccdd");
+    let focus_pdir = tmp.path().join("Profiles").join(&focus_prof.directory_name);
+    let focus_zdata = macos_zalo_data_dir(&focus_pdir);
+    let mock_node = Arc::new(
+        MockMacOsSystemOps::new_macos(tmp.path().join("h_nf"), tmp.path().join("s_nf"))
+            .with_command_handler(Arc::new(|prog, _, _| {
+                if prog.to_string_lossy().ends_with("osascript") {
+                    return Ok(CommandOutput {
+                        status_code: Some(0),
+                        stdout: b"status=missing activated=false active=false\n".to_vec(),
+                        stderr: Vec::new(),
+                    });
+                }
+                Ok(CommandOutput {
+                    status_code: Some(0),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            })),
+    );
+    mock_node.set_processes(vec![ProcessEntry {
+        pid: 7400,
+        ppid: 1,
+        uid: 501,
+        rss_kib: 32_000,
+        start_token: Some("Mon Nov 17 14:00:00 2026".to_owned()),
+        executable: "node".to_owned(),
+        args: format!(
+            "node xf-fixture.mjs --user-data-dir={}",
+            focus_zdata.display()
+        ),
+    }]);
+    let node_adapter =
+        MacOsPlatformAdapter::with_system_ops(mock_node.clone()).with_signature_enforcement(false);
+    node_adapter
+        .ensure_profile_layout(&focus_prof, &focus_pdir)
+        .unwrap();
+    let node_rt = node_adapter
+        .inspect_profile(&focus_prof, &focus_pdir)
+        .unwrap();
+    let node_target = LaunchTarget::NodeFixture {
+        node_path: None,
+        script_path: locate_fixture_script(),
+        extra_args: Vec::new(),
+    };
+    node_adapter
+        .focus_or_restore(&node_target, &focus_prof, &focus_pdir, &node_rt)
+        .unwrap();
+    assert!(focus_zdata.join(".focus-signal").is_file());
+    assert!(
+        mock_node.commands().is_empty(),
+        "Headless NodeFixture focus_or_restore must not call osascript!"
+    );
+
+    // 3. Delta-P0-3 (`LC-09` & `REL-07` WAL-free hung fixture): when `.db-wal` is absent, `stop()` escalates
+    //    from `SIGTERM` to `send_sigkill` and reaps the hung fixture cleanly!
+    let store = JsonProfileStore::new(tmp.path().join("dim_delta")).unwrap();
+    store.ensure_initialized().unwrap();
+    let live_adapter = MacOsPlatformAdapter::for_fixture_host(
+        tmp.path().join("sim_home"),
+        tmp.path().join("stmp"),
+    );
+    let walfree_prof = store.create_profile("WAL Free Hung", "").unwrap();
+    let walfree_dir = store.profile_dir_for(&walfree_prof).unwrap();
+    let rt_wf = live_adapter
+        .launch(
+            &LaunchTarget::NodeFixture {
+                node_path: None,
+                script_path: locate_fixture_script(),
+                extra_args: vec!["--hang-on-quit".to_owned(), "--stay-ms=8000".to_owned()],
+            },
+            &walfree_prof,
+            &walfree_dir,
+        )
+        .unwrap();
+    let wf_pid = rt_wf.main_pid.unwrap();
+    // Remove `.db-wal` to simulate C2's WAL-free `xf-fixture.mjs --hang-on-quit` (`LC-09` / `REL-07`).
+    let prod_dir = rt_wf.zalo_data_dir.join("Database").join("_production");
+    if let Ok(entries) = fs::read_dir(&prod_dir) {
+        for sub in entries.flatten() {
+            if let Ok(files) = fs::read_dir(sub.path()) {
+                for f in files.flatten() {
+                    if f.file_name().to_string_lossy().ends_with("-wal") {
+                        let _ = fs::remove_file(f.path());
+                    }
+                }
+            }
+        }
+    }
+    assert!(!dim_platform_macos::has_active_sqlite_wal(
+        &rt_wf.zalo_data_dir
+    ));
+    let killed = live_adapter.stop(&rt_wf, &[], 350).unwrap();
+    assert!(killed >= 1);
+    assert!(!live_adapter.system_ops().is_pid_alive(wf_pid));
+
+    // 4. D2 `F-CORE-01` `resource.location.path` check & D2 `IR-MAC-04` passive `lsof` socket owner check (`TC-H5`).
+    fs::write(
+        rt_wf.zalo_data_dir.join("config.json"),
+        serde_json::json!({
+            "resource": { "location": { "path": macos_zalo_data_dir(&tmp.path().join("sim_home")).to_string_lossy() } }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        verify_external_db_path_isolated(
+            &rt_wf.zalo_data_dir,
+            &walfree_dir,
+            Some(&tmp.path().join("sim_home"))
+        )
+        .unwrap_err()
+        .code(),
+        "PROTECTED_PRIMARY_PATH"
+    );
+
+    let fake_call_sock = tmp.path().join("dim-test-zcall-recv");
+    fs::write(&fake_call_sock, b"").unwrap();
+    let lsof_mock = MockMacOsSystemOps::new_macos(tmp.path().join("h_ls"), tmp.path().join("s_ls"))
+        .with_command_handler(Arc::new(|prog, _, _| {
+            if prog.to_string_lossy().ends_with("lsof") {
+                return Ok(CommandOutput {
+                    status_code: Some(0),
+                    stdout: b"p4912\ncZaloCall\nu501\n".to_vec(),
+                    stderr: Vec::new(),
+                });
+            }
+            Ok(CommandOutput {
+                status_code: Some(0),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            })
+        }));
+    let owners =
+        dim_platform_macos::inspect_call_socket_owners(&lsof_mock, &[fake_call_sock.as_path()]);
+    assert_eq!(owners.len(), 1);
+    assert!(owners[0].contains("pid=4912") && owners[0].contains("cmd=ZaloCall"));
+    assert!(fake_call_sock.is_file());
 }

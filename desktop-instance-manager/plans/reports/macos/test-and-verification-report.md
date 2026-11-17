@@ -6,7 +6,7 @@
 **Host Environment:** Windows x64 (`rustc 1.100.0`, `cargo 1.100.0`, `clippy 0.1.100`, `node v26.13.1`, installed cross-targets `aarch64-apple-darwin` & `x86_64-apple-darwin`)  
 **6-State Verification Summary:**
 - **Compiler / Lint / Cross-Targets:** **`STATIC_VERIFIED`**
-- **Automated Rust + Live Node Fixture Suites:** **`WINDOWS_HOST_FIXTURE_TESTED`** (`39/39` Rust tests + `15/15` E2E CLI scenarios)
+- **Automated Rust + Live Node Fixture Suites:** **`WINDOWS_HOST_FIXTURE_TESTED`** (`40/40` Rust tests + `15/15` E2E CLI scenarios + C2 `xf-test-runner` scratch overlay against `67b7447`)
 - **Native Darwin Kernel Runtime (`macos-15`, `macos-15-intel`):** **`NOT_TESTED`** (`0` false claims of `DARWIN_NATIVE_TESTED`)
 - **Live Official `/Applications/Zalo.app` Runtime:** **`NOT_TESTED`** (`LIVE_ZALO_NOT_TESTED`, `0` false claims of `LIVE_ZALO_TESTED`)
 
@@ -19,7 +19,7 @@
 | `cargo fmt --all -- --check` | Workspace formatting | `0` | `STATIC_VERIFIED` | **PASS** (zero diffs) |
 | `cargo check --workspace --all-targets --locked` | All 7 workspace crates + tests + examples | `0` | `STATIC_VERIFIED` | **PASS** (0 errors, 0 warnings) |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | All 7 workspace crates + tests + examples | `0` | `STATIC_VERIFIED` | **PASS** (0 warnings) |
-| `cargo test --workspace --all-targets --locked` | `39` Rust unit & integration tests across workspace | `0` | `WINDOWS_HOST_FIXTURE_TESTED` | **PASS (`39/39` passed)** |
+| `cargo test --workspace --all-targets --locked` | `40` Rust unit & integration tests across workspace | `0` | `WINDOWS_HOST_FIXTURE_TESTED` | **PASS (`40/40` passed)** |
 | `cargo check -p dim-platform-macos --target aarch64-apple-darwin --locked` | Apple Silicon (`arm64` macOS) | `0` | `STATIC_VERIFIED` | **PASS** (`#[cfg(target_os = "macos")]` & `#[cfg(unix)]` verified) |
 | `cargo clippy -p dim-platform-macos --no-deps --target aarch64-apple-darwin --locked -- -D warnings` | Apple Silicon (`arm64` macOS) | `0` | `STATIC_VERIFIED` | **PASS** (0 warnings in `dim-platform-macos`)* |
 | `cargo check -p dim-platform-macos --target x86_64-apple-darwin --locked` | Intel Mac (`x86_64` macOS) | `0` | `STATIC_VERIFIED` | **PASS** (`#[cfg(target_os = "macos")]` & `#[cfg(unix)]` verified) |
@@ -31,13 +31,13 @@
 
 ---
 
-## 2. Rust Unit & Integration Test Breakdown (`crates/platform-macos`, `13/13 PASS`)
+## 2. Rust Unit & Integration Test Breakdown (`crates/platform-macos`, `14/14 PASS`)
 
 - **Unit tests (`crates/platform-macos/src/lib.rs`, `3/3 PASS`):**
   1. `tests::singleton_lock_parser_handles_hyphenated_hostnames`
   2. `tests::open_command_builder_sets_cffixed_user_home`
   3. `tests::macos_layout_defaults_isolated_and_not_tested_status`
-- **Stage-2 hardened integration & safety regression suites (`crates/platform-macos/tests/macos_scenarios.rs`, `10/10 PASS`):**
+- **Stage-2 & Stage-2-Delta hardened integration & safety regression suites (`crates/platform-macos/tests/macos_scenarios.rs`, `11/11 PASS`):**
   1. `macho_inspector_parses_arm64_x86_64_universal2_and_fat64` — thin `MH_MAGIC_64`, `FAT_MAGIC`, `FAT_MAGIC_64`, corrupt header rejection.
   2. `p0_1_all_seven_bundle_and_codesign_identity_failure_modes_plus_tier5_verified_publisher` — unsigned/adhoc, tampered nested `ZaloHelper.app`, wrong `TeamIdentifier` (even with `"VNG"` substring), missing bundle, malformed XML & failed `bplist00` `plutil`, `arm64`-on-`x86_64`, unpinned default policy, positive Tier-5 `-R=...` `VerifiedPublisher`, and `XP-MAC-01`.
   3. `p0_2_twelve_surface_data_isolation_ct03_and_external_db_path_guard` — 3 live profiles verified across all 12 surfaces (`verify_12_surface_runtime_isolation`), `CT-03` (`unlink_profile_junctions == Ok(0)`), close/relaunch preservation, untouched primary `ZaloData`, and `F-CORE-01` `config.json -> db_path.location` guard.
@@ -48,6 +48,7 @@
   8. `p1_3_all_four_macos_14_window_activation_and_zero_tcc_cases` — zero `System Events` assertions, cooperative `activated=false` -> `PROCESS_ERROR`, `activated=true` -> `Ok`, unowned live PID rejected before `osascript`, and dead PID -> `NOT_RUNNING`.
   9. `scenario_7_concurrent_duplicate_launch_guard_blocks_parallel_race` — in-process `Barrier` contention returning `PROCESS_ERROR`.
   10. `scenario_10_11_12_13_symlink_unlink_unicode_nfc_nfd_path_max_and_permissions` — Vietnamese/Hangul NFC/NFD normalization, `PATH_MAX` (`1024B`), `0700`/`0777`/`0500` permission checks, and safe junction/symlink unlinking before deletion.
+  11. `stage_2_delta_c2_d2_native_darwin_parity_regressions` — C2 `XP-MAC-01` native Darwin `b"macho-stub"` discovery (`is_valid == true`, `Unsigned`, `NotTested`) vs fail-closed `launch()` (`UNVERIFIED_BINARY`), `#!` script disguise rejection, `LC-06` headless `NodeFixture` `.focus-signal` without `osascript`, `LC-09`/`REL-07` WAL-free hung fixture `send_sigkill` escalation vs `IR-MAC-02` SQLite `-wal` `SIGKILL` refusal, `F-CORE-01` `resource.location.path` guard, and `IR-MAC-04` (`TC-H5`) passive `lsof` socket-owner parsing.
 
 ---
 

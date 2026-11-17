@@ -24,17 +24,20 @@ use dim_profile_store::{
     is_symlink_or_reparse, unlink_reparse_points_safe, verify_profile_id_marker,
 };
 
-use crate::bundle::{discover_zalo_bundle, validate_macos_path, DEFAULT_SYSTEM_ZALO_APP};
+use crate::bundle::{
+    discover_zalo_bundle, validate_macos_path, AppIdentityVerificationTier, DEFAULT_SYSTEM_ZALO_APP,
+};
 use crate::codesign::{
     enforce_signature_tier_or_err, verify_macos_bundle_identity, verify_macos_code_signature,
-    PinnedPublisherPolicy,
+    CodeSignTrustStatus, PinnedPublisherPolicy,
 };
 use crate::layout::{
     build_isolated_child_env, build_open_launch_args, derive_fixture_user_id,
     ensure_macos_profile_layout_with_ops, ensure_macos_user_symlinks_with_options,
-    ensure_not_macos_primary_path, inspect_call_sockets_at, macos_zalo_data_dir,
-    normalize_macos_path_key, MacOsLayoutOptions, DARWIN_SUN_PATH_MAX, MACOS_12_ISOLATED_SURFACES,
-    MACOS_CALL_SOCKETS, MACOS_PROFILE_META_FILE, MACOS_SAFE_TMPDIR_MAX_BYTES,
+    ensure_not_macos_primary_path, inspect_call_socket_owners, inspect_call_sockets_at,
+    macos_zalo_data_dir, normalize_macos_path_key, verify_external_db_path_isolated,
+    MacOsLayoutOptions, DARWIN_SUN_PATH_MAX, MACOS_12_ISOLATED_SURFACES, MACOS_CALL_SOCKETS,
+    MACOS_PROFILE_META_FILE, MACOS_SAFE_TMPDIR_MAX_BYTES,
 };
 #[cfg(target_os = "macos")]
 use crate::ops::NativeMacOsSystemOps;
@@ -48,7 +51,7 @@ use crate::process::{
     stop_isolated_profile_tree, symlink_or_file_present, write_launch_target_hint,
     write_runtime_launch_record, ProfileOperationGuard, RuntimeLaunchRecord,
 };
-use crate::window::{activate_profile_window, inspect_profile_window};
+use crate::window::{activate_profile_window, inspect_profile_window, signal_fixture_focus_only};
 
 /// Honest machine-readable live verification marker when no physical Mac GUI was attached.
 pub const LIVE_ZALO_STATUS_MARKER: &str = "LIVE_ZALO_NOT_TESTED";
@@ -266,10 +269,23 @@ impl ApplicationLocator for MacOsPlatformAdapter {
             );
         }
 
-        let sig_check =
-            enforce_signature_tier_or_err(&sig_report, self.config.require_signature_trust, true);
-        let is_valid = sig_check.is_ok();
-        let error = sig_check.err().map(|e| e.to_string());
+        // ApplicationLocator separates structural discovery (`is_valid`) from launch-time Tier-5
+        // enforcement (`launch` -> `DimError::UnverifiedBinary`), rejecting tampered, Gatekeeper-rejected,
+        // or wrong-publisher bundles immediately while honestly reporting exact 5-tier `signature_status`.
+        let hard_trust_violation = self.config.require_signature_trust
+            && matches!(
+                sig_report.status,
+                CodeSignTrustStatus::TamperedSignature
+                    | CodeSignTrustStatus::GatekeeperRejected
+                    | CodeSignTrustStatus::WrongPublisher
+            );
+        let is_valid = !hard_trust_violation;
+        let error = hard_trust_violation.then(|| {
+            sig_report
+                .detail
+                .clone()
+                .unwrap_or_else(|| sig_report.summary_label.clone())
+        });
 
         Ok(ApplicationInstallation {
             is_valid,
@@ -305,8 +321,11 @@ impl PlatformCapabilities for MacOsPlatformAdapter {
                 .to_owned(),
             "Process ownership requires `.zalo-profile-id` + `.runtime-launch.json` + `ps -o lstart=` start token + argv lineage."
                 .to_owned(),
+            "Dock unread badges (`app.dock.setBadge`) are independent per `open -n` instance (`F-MAC-04`)."
+                .to_owned(),
         ];
         diagnostics.extend(inspect_call_sockets_at(&socket_paths));
+        diagnostics.extend(inspect_call_socket_owners(&*self.ops, &socket_paths));
 
         let fixture_status = if self.ops.supports_runtime_ops() {
             SupportStatus::SupportedAndTested
@@ -327,9 +346,9 @@ impl PlatformCapabilities for MacOsPlatformAdapter {
                 format!(
                     "{LIVE_ZALO_STATUS_MARKER}: macOS official Zalo.app CFFIXED_USER_HOME isolation has not been executed on physical macOS hardware in this workspace."
                 ),
-                "ZaloHelper.app/Contents/MacOS/ZaloCall binds hardcoded global /tmp/socketzalorecv2021 (fs.unlink conflict on concurrent calls)."
+                "ZaloHelper.app/Contents/MacOS/ZaloCall binds hardcoded global /tmp/socketzalorecv2021 & /tmp/socketzalosend2021 (last-writer-wins fs.unlink conflict on concurrent calls; stop & relaunch target profile last to rebind call audio)."
                     .to_owned(),
-                "macOS UNUserNotificationCenter and zalo:// URL handlers bind to shared CFBundleIdentifier (com.vng.zalo)."
+                "macOS UNUserNotificationCenter (`usernoted`) and `zalo://` URL handlers bind to shared CFBundleIdentifier (com.vng.zalo), whereas Dock unread badges (`app.dock.setBadge`) remain per-instance."
                     .to_owned(),
                 "macOS 14+ (Sonoma/Sequoia) NSRunningApplication.activate() is cooperative and fails closed if frontmost focus is declined."
                     .to_owned(),
@@ -480,12 +499,21 @@ impl InstanceLauncher for MacOsPlatformAdapter {
         )?;
 
         verify_profile_id_marker(&resolved_layout.zalo_data_dir, &profile.id, true)?;
+        verify_external_db_path_isolated(
+            &resolved_layout.zalo_data_dir,
+            profile_dir,
+            real_home.as_deref(),
+        )?;
 
-        // Idempotency: if already running, attempt cooperative focus and return existing session.
+        // Idempotency: if already running, signal or cooperatively focus existing session.
         let before = self.inspect_profile(profile, profile_dir)?;
         if before.running {
             if let Some(pid) = before.main_pid {
-                let _ = activate_profile_window(&*self.ops, &before.zalo_data_dir, pid);
+                if matches!(target, LaunchTarget::NodeFixture { .. }) {
+                    let _ = signal_fixture_focus_only(&before.zalo_data_dir, pid);
+                } else {
+                    let _ = activate_profile_window(&*self.ops, &before.zalo_data_dir, pid);
+                }
             }
             return self.inspect_profile(profile, profile_dir);
         }
@@ -501,23 +529,44 @@ impl InstanceLauncher for MacOsPlatformAdapter {
             LaunchTarget::OfficialZalo {
                 custom_install_root,
             } => {
-                let install = self.discover_installation(custom_install_root.as_deref())?;
-                if !install.is_valid {
-                    let msg = install
-                        .error
-                        .unwrap_or_else(|| "Zalo.app installation invalid".to_owned());
-                    if install.signature_status.starts_with("Unsigned")
-                        || install.signature_status.starts_with("Unverified")
-                    {
-                        return Err(DimError::UnverifiedBinary(msg));
-                    }
-                    return Err(DimError::InstallNotFound(msg));
+                let fallback_root = custom_install_root
+                    .as_deref()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| PathBuf::from(DEFAULT_SYSTEM_ZALO_APP));
+                let Some(bundle) =
+                    discover_zalo_bundle(&*self.ops, custom_install_root.as_deref())?
+                else {
+                    return Err(DimError::InstallNotFound(format!(
+                        "macOS Zalo.app not found at {}",
+                        fallback_root.display()
+                    )));
+                };
+                if let Some(structural_err) = bundle.validation_error {
+                    return Err(DimError::InstallNotFound(structural_err));
                 }
+                if (self.config.require_signature_trust || self.ops.is_native_macos())
+                    && bundle.structural_tier < Some(AppIdentityVerificationTier::ValidMachO)
+                {
+                    return Err(DimError::UnverifiedBinary(format!(
+                        "refusing to launch OfficialZalo without a valid Mach-O executable at {}",
+                        bundle.executable_path.display()
+                    )));
+                }
+                let sig_report = verify_macos_bundle_identity(
+                    &*self.ops,
+                    &bundle,
+                    self.config.pinned_publisher_policy.as_ref(),
+                );
+                enforce_signature_tier_or_err(
+                    &sig_report,
+                    self.config.require_signature_trust,
+                    true,
+                )?;
 
-                launched_exec_label = install.install_root.to_string_lossy().into_owned();
-                write_launch_target_hint(profile_dir, &profile.id, &install.install_root);
+                launched_exec_label = bundle.bundle_path.to_string_lossy().into_owned();
+                write_launch_target_hint(profile_dir, &profile.id, &bundle.bundle_path);
                 let open_args = build_open_launch_args(
-                    &install.install_root,
+                    &bundle.bundle_path,
                     &profile.id,
                     profile_dir,
                     &resolved_layout.effective_tmpdir,
@@ -707,7 +756,7 @@ impl InstanceLauncher for MacOsPlatformAdapter {
 
     fn focus_or_restore(
         &self,
-        _target: &LaunchTarget,
+        target: &LaunchTarget,
         profile: &ProfileRecord,
         profile_dir: &Path,
         state: &ProfileRuntimeState,
@@ -753,8 +802,15 @@ impl InstanceLauncher for MacOsPlatformAdapter {
             )));
         }
 
-        let _ = activate_profile_window(&*self.ops, &live.zalo_data_dir, verified_pid)?;
-        Ok(())
+        match target {
+            LaunchTarget::NodeFixture { .. } => {
+                signal_fixture_focus_only(&live.zalo_data_dir, verified_pid)
+            }
+            LaunchTarget::OfficialZalo { .. } | LaunchTarget::CustomExecutable { .. } => {
+                let _ = activate_profile_window(&*self.ops, &live.zalo_data_dir, verified_pid)?;
+                Ok(())
+            }
+        }
     }
 
     fn stop(

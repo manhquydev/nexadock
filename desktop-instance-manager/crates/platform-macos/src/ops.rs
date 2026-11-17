@@ -166,6 +166,12 @@ pub trait MacOsSystemOps: std::fmt::Debug + Send + Sync {
     /// Sends graceful `SIGTERM` to a verified isolated non-primary `pid`.
     fn send_sigterm(&self, pid: u32) -> Result<bool, DimError>;
 
+    /// Sends last-resort `SIGKILL` ONLY to a verified non-primary, WAL-free non-Zalo fixture/helper `pid` (`IR-MAC-02`).
+    fn send_sigkill(&self, pid: u32) -> Result<bool, DimError> {
+        let _ = pid;
+        Ok(false)
+    }
+
     /// Queries visible windows owned by any PID in `pids`.
     fn query_windows_for_pids(&self, pids: &[u32]) -> Vec<WindowInfo>;
 }
@@ -330,6 +336,20 @@ impl MacOsSystemOps for NativeMacOsSystemOps {
             let _ = pid;
             Err(DimError::UnsupportedPlatform(
                 "POSIX SIGTERM requires a Unix/macOS host".to_owned(),
+            ))
+        }
+    }
+
+    fn send_sigkill(&self, pid: u32) -> Result<bool, DimError> {
+        #[cfg(unix)]
+        {
+            unix_send_sigkill(pid)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = pid;
+            Err(DimError::UnsupportedPlatform(
+                "POSIX SIGKILL requires a Unix/macOS host".to_owned(),
             ))
         }
     }
@@ -859,6 +879,10 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
                 return Ok(host_os_pid_alive(pid));
             }
         }
+        terminate_host_os_pid(pid)
+    }
+
+    fn send_sigkill(&self, pid: u32) -> Result<bool, DimError> {
         terminate_host_os_pid(pid)
     }
 
@@ -1638,6 +1662,28 @@ fn unix_send_sigterm(pid: u32) -> Result<bool, DimError> {
     }
     // SAFETY: `raw` is > 1 and verified by the caller to belong to an isolated non-primary process.
     let rc = unsafe { libc::kill(raw, libc::SIGTERM) };
+    if rc == 0 {
+        return Ok(true);
+    }
+    let err = std::io::Error::last_os_error();
+    if err.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(false);
+    }
+    Err(DimError::Io(err))
+}
+
+#[cfg(unix)]
+fn unix_send_sigkill(pid: u32) -> Result<bool, DimError> {
+    let Ok(raw) = libc::pid_t::try_from(pid) else {
+        return Ok(false);
+    };
+    if raw <= 1 {
+        return Err(DimError::ProcessError(format!(
+            "refusing to send SIGKILL to system PID {pid}"
+        )));
+    }
+    // SAFETY: `raw` is > 1 and verified by the caller to belong to an isolated WAL-free non-primary process.
+    let rc = unsafe { libc::kill(raw, libc::SIGKILL) };
     if rc == 0 {
         return Ok(true);
     }

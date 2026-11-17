@@ -222,6 +222,26 @@ pub fn parse_jxa_windows_json(json_text: &str) -> Vec<WindowInfo> {
     out
 }
 
+/// Atomically writes `<zalo_data_dir>/.focus-signal` for headless `LaunchTarget::NodeFixture`
+/// sessions without invoking AppKit `NSRunningApplication` (`IR-MAC-03` / `LC-06`).
+pub fn signal_fixture_focus_only(zalo_data_dir: &Path, main_pid: u32) -> Result<(), DimError> {
+    if main_pid == 0 {
+        return Err(DimError::NotRunning("invalid PID 0".to_owned()));
+    }
+    let unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+    write_signal_json_atomic(
+        &zalo_data_dir.join(".focus-signal"),
+        &serde_json::json!({
+            "focused_at": now_rfc3339_utc(),
+            "focused_at_unix_ms": unix_ms,
+            "target_pid": main_pid,
+        }),
+    )
+}
+
 /// Signals `.focus-signal` and activates the owning `NSRunningApplication` on macOS, enforcing
 /// macOS 14+ cooperative focus verification (`activated=true` & `active=true`) fail-closed.
 pub fn activate_profile_window(
