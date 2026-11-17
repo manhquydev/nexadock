@@ -5,6 +5,12 @@ pub mod layout;
 #[cfg(windows)]
 pub mod win32_ffi;
 
+#[cfg(windows)]
+pub use win32_ffi::{
+    classify_window_for_pid, find_main_window_for_pids, find_main_window_for_profile, focus_window,
+    passive_zcall_pipes_present, ZaloWindowRole,
+};
+
 pub use adapter::WindowsPlatformAdapter;
 pub use layout::{
     build_isolated_env_map, build_windows_command_line, compare_versions,

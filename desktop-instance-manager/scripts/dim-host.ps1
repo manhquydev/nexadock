@@ -270,6 +270,31 @@ namespace DesktopInstanceManager.Host
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        public const uint GW_OWNER = 4;
+        public const int GWL_EXSTYLE = -20;
+        public const long WS_EX_TOOLWINDOW = 0x00000080L;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+        public static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+        public static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+        public static long GetWindowExStyle(IntPtr hWnd)
+        {
+            if (IntPtr.Size == 8) return GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64();
+            return (long)GetWindowLong32(hWnd, GWL_EXSTYLE);
+        }
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -2040,7 +2065,12 @@ namespace DesktopInstanceManager.Host
             }
         }
 
-        private static bool FindMainWindowForPids(HashSet<int> pids, out IntPtr foundHwnd, out string foundTitle)
+        public static bool FindMainWindowForPids(HashSet<int> pids, out IntPtr foundHwnd, out string foundTitle)
+        {
+            return FindMainWindowForProfile(0, pids, out foundHwnd, out foundTitle);
+        }
+
+        public static bool FindMainWindowForProfile(int mainPid, HashSet<int> pids, out IntPtr foundHwnd, out string foundTitle)
         {
             IntPtr bestHwnd = IntPtr.Zero;
             string bestTitle = string.Empty;
@@ -2050,18 +2080,38 @@ namespace DesktopInstanceManager.Host
                 if (!NativeWin32.IsWindowVisible(hWnd)) return true;
                 uint procId;
                 NativeWin32.GetWindowThreadProcessId(hWnd, out procId);
-                if (!pids.Contains((int)procId)) return true;
+                int pid = (int)procId;
+                if (pid <= 0 || (!pids.Contains(pid) && pid != mainPid)) return true;
+
+                StringBuilder clsSb = new StringBuilder(256);
+                int clsLen = NativeWin32.GetClassName(hWnd, clsSb, clsSb.Capacity);
+                string clsName = clsLen > 0 ? clsSb.ToString() : string.Empty;
+                if (clsName != "Chrome_WidgetWin_1" && clsName != "DimTestMainWindow") return true;
+
+                if (NativeWin32.GetWindow(hWnd, NativeWin32.GW_OWNER) != IntPtr.Zero) return true;
+                if ((NativeWin32.GetWindowExStyle(hWnd) & NativeWin32.WS_EX_TOOLWINDOW) != 0L) return true;
 
                 NativeWin32.RECT rect;
                 if (!NativeWin32.GetWindowRect(hWnd, out rect)) return true;
-                if ((rect.Right - rect.Left) < 120 || (rect.Bottom - rect.Top) < 120) return true;
+                int w = rect.Right - rect.Left;
+                int h = rect.Bottom - rect.Top;
+                if (w < 400 || h < 400) return true;
 
                 int len = NativeWin32.GetWindowTextLength(hWnd);
+                if (len <= 0 || len >= 4096) return true;
                 StringBuilder sb = new StringBuilder(len + 1);
-                if (len > 0) NativeWin32.GetWindowText(hWnd, sb, sb.Capacity);
+                NativeWin32.GetWindowText(hWnd, sb, sb.Capacity);
                 string title = sb.ToString();
+                if (string.IsNullOrWhiteSpace(title)) return true;
 
-                if (bestHwnd == IntPtr.Zero || (!string.IsNullOrEmpty(title) && string.IsNullOrEmpty(bestTitle)))
+                if (mainPid > 0 && pid == mainPid)
+                {
+                    bestHwnd = hWnd;
+                    bestTitle = title;
+                    return false;
+                }
+
+                if (bestHwnd == IntPtr.Zero)
                 {
                     bestHwnd = hWnd;
                     bestTitle = title;
@@ -2126,7 +2176,7 @@ namespace DesktopInstanceManager.Host
                 SumProcessMemory(tree, out ws, out priv);
                 IntPtr hWnd;
                 string title;
-                if (FindMainWindowForPids(tree, out hWnd, out title))
+                if (FindMainWindowForProfile(mainPid, tree, out hWnd, out title))
                 {
                     hwndVal = hWnd.ToInt64();
                     windowTitle = title;
@@ -3034,13 +3084,20 @@ namespace DesktopInstanceManager.Host
                 IntPtr hWnd = new IntPtr(hwndVal);
                 NativeWin32.ShowWindow(hWnd, NativeWin32.IsIconic(hWnd) ? NativeWin32.SW_RESTORE : NativeWin32.SW_SHOW);
                 NativeWin32.SetForegroundWindow(hWnd);
-
-                Dictionary<string, object> data = new Dictionary<string, object>();
-                data["action"] = "focused";
-                data["profile_id"] = target.id;
-                data["pid"] = runtime["main_pid"];
-                data["method"] = "SetForegroundWindow";
-                return Ok("Focused profile '" + target.name + "'.", data);
+                if (NativeWin32.GetForegroundWindow() != hWnd)
+                {
+                    Thread.Sleep(35);
+                }
+                if (NativeWin32.GetForegroundWindow() == hWnd)
+                {
+                    Dictionary<string, object> data = new Dictionary<string, object>();
+                    data["action"] = "focused";
+                    data["profile_id"] = target.id;
+                    data["pid"] = runtime["main_pid"];
+                    data["method"] = "SetForegroundWindow";
+                    return Ok("Focused profile '" + target.name + "'.", data);
+                }
+                // Foreground Lock blocked direct activation; fall through to isolated second-instance handoff!
             }
 
             string profilePath = GetProfilePath(target);
@@ -3831,8 +3888,24 @@ namespace DesktopInstanceManager.Host
                 }
             }
 
+            bool pipeRecvPresent = false;
+            bool pipeSendPresent = false;
+            try
+            {
+                string[] pipes = Directory.GetFiles(@"\\.\pipe\");
+                for (int i = 0; i < pipes.Length; i++)
+                {
+                    string pn = Path.GetFileName(pipes[i]);
+                    if (string.Equals(pn, "PipeZCallRecv", StringComparison.OrdinalIgnoreCase)) pipeRecvPresent = true;
+                    else if (string.Equals(pn, "PipeZCallSend", StringComparison.OrdinalIgnoreCase)) pipeSendPresent = true;
+                }
+            }
+            catch
+            {
+            }
+
             List<Dictionary<string, object>> matrix = new List<Dictionary<string, object>>();
-            matrix.Add(MakePlatformRow("Windows 10/11", "PARTIALLY_SUPPORTED", "Per-process CreateProcessW + USERPROFILE/APPDATA/TEMP isolation + signed PowerShell host", "Core isolation/login/chat/backup SUPPORTED_AND_TESTED; concurrent calls BLOCKED (PipeZCallRecv/PipeZCallSend); shared AUMID com.vng.zalo."));
+            matrix.Add(MakePlatformRow("Windows 10/11", "PARTIALLY_SUPPORTED", "Per-process CreateProcessW + USERPROFILE/APPDATA/TEMP isolation + signed PowerShell host", "Core isolation/login/chat/backup SUPPORTED_AND_TESTED; enable Zalo in-app floating notifications (notiWin / znotification.html) for per-account click routing instead of shared AUMID com.vng.zalo Action Center toast; global PipeZCallRecv/PipeZCallSend call channels (passive check: recv=" + pipeRecvPresent.ToString().ToLowerInvariant() + ", send=" + pipeSendPresent.ToString().ToLowerInvariant() + ")."));
             matrix.Add(MakePlatformRow("macOS (Apple Silicon & Intel)", "NOT_TESTED", "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>", "Requires physical Mac verification; /tmp/socketzalorecv2021 call socket conflict."));
             matrix.Add(MakePlatformRow("Ubuntu LTS (Official Zalo)", "UNSUPPORTED", "No official VNG Linux desktop build exists", "Official VNG Linux package does not exist."));
             matrix.Add(MakePlatformRow("Ubuntu LTS (Fixture / Local AppImage)", "EXPERIMENTAL", "XDG_CONFIG_HOME / HOME / optional bwrap", "On Ubuntu 24.04+, configure an AppArmor userns profile in /etc/apparmor.d/ for local AppImages (never disable Chromium sandboxing); never bundle proprietary VNG app.asar."));

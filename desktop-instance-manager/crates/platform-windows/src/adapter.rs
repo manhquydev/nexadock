@@ -351,6 +351,11 @@ impl PlatformCapabilities for WindowsPlatformAdapter {
             SupportStatus::PartiallySupported
         };
 
+        #[cfg(windows)]
+        let (call_recv_present, call_send_present) = crate::win32_ffi::passive_zcall_pipes_present();
+        #[cfg(not(windows))]
+        let (call_recv_present, call_send_present) = (false, false);
+
         PlatformCapabilityReport {
             platform: PlatformKind::Windows,
             overall_status: official_status,
@@ -361,15 +366,20 @@ impl PlatformCapabilities for WindowsPlatformAdapter {
             folder_redirection_detected: redirected,
             folder_redirection_path: raw_appdata,
             limitations: vec![
-                "Concurrent voice/video calls are BLOCKED across simultaneous profiles by global named pipes \\\\.\\pipe\\PipeZCallSend and \\\\.\\pipe\\PipeZCallRecv."
+                "Voice/video call helper channels use global named pipes \\\\.\\pipe\\PipeZCallRecv and \\\\.\\pipe\\PipeZCallSend (Confirmed by source code; cross-account live call handoff is gated on human-verified TC-H1B)."
                     .to_owned(),
-                "Windows toast notifications share AppUserModelId(\"com.vng.zalo\").".to_owned(),
+                "Enable Zalo's in-app floating notification banner (notiWin / znotification.html) so notification clicks route inside each account window; Windows Action Center Toast shares AppUserModelId(\"com.vng.zalo\") via Zalo.lnk."
+                    .to_owned(),
                 "Smart App Control hosts block unsigned locally compiled PEs unless code-signed or hosted via signed PowerShell/Node."
                     .to_owned(),
             ],
             diagnostics: vec![
                 "Per-process USERPROFILE/APPDATA/LOCALAPPDATA/TEMP isolation via CreateProcessW".to_owned(),
                 "Lockfile ownership inspection via Restart Manager (rstrtmgr.dll)".to_owned(),
+                "6-condition EnumWindows main-window filter excluding 352x82 notiWin popups + second-instance Foreground Lock handoff".to_owned(),
+                format!(
+                    "Passive PipeZCall directory check (zero client stream connection): PipeZCallRecv={call_recv_present}, PipeZCallSend={call_send_present}"
+                ),
             ],
         }
     }
@@ -588,7 +598,7 @@ impl InstanceMonitor for WindowsPlatformAdapter {
                         cached_snap.unwrap_or_else(crate::win32_ffi::ProcessSnapshot::capture);
                     let tree = snap.collect_tree(pid);
                     let ws = crate::win32_ffi::sum_working_set_bytes(&tree);
-                    let win = crate::win32_ffi::find_main_window_for_pids(&tree);
+                    let win = crate::win32_ffi::find_main_window_for_profile(pid, &tree);
                     (
                         tree,
                         ws,
@@ -739,8 +749,11 @@ impl InstanceLauncher for WindowsPlatformAdapter {
         #[cfg(windows)]
         {
             if let Some(hwnd) = state.window_handle {
-                crate::win32_ffi::focus_window(hwnd);
-                return Ok(());
+                if crate::win32_ffi::focus_window(hwnd) {
+                    return Ok(());
+                }
+                // Win32 Foreground Lock rejected direct `SetForegroundWindow`; fall through to
+                // isolated `second-instance` process handoff (`IR-WIN-01`).
             }
 
             let base_env: Vec<(String, String)> = std::env::vars().collect();

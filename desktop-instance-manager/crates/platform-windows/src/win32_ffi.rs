@@ -24,6 +24,10 @@ const ERROR_SHARING_VIOLATION: u32 = 32;
 const WM_CLOSE: u32 = 0x0010;
 const SW_RESTORE: i32 = 9;
 const SW_SHOW: i32 = 5;
+const GW_OWNER: u32 = 4;
+const GWL_EXSTYLE: i32 = -20;
+const WS_EX_TOOLWINDOW: isize = 0x0000_0080;
+const MIN_MAIN_WINDOW_DIM: i32 = 400;
 const KEY_READ: u32 = 0x20019;
 const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
 const HKEY_LOCAL_MACHINE: isize = 0x8000_0002_u32 as i32 as isize;
@@ -112,6 +116,16 @@ struct PROCESSENTRY32W {
     pc_pri_class_base: i32,
     dw_flags: u32,
     sz_exe_file: [u16; 260],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
+struct RECT {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
 }
 
 #[repr(C)]
@@ -418,10 +432,18 @@ extern "system" {
     fn IsWindowVisible(h_wnd: *mut c_void) -> i32;
     fn IsIconic(h_wnd: *mut c_void) -> i32;
     fn GetWindowThreadProcessId(h_wnd: *mut c_void, lpdw_process_id: *mut u32) -> u32;
+    fn GetClassNameW(h_wnd: *mut c_void, lp_class_name: *mut u16, n_max_count: i32) -> i32;
+    fn GetWindow(h_wnd: *mut c_void, u_cmd: u32) -> *mut c_void;
+    #[cfg(target_pointer_width = "64")]
+    fn GetWindowLongPtrW(h_wnd: *mut c_void, n_index: i32) -> isize;
+    #[cfg(not(target_pointer_width = "64"))]
+    fn GetWindowLongW(h_wnd: *mut c_void, n_index: i32) -> i32;
+    fn GetWindowRect(h_wnd: *mut c_void, lp_rect: *mut RECT) -> i32;
     fn GetWindowTextLengthW(h_wnd: *mut c_void) -> i32;
     fn GetWindowTextW(h_wnd: *mut c_void, lp_string: *mut u16, n_max_count: i32) -> i32;
     fn ShowWindow(h_wnd: *mut c_void, n_cmd_show: i32) -> i32;
     fn SetForegroundWindow(h_wnd: *mut c_void) -> i32;
+    fn GetForegroundWindow() -> *mut c_void;
     fn PostMessageW(h_wnd: *mut c_void, msg: u32, w_param: usize, l_param: isize) -> i32;
 }
 
@@ -951,7 +973,98 @@ pub fn sum_working_set_bytes(pids: &[u32]) -> u64 {
     total
 }
 
+/// Classification of a visible top-level window owned by a Zalo / fixture process (`IR-WIN-02`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZaloWindowRole {
+    /// Primary Electron chat window (`Chrome_WidgetWin_1` or `DimTestMainWindow`, unowned,
+    /// non-toolwindow, non-empty title, `>= 400x400`).
+    MainChatWindow,
+    /// In-app floating notification banner (`notiWin` `352x82` / `WS_EX_TOOLWINDOW`) — NEVER focus or close!
+    NotificationPopup,
+    /// Owned dialog, splash screen, empty-title overlay, or sub-400px helper surface.
+    AuxiliaryOrSplash,
+}
+
+#[inline]
+unsafe fn get_window_ex_style(hwnd: *mut c_void) -> isize {
+    #[cfg(target_pointer_width = "64")]
+    {
+        unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) }
+    }
+    #[cfg(not(target_pointer_width = "64"))]
+    {
+        (unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) }) as isize
+    }
+}
+
+fn is_supported_main_window_class(class_name: &str) -> bool {
+    class_name == "Chrome_WidgetWin_1" || class_name == "DimTestMainWindow"
+}
+
+/// Inspects a Win32 window handle and classifies its role if currently visible (`IR-WIN-01`, `IR-WIN-02`).
+pub fn classify_window_for_pid(hwnd_val: u64) -> Option<(u32, ZaloWindowRole, String)> {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return None;
+    }
+    // SAFETY: `hwnd` is queried via read-only Win32 user32 inspection functions with bounded stack buffers.
+    unsafe {
+        if IsWindowVisible(hwnd) == 0 {
+            return None;
+        }
+        let mut pid: u32 = 0;
+        let _ = GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 {
+            return None;
+        }
+
+        let mut class_buf = [0u16; 256];
+        let class_len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
+        let class_name = if class_len > 0 {
+            String::from_utf16_lossy(&class_buf[..class_len as usize])
+        } else {
+            String::new()
+        };
+
+        let owner = GetWindow(hwnd, GW_OWNER);
+        let ex_style = get_window_ex_style(hwnd);
+        let is_toolwindow = (ex_style & WS_EX_TOOLWINDOW) != 0;
+
+        let mut rect: RECT = zeroed();
+        let has_rect = GetWindowRect(hwnd, &mut rect) != 0;
+        let width = if has_rect { rect.right - rect.left } else { 0 };
+        let height = if has_rect { rect.bottom - rect.top } else { 0 };
+
+        let mut title = String::new();
+        let text_len = GetWindowTextLengthW(hwnd);
+        if text_len > 0 && text_len < 4096 {
+            let mut text_buf = vec![0u16; (text_len as usize) + 1];
+            let copied = GetWindowTextW(hwnd, text_buf.as_mut_ptr(), text_buf.len() as i32);
+            if copied > 0 {
+                title = String::from_utf16_lossy(&text_buf[..copied as usize]);
+            }
+        }
+
+        if is_toolwindow || (width > 0 && height > 0 && width <= 420 && height <= 160) {
+            return Some((pid, ZaloWindowRole::NotificationPopup, title));
+        }
+
+        if is_supported_main_window_class(&class_name)
+            && owner.is_null()
+            && !is_toolwindow
+            && !title.trim().is_empty()
+            && width >= MIN_MAIN_WINDOW_DIM
+            && height >= MIN_MAIN_WINDOW_DIM
+        {
+            return Some((pid, ZaloWindowRole::MainChatWindow, title));
+        }
+
+        Some((pid, ZaloWindowRole::AuxiliaryOrSplash, title))
+    }
+}
+
 struct WindowSearchCtx {
+    main_pid: u32,
     pids: HashSet<u32>,
     found_hwnd: *mut c_void,
     found_title: String,
@@ -960,33 +1073,37 @@ struct WindowSearchCtx {
 unsafe extern "system" fn enum_windows_cb(hwnd: *mut c_void, lparam: isize) -> i32 {
     // SAFETY: `lparam` points to stack-pinned `WindowSearchCtx` throughout synchronous EnumWindows.
     let ctx = unsafe { &mut *(lparam as *mut WindowSearchCtx) };
-    // SAFETY: `hwnd` is supplied by Windows EnumWindows.
-    unsafe {
-        if IsWindowVisible(hwnd) == 0 {
-            return 1;
-        }
-        let mut pid: u32 = 0;
-        let _ = GetWindowThreadProcessId(hwnd, &mut pid);
-        if !ctx.pids.contains(&pid) {
-            return 1;
-        }
-        let len = GetWindowTextLengthW(hwnd);
-        if len > 0 && len < 4096 {
-            let mut buf = vec![0u16; (len as usize) + 1];
-            let copied = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
-            if copied > 0 {
-                ctx.found_title = String::from_utf16_lossy(&buf[..copied as usize]);
-            }
-        }
-        ctx.found_hwnd = hwnd;
-        0
+    let Some((pid, role, title)) = classify_window_for_pid(hwnd as u64) else {
+        return 1;
+    };
+    if !ctx.pids.contains(&pid) || role != ZaloWindowRole::MainChatWindow {
+        return 1;
     }
+    if pid == ctx.main_pid {
+        ctx.found_hwnd = hwnd;
+        ctx.found_title = title;
+        return 0;
+    }
+    if ctx.found_hwnd.is_null() {
+        ctx.found_hwnd = hwnd;
+        ctx.found_title = title;
+    }
+    1
 }
 
-/// Finds the first visible top-level window belonging to any PID in `pids`.
-pub fn find_main_window_for_pids(pids: &[u32]) -> Option<(u64, String)> {
+/// Finds the verified main chat window for an isolated profile (`IR-WIN-01` 6-condition filter),
+/// preferring `main_pid` and excluding `notiWin` popups (`352x82`), owned dialogs, and toolwindows.
+pub fn find_main_window_for_profile(main_pid: u32, tree_pids: &[u32]) -> Option<(u64, String)> {
+    let mut pids: HashSet<u32> = tree_pids.iter().copied().collect();
+    if main_pid > 0 {
+        pids.insert(main_pid);
+    }
+    if pids.is_empty() {
+        return None;
+    }
     let mut ctx = WindowSearchCtx {
-        pids: pids.iter().copied().collect(),
+        main_pid,
+        pids,
         found_hwnd: std::ptr::null_mut(),
         found_title: String::new(),
     };
@@ -1002,13 +1119,21 @@ pub fn find_main_window_for_pids(pids: &[u32]) -> Option<(u64, String)> {
     }
 }
 
-/// Restores and activates a visible window handle.
-pub fn focus_window(hwnd_val: u64) {
+/// Finds the verified main window belonging to `pids` (preferring `pids[0]` as `main_pid`).
+pub fn find_main_window_for_pids(pids: &[u32]) -> Option<(u64, String)> {
+    let main_pid = pids.first().copied().unwrap_or(0);
+    find_main_window_for_profile(main_pid, pids)
+}
+
+/// Restores and activates a visible window handle, returning `true` ONLY when `GetForegroundWindow()`
+/// confirms foreground ownership (`IR-WIN-01`). When Win32 Foreground Lock blocks activation,
+/// returns `false` so callers fall back to isolated `second-instance` handoff cleanly.
+pub fn focus_window(hwnd_val: u64) -> bool {
     let hwnd = hwnd_val as *mut c_void;
     if hwnd.is_null() {
-        return;
+        return false;
     }
-    // SAFETY: Caller supplies a window handle previously returned by `EnumWindows`.
+    // SAFETY: Caller supplies a verified main-window handle returned by `EnumWindows`.
     unsafe {
         if IsIconic(hwnd) != 0 {
             let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -1016,7 +1141,31 @@ pub fn focus_window(hwnd_val: u64) {
             let _ = ShowWindow(hwnd, SW_SHOW);
         }
         let _ = SetForegroundWindow(hwnd);
+        if GetForegroundWindow() == hwnd {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(35));
+        GetForegroundWindow() == hwnd
     }
+}
+
+/// Passively checks whether global Zalo call named pipes (`PipeZCallRecv` / `PipeZCallSend`) are
+/// currently listed in `\\.\pipe\` via directory enumeration ONLY (zero client stream connection!).
+pub fn passive_zcall_pipes_present() -> (bool, bool) {
+    let mut recv = false;
+    let mut send = false;
+    if let Ok(entries) = std::fs::read_dir(r"\\.\pipe\") {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.eq_ignore_ascii_case("PipeZCallRecv") {
+                    recv = true;
+                } else if name.eq_ignore_ascii_case("PipeZCallSend") {
+                    send = true;
+                }
+            }
+        }
+    }
+    (recv, send)
 }
 
 /// Posts `WM_CLOSE` to a window handle without blocking.
