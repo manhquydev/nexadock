@@ -1,0 +1,2 @@
+# Ensure shell scripts keep LF line endings on Windows (core.autocrlf=true)
+*.sh text eol=lf
