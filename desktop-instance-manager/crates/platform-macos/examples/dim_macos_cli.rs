@@ -15,7 +15,8 @@ use dim_core::{
     ProfileRecord, ProfileStore, RecoveryManager, MIN_FREE_DISK_BYTES,
 };
 use dim_platform_macos::{
-    HostFixtureMacOsOps, MacOsLayoutOptions, MacOsPlatformAdapter, MacOsSystemOps, ProcessEntry,
+    verify_12_surface_runtime_isolation, write_runtime_launch_record, HostFixtureMacOsOps,
+    MacOsLayoutOptions, MacOsPlatformAdapter, MacOsSystemOps, ProcessEntry, RuntimeLaunchRecord,
 };
 use dim_profile_store::{verify_profile_id_marker, FileBackupManager, JsonProfileStore};
 use serde_json::{json, Value};
@@ -30,9 +31,14 @@ struct CliArgs {
     with_size: bool,
     confirm: bool,
     spawn_helper: bool,
+    orphan_helper: bool,
     enforce_sun_len: bool,
     crash: bool,
     crash_delay_ms: Option<u64>,
+    delayed_exit_ms: Option<u64>,
+    hang_on_quit: bool,
+    stay_ms: Option<u64>,
+    slow_startup_pre_lock_ms: Option<u64>,
     user_id: Option<String>,
     account_label: Option<String>,
     hold_ms: Option<u64>,
@@ -40,8 +46,10 @@ struct CliArgs {
     dest: Option<PathBuf>,
     name: Option<String>,
     notes: String,
-    no_user_symlinks: bool,
-    no_keychain_symlink: bool,
+    symlink_user_dirs: bool,
+    symlink_keychain: bool,
+    pinned_bundle_id: Option<String>,
+    pinned_team_id: Option<String>,
     positional: Vec<String>,
 }
 
@@ -95,9 +103,14 @@ fn parse_cli<I: Iterator<Item = String>>(iter: I) -> CliArgs {
         with_size: false,
         confirm: false,
         spawn_helper: false,
+        orphan_helper: false,
         enforce_sun_len: false,
         crash: false,
         crash_delay_ms: None,
+        delayed_exit_ms: None,
+        hang_on_quit: false,
+        stay_ms: None,
+        slow_startup_pre_lock_ms: None,
         user_id: None,
         account_label: None,
         hold_ms: None,
@@ -105,8 +118,10 @@ fn parse_cli<I: Iterator<Item = String>>(iter: I) -> CliArgs {
         dest: None,
         name: None,
         notes: String::new(),
-        no_user_symlinks: false,
-        no_keychain_symlink: false,
+        symlink_user_dirs: false,
+        symlink_keychain: false,
+        pinned_bundle_id: None,
+        pinned_team_id: None,
         positional: Vec::new(),
     };
 
@@ -131,10 +146,14 @@ fn parse_cli<I: Iterator<Item = String>>(iter: I) -> CliArgs {
             "--with-size" => parsed.with_size = true,
             "--confirm" => parsed.confirm = true,
             "--spawn-helper" => parsed.spawn_helper = true,
+            "--orphan-helper" => parsed.orphan_helper = true,
             "--enforce-sun-len" => parsed.enforce_sun_len = true,
             "--crash" => parsed.crash = true,
-            "--no-user-symlinks" => parsed.no_user_symlinks = true,
-            "--no-keychain-symlink" => parsed.no_keychain_symlink = true,
+            "--hang-on-quit" => parsed.hang_on_quit = true,
+            "--symlink-user-dirs" => parsed.symlink_user_dirs = true,
+            "--symlink-keychain" => parsed.symlink_keychain = true,
+            "--no-user-symlinks" => parsed.symlink_user_dirs = false,
+            "--no-keychain-symlink" => parsed.symlink_keychain = false,
             "--data-dir" if i + 1 < raw.len() => {
                 i += 1;
                 parsed.data_dir = Some(PathBuf::from(&raw[i]));
@@ -154,6 +173,18 @@ fn parse_cli<I: Iterator<Item = String>>(iter: I) -> CliArgs {
             "--crash-delay-ms" if i + 1 < raw.len() => {
                 i += 1;
                 parsed.crash_delay_ms = raw[i].parse::<u64>().ok();
+            }
+            "--delayed-exit-ms" if i + 1 < raw.len() => {
+                i += 1;
+                parsed.delayed_exit_ms = raw[i].parse::<u64>().ok();
+            }
+            "--stay-ms" if i + 1 < raw.len() => {
+                i += 1;
+                parsed.stay_ms = raw[i].parse::<u64>().ok();
+            }
+            "--slow-startup-pre-lock-ms" if i + 1 < raw.len() => {
+                i += 1;
+                parsed.slow_startup_pre_lock_ms = raw[i].parse::<u64>().ok();
             }
             "--user-id" if i + 1 < raw.len() => {
                 i += 1;
@@ -185,6 +216,14 @@ fn parse_cli<I: Iterator<Item = String>>(iter: I) -> CliArgs {
                 i += 1;
                 parsed.notes = raw[i].clone();
             }
+            "--pinned-bundle-id" if i + 1 < raw.len() => {
+                i += 1;
+                parsed.pinned_bundle_id = Some(raw[i].clone());
+            }
+            "--pinned-team-id" if i + 1 < raw.len() => {
+                i += 1;
+                parsed.pinned_team_id = Some(raw[i].clone());
+            }
             _ => parsed.positional.push(arg.clone()),
         }
         i += 1;
@@ -199,12 +238,12 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
     };
 
     let layout_opts = MacOsLayoutOptions {
-        symlink_user_dirs: !args.no_user_symlinks,
-        symlink_keychain: !args.no_keychain_symlink,
+        symlink_user_dirs: args.symlink_user_dirs,
+        symlink_keychain: args.symlink_keychain,
     };
 
     let mut fixture_ops_handle: Option<Arc<HostFixtureMacOsOps>> = None;
-    let adapter = if args.fixture_host {
+    let mut adapter = if args.fixture_host {
         let sim_home = args
             .simulated_home
             .clone()
@@ -222,6 +261,10 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
     } else {
         MacOsPlatformAdapter::new().with_layout_options(layout_opts)
     };
+
+    if let (Some(bid), Some(tid)) = (&args.pinned_bundle_id, &args.pinned_team_id) {
+        adapter = adapter.with_pinned_publisher(bid.clone(), tid.clone());
+    }
 
     let store = Arc::new(JsonProfileStore::new(data_dir)?);
     store.ensure_initialized()?;
@@ -336,17 +379,14 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
             adapter.ensure_profile_layout(&rec, &pdir)?;
 
             if let Some(hold_ms) = args.hold_ms {
-                // Hold `.op-lock` for `hold_ms` to test cross-process duplicate launch guard deterministically.
                 let lock_set = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
-                if let Some(ref ops) = fixture_ops_handle {
-                    let _g = dim_platform_macos::ProfileOperationGuard::acquire(
-                        &**ops,
-                        &lock_set,
-                        &rec.id,
-                        Some(&pdir),
-                    )?;
-                    std::thread::sleep(Duration::from_millis(hold_ms));
-                }
+                let _g = dim_platform_macos::ProfileOperationGuard::acquire(
+                    &**adapter.system_ops(),
+                    &lock_set,
+                    &rec.id,
+                    Some(&pdir),
+                )?;
+                std::thread::sleep(Duration::from_millis(hold_ms));
             }
 
             let before = adapter.inspect_profile(&rec, &pdir)?;
@@ -441,9 +481,25 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
                 backups.restore_backup_as_new_profile(&resolved, args.name.as_deref())?;
             Ok(json!({ "ok": true, "data": restored }))
         }
+        "verify-isolation" => {
+            let mut pairs = Vec::new();
+            for id in args.positional.iter().skip(1) {
+                let rec = store.get_profile(id)?;
+                let pdir = store.profile_dir_for(&rec)?;
+                pairs.push((rec.id, pdir));
+            }
+            let real_home = adapter.system_ops().user_home_dir();
+            let report = verify_12_surface_runtime_isolation(
+                &**adapter.system_ops(),
+                &pairs,
+                real_home.as_deref(),
+            )?;
+            Ok(json!({
+                "ok": true,
+                "data": report,
+            }))
+        }
         "verify-foreign-or-primary-guard" => {
-            // Exercises Scenario 9 (foreign recycled PID + primary Zalo PID protection) inside a single process
-            // over `HostFixtureMacOsOps` so in-memory synthetic process entries are verified directly.
             let Some(ref ops) = fixture_ops_handle else {
                 return Err(DimError::UnsupportedPlatform(
                     "--fixture-host is required for verify-foreign-or-primary-guard".to_owned(),
@@ -458,12 +514,13 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
             adapter.ensure_profile_layout(&rec, &pdir)?;
             let zalo_data = dim_platform_macos::macos_zalo_data_dir(&pdir);
 
-            // 1. Foreign recycled PID (e.g. PID 88421 belongs to `/Applications/Safari.app`).
+            // 1. Foreign recycled PID (PID 88_421 belongs to `/Applications/Safari.app`).
             ops.insert_synthetic_process(ProcessEntry {
                 pid: 88_421,
                 ppid: 1,
                 uid: ops.current_uid(),
                 rss_kib: 50_000,
+                start_token: Some("Mon Nov 17 08:12:00 2026".to_owned()),
                 executable: "/Applications/Safari.app/Contents/MacOS/Safari".to_owned(),
                 args: "/Applications/Safari.app/Contents/MacOS/Safari".to_owned(),
             });
@@ -476,19 +533,68 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
             let foreign_stop_count = adapter.stop(&foreign_state, &[], 500)?;
             let safari_still_alive = ops.is_pid_alive(88_421);
 
-            // 2. Primary Zalo PID protection (PID 77_100 belongs to primary `/Applications/Zalo.app`).
+            // 2. Same-UID, same-binary `Zalo.app` PID reuse with mismatched `lstart` (`P0-3`).
+            ops.insert_synthetic_process(ProcessEntry {
+                pid: 91_200,
+                ppid: 1,
+                uid: ops.current_uid(),
+                rss_kib: 95_000,
+                start_token: Some("Mon Nov 17 11:45:00 2026".to_owned()),
+                executable: "/Applications/Zalo.app/Contents/MacOS/Zalo".to_owned(),
+                args: "/Applications/Zalo.app/Contents/MacOS/Zalo".to_owned(),
+            });
+            write_runtime_launch_record(
+                &pdir,
+                &RuntimeLaunchRecord {
+                    schema_version: 1,
+                    pid: 91_200,
+                    process_start_token: Some("Mon Nov 17 09:00:00 2026".to_owned()),
+                    profile_id: rec.id.clone(),
+                    profile_dir: pdir.clone(),
+                    zalo_data_dir: zalo_data.clone(),
+                    executable_path: "/Applications/Zalo.app".to_owned(),
+                    launched_at_utc: "2026-11-17T09:00:00Z".to_owned(),
+                },
+            )?;
+            fs::write(
+                zalo_data.join("lockfile"),
+                serde_json::to_string(&json!({ "pid": 91_200 }))?,
+            )?;
+            let recycled_zalo_state = adapter.inspect_profile(&rec, &pdir)?;
+            let same_binary_pid_reuse_rejected =
+                !recycled_zalo_state.running && recycled_zalo_state.stale_lock_detected;
+
+            let mut forged_focus_state = recycled_zalo_state.clone();
+            forged_focus_state.running = true;
+            forged_focus_state.main_pid = Some(91_200);
+            let unowned_focus_err = adapter
+                .focus_or_restore(
+                    &LaunchTarget::OfficialZalo {
+                        custom_install_root: None,
+                    },
+                    &rec,
+                    &pdir,
+                    &forged_focus_state,
+                )
+                .err()
+                .map(|e| e.code().to_owned());
+
+            // 3. Primary Zalo PID protection (PID 77_100 belongs to primary `/Applications/Zalo.app`).
             ops.insert_synthetic_process(ProcessEntry {
                 pid: 77_100,
                 ppid: 1,
                 uid: ops.current_uid(),
                 rss_kib: 120_000,
+                start_token: Some("Mon Nov 17 07:30:00 2026".to_owned()),
                 executable: "/Applications/Zalo.app/Contents/MacOS/Zalo".to_owned(),
                 args: "/Applications/Zalo.app/Contents/MacOS/Zalo".to_owned(),
             });
             let primary = adapter.inspect_primary()?;
-            let primary_detected = primary.running && primary.protected_pids.contains(&77_100);
+            let primary_detected = primary.running
+                && primary.protected_pids.contains(&77_100)
+                && primary.protected_pids.contains(&91_200);
 
-            let mut forged_state = foreign_state.clone();
+            let mut forged_state = foreign_state;
             forged_state.running = true;
             forged_state.main_pid = Some(77_100);
             forged_state.process_ids = vec![77_100];
@@ -497,6 +603,7 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
                 .err()
                 .map(|e| e.code().to_owned());
             let _ = dim_platform_macos::remove_file_no_follow(&zalo_data.join("lockfile"));
+            let _ = dim_platform_macos::clear_runtime_launch_files(&pdir);
 
             Ok(json!({
                 "ok": true,
@@ -504,6 +611,8 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
                     "foreign_not_owned": foreign_not_owned,
                     "foreign_stop_count": foreign_stop_count,
                     "safari_still_alive": safari_still_alive,
+                    "same_binary_pid_reuse_rejected": same_binary_pid_reuse_rejected,
+                    "unowned_focus_error_code": unowned_focus_err,
                     "primary_detected": primary_detected,
                     "stop_primary_error_code": stop_primary_err,
                 }
@@ -518,6 +627,9 @@ fn build_target(args: &CliArgs) -> Result<LaunchTarget, DimError> {
     if args.spawn_helper {
         extra.push("--spawn-helper".to_owned());
     }
+    if args.orphan_helper {
+        extra.push("--orphan-helper".to_owned());
+    }
     if args.enforce_sun_len {
         extra.push("--enforce-sun-len".to_owned());
     }
@@ -526,6 +638,18 @@ fn build_target(args: &CliArgs) -> Result<LaunchTarget, DimError> {
         if let Some(delay) = args.crash_delay_ms {
             extra.push(format!("--crash-delay-ms={delay}"));
         }
+    }
+    if let Some(delay_exit) = args.delayed_exit_ms {
+        extra.push(format!("--delayed-exit-ms={delay_exit}"));
+    }
+    if args.hang_on_quit {
+        extra.push("--hang-on-quit".to_owned());
+    }
+    if let Some(stay) = args.stay_ms {
+        extra.push(format!("--stay-ms={stay}"));
+    }
+    if let Some(slow_ms) = args.slow_startup_pre_lock_ms {
+        extra.push(format!("--slow-startup-pre-lock-ms={slow_ms}"));
     }
     if let Some(ref uid) = args.user_id {
         extra.push(format!("--user-id={uid}"));

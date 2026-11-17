@@ -1,12 +1,13 @@
-//! macOS process table parsing (`ps`), UID & command-line ownership verification (defending
-//! against recycled/foreign PIDs), primary Zalo PID protection, per-profile concurrency locks,
-//! graceful shutdown (`NSRunningApplication.terminate` -> bounded isolated `SIGTERM`), and
-//! non-symlink-following crash artifact recovery.
+//! Multi-evidence fail-closed macOS process ownership (`SingletonLock` + `.zalo-profile-id` +
+//! `.runtime-launch.json` + `ps -o lstart=` start-time verification), primary & unmanaged Zalo
+//! protection, orphan helper tracking (`ppid == 1`), strict 8-rule graceful shutdown, and
+//! non-symlink-following crash recovery.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -14,16 +15,24 @@ use dim_core::{
     detect_zalo_user_id, now_rfc3339_utc, DimError, PrimaryInstanceStatus, ProfileRecord,
     RecoveryReport,
 };
-use dim_profile_store::is_symlink_or_reparse;
+use dim_profile_store::{is_symlink_or_reparse, verify_profile_id_marker};
 
 use crate::layout::{
-    ensure_not_macos_primary_path, macos_zalo_data_dir, normalize_macos_path_key,
-    normalize_macos_unicode_key, parse_singleton_lock_target,
+    cleanup_profile_short_tmpdir, ensure_not_macos_primary_path, macos_zalo_data_dir,
+    normalize_macos_path_key, normalize_macos_unicode_key, parse_singleton_lock_target,
+    MACOS_CALL_SOCKETS,
 };
 use crate::ops::{MacOsSystemOps, ProcessEntry};
-use crate::window::{request_graceful_app_terminate, write_signal_json_atomic};
+use crate::window::{
+    request_graceful_app_terminate, write_signal_json_atomic, MACOS_WINDOW_STATE_FILE,
+};
+
+static LAUNCH_REC_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// Stale lock and runtime signal filenames inside `ZaloData` cleaned during crash recovery.
+///
+/// Note: Global `ZaloCall` sockets (`/tmp/socketzalorecv2021`, `/tmp/socketzalosend2021`) are
+/// strictly excluded and NEVER touched!
 pub const MACOS_STALE_ZALODATA_ARTIFACTS: &[&str] = &[
     "SingletonLock",
     "SingletonSocket",
@@ -32,24 +41,53 @@ pub const MACOS_STALE_ZALODATA_ARTIFACTS: &[&str] = &[
     ".quit-signal",
     ".focus-signal",
     ".window-state.json",
+    ".helper-pids.json",
 ];
+
+/// Structured launch provenance file persisted inside `<profile_dir>/.runtime-launch.json`.
+pub const RUNTIME_LAUNCH_RECORD_FILE: &str = ".runtime-launch.json";
+
+/// Plaintext PID hint file persisted inside `<profile_dir>/.runtime-pid`.
+pub const RUNTIME_PID_FILE: &str = ".runtime-pid";
+
+/// Legacy target hint inside `<profile_dir>/tmp/.launch-target.json`.
+pub const LAUNCH_TARGET_HINT_FILE: &str = ".launch-target.json";
 
 /// Maximum age before a leftover `.op-lock` from a killed CLI process is treated as stale (`30s`).
 const OP_LOCK_STALE_AGE: Duration = Duration::from_secs(30);
 
-/// Metadata file inside `<profile_dir>/tmp/` recording the expected binary launched for a profile.
-pub const LAUNCH_TARGET_HINT_FILE: &str = ".launch-target.json";
+/// Structured launch provenance binding a spawned OS PID and its kernel creation timestamp
+/// (`process_start_token`) to a specific managed `profile_id` (`P0-3`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeLaunchRecord {
+    /// Schema version (`1`).
+    pub schema_version: u32,
+    /// Root OS PID recorded at launch.
+    pub pid: u32,
+    /// Kernel process start token (`ps -o lstart=` or Windows `FILETIME`) defeating PID reuse.
+    pub process_start_token: Option<String>,
+    /// Managed 8-hex profile identifier.
+    pub profile_id: String,
+    /// Managed isolated profile root path.
+    pub profile_dir: PathBuf,
+    /// Managed isolated `ZaloData` path.
+    pub zalo_data_dir: PathBuf,
+    /// Executable or `.app` bundle path launched.
+    pub executable_path: String,
+    /// RFC 3339 UTC timestamp when launched.
+    pub launched_at_utc: String,
+}
 
 /// Verified live process tree ownership snapshot for a single isolated profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedProfileProcessTree {
-    /// Verified main/root PID for the profile (`None` if stopped or lock PID is stale/foreign).
+    /// Verified main/root PID for the profile (`None` if stopped or lock PID is stale/foreign/recycled).
     pub main_pid: Option<u32>,
-    /// Full verified PID list (root + descendant helpers).
+    /// Full verified PID list (root + descendant helpers + `ppid == 1` profile-tagged orphan helpers).
     pub process_ids: Vec<u32>,
     /// Total resident memory (`RSS * 1024`) in bytes across `process_ids`.
     pub working_set_bytes: u64,
-    /// True if lockfile/symlink remnants exist on disk without a verified live owning process.
+    /// True if lockfile/symlink/runtime remnants exist on disk without a verified live owning process.
     pub stale_lock_detected: bool,
     /// Preferred lockfile path (`SingletonLock` or `lockfile`) for reporting.
     pub lockfile_path: PathBuf,
@@ -87,7 +125,7 @@ impl ProfileOperationGuard {
         let mut acquired_file: Option<PathBuf> = None;
         if let Some(pdir) = profile_dir {
             let tmp_dir = pdir.join("tmp");
-            if tmp_dir.is_dir() {
+            if fs::symlink_metadata(&tmp_dir).is_ok_and(|m| m.is_dir()) {
                 let lock_path = tmp_dir.join(".op-lock");
                 match try_create_op_lock_file(ops, &lock_path, profile_id) {
                     Ok(()) => {
@@ -122,8 +160,8 @@ impl Drop for ProfileOperationGuard {
     }
 }
 
-/// Parses `/bin/ps -axo pid=,ppid=,uid=,stat=,rss=,comm=,args=` (or 5-column `pid=,ppid=,uid=,rss=,args=`)
-/// output into [`ProcessEntry`] rows, automatically discarding `<defunct>` zombie (`Z`) processes.
+/// Parses `/bin/ps -axo pid=,ppid=,uid=,stat=,rss=,lstart=,args=` (as well as legacy 5/6-column `ps` lines
+/// without `lstart`) into [`ProcessEntry`] rows, preserving spaces in `.app` paths and discarding `Z` zombies.
 #[must_use]
 pub fn parse_ps_table(ps_stdout: &str) -> Vec<ProcessEntry> {
     let mut entries = Vec::new();
@@ -156,11 +194,9 @@ pub fn parse_ps_table(ps_stdout: &str) -> Vec<ProcessEntry> {
             continue;
         }
 
-        // Support both `pid ppid uid stat rss args...` and `pid ppid uid rss args...`.
-        let (rss_kib, args_slice) = if let Ok(rss_direct) = tok4.parse::<u64>() {
+        let (rss_kib, after_rss) = if let Ok(rss_direct) = tok4.parse::<u64>() {
             (rss_direct, rest_after_4.trim())
         } else {
-            // `tok4` is `stat` (e.g., `S`, `Ss`, `R+`, `Z`). Ignore zombie processes!
             if tok4.starts_with('Z') || tok4.starts_with('z') {
                 continue;
             }
@@ -173,6 +209,12 @@ pub fn parse_ps_table(ps_stdout: &str) -> Vec<ProcessEntry> {
             (parsed_rss, rest_after_rss.trim())
         };
 
+        // Detect optional 5-token `lstart` (`Mon Nov 17 23:15:02 2026`).
+        let (start_token, args_slice) = match try_take_lstart(after_rss) {
+            Some((lstart_str, rem)) => (Some(lstart_str), rem.trim()),
+            None => (None, after_rss),
+        };
+
         if args_slice.is_empty() || args_slice.contains("<defunct>") {
             continue;
         }
@@ -183,6 +225,7 @@ pub fn parse_ps_table(ps_stdout: &str) -> Vec<ProcessEntry> {
             ppid,
             uid,
             rss_kib,
+            start_token,
             executable,
             args: args_slice.to_owned(),
         });
@@ -198,26 +241,162 @@ pub fn read_singleton_or_json_pid(zalo_data_dir: &Path) -> Option<u32> {
         if let Some((_, pid)) = parse_singleton_lock_target(&target.to_string_lossy()) {
             return Some(pid);
         }
-    }
-    let lock_json = zalo_data_dir.join("lockfile");
-    if let Ok(raw) = fs::read_to_string(lock_json) {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
-            if let Some(pid) = val
-                .get("pid")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|n| u32::try_from(n).ok())
-                .filter(|&p| p > 0)
-            {
+    } else if fs::symlink_metadata(&lock_link).is_ok_and(|m| m.is_file()) {
+        // Fallback when running `fixture-macos-app.mjs` on a Windows host without symlink privilege.
+        if let Ok(raw_target) = fs::read_to_string(&lock_link) {
+            if let Some((_, pid)) = parse_singleton_lock_target(&raw_target) {
                 return Some(pid);
+            }
+        }
+    }
+
+    let lock_json = zalo_data_dir.join("lockfile");
+    if fs::symlink_metadata(&lock_json).is_ok_and(|m| m.is_file()) {
+        if let Ok(raw) = fs::read_to_string(lock_json) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(pid) = val
+                    .get("pid")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok())
+                    .filter(|&p| p > 0)
+                {
+                    return Some(pid);
+                }
             }
         }
     }
     None
 }
 
-/// Records the executable or bundle launched for a profile so PID ownership checks recognize custom binaries.
+/// Reads `<profile_dir>/.runtime-pid` (without following symlinks).
+#[must_use]
+pub fn read_runtime_pid(profile_dir: &Path) -> Option<u32> {
+    let path = profile_dir.join(RUNTIME_PID_FILE);
+    if !fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+    let raw = fs::read_to_string(path).ok()?;
+    raw.trim().parse::<u32>().ok().filter(|&p| p > 0)
+}
+
+/// Reads `<profile_dir>/.runtime-launch.json` (without following symlinks).
+#[must_use]
+pub fn read_runtime_launch_record(profile_dir: &Path) -> Option<RuntimeLaunchRecord> {
+    let path = profile_dir.join(RUNTIME_LAUNCH_RECORD_FILE);
+    if !fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+    let raw = fs::read_to_string(path).ok()?;
+    let val = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    if val
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        != Some(1)
+    {
+        return None;
+    }
+    let pid = val
+        .get("pid")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .filter(|&p| p > 0)?;
+    let process_start_token = val
+        .get("process_start_token")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let profile_id = val
+        .get("profile_id")
+        .and_then(serde_json::Value::as_str)?
+        .to_owned();
+    let p_dir = PathBuf::from(val.get("profile_dir").and_then(serde_json::Value::as_str)?);
+    let z_dir = PathBuf::from(
+        val.get("zalo_data_dir")
+            .and_then(serde_json::Value::as_str)?,
+    );
+    let executable_path = val
+        .get("executable_path")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let launched_at_utc = val
+        .get("launched_at_utc")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+
+    Some(RuntimeLaunchRecord {
+        schema_version: 1,
+        pid,
+        process_start_token,
+        profile_id,
+        profile_dir: p_dir,
+        zalo_data_dir: z_dir,
+        executable_path,
+        launched_at_utc,
+    })
+}
+
+/// Atomically writes `<profile_dir>/.runtime-launch.json` and `<profile_dir>/.runtime-pid`.
+pub fn write_runtime_launch_record(
+    profile_dir: &Path,
+    record: &RuntimeLaunchRecord,
+) -> Result<(), DimError> {
+    let rec_path = profile_dir.join(RUNTIME_LAUNCH_RECORD_FILE);
+    let pid_path = profile_dir.join(RUNTIME_PID_FILE);
+    for p in [&rec_path, &pid_path] {
+        if let Ok(meta) = fs::symlink_metadata(p) {
+            if is_symlink_or_reparse(&meta) {
+                return Err(DimError::PathTraversal(format!(
+                    "refusing to write through symlinked runtime file '{}'",
+                    p.display()
+                )));
+            }
+        }
+    }
+
+    let payload = serde_json::json!({
+        "schema_version": record.schema_version,
+        "pid": record.pid,
+        "process_start_token": record.process_start_token,
+        "profile_id": record.profile_id,
+        "profile_dir": record.profile_dir.to_string_lossy(),
+        "zalo_data_dir": record.zalo_data_dir.to_string_lossy(),
+        "executable_path": record.executable_path,
+        "launched_at_utc": record.launched_at_utc,
+    });
+    let text = serde_json::to_string_pretty(&payload)?;
+    let seq = LAUNCH_REC_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = profile_dir.join(format!(".runtime-launch.{}.{seq}.tmp", std::process::id()));
+    {
+        let mut f = File::create(&tmp)?;
+        f.write_all(text.as_bytes())?;
+        f.write_all(b"\n")?;
+        f.sync_all()?;
+    }
+    fs::rename(&tmp, &rec_path)?;
+    fs::write(&pid_path, format!("{}\n", record.pid))?;
+    Ok(())
+}
+
+/// Removes `.runtime-pid` and `.runtime-launch.json` safely without following symlinks.
+pub fn clear_runtime_launch_files(profile_dir: &Path) -> Result<usize, DimError> {
+    let mut removed = 0usize;
+    for name in [RUNTIME_PID_FILE, RUNTIME_LAUNCH_RECORD_FILE] {
+        if remove_file_no_follow(&profile_dir.join(name))? {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// Records the executable or bundle launched for a profile inside `<profile_dir>/tmp/.launch-target.json`.
 pub fn write_launch_target_hint(profile_dir: &Path, profile_id: &str, executable_or_bundle: &Path) {
     let hint_path = profile_dir.join("tmp").join(LAUNCH_TARGET_HINT_FILE);
+    if fs::symlink_metadata(&hint_path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return;
+    }
     let payload = serde_json::json!({
         "profile_id": profile_id,
         "target": executable_or_bundle.to_string_lossy(),
@@ -254,7 +433,6 @@ pub fn inspect_primary_macos(ops: &dyn MacOsSystemOps) -> Result<PrimaryInstance
     let current_uid = ops.current_uid();
     let mut protected_set: HashSet<u32> = HashSet::new();
 
-    // 1. Check PID referenced by primary `~/Library/Application Support/ZaloData` lockfile/SingletonLock.
     if let Some(lock_pid) = read_singleton_or_json_pid(&primary_zalo_data) {
         if let Some(entry) = processes.iter().find(|p| p.pid == lock_pid) {
             if uid_matches(entry.uid, current_uid)
@@ -268,7 +446,6 @@ pub fn inspect_primary_macos(ops: &dyn MacOsSystemOps) -> Result<PrimaryInstance
         }
     }
 
-    // 2. Also protect any running official `Zalo.app` root process tree NOT belonging to managed `Profiles/`.
     let by_pid: HashMap<u32, &ProcessEntry> = processes.iter().map(|p| (p.pid, p)).collect();
     for proc_entry in &processes {
         if !uid_matches(proc_entry.uid, current_uid) {
@@ -277,7 +454,6 @@ pub fn inspect_primary_macos(ops: &dyn MacOsSystemOps) -> Result<PrimaryInstance
         if !looks_like_official_zalo_bundle_process(proc_entry) {
             continue;
         }
-        // Only inspect root Zalo browser processes (whose parent is launchd/1 or not another Zalo helper).
         if let Some(parent) = by_pid.get(&proc_entry.ppid) {
             if looks_like_official_zalo_bundle_process(parent) {
                 continue;
@@ -312,20 +488,25 @@ pub fn inspect_primary_macos(ops: &dyn MacOsSystemOps) -> Result<PrimaryInstance
     })
 }
 
-/// Resolves and verifies the live process tree owned by `profile_dir`, rejecting foreign/recycled PIDs.
+/// Resolves and verifies the live process tree owned by `profile_dir` (`profile_id`), enforcing
+/// multi-factor fail-closed checks (`.zalo-profile-id` + `.runtime-launch.json` + `lstart` + argv lineage).
 pub fn resolve_owned_profile_tree(
     ops: &dyn MacOsSystemOps,
+    profile_id: &str,
     profile_dir: &Path,
+    runtime_pid_hint: Option<u32>,
     primary_pids: &HashSet<u32>,
 ) -> Result<VerifiedProfileProcessTree, DimError> {
     let zalo_data = macos_zalo_data_dir(profile_dir);
     let singleton_lock = zalo_data.join("SingletonLock");
     let fixture_lock = zalo_data.join("lockfile");
-    let runtime_pid_path = profile_dir.join(".runtime-pid");
+    let runtime_pid_path = profile_dir.join(RUNTIME_PID_FILE);
+    let runtime_rec_path = profile_dir.join(RUNTIME_LAUNCH_RECORD_FILE);
 
     let has_singleton = symlink_or_file_present(&singleton_lock);
     let has_fixture_lock = symlink_or_file_present(&fixture_lock);
     let has_runtime_pid = symlink_or_file_present(&runtime_pid_path);
+    let has_runtime_rec = symlink_or_file_present(&runtime_rec_path);
     let has_socket_or_cookie = symlink_or_file_present(&zalo_data.join("SingletonSocket"))
         || symlink_or_file_present(&zalo_data.join("SingletonCookie"));
 
@@ -335,16 +516,28 @@ pub fn resolve_owned_profile_tree(
         fixture_lock
     };
 
-    let processes = ops.list_processes()?;
+    let mut processes = ops.list_processes()?;
+    augment_with_live_fixture_helpers(ops, &zalo_data, &mut processes);
+
     let current_uid = ops.current_uid();
     let real_home = ops.user_home_dir();
-    let target_hint = read_launch_target_hint(profile_dir);
+    let launch_rec = read_runtime_launch_record(profile_dir);
+    let target_hint = launch_rec
+        .as_ref()
+        .map(|r| r.executable_path.clone())
+        .filter(|s| !s.is_empty())
+        .or_else(|| read_launch_target_hint(profile_dir));
 
     let mut candidates: Vec<u32> = Vec::new();
     if let Some(lock_pid) = read_singleton_or_json_pid(&zalo_data) {
         candidates.push(lock_pid);
     }
-    if let Some(rt_pid) = read_runtime_pid_file(&runtime_pid_path) {
+    if let Some(rec) = &launch_rec {
+        if !candidates.contains(&rec.pid) {
+            candidates.push(rec.pid);
+        }
+    }
+    if let Some(rt_pid) = runtime_pid_hint.or_else(|| read_runtime_pid(profile_dir)) {
         if !candidates.contains(&rt_pid) {
             candidates.push(rt_pid);
         }
@@ -353,41 +546,63 @@ pub fn resolve_owned_profile_tree(
     let mut verified_main: Option<u32> = None;
     let mut verified_tree: Vec<u32> = Vec::new();
 
-    for cand_pid in candidates {
+    for &cand_pid in &candidates {
         if verify_candidate_pid_ownership(
             cand_pid,
+            profile_id,
             profile_dir,
             &zalo_data,
             real_home.as_deref(),
             current_uid,
             primary_pids,
+            launch_rec.as_ref(),
             target_hint.as_deref(),
             &processes,
         ) {
             verified_main = Some(cand_pid);
-            verified_tree = collect_descendant_pids(cand_pid, &processes);
+            verified_tree = collect_profile_owned_pids(
+                cand_pid,
+                profile_dir,
+                &zalo_data,
+                current_uid,
+                primary_pids,
+                &processes,
+            );
             break;
         }
     }
 
-    // Fallback: scan live `ps` table for any process explicitly carrying `--user-data-dir=<zalo_data>`
-    // or `<profile_dir>/Library/Application Support/ZaloData`.
-    if verified_main.is_none() {
+    if verified_main.is_none()
+        && candidates.is_empty()
+        && verify_profile_id_marker(&zalo_data, profile_id, true).is_ok()
+    {
         if let Some(found_root) = find_profile_root_by_cmdline(
+            profile_id,
             profile_dir,
             &zalo_data,
             current_uid,
             primary_pids,
+            launch_rec.as_ref(),
             &processes,
         ) {
             verified_main = Some(found_root);
-            verified_tree = collect_descendant_pids(found_root, &processes);
+            verified_tree = collect_profile_owned_pids(
+                found_root,
+                profile_dir,
+                &zalo_data,
+                current_uid,
+                primary_pids,
+                &processes,
+            );
         }
     }
 
     let working_set_bytes = sum_working_set_bytes(&verified_tree, &processes);
-    let any_lock_artifact =
-        has_singleton || has_fixture_lock || has_runtime_pid || has_socket_or_cookie;
+    let any_lock_artifact = has_singleton
+        || has_fixture_lock
+        || has_runtime_pid
+        || has_runtime_rec
+        || has_socket_or_cookie;
     let stale_lock_detected = verified_main.is_none() && any_lock_artifact;
 
     Ok(VerifiedProfileProcessTree {
@@ -397,6 +612,44 @@ pub fn resolve_owned_profile_tree(
         stale_lock_detected,
         lockfile_path,
     })
+}
+
+/// Collects `root_pid`, its recursive `ppid` descendants, AND any orphan helpers (`ppid == 1`)
+/// owned by `current_uid` whose command line explicitly binds `--user-data-dir=<zalo_data_dir>`.
+#[must_use]
+pub fn collect_profile_owned_pids(
+    root_pid: u32,
+    profile_dir: &Path,
+    zalo_data_dir: &Path,
+    current_uid: u32,
+    primary_pids: &HashSet<u32>,
+    processes: &[ProcessEntry],
+) -> Vec<u32> {
+    let mut tree = collect_descendant_pids(root_pid, processes);
+    let tagged = find_explicit_profile_tagged_pids(
+        profile_dir,
+        zalo_data_dir,
+        current_uid,
+        primary_pids,
+        processes,
+    );
+    for pid in tagged {
+        if !tree.contains(&pid) {
+            tree.push(pid);
+        }
+    }
+    tree.retain(|p| !primary_pids.contains(p));
+    if let Some(pos) = tree.iter().position(|&p| p == root_pid) {
+        tree.remove(pos);
+        tree.sort_unstable();
+        let mut out = Vec::with_capacity(tree.len() + 1);
+        out.push(root_pid);
+        out.extend(tree);
+        out
+    } else {
+        tree.sort_unstable();
+        tree
+    }
 }
 
 /// Collects `root_pid` and all recursive child/descendant PIDs (`ppid -> pid`) in deterministic sorted order.
@@ -429,7 +682,6 @@ pub fn collect_descendant_pids(root_pid: u32, processes: &[ProcessEntry]) -> Vec
     }
 
     let mut out: Vec<u32> = visited.into_iter().collect();
-    // Keep `root_pid` first, followed by sorted child PIDs.
     out.retain(|&p| p != root_pid);
     out.sort_unstable();
     let mut ordered = Vec::with_capacity(out.len() + 1);
@@ -472,10 +724,20 @@ pub fn compute_profile_disk_usage_bytes(profile_dir: &Path) -> u64 {
     total
 }
 
-/// Gracefully stops a verified isolated profile process tree while strictly protecting primary PIDs
-/// and refusing to signal foreign/recycled PIDs.
+/// Enforces the strict 8-rule graceful shutdown contract (`P1-2`):
+/// 1. Multi-evidence ownership verified fail-closed first; primary PIDs strictly protected.
+/// 2. `.quit-signal` + `NSRunningApplication.terminate()` sent first.
+/// 3. Dedicated graceful window (`2/3 * timeout_ms`) waited with ZERO `SIGTERM` signals.
+/// 4. Tracks full child tree including `ppid == 1` orphan helpers.
+/// 5. Escalates to `SIGTERM` only after graceful window expires AND `start_token`/ownership of each surviving PID matches.
+/// 6. Never sends `SIGTERM` immediately after `terminate()`.
+/// 7. Never signals primary Zalo or out-of-scope processes.
+/// 8. Verifies ALL owned processes have actually exited before clearing `.runtime-pid`/`.runtime-launch.json`;
+///    returns `Err(DimError::ProcessError)` if any owned PID hangs past `timeout_ms` (`DEFECT-06`).
+#[allow(clippy::too_many_arguments)]
 pub fn stop_isolated_profile_tree(
     ops: &dyn MacOsSystemOps,
+    profile_id: &str,
     profile_dir: &Path,
     zalo_data_dir: &Path,
     candidate_main_pid: Option<u32>,
@@ -515,10 +777,16 @@ pub fn stop_isolated_profile_tree(
         }
     }
 
-    // Re-verify live process ownership right before signaling so recycled PIDs are never touched!
-    let live_tree = resolve_owned_profile_tree(ops, profile_dir, &protected_set)?;
+    // Rule 1: Re-verify live multi-evidence process ownership right before signaling.
+    let live_tree = resolve_owned_profile_tree(
+        ops,
+        profile_id,
+        profile_dir,
+        read_runtime_pid(profile_dir),
+        &protected_set,
+    )?;
     let Some(main_pid) = live_tree.main_pid else {
-        let _ = remove_file_no_follow(&profile_dir.join(".runtime-pid"));
+        // Stale or foreign/recycled PID: never signal!
         return Ok(0);
     };
     if protected_set.contains(&main_pid) {
@@ -527,10 +795,20 @@ pub fn stop_isolated_profile_tree(
         )));
     }
 
-    let initial_owned_pids = live_tree.process_ids.clone();
+    let mut snapshot_procs = ops.list_processes()?;
+    augment_with_live_fixture_helpers(ops, zalo_data_dir, &mut snapshot_procs);
+    let mut owned_tokens: HashMap<u32, Option<String>> = HashMap::new();
+    for &pid in &live_tree.process_ids {
+        let tok = snapshot_procs
+            .iter()
+            .find(|p| p.pid == pid)
+            .and_then(|p| p.start_token.clone());
+        owned_tokens.insert(pid, tok);
+    }
+    let initial_count = u32::try_from(live_tree.process_ids.len()).unwrap_or(1);
 
-    // Step 1: Write `.quit-signal` for cooperative fixtures/helpers.
-    if zalo_data_dir.is_dir() {
+    // Rule 2: Cooperative `.quit-signal` + Cocoa `NSRunningApplication.terminate()`.
+    if fs::symlink_metadata(zalo_data_dir).is_ok_and(|m| m.is_dir()) {
         let _ = write_signal_json_atomic(
             &zalo_data_dir.join(".quit-signal"),
             &serde_json::json!({
@@ -539,64 +817,114 @@ pub fn stop_isolated_profile_tree(
             }),
         );
     }
-
-    // Step 2: Request graceful Cocoa `NSRunningApplication.terminate()` (`⌘Q`).
     let _ = request_graceful_app_terminate(ops, main_pid);
 
-    // Give SQLite WAL (`ftsm_*.db-wal`) extra graceful flush headroom before escalating to SIGTERM.
-    let has_open_wal = has_active_sqlite_wal(zalo_data_dir);
-    let graceful_budget_ms = if has_open_wal {
-        timeout_ms.clamp(250, 2_000)
-    } else {
-        (timeout_ms / 2).clamp(150, 1_000)
-    };
-    let overall_deadline = Instant::now() + Duration::from_millis(timeout_ms.max(150));
-    let graceful_deadline = Instant::now() + Duration::from_millis(graceful_budget_ms);
+    // Rule 3 & 6: Dedicated graceful window BEFORE any SIGTERM is ever sent.
+    let effective_timeout_ms = timeout_ms.max(150);
+    let graceful_budget_ms = (effective_timeout_ms.saturating_mul(2) / 3).clamp(100, 2_200);
+    let overall_deadline = Instant::now() + Duration::from_millis(effective_timeout_ms);
+    let graceful_deadline =
+        (Instant::now() + Duration::from_millis(graceful_budget_ms)).min(overall_deadline);
 
     while Instant::now() < graceful_deadline {
-        let check = resolve_owned_profile_tree(ops, profile_dir, &protected_set)?;
-        if check.main_pid.is_none() {
-            let _ = remove_file_no_follow(&profile_dir.join(".runtime-pid"));
-            return Ok(u32::try_from(initial_owned_pids.len()).unwrap_or(1));
+        let remaining = collect_all_surviving_owned_pids(
+            ops,
+            profile_id,
+            profile_dir,
+            zalo_data_dir,
+            &owned_tokens,
+            &protected_set,
+        )?;
+        if remaining.is_empty() {
+            finalize_clean_stop(ops, profile_id, profile_dir, zalo_data_dir);
+            return Ok(initial_count);
         }
-        std::thread::sleep(Duration::from_millis(40));
+        std::thread::sleep(Duration::from_millis(30));
     }
 
-    // Step 3: Bounded escalation to isolated `SIGTERM` on verified owned non-primary PIDs only
-    // (also resolves the known macOS Zalo login-screen hang after `terminate()`).
-    let recheck = resolve_owned_profile_tree(ops, profile_dir, &protected_set)?;
-    if recheck.main_pid.is_some() {
-        // Signal helper children first, then main PID, strictly excluding any protected PID.
-        for &pid in recheck.process_ids.iter().rev() {
+    // Rule 4, 5 & 7: Escalate to isolated `SIGTERM` ONLY on verified surviving owned PIDs (including `ppid == 1` orphans).
+    let surviving_for_sigterm = collect_all_surviving_owned_pids(
+        ops,
+        profile_id,
+        profile_dir,
+        zalo_data_dir,
+        &owned_tokens,
+        &protected_set,
+    )?;
+    if !surviving_for_sigterm.is_empty() {
+        // Signal helper/orphan children first, then `main_pid`.
+        for &pid in surviving_for_sigterm
+            .iter()
+            .filter(|&&p| p != main_pid)
+            .rev()
+        {
             if !protected_set.contains(&pid) {
                 let _ = ops.send_sigterm(pid);
             }
         }
+        if surviving_for_sigterm.contains(&main_pid) && !protected_set.contains(&main_pid) {
+            let _ = ops.send_sigterm(main_pid);
+        }
     }
 
     while Instant::now() < overall_deadline {
-        let check = resolve_owned_profile_tree(ops, profile_dir, &protected_set)?;
-        if check.main_pid.is_none() {
-            let _ = remove_file_no_follow(&profile_dir.join(".runtime-pid"));
-            return Ok(u32::try_from(initial_owned_pids.len()).unwrap_or(1));
+        let remaining = collect_all_surviving_owned_pids(
+            ops,
+            profile_id,
+            profile_dir,
+            zalo_data_dir,
+            &owned_tokens,
+            &protected_set,
+        )?;
+        if remaining.is_empty() {
+            finalize_clean_stop(ops, profile_id, profile_dir, zalo_data_dir);
+            return Ok(initial_count);
         }
-        std::thread::sleep(Duration::from_millis(40));
+        std::thread::sleep(Duration::from_millis(30));
     }
 
-    let final_check = resolve_owned_profile_tree(ops, profile_dir, &protected_set)?;
-    if final_check.main_pid.is_none() {
-        let _ = remove_file_no_follow(&profile_dir.join(".runtime-pid"));
-        Ok(u32::try_from(initial_owned_pids.len()).unwrap_or(1))
+    // Rule 8: Final fail-closed verification — never falsely report stopped if any owned PID hung!
+    let final_surviving = collect_all_surviving_owned_pids(
+        ops,
+        profile_id,
+        profile_dir,
+        zalo_data_dir,
+        &owned_tokens,
+        &protected_set,
+    )?;
+    if final_surviving.is_empty() {
+        finalize_clean_stop(ops, profile_id, profile_dir, zalo_data_dir);
+        Ok(initial_count)
     } else {
-        Ok(0)
+        Err(DimError::ProcessError(format!(
+            "profile '{profile_id}' failed to exit within {effective_timeout_ms}ms (surviving owned PIDs: {final_surviving:?})"
+        )))
     }
 }
 
 /// Safely removes stale `SingletonLock`, `SingletonSocket`, `SingletonCookie`, `lockfile`,
-/// `.runtime-pid`, `.quit-signal`, `.focus-signal`, and `.window-state.json` without following symlinks.
+/// `.runtime-pid`, `.runtime-launch.json`, `.quit-signal`, `.focus-signal`, `.window-state.json`,
+/// and isolated short `/tmp/dz-<uid>/<id>` artifacts without following symlinks (`P0-4` / `P1-1`).
 ///
-/// Refuses cleanup with `DimError::ProfileRunning` if `is_running` is `true`.
+/// Never touches global `ZaloCall` sockets (`/tmp/socketzalorecv2021`, `/tmp/socketzalosend2021`),
+/// and refuses cleanup with `DimError::ProfileRunning` if `is_running` is `true`.
 pub fn recover_macos_stale_artifacts(
+    profile: &ProfileRecord,
+    profile_dir: &Path,
+    is_running: bool,
+) -> Result<RecoveryReport, DimError> {
+    recover_macos_stale_artifacts_with_ops(
+        &crate::ops::NativeMacOsSystemOps,
+        profile,
+        profile_dir,
+        is_running,
+    )
+}
+
+/// [`MacOsSystemOps`]-parameterized variant of [`recover_macos_stale_artifacts`] that also cleans
+/// the profile's isolated short temp slot `<short_tmp_root>/dz-<uid>/<id>`.
+pub fn recover_macos_stale_artifacts_with_ops(
+    ops: &dyn MacOsSystemOps,
     profile: &ProfileRecord,
     profile_dir: &Path,
     is_running: bool,
@@ -611,6 +939,11 @@ pub fn recover_macos_stale_artifacts(
     let zalo_data = macos_zalo_data_dir(profile_dir);
     let mut removed = Vec::new();
 
+    // Extra safety: never touch global ZaloCall sockets even if someone passed a strange path.
+    debug_assert!(!MACOS_CALL_SOCKETS
+        .iter()
+        .any(|s| zalo_data.to_string_lossy().contains(s)));
+
     for artifact in MACOS_STALE_ZALODATA_ARTIFACTS {
         let candidate = zalo_data.join(artifact);
         if remove_file_no_follow(&candidate)? {
@@ -618,10 +951,14 @@ pub fn recover_macos_stale_artifacts(
         }
     }
 
-    let runtime_pid = profile_dir.join(".runtime-pid");
-    if remove_file_no_follow(&runtime_pid)? {
-        removed.push(runtime_pid.display().to_string());
+    for rt_name in [RUNTIME_PID_FILE, RUNTIME_LAUNCH_RECORD_FILE] {
+        let rt_path = profile_dir.join(rt_name);
+        if remove_file_no_follow(&rt_path)? {
+            removed.push(rt_path.display().to_string());
+        }
     }
+
+    let _ = cleanup_profile_short_tmpdir(ops, &profile.id);
 
     let recovered = !removed.is_empty();
     let summary = if recovered {
@@ -668,17 +1005,25 @@ pub fn remove_file_no_follow(path: &Path) -> Result<bool, DimError> {
 #[allow(clippy::too_many_arguments)]
 fn verify_candidate_pid_ownership(
     candidate_pid: u32,
+    profile_id: &str,
     profile_dir: &Path,
     zalo_data_dir: &Path,
     real_home: Option<&Path>,
     current_uid: u32,
     primary_pids: &HashSet<u32>,
+    launch_rec: Option<&RuntimeLaunchRecord>,
     target_hint: Option<&str>,
     processes: &[ProcessEntry],
 ) -> bool {
     if candidate_pid <= 1 || primary_pids.contains(&candidate_pid) {
         return false;
     }
+
+    // Require intact `.zalo-profile-id` matching `profile_id` (fail closed if missing or tampered).
+    if verify_profile_id_marker(zalo_data_dir, profile_id, true).is_err() {
+        return false;
+    }
+
     let Some(root_entry) = processes.iter().find(|p| p.pid == candidate_pid) else {
         return false;
     };
@@ -689,6 +1034,35 @@ fn verify_candidate_pid_ownership(
     let tree_pids = collect_descendant_pids(candidate_pid, processes);
     if tree_pids.iter().any(|p| primary_pids.contains(p)) {
         return false;
+    }
+
+    // Must look like an expected Zalo / CustomExecutable / NodeFixture target.
+    if !looks_like_zalo_or_fixture_entry(root_entry, target_hint) {
+        return false;
+    }
+
+    // Check `.runtime-launch.json` consistency & `process_start_token` (`lstart`) anti-PID-reuse guard!
+    let mut verified_by_launch_record = false;
+    if let Some(rec) = launch_rec {
+        if rec.pid == candidate_pid {
+            if !rec.profile_id.eq_ignore_ascii_case(profile_id) {
+                return false;
+            }
+            match (&rec.process_start_token, &root_entry.start_token) {
+                (Some(expected_tok), Some(live_tok)) => {
+                    if expected_tok != live_tok {
+                        // Deterministic PID-reuse rejection (even if reused by another Zalo/Electron binary!).
+                        return false;
+                    }
+                    verified_by_launch_record = true;
+                }
+                (None, None) => {
+                    verified_by_launch_record = true;
+                }
+                // If launch recorded a token and live lacks one (or vice versa), do not grant Proof B from record alone.
+                _ => {}
+            }
+        }
     }
 
     let profile_key = normalize_macos_path_key(profile_dir);
@@ -702,18 +1076,14 @@ fn verify_candidate_pid_ownership(
         };
         let args_key = normalize_cmd_for_match(&entry.args);
 
-        // Reject if any process in the tree explicitly points at primary ZaloData.
         if let Some(ref pkey) = primary_key {
             if !pkey.is_empty() && args_key.contains(pkey) && !args_key.contains(&profile_key) {
                 return false;
             }
         }
-
-        // Reject if any process in the tree points at a DIFFERENT managed `/Profiles/<other>` folder.
         if references_different_managed_profile(&args_key, &profile_key) {
             return false;
         }
-
         if (!profile_key.is_empty() && args_key.contains(&profile_key))
             || (!zalo_key.is_empty() && args_key.contains(&zalo_key))
         {
@@ -721,20 +1091,17 @@ fn verify_candidate_pid_ownership(
         }
     }
 
-    if explicit_path_match {
-        return true;
-    }
-
-    // Without `--user-data-dir` on argv yet, require positive executable/bundle identity match
-    // (never matching unrelated OS daemons/apps like Safari, Finder, launchd, syslogd).
-    looks_like_zalo_or_fixture_entry(root_entry, target_hint)
+    // Fail closed unless proven by EITHER explicit profile path lineage OR verified `.runtime-launch.json` + start_token!
+    explicit_path_match || verified_by_launch_record
 }
 
 fn find_profile_root_by_cmdline(
+    profile_id: &str,
     profile_dir: &Path,
     zalo_data_dir: &Path,
     current_uid: u32,
     primary_pids: &HashSet<u32>,
+    launch_rec: Option<&RuntimeLaunchRecord>,
     processes: &[ProcessEntry],
 ) -> Option<u32> {
     let profile_key = normalize_macos_path_key(profile_dir);
@@ -745,11 +1112,26 @@ fn find_profile_root_by_cmdline(
         if !uid_matches(entry.uid, current_uid) || primary_pids.contains(&entry.pid) {
             continue;
         }
+        // Reject if `.runtime-launch.json` proves `entry.pid` recycled an old PID with a different start token.
+        if let Some(rec) = launch_rec {
+            if rec.pid == entry.pid {
+                if !rec.profile_id.eq_ignore_ascii_case(profile_id) {
+                    continue;
+                }
+                if let (Some(exp), Some(act)) = (&rec.process_start_token, &entry.start_token) {
+                    if exp != act {
+                        continue;
+                    }
+                }
+            }
+        }
         let args_key = normalize_cmd_for_match(&entry.args);
+        if references_different_managed_profile(&args_key, &profile_key) {
+            continue;
+        }
         if (!zalo_key.is_empty() && args_key.contains(&zalo_key))
             || (!profile_key.is_empty() && args_key.contains(&profile_key))
         {
-            // Walk up `ppid` if the matched process is a child helper of a Zalo/Electron main process.
             let mut root = entry.pid;
             let mut hops = 0usize;
             while hops < 8 {
@@ -782,6 +1164,220 @@ fn find_profile_root_by_cmdline(
         }
     }
     None
+}
+
+fn find_explicit_profile_tagged_pids(
+    profile_dir: &Path,
+    zalo_data_dir: &Path,
+    current_uid: u32,
+    primary_pids: &HashSet<u32>,
+    processes: &[ProcessEntry],
+) -> Vec<u32> {
+    let profile_key = normalize_macos_path_key(profile_dir);
+    let zalo_key = normalize_macos_path_key(zalo_data_dir);
+    let mut out = Vec::new();
+
+    for entry in processes {
+        if entry.pid <= 1
+            || !uid_matches(entry.uid, current_uid)
+            || primary_pids.contains(&entry.pid)
+        {
+            continue;
+        }
+        let args_key = normalize_cmd_for_match(&entry.args);
+        if references_different_managed_profile(&args_key, &profile_key) {
+            continue;
+        }
+        if (!zalo_key.is_empty() && args_key.contains(&zalo_key))
+            || (!profile_key.is_empty() && args_key.contains(&profile_key))
+        {
+            out.push(entry.pid);
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+fn collect_all_surviving_owned_pids(
+    ops: &dyn MacOsSystemOps,
+    profile_id: &str,
+    profile_dir: &Path,
+    zalo_data_dir: &Path,
+    owned_tokens: &HashMap<u32, Option<String>>,
+    protected_set: &HashSet<u32>,
+) -> Result<Vec<u32>, DimError> {
+    let mut procs = ops.list_processes()?;
+    augment_with_live_fixture_helpers(ops, zalo_data_dir, &mut procs);
+    let current_uid = ops.current_uid();
+
+    let mut surviving = HashSet::new();
+
+    // 1. Check any initially-owned PID whose `start_token` still matches (hasn't exited or been recycled).
+    for (&pid, expected_tok) in owned_tokens {
+        if protected_set.contains(&pid) {
+            continue;
+        }
+        if let Some(live) = procs.iter().find(|p| p.pid == pid) {
+            if !uid_matches(live.uid, current_uid) {
+                continue;
+            }
+            let same_instance = match (expected_tok, &live.start_token) {
+                (Some(exp), Some(act)) => exp == act,
+                (None, _) | (_, None) => looks_like_zalo_or_fixture_entry(live, None),
+            };
+            if same_instance {
+                for child_pid in collect_descendant_pids(pid, &procs) {
+                    if !protected_set.contains(&child_pid) {
+                        surviving.insert(child_pid);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Also include any orphan helper (`ppid == 1`) still carrying `--user-data-dir=<zalo_data_dir>`.
+    for orphan_pid in find_explicit_profile_tagged_pids(
+        profile_dir,
+        zalo_data_dir,
+        current_uid,
+        protected_set,
+        &procs,
+    ) {
+        if let Some(Some(exp_tok)) = owned_tokens.get(&orphan_pid) {
+            if let Some(live) = procs.iter().find(|p| p.pid == orphan_pid) {
+                if live.start_token.as_ref() != Some(exp_tok) {
+                    continue;
+                }
+            }
+        }
+        surviving.insert(orphan_pid);
+    }
+
+    // 3. Cross-check standard tree resolution in case a new helper appeared during shutdown.
+    if let Ok(tree) = resolve_owned_profile_tree(ops, profile_id, profile_dir, None, protected_set)
+    {
+        for pid in tree.process_ids {
+            if !protected_set.contains(&pid) {
+                surviving.insert(pid);
+            }
+        }
+    }
+
+    let mut ordered: Vec<u32> = surviving.into_iter().collect();
+    ordered.sort_unstable();
+    Ok(ordered)
+}
+
+fn finalize_clean_stop(
+    ops: &dyn MacOsSystemOps,
+    profile_id: &str,
+    profile_dir: &Path,
+    zalo_data_dir: &Path,
+) {
+    let _ = clear_runtime_launch_files(profile_dir);
+    let _ = remove_file_no_follow(&zalo_data_dir.join(".quit-signal"));
+    let _ = remove_file_no_follow(&zalo_data_dir.join(".helper-pids.json"));
+    let _ = cleanup_profile_short_tmpdir(ops, profile_id);
+}
+
+/// Discovers live child/orphan helper PIDs recorded by `fixture-macos-app.mjs` on hosts where `/bin/ps` is absent.
+fn augment_with_live_fixture_helpers(
+    ops: &dyn MacOsSystemOps,
+    zalo_data_dir: &Path,
+    processes: &mut Vec<ProcessEntry>,
+) {
+    let uid = ops.current_uid();
+    let mut candidate_helpers: Vec<(u32, u32)> = Vec::new();
+
+    let win_file = zalo_data_dir.join(MACOS_WINDOW_STATE_FILE);
+    if fs::symlink_metadata(&win_file).is_ok_and(|m| m.is_file()) {
+        if let Ok(raw) = fs::read_to_string(&win_file) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                let owner = val
+                    .get("owner_pid")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(1);
+                if let Some(hpid) = val
+                    .get("helper_pid")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok())
+                    .filter(|&p| p > 0)
+                {
+                    candidate_helpers.push((hpid, owner));
+                }
+            }
+        }
+    }
+
+    let helper_file = zalo_data_dir.join(".helper-pids.json");
+    if fs::symlink_metadata(&helper_file).is_ok_and(|m| m.is_file()) {
+        if let Ok(raw) = fs::read_to_string(&helper_file) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(arr) = val.as_array() {
+                    for item in arr {
+                        if let Some(hpid) = item
+                            .get("pid")
+                            .and_then(serde_json::Value::as_u64)
+                            .and_then(|n| u32::try_from(n).ok())
+                            .filter(|&p| p > 0)
+                        {
+                            let ppid = item
+                                .get("ppid")
+                                .and_then(serde_json::Value::as_u64)
+                                .and_then(|n| u32::try_from(n).ok())
+                                .unwrap_or(1);
+                            candidate_helpers.push((hpid, ppid));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (hpid, recorded_ppid) in candidate_helpers {
+        if processes.iter().any(|p| p.pid == hpid) || !ops.is_pid_alive(hpid) {
+            continue;
+        }
+        let parent_alive = processes.iter().any(|p| p.pid == recorded_ppid);
+        let effective_ppid = if parent_alive { recorded_ppid } else { 1 };
+        processes.push(ProcessEntry {
+            pid: hpid,
+            ppid: effective_ppid,
+            uid,
+            rss_kib: 24_576,
+            start_token: ops.process_start_token(hpid),
+            executable: "node".to_owned(),
+            args: format!(
+                "node fixture-macos-app.mjs --type=renderer --user-data-dir={}",
+                zalo_data_dir.display()
+            ),
+        });
+    }
+}
+
+fn try_take_lstart(input: &str) -> Option<(String, &str)> {
+    // `lstart` has 5 whitespace-separated tokens: `<Day> <Mon> <DD> <HH:MM:SS> <YYYY>`
+    // e.g. `Mon Nov 17 23:15:02 2026`.
+    let (t1, r1) = take_token(input)?;
+    let (t2, r2) = take_token(r1)?;
+    let (t3, r3) = take_token(r2)?;
+    let (t4, r4) = take_token(r3)?;
+    let (t5, r5) = take_token(r4)?;
+
+    let is_weekday = t1.len() == 3 && t1.chars().all(|c| c.is_ascii_alphabetic());
+    let is_month = t2.len() == 3 && t2.chars().all(|c| c.is_ascii_alphabetic());
+    let is_day = t3.parse::<u8>().is_ok_and(|d| (1..=31).contains(&d));
+    let is_hms =
+        t4.len() == 8 && t4.as_bytes().get(2) == Some(&b':') && t4.as_bytes().get(5) == Some(&b':');
+    let is_year = t5.len() == 4 && t5.parse::<u16>().is_ok_and(|y| (1970..=2199).contains(&y));
+
+    if is_weekday && is_month && is_day && is_hms && is_year {
+        Some((format!("{t1} {t2} {t3} {t4} {t5}"), r5))
+    } else {
+        None
+    }
 }
 
 fn references_different_managed_profile(args_key: &str, expected_profile_key: &str) -> bool {
@@ -842,8 +1438,10 @@ fn looks_like_zalo_or_fixture_entry(entry: &ProcessEntry, target_hint: Option<&s
     let known_markers = [
         "fixture-macos-app.mjs",
         "fixture-app.mjs",
+        "xf-fixture.mjs",
         "zalofixture",
         "dim-test-fixture",
+        "xf-fixture",
     ];
     if known_markers
         .iter()
@@ -887,40 +1485,16 @@ fn sum_working_set_bytes(pids: &[u32], processes: &[ProcessEntry]) -> u64 {
         })
 }
 
-fn read_runtime_pid_file(path: &Path) -> Option<u32> {
-    let raw = fs::read_to_string(path).ok()?;
-    raw.trim().parse::<u32>().ok().filter(|&p| p > 0)
-}
-
 fn read_launch_target_hint(profile_dir: &Path) -> Option<String> {
-    let raw = fs::read_to_string(profile_dir.join("tmp").join(LAUNCH_TARGET_HINT_FILE)).ok()?;
+    let path = profile_dir.join("tmp").join(LAUNCH_TARGET_HINT_FILE);
+    if !fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+    let raw = fs::read_to_string(path).ok()?;
     let val = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
     val.get("target")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
-}
-
-fn has_active_sqlite_wal(zalo_data_dir: &Path) -> bool {
-    let db_root = zalo_data_dir.join("Database").join("_production");
-    let Ok(entries) = fs::read_dir(db_root) else {
-        return false;
-    };
-    for user_entry in entries.flatten() {
-        if let Ok(files) = fs::read_dir(user_entry.path()) {
-            for f in files.flatten() {
-                let name = f.file_name();
-                let s = name.to_string_lossy();
-                if s.ends_with(".db-wal") {
-                    if let Ok(meta) = f.metadata() {
-                        if meta.len() > 0 {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
 }
 
 fn try_create_op_lock_file(

@@ -1,29 +1,40 @@
 //! `MacOsPlatformAdapter` implementing `ApplicationLocator`, `PlatformCapabilities`,
 //! `InstanceMonitor`, `InstanceLauncher`, and `RecoveryManager` for Apple macOS (`arm64` & `x86_64`).
 //!
+//! Enforces 5-tier cryptographic bundle verification (`P0-1`), 12-surface profile data isolation
+//! (`P0-2`), multi-evidence `lstart`-bound PID ownership (`P0-3`), strict 8-rule graceful shutdown
+//! (`P1-2`), and zero-TCC macOS 14+ cooperative window activation (`P1-3`).
+//!
 //! Live official VNG `Zalo.app` execution is honestly reported as [`SupportStatus::NotTested`]
 //! (`LIVE_ZALO_NOT_TESTED`) until validated on physical Apple hardware.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dim_core::{
-    detect_zalo_user_id, ApplicationInstallation, ApplicationLocator, DimError, InstanceLauncher,
-    InstanceMonitor, LaunchTarget, PlatformCapabilities, PlatformCapabilityReport, PlatformKind,
-    PrimaryInstanceStatus, ProfileRecord, ProfileRuntimeState, RecoveryManager, RecoveryReport,
-    SupportStatus,
+    detect_zalo_user_id, now_rfc3339_utc, ApplicationInstallation, ApplicationLocator, DimError,
+    InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities,
+    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileRecord,
+    ProfileRuntimeState, RecoveryManager, RecoveryReport, SupportStatus,
 };
-use dim_profile_store::{unlink_reparse_points_safe, verify_profile_id_marker};
+use dim_profile_store::{
+    is_symlink_or_reparse, unlink_reparse_points_safe, verify_profile_id_marker,
+};
 
 use crate::bundle::{discover_zalo_bundle, validate_macos_path, DEFAULT_SYSTEM_ZALO_APP};
-use crate::codesign::{enforce_signature_or_err, verify_macos_code_signature};
+use crate::codesign::{
+    enforce_signature_tier_or_err, verify_macos_bundle_identity, verify_macos_code_signature,
+    PinnedPublisherPolicy,
+};
 use crate::layout::{
-    build_isolated_child_env, build_open_launch_args, ensure_macos_profile_layout_with_ops,
-    ensure_macos_user_symlinks_with_options, ensure_not_macos_primary_path,
-    inspect_call_sockets_at, macos_zalo_data_dir, MacOsLayoutOptions, MACOS_CALL_SOCKETS,
-    MACOS_SAFE_TMPDIR_MAX_BYTES, MACOS_SUN_PATH_MAX,
+    build_isolated_child_env, build_open_launch_args, derive_fixture_user_id,
+    ensure_macos_profile_layout_with_ops, ensure_macos_user_symlinks_with_options,
+    ensure_not_macos_primary_path, inspect_call_sockets_at, macos_zalo_data_dir,
+    normalize_macos_path_key, MacOsLayoutOptions, DARWIN_SUN_PATH_MAX, MACOS_12_ISOLATED_SURFACES,
+    MACOS_CALL_SOCKETS, MACOS_PROFILE_META_FILE, MACOS_SAFE_TMPDIR_MAX_BYTES,
 };
 #[cfg(target_os = "macos")]
 use crate::ops::NativeMacOsSystemOps;
@@ -32,9 +43,10 @@ use crate::ops::UnsupportedHostSystemOps;
 use crate::ops::{HostFixtureMacOsOps, MacOsSystemOps, SpawnDetachedRequest};
 pub use crate::process::read_singleton_or_json_pid;
 use crate::process::{
-    compute_profile_disk_usage_bytes, inspect_primary_macos, recover_macos_stale_artifacts,
-    resolve_owned_profile_tree, stop_isolated_profile_tree, write_launch_target_hint,
-    ProfileOperationGuard,
+    compute_profile_disk_usage_bytes, inspect_primary_macos, read_runtime_launch_record,
+    read_runtime_pid, recover_macos_stale_artifacts_with_ops, resolve_owned_profile_tree,
+    stop_isolated_profile_tree, symlink_or_file_present, write_launch_target_hint,
+    write_runtime_launch_record, ProfileOperationGuard, RuntimeLaunchRecord,
 };
 use crate::window::{activate_profile_window, inspect_profile_window};
 
@@ -44,15 +56,17 @@ pub const LIVE_ZALO_STATUS_MARKER: &str = "LIVE_ZALO_NOT_TESTED";
 /// Configuration options for [`MacOsPlatformAdapter`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacOsAdapterConfig {
-    /// Enforce `codesign --verify --deep --strict` + Developer ID check on macOS (`true` in production).
+    /// Enforce 5-tier `codesign --verify --deep --strict` + Gatekeeper + pinned `TeamIdentifier` on macOS (`true` in production).
     pub require_signature_trust: bool,
-    /// Expected publisher substring in `codesign -dv` `Authority=` chain for `OfficialZalo`.
-    pub expected_official_publisher: Option<String>,
-    /// Append `--user-data-dir=<zalo_data_dir>` to launch arguments for process-tree ownership tagging.
+    /// Explicit cryptographic publisher policy (`CFBundleIdentifier` + Apple `TeamIdentifier`) for `OfficialZalo`.
+    ///
+    /// Defaults to `None` so publisher identity is NEVER guessed from app filenames or loose `"VNG"` substrings.
+    pub pinned_publisher_policy: Option<PinnedPublisherPolicy>,
+    /// Append `--user-data-dir=<zalo_data_dir>` and `--disk-cache-dir=<cache_dir>` to launch arguments.
     pub include_user_data_dir_arg: bool,
-    /// Directory & symlink layout options (`Downloads`..`Music`, `Library/Keychains`).
+    /// Directory & opt-in symlink layout options (`Downloads`..`Music`, `Library/Keychains`; both `false` by default).
     pub layout_options: MacOsLayoutOptions,
-    /// Maximum milliseconds to poll for `SingletonLock` / `lockfile` acquisition immediately after spawn.
+    /// Maximum milliseconds to poll for `SingletonLock` / `lockfile` registration immediately after spawn.
     pub launch_ready_poll_ms: u64,
 }
 
@@ -60,16 +74,16 @@ impl Default for MacOsAdapterConfig {
     fn default() -> Self {
         Self {
             require_signature_trust: true,
-            expected_official_publisher: Some("VNG".to_owned()),
+            pinned_publisher_policy: None,
             include_user_data_dir_arg: true,
             layout_options: MacOsLayoutOptions::default(),
-            launch_ready_poll_ms: 800,
+            launch_ready_poll_ms: 1_500,
         }
     }
 }
 
 /// macOS platform adapter isolating profiles via `open -n -a ... --env CFFIXED_USER_HOME=<profile_dir>`
-/// with `SUN_LEN`-safe `TMPDIR`, `ps`-verified PID tree ownership, and primary Zalo protection.
+/// with hardened `/tmp/dz-<uid>/<id>` short `TMPDIR`, `lstart`-verified PID tree ownership, and primary Zalo protection.
 #[derive(Debug, Clone)]
 pub struct MacOsPlatformAdapter {
     ops: Arc<dyn MacOsSystemOps>,
@@ -116,28 +130,42 @@ impl MacOsPlatformAdapter {
         Self::with_system_ops(ops).with_signature_enforcement(false)
     }
 
-    /// Configures whether unsigned, ad-hoc, or tampered binaries are rejected with `DimError::UnverifiedBinary`.
+    /// Configures whether unsigned, ad-hoc, unpinned, or tampered binaries are rejected with `DimError::UnverifiedBinary`.
     #[must_use]
     pub fn with_signature_enforcement(mut self, enforce: bool) -> Self {
         self.config.require_signature_trust = enforce;
         self
     }
 
-    /// Configures the expected `Authority=` publisher substring for `OfficialZalo` bundles.
+    /// Pins a verified Apple `CFBundleIdentifier` and `TeamIdentifier` required for Tier 5 `OfficialZalo` execution.
     #[must_use]
-    pub fn with_expected_publisher(mut self, publisher: Option<String>) -> Self {
-        self.config.expected_official_publisher = publisher;
+    pub fn with_pinned_publisher(
+        mut self,
+        bundle_identifier: impl Into<String>,
+        team_identifier: impl Into<String>,
+    ) -> Self {
+        self.config.pinned_publisher_policy = Some(PinnedPublisherPolicy::new(
+            bundle_identifier,
+            team_identifier,
+        ));
         self
     }
 
-    /// Configures isolated user-folder and `Library/Keychains` symlink creation.
+    /// Sets or clears the explicit [`PinnedPublisherPolicy`].
+    #[must_use]
+    pub fn with_pinned_publisher_policy(mut self, policy: Option<PinnedPublisherPolicy>) -> Self {
+        self.config.pinned_publisher_policy = policy;
+        self
+    }
+
+    /// Configures opt-in user-folder and `Library/Keychains` symlink creation.
     #[must_use]
     pub fn with_layout_options(mut self, options: MacOsLayoutOptions) -> Self {
         self.config.layout_options = options;
         self
     }
 
-    /// Configures whether `--user-data-dir=<zalo_data_dir>` is appended to launch arguments.
+    /// Configures whether `--user-data-dir=<zalo_data_dir>` and `--disk-cache-dir=<cache_dir>` are appended to launch arguments.
     #[must_use]
     pub fn with_user_data_dir_arg(mut self, enabled: bool) -> Self {
         self.config.include_user_data_dir_arg = enabled;
@@ -155,6 +183,12 @@ impl MacOsPlatformAdapter {
     #[must_use]
     pub const fn config(&self) -> &MacOsAdapterConfig {
         &self.config
+    }
+
+    /// Borrows the underlying [`MacOsSystemOps`] backend.
+    #[must_use]
+    pub fn system_ops(&self) -> &Arc<dyn MacOsSystemOps> {
+        &self.ops
     }
 }
 
@@ -179,11 +213,9 @@ impl ApplicationLocator for MacOsPlatformAdapter {
                 signature_status: "NotFound".to_owned(),
                 signer_subject: None,
                 support_status: SupportStatus::NotTested,
-                notes: vec![
-                    format!(
-                        "{LIVE_ZALO_STATUS_MARKER}: macOS official Zalo is unverified on physical Apple hardware in this repository."
-                    ),
-                ],
+                notes: vec![format!(
+                    "{LIVE_ZALO_STATUS_MARKER}: macOS official Zalo is unverified on physical Apple hardware in this repository."
+                )],
                 error: Some(format!(
                     "macOS Zalo.app not found at {}",
                     fallback_root.display()
@@ -201,15 +233,14 @@ impl ApplicationLocator for MacOsPlatformAdapter {
         );
 
         if let Some(structural_err) = bundle.validation_error {
+            let exec_exists =
+                fs::symlink_metadata(&bundle.executable_path).is_ok_and(|m| m.is_file());
             return Ok(ApplicationInstallation {
                 is_valid: false,
                 platform: PlatformKind::MacOs,
                 install_root: bundle.bundle_path,
                 launcher_path: Some(PathBuf::from("/usr/bin/open")),
-                executable_path: bundle
-                    .executable_path
-                    .is_file()
-                    .then_some(bundle.executable_path),
+                executable_path: exec_exists.then_some(bundle.executable_path),
                 app_asar_path: bundle.app_asar_path,
                 version: bundle.plist.short_version,
                 signature_status: "InvalidBundle".to_owned(),
@@ -220,19 +251,23 @@ impl ApplicationLocator for MacOsPlatformAdapter {
             });
         }
 
-        let sig_report = verify_macos_code_signature(
+        let sig_report = verify_macos_bundle_identity(
             &*self.ops,
-            &bundle.bundle_path,
-            self.config.expected_official_publisher.as_deref(),
+            &bundle,
+            self.config.pinned_publisher_policy.as_ref(),
         );
+        if let Some(tier) = sig_report.highest_tier {
+            notes.push(format!("identity_tier={}", tier.as_str()));
+        }
         if sig_report.quarantine_present {
             notes.push(
-                "Quarantine xattr (com.apple.quarantine) detected; macOS Gatekeeper assessment applies."
+                "Quarantine xattr (com.apple.quarantine) detected; macOS Gatekeeper assessment preserved."
                     .to_owned(),
             );
         }
 
-        let sig_check = enforce_signature_or_err(&sig_report, self.config.require_signature_trust);
+        let sig_check =
+            enforce_signature_tier_or_err(&sig_report, self.config.require_signature_trust, true);
         let is_valid = sig_check.is_ok();
         let error = sig_check.err().map(|e| e.to_string());
 
@@ -264,11 +299,11 @@ impl PlatformCapabilities for MacOsPlatformAdapter {
             format!("host_arch={}", self.ops.host_arch()),
             format!("live_zalo_status={LIVE_ZALO_STATUS_MARKER}"),
             format!(
-                "socket_path_budget: SUN_LEN={MACOS_SUN_PATH_MAX}, safe_tmpdir_max_bytes={MACOS_SAFE_TMPDIR_MAX_BYTES}"
+                "socket_path_budget: DARWIN_SUN_PATH_MAX={DARWIN_SUN_PATH_MAX}, safe_tmpdir_max_bytes={MACOS_SAFE_TMPDIR_MAX_BYTES}"
             ),
-            "Singleton isolation uses `open -n` + `CFFIXED_USER_HOME` + `HOME` + `SUN_LEN`-safe `TMPDIR`."
+            "Singleton isolation uses `open -n` + `CFFIXED_USER_HOME` + `HOME` + hardened `/tmp/dz-<uid>/<id>` `TMPDIR`."
                 .to_owned(),
-            "Chromium lock parsed from `SingletonLock` symlink (`<host>-<pid>`) and cross-checked via `ps` UID/args."
+            "Process ownership requires `.zalo-profile-id` + `.runtime-launch.json` + `ps -o lstart=` start token + argv lineage."
                 .to_owned(),
         ];
         diagnostics.extend(inspect_call_sockets_at(&socket_paths));
@@ -295,6 +330,8 @@ impl PlatformCapabilities for MacOsPlatformAdapter {
                 "ZaloHelper.app/Contents/MacOS/ZaloCall binds hardcoded global /tmp/socketzalorecv2021 (fs.unlink conflict on concurrent calls)."
                     .to_owned(),
                 "macOS UNUserNotificationCenter and zalo:// URL handlers bind to shared CFBundleIdentifier (com.vng.zalo)."
+                    .to_owned(),
+                "macOS 14+ (Sonoma/Sequoia) NSRunningApplication.activate() is cooperative and fails closed if frontmost focus is declined."
                     .to_owned(),
             ],
             diagnostics,
@@ -343,7 +380,16 @@ impl InstanceMonitor for MacOsPlatformAdapter {
             .map(|p| p.protected_pids.into_iter().collect())
             .unwrap_or_default();
 
-        let tree = resolve_owned_profile_tree(&*self.ops, profile_dir, &primary_pids)?;
+        // Read `<profile_dir>/.runtime-pid` alongside `.runtime-launch.json` so newly spawned
+        // processes are owned immediately before `SingletonLock` symlink creation (`DEFECT-03`).
+        let runtime_pid = read_runtime_pid(profile_dir);
+        let tree = resolve_owned_profile_tree(
+            &*self.ops,
+            &profile.id,
+            profile_dir,
+            runtime_pid,
+            &primary_pids,
+        )?;
         let running = tree.main_pid.is_some();
         let win = inspect_profile_window(&*self.ops, &zalo_data, &tree.process_ids);
         let detected_uid = detect_zalo_user_id(&zalo_data);
@@ -435,7 +481,7 @@ impl InstanceLauncher for MacOsPlatformAdapter {
 
         verify_profile_id_marker(&resolved_layout.zalo_data_dir, &profile.id, true)?;
 
-        // Idempotency: if already running, focus existing session without spawning a duplicate.
+        // Idempotency: if already running, attempt cooperative focus and return existing session.
         let before = self.inspect_profile(profile, profile_dir)?;
         if before.running {
             if let Some(pid) = before.main_pid {
@@ -444,11 +490,13 @@ impl InstanceLauncher for MacOsPlatformAdapter {
             return self.inspect_profile(profile, profile_dir);
         }
 
-        // Automatically recover stale crash artifacts (`SingletonLock`, `SingletonSocket`, `lockfile`) before launch.
+        // Automatically recover stale crash artifacts (`SingletonLock`, `SingletonSocket`, `lockfile`, short `TMPDIR`) before launch.
         if before.stale_lock_detected {
-            let _ = recover_macos_stale_artifacts(profile, profile_dir, false)?;
+            let _ =
+                recover_macos_stale_artifacts_with_ops(&*self.ops, profile, profile_dir, false)?;
         }
 
+        let launched_exec_label: String;
         match target {
             LaunchTarget::OfficialZalo {
                 custom_install_root,
@@ -466,6 +514,7 @@ impl InstanceLauncher for MacOsPlatformAdapter {
                     return Err(DimError::InstallNotFound(msg));
                 }
 
+                launched_exec_label = install.install_root.to_string_lossy().into_owned();
                 write_launch_target_hint(profile_dir, &profile.id, &install.install_root);
                 let open_args = build_open_launch_args(
                     &install.install_root,
@@ -496,18 +545,26 @@ impl InstanceLauncher for MacOsPlatformAdapter {
                 }
                 if self.config.require_signature_trust && self.ops.is_native_macos() {
                     let sig = verify_macos_code_signature(&*self.ops, path, None);
-                    enforce_signature_or_err(&sig, true)?;
+                    enforce_signature_tier_or_err(&sig, true, false)?;
                 }
 
+                launched_exec_label = path.to_string_lossy().into_owned();
                 write_launch_target_hint(profile_dir, &profile.id, path);
+                let cache_dir = profile_dir
+                    .join("Library")
+                    .join("Caches")
+                    .join("com.vng.zalo");
                 let mut full_args = args.clone();
-                if self.config.include_user_data_dir_arg
-                    && !full_args.iter().any(|a| a.starts_with("--user-data-dir"))
-                {
-                    full_args.push(format!(
-                        "--user-data-dir={}",
-                        resolved_layout.zalo_data_dir.display()
-                    ));
+                if self.config.include_user_data_dir_arg {
+                    if !full_args.iter().any(|a| a.starts_with("--user-data-dir")) {
+                        full_args.push(format!(
+                            "--user-data-dir={}",
+                            resolved_layout.zalo_data_dir.display()
+                        ));
+                    }
+                    if !full_args.iter().any(|a| a.starts_with("--disk-cache-dir")) {
+                        full_args.push(format!("--disk-cache-dir={}", cache_dir.display()));
+                    }
                 }
                 let envs = build_isolated_child_env(
                     &profile.id,
@@ -520,7 +577,20 @@ impl InstanceLauncher for MacOsPlatformAdapter {
                     envs,
                     current_dir: path.parent().map(Path::to_path_buf),
                 })?;
-                let _ = std::fs::write(profile_dir.join(".runtime-pid"), pid.to_string());
+                let start_token = self.ops.process_start_token(pid);
+                write_runtime_launch_record(
+                    profile_dir,
+                    &RuntimeLaunchRecord {
+                        schema_version: 1,
+                        pid,
+                        process_start_token: start_token,
+                        profile_id: profile.id.clone(),
+                        profile_dir: profile_dir.to_path_buf(),
+                        zalo_data_dir: resolved_layout.zalo_data_dir.clone(),
+                        executable_path: launched_exec_label.clone(),
+                        launched_at_utc: now_rfc3339_utc(),
+                    },
+                )?;
             }
             LaunchTarget::NodeFixture {
                 node_path,
@@ -539,15 +609,30 @@ impl InstanceLauncher for MacOsPlatformAdapter {
                     .unwrap_or_else(|| Path::new("node"))
                     .to_path_buf();
 
+                launched_exec_label = script_path.to_string_lossy().into_owned();
                 write_launch_target_hint(profile_dir, &profile.id, script_path);
+                let cache_dir = profile_dir
+                    .join("Library")
+                    .join("Caches")
+                    .join("com.vng.zalo");
                 let mut full_args = vec![script_path.to_string_lossy().into_owned()];
-                if self.config.include_user_data_dir_arg
-                    && !extra_args.iter().any(|a| a.starts_with("--user-data-dir"))
+                if self.config.include_user_data_dir_arg {
+                    if !extra_args.iter().any(|a| a.starts_with("--user-data-dir")) {
+                        full_args.push(format!(
+                            "--user-data-dir={}",
+                            resolved_layout.zalo_data_dir.display()
+                        ));
+                    }
+                    if !extra_args.iter().any(|a| a.starts_with("--disk-cache-dir")) {
+                        full_args.push(format!("--disk-cache-dir={}", cache_dir.display()));
+                    }
+                }
+                // Deterministic per-profile `--user-id=84xxxxxxx` when caller passed none (`DEFECT-02` / `XP-MAC-03`).
+                if !extra_args
+                    .iter()
+                    .any(|a| a == "--user-id" || a.starts_with("--user-id="))
                 {
-                    full_args.push(format!(
-                        "--user-data-dir={}",
-                        resolved_layout.zalo_data_dir.display()
-                    ));
+                    full_args.push(format!("--user-id={}", derive_fixture_user_id(&profile.id)));
                 }
                 full_args.extend(extra_args.iter().cloned());
 
@@ -562,21 +647,53 @@ impl InstanceLauncher for MacOsPlatformAdapter {
                     envs,
                     current_dir: script_path.parent().map(Path::to_path_buf),
                 })?;
-                let _ = std::fs::write(profile_dir.join(".runtime-pid"), pid.to_string());
+                let start_token = self.ops.process_start_token(pid);
+                write_runtime_launch_record(
+                    profile_dir,
+                    &RuntimeLaunchRecord {
+                        schema_version: 1,
+                        pid,
+                        process_start_token: start_token,
+                        profile_id: profile.id.clone(),
+                        profile_dir: profile_dir.to_path_buf(),
+                        zalo_data_dir: resolved_layout.zalo_data_dir.clone(),
+                        executable_path: launched_exec_label.clone(),
+                        launched_at_utc: now_rfc3339_utc(),
+                    },
+                )?;
             }
         }
 
-        // Poll briefly so `SingletonLock` / `lockfile` registration is reflected immediately on return.
+        // Poll briefly so `SingletonLock` / `lockfile` registration is reflected immediately when fast,
+        // while slow-starting instances (`DEFECT-03` / `LC-07`) still return `running = true` via `.runtime-launch.json`.
         let is_node_fixture = matches!(target, LaunchTarget::NodeFixture { .. });
+        let is_official_open = matches!(target, LaunchTarget::OfficialZalo { .. });
         let deadline = Instant::now() + Duration::from_millis(self.config.launch_ready_poll_ms);
         loop {
             let state = self.inspect_profile(profile, profile_dir)?;
             if state.running {
+                if is_official_open && read_runtime_launch_record(profile_dir).is_none() {
+                    if let Some(pid) = state.main_pid {
+                        let start_token = self.ops.process_start_token(pid);
+                        let _ = write_runtime_launch_record(
+                            profile_dir,
+                            &RuntimeLaunchRecord {
+                                schema_version: 1,
+                                pid,
+                                process_start_token: start_token,
+                                profile_id: profile.id.clone(),
+                                profile_dir: profile_dir.to_path_buf(),
+                                zalo_data_dir: resolved_layout.zalo_data_dir.clone(),
+                                executable_path: launched_exec_label.clone(),
+                                launched_at_utc: now_rfc3339_utc(),
+                            },
+                        );
+                    }
+                }
                 let lock_ready = if is_node_fixture {
-                    std::fs::symlink_metadata(state.zalo_data_dir.join("SingletonLock")).is_ok()
+                    symlink_or_file_present(&state.zalo_data_dir.join("SingletonLock"))
                 } else {
-                    state.lockfile_path.exists()
-                        || std::fs::symlink_metadata(&state.lockfile_path).is_ok()
+                    symlink_or_file_present(&state.lockfile_path)
                 };
                 if lock_ready || Instant::now() >= deadline {
                     return Ok(state);
@@ -615,7 +732,29 @@ impl InstanceLauncher for MacOsPlatformAdapter {
             return Err(DimError::NotRunning(profile.name.clone()));
         };
 
-        activate_profile_window(&*self.ops, &state.zalo_data_dir, pid)
+        // Re-verify live multi-evidence ownership BEFORE touching `.focus-signal` or invoking `osascript` (`P1-3`).
+        let live = self.inspect_profile(profile, profile_dir)?;
+        if !live.running {
+            if self.ops.is_pid_alive(pid) {
+                return Err(DimError::ProcessError(format!(
+                    "refusing focus_or_restore for profile '{}': candidate PID {pid} is alive in OS table but failed profile ownership verification",
+                    profile.id
+                )));
+            }
+            return Err(DimError::NotRunning(profile.name.clone()));
+        }
+        let Some(verified_pid) = live.main_pid else {
+            return Err(DimError::NotRunning(profile.name.clone()));
+        };
+        if verified_pid != pid {
+            return Err(DimError::ProcessError(format!(
+                "refusing focus_or_restore for profile '{}': state PID {pid} no longer matches live verified PID {verified_pid}",
+                profile.id
+            )));
+        }
+
+        let _ = activate_profile_window(&*self.ops, &live.zalo_data_dir, verified_pid)?;
+        Ok(())
     }
 
     fn stop(
@@ -658,6 +797,7 @@ impl InstanceLauncher for MacOsPlatformAdapter {
 
         stop_isolated_profile_tree(
             &*self.ops,
+            &state.profile_id,
             &state.profile_dir,
             &state.zalo_data_dir,
             state.main_pid,
@@ -675,6 +815,149 @@ impl RecoveryManager for MacOsPlatformAdapter {
         profile_dir: &Path,
         state: &ProfileRuntimeState,
     ) -> Result<RecoveryReport, DimError> {
-        recover_macos_stale_artifacts(profile, profile_dir, state.running)
+        recover_macos_stale_artifacts_with_ops(&*self.ops, profile, profile_dir, state.running)
     }
+}
+
+/// Audits runtime file isolation across all 12 macOS profile storage surfaces (`MACOS_12_ISOLATED_SURFACES`)
+/// for two or more profiles, verifying actual runtime-written payloads, distinct `effective_tmpdir` and
+/// `chromium_cache` roots, `0o700` restrictive permissions, zero cross-profile symlink sharing, and
+/// untouched primary `~/Library/Application Support/ZaloData` (`P0-2`).
+pub fn verify_12_surface_runtime_isolation(
+    ops: &dyn MacOsSystemOps,
+    profiles: &[(String, PathBuf)],
+    real_home: Option<&Path>,
+) -> Result<serde_json::Value, DimError> {
+    if profiles.len() < 2 {
+        return Err(DimError::ProcessError(
+            "verify_12_surface_runtime_isolation requires at least 2 profiles".to_owned(),
+        ));
+    }
+
+    let mut seen_tmpdirs: HashSet<String> = HashSet::new();
+    let mut seen_caches: HashSet<String> = HashSet::new();
+    let mut seen_surface_paths: HashSet<String> = HashSet::new();
+    let mut per_profile_reports: Vec<serde_json::Value> = Vec::new();
+
+    for (profile_id, pdir) in profiles {
+        ensure_not_macos_primary_path(pdir, real_home)?;
+        if ops.check_dir_permissions_restrictive(pdir) != Some(true) {
+            return Err(DimError::ProcessError(format!(
+                "profile directory '{}' lacks restrictive 0o700 permissions",
+                pdir.display()
+            )));
+        }
+
+        let meta_path = pdir.join(MACOS_PROFILE_META_FILE);
+        let meta_raw = fs::read_to_string(&meta_path)?;
+        let meta_json: serde_json::Value = serde_json::from_str(&meta_raw)?;
+        let eff_tmp = meta_json
+            .get("effective_tmpdir")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let eff_tmp_key = normalize_macos_path_key(Path::new(&eff_tmp));
+        if eff_tmp_key.is_empty() || !seen_tmpdirs.insert(eff_tmp_key) {
+            return Err(DimError::ProcessError(format!(
+                "duplicate or empty effective_tmpdir '{eff_tmp}' for profile '{profile_id}'"
+            )));
+        }
+
+        let cache_dir = pdir.join("Library").join("Caches").join("com.vng.zalo");
+        let cache_key = normalize_macos_path_key(&cache_dir);
+        if !seen_caches.insert(cache_key) {
+            return Err(DimError::ProcessError(format!(
+                "duplicate chromium cache path '{}' for profile '{profile_id}'",
+                cache_dir.display()
+            )));
+        }
+
+        let mut surface_counts: BTreeMap<String, usize> = BTreeMap::new();
+        for &(surface_name, rel_path) in MACOS_12_ISOLATED_SURFACES {
+            let surface_dir = if surface_name == "temporary_files" && !eff_tmp.is_empty() {
+                PathBuf::from(&eff_tmp)
+            } else {
+                pdir.join(rel_path)
+            };
+            let meta = fs::symlink_metadata(&surface_dir).map_err(|e| {
+                DimError::ProcessError(format!(
+                    "missing isolated surface '{surface_name}' at '{}': {e}",
+                    surface_dir.display()
+                ))
+            })?;
+            if is_symlink_or_reparse(&meta) {
+                return Err(DimError::PathTraversal(format!(
+                    "unintended symlink detected on isolated surface '{surface_name}' at '{}'",
+                    surface_dir.display()
+                )));
+            }
+            let surf_key = format!("{surface_name}:{}", normalize_macos_path_key(&surface_dir));
+            if !seen_surface_paths.insert(surf_key) {
+                return Err(DimError::ProcessError(format!(
+                    "cross-profile surface collision on '{surface_name}' at '{}'",
+                    surface_dir.display()
+                )));
+            }
+            // Keychain surface (`Library/Keychains`) stays an isolated 0o700 directory without writing fake Keychain DBs;
+            // the other 11 surfaces must contain real runtime-written files proving non-vacuous isolation!
+            let files_found = count_regular_files_shallow_or_nested(&surface_dir, 3);
+            if surface_name != "keychain_dir" && files_found == 0 {
+                return Err(DimError::ProcessError(format!(
+                    "vacuous isolation rejected: surface '{surface_name}' at '{}' has 0 runtime files",
+                    surface_dir.display()
+                )));
+            }
+            surface_counts.insert(surface_name.to_owned(), files_found);
+        }
+
+        per_profile_reports.push(serde_json::json!({
+            "profile_id": profile_id,
+            "profile_dir": pdir.display().to_string(),
+            "effective_tmpdir": eff_tmp,
+            "restrictive_0700": true,
+            "surface_file_counts": surface_counts,
+        }));
+    }
+
+    let primary_untouched = if let Some(home) = real_home {
+        let primary_zalo = macos_zalo_data_dir(home);
+        !profiles.iter().any(|(pid, _)| {
+            let marker = primary_zalo.join(".zalo-profile-id");
+            fs::read_to_string(marker)
+                .map(|v| v.trim() == pid)
+                .unwrap_or(false)
+        })
+    } else {
+        true
+    };
+
+    Ok(serde_json::json!({
+        "verified_surfaces_count": MACOS_12_ISOLATED_SURFACES.len(),
+        "profiles_verified": per_profile_reports,
+        "distinct_tmpdirs": seen_tmpdirs.len(),
+        "distinct_caches": seen_caches.len(),
+        "primary_zalo_data_untouched": primary_untouched,
+    }))
+}
+
+fn count_regular_files_shallow_or_nested(root: &Path, max_depth: usize) -> usize {
+    if max_depth == 0 {
+        return 0;
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return 0;
+    };
+    let mut count = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if is_symlink_or_reparse(&meta) || meta.is_file() {
+            count += 1;
+        } else if meta.is_dir() && max_depth > 1 {
+            count += count_regular_files_shallow_or_nested(&path, max_depth - 1);
+        }
+    }
+    count
 }

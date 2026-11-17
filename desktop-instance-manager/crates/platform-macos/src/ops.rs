@@ -69,7 +69,10 @@ pub struct ProcessEntry {
     pub uid: u32,
     /// Resident set size in KiB (`RSS`).
     pub rss_kib: u64,
-    /// Short executable name or path (`comm`).
+    /// Kernel process start timestamp token (`ps -o lstart=` on Darwin/Unix, `FILETIME` on Windows fixture host)
+    /// used to defeat PID-reuse misattribution across crashes or reboots.
+    pub start_token: Option<String>,
+    /// Short executable name or path (`comm` / extracted binary).
     pub executable: String,
     /// Full command line (`args`).
     pub args: String,
@@ -84,7 +87,7 @@ pub struct WindowInfo {
     pub owner_pid: u32,
     /// Window title if accessible under macOS Screen Recording / Accessibility rules or fixture state.
     pub title: Option<String>,
-    /// Whether the window is currently visible on screen.
+    /// Whether the window is currently visible on screen (layer 0).
     pub is_on_screen: bool,
 }
 
@@ -145,8 +148,17 @@ pub trait MacOsSystemOps: std::fmt::Debug + Send + Sync {
     /// Spawns a detached long-running child process and returns its OS PID.
     fn spawn_detached(&self, req: &SpawnDetachedRequest) -> Result<u32, DimError>;
 
-    /// Enumerates live processes on the host.
+    /// Enumerates live processes on the host (including `start_token` when supported).
     fn list_processes(&self) -> Result<Vec<ProcessEntry>, DimError>;
+
+    /// Queries the kernel process creation timestamp token for `pid`, if live and accessible.
+    fn process_start_token(&self, pid: u32) -> Option<String> {
+        self.list_processes()
+            .ok()?
+            .into_iter()
+            .find(|p| p.pid == pid)
+            .and_then(|p| p.start_token)
+    }
 
     /// Probes whether `pid` currently refers to a live (non-zombie) OS process.
     fn is_pid_alive(&self, pid: u32) -> bool;
@@ -278,7 +290,7 @@ impl MacOsSystemOps for NativeMacOsSystemOps {
     fn list_processes(&self) -> Result<Vec<ProcessEntry>, DimError> {
         let args = vec![
             "-axo".to_owned(),
-            "pid=,ppid=,uid=,stat=,rss=,comm=,args=".to_owned(),
+            "pid=,ppid=,uid=,stat=,rss=,lstart=,args=".to_owned(),
         ];
         let out = self.run_command(Path::new("/bin/ps"), &args, &[])?;
         if !out.success() {
@@ -482,8 +494,32 @@ impl HostFixtureMacOsOps {
         }
     }
 
-    /// Persists a tracked process table file under `short_tmp_root` so separate CLI invocations share
-    /// metadata about spawned fixture processes on non-Unix hosts.
+    /// Registers a live externally-spawned helper process (e.g. an orphan helper recorded by `fixture-macos-app.mjs`)
+    /// so `HostFixtureMacOsOps` tracks it on non-Unix hosts where `/bin/ps` is absent.
+    pub fn register_live_external_pid(&self, pid: u32, ppid: u32, executable: &str, args: &str) {
+        if !host_os_pid_alive(pid) {
+            return;
+        }
+        let entry = ProcessEntry {
+            pid,
+            ppid,
+            uid: self.uid,
+            rss_kib: 24_576,
+            start_token: host_os_process_start_token(pid),
+            executable: executable.to_owned(),
+            args: args.to_owned(),
+        };
+        if let Ok(mut guard) = self.tracked_processes.lock() {
+            guard.insert(
+                pid,
+                TrackedFixtureProcess {
+                    entry: entry.clone(),
+                },
+            );
+        }
+        self.save_shared_entry(&entry);
+    }
+
     fn registry_path(&self) -> PathBuf {
         self.short_tmp_root.join(".dim-fixture-proc-table.json")
     }
@@ -503,6 +539,17 @@ impl HostFixtureMacOsOps {
                         };
                         if !host_os_pid_alive(pid) {
                             continue;
+                        }
+                        let recorded_token = item
+                            .get("start_token")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned);
+                        let live_token = host_os_process_start_token(pid);
+                        // If the OS recycled `pid` for a newer process, drop the stale shared table entry!
+                        if let (Some(ref rec), Some(ref live)) = (&recorded_token, &live_token) {
+                            if rec != live {
+                                continue;
+                            }
                         }
                         let ppid = item
                             .get("ppid")
@@ -535,6 +582,7 @@ impl HostFixtureMacOsOps {
                                 ppid,
                                 uid,
                                 rss_kib,
+                                start_token: live_token.or(recorded_token),
                                 executable,
                                 args,
                             },
@@ -544,7 +592,20 @@ impl HostFixtureMacOsOps {
             }
         }
         if let Ok(mut guard) = self.tracked_processes.lock() {
-            guard.retain(|&pid, _| host_os_pid_alive(pid));
+            guard.retain(|&pid, tracked| {
+                if !host_os_pid_alive(pid) {
+                    return false;
+                }
+                if let (Some(ref rec), Some(ref live)) = (
+                    &tracked.entry.start_token,
+                    &host_os_process_start_token(pid),
+                ) {
+                    if rec != live {
+                        return false;
+                    }
+                }
+                true
+            });
             for (pid, tracked) in guard.iter() {
                 by_pid.insert(*pid, tracked.entry.clone());
             }
@@ -572,6 +633,7 @@ impl HostFixtureMacOsOps {
                     "ppid": e.ppid,
                     "uid": e.uid,
                     "rss_kib": e.rss_kib,
+                    "start_token": e.start_token,
                     "executable": e.executable,
                     "args": e.args,
                 })
@@ -636,7 +698,7 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
     }
 
     fn check_dir_permissions_restrictive(&self, dir: &Path) -> Option<bool> {
-        let probe = if dir.exists() {
+        let probe = if fs::symlink_metadata(dir).is_ok() {
             dir
         } else {
             dir.parent().unwrap_or(dir)
@@ -671,11 +733,11 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
         {
             reject_symlink_target(dir)?;
             if let Some(bad_mode) = read_simulated_unwritable_or_unsafe_mode(dir) {
-                if (bad_mode & 0o200) == 0 {
+                if (bad_mode & 0o200) == 0 || (bad_mode & 0o077) != 0 {
                     return Err(DimError::Io(std::io::Error::new(
                         std::io::ErrorKind::PermissionDenied,
                         format!(
-                            "simulated POSIX permission denied (mode 0o{bad_mode:03o}) on {}",
+                            "simulated POSIX permission denied or insecure mode (0o{bad_mode:03o}) on {}",
                             dir.display()
                         ),
                     )));
@@ -693,16 +755,13 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
         envs: &[(String, String)],
     ) -> Result<CommandOutput, DimError> {
         let prog_str = program.to_string_lossy();
-        // On non-macOS hosts, gracefully handle `osascript` focus/terminate calls in fixture mode.
         if !cfg!(target_os = "macos") && prog_str.ends_with("osascript") {
             return Ok(CommandOutput {
                 status_code: Some(0),
-                stdout: Vec::new(),
+                stdout: b"status=ok activated=true active=true\n".to_vec(),
                 stderr: Vec::new(),
             });
         }
-        // Handle simulated `.app` launch via `/usr/bin/open -n -a <bundle> --env ... --args ...` on non-macOS hosts
-        // when the simulated bundle contains a Node.js `Contents/MacOS/Zalo.mjs` fixture entry!
         if !cfg!(target_os = "macos") && prog_str == "/usr/bin/open" {
             return simulate_open_command_on_fixture_host(self, args);
         }
@@ -729,11 +788,13 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
             .chain(req.args.iter().cloned())
             .collect::<Vec<_>>()
             .join(" ");
+        let start_token = host_os_process_start_token(pid);
         let entry = ProcessEntry {
             pid,
             ppid: std::process::id(),
             uid: self.uid,
             rss_kib: 40_960,
+            start_token,
             executable: req.program.to_string_lossy().into_owned(),
             args: full_args,
         };
@@ -760,6 +821,15 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
         }
     }
 
+    fn process_start_token(&self, pid: u32) -> Option<String> {
+        if let Ok(foreign) = self.foreign_processes.lock() {
+            if let Some(found) = foreign.iter().find(|p| p.pid == pid) {
+                return found.start_token.clone();
+            }
+        }
+        host_os_process_start_token(pid)
+    }
+
     fn is_pid_alive(&self, pid: u32) -> bool {
         if pid == 0 {
             return false;
@@ -773,6 +843,22 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
     }
 
     fn send_sigterm(&self, pid: u32) -> Result<bool, DimError> {
+        let _ = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.short_tmp_root.join(".fixture-sigterm.log"))
+            .and_then(|mut f| std::io::Write::write_all(&mut f, format!("{pid}\n").as_bytes()));
+        #[cfg(not(unix))]
+        {
+            if self
+                .load_shared_entries()
+                .iter()
+                .any(|e| e.pid == pid && e.args.contains("--hang-on-quit"))
+            {
+                // Simulate POSIX catchable SIGTERM ignored (`SIG_IGN`) by a hung process.
+                return Ok(host_os_pid_alive(pid));
+            }
+        }
         terminate_host_os_pid(pid)
     }
 
@@ -796,6 +882,9 @@ pub struct RecordedCommand {
 pub type MockCommandHandler = Arc<
     dyn Fn(&Path, &[String], &[(String, String)]) -> Result<CommandOutput, DimError> + Send + Sync,
 >;
+
+/// Custom `SIGTERM` behavior hook used by [`MockMacOsSystemOps`] (e.g. to simulate hung processes).
+pub type MockSigtermHandler = Arc<dyn Fn(u32) -> Result<bool, DimError> + Send + Sync>;
 
 /// Deterministic in-memory [`MacOsSystemOps`] test double for verifying every macOS code path
 /// (`codesign`, `spctl`, `plutil`, `mdfind`, `open`, `ps`, `osascript`, UID/mode checks) on any host.
@@ -828,6 +917,8 @@ pub struct MockMacOsSystemOps {
     pub next_spawn_pid: Mutex<u32>,
     /// Optional custom command responder.
     pub command_handler: Option<MockCommandHandler>,
+    /// Optional custom `SIGTERM` responder (e.g. simulating `--hang-on-quit` unkillable process).
+    pub sigterm_handler: Option<MockSigtermHandler>,
 }
 
 impl std::fmt::Debug for MockMacOsSystemOps {
@@ -859,6 +950,7 @@ impl MockMacOsSystemOps {
             sigterm_pids: Mutex::new(Vec::new()),
             next_spawn_pid: Mutex::new(41_000),
             command_handler: None,
+            sigterm_handler: None,
         }
     }
 
@@ -866,6 +958,13 @@ impl MockMacOsSystemOps {
     #[must_use]
     pub fn with_command_handler(mut self, handler: MockCommandHandler) -> Self {
         self.command_handler = Some(handler);
+        self
+    }
+
+    /// Attaches a custom `SIGTERM` handler closure.
+    #[must_use]
+    pub fn with_sigterm_handler(mut self, handler: MockSigtermHandler) -> Self {
+        self.sigterm_handler = Some(handler);
         self
     }
 
@@ -941,6 +1040,17 @@ impl MacOsSystemOps for MockMacOsSystemOps {
 
     fn ensure_private_dir(&self, dir: &Path) -> Result<(), DimError> {
         reject_symlink_target(dir)?;
+        if let Some(bad_mode) = read_simulated_mode_any_host(dir) {
+            if (bad_mode & 0o200) == 0 || (bad_mode & 0o077) != 0 {
+                return Err(DimError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    format!(
+                        "simulated POSIX permission error (0o{bad_mode:03o}) on {}",
+                        dir.display()
+                    ),
+                )));
+            }
+        }
         fs::create_dir_all(dir)?;
         Ok(())
     }
@@ -960,6 +1070,13 @@ impl MacOsSystemOps for MockMacOsSystemOps {
         }
         if let Some(handler) = &self.command_handler {
             return handler(program, args, envs);
+        }
+        if program.to_string_lossy().ends_with("osascript") {
+            return Ok(CommandOutput {
+                status_code: Some(0),
+                stdout: b"status=ok activated=true active=true\n".to_vec(),
+                stderr: Vec::new(),
+            });
         }
         Ok(CommandOutput {
             status_code: Some(0),
@@ -986,6 +1103,7 @@ impl MacOsSystemOps for MockMacOsSystemOps {
                 ppid: 1,
                 uid: self.uid,
                 rss_kib: 65_536,
+                start_token: Some(format!("Mon Nov 17 12:00:{:02} 2026", pid % 60)),
                 executable: req.program.to_string_lossy().into_owned(),
                 args: full_args,
             });
@@ -1007,6 +1125,9 @@ impl MacOsSystemOps for MockMacOsSystemOps {
     fn send_sigterm(&self, pid: u32) -> Result<bool, DimError> {
         if let Ok(mut sigs) = self.sigterm_pids.lock() {
             sigs.push(pid);
+        }
+        if let Some(handler) = &self.sigterm_handler {
+            return handler(pid);
         }
         if let Ok(mut procs) = self.processes.lock() {
             let before = procs.len();
@@ -1047,8 +1168,7 @@ fn reject_symlink_target(dir: &Path) -> Result<(), DimError> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn read_simulated_unwritable_or_unsafe_mode(dir: &Path) -> Option<u32> {
+fn read_simulated_mode_any_host(dir: &Path) -> Option<u32> {
     let mut probe = Some(dir);
     while let Some(curr) = probe {
         let sidecar = curr.join(SIMULATED_POSIX_MODE_FILE);
@@ -1060,6 +1180,11 @@ fn read_simulated_unwritable_or_unsafe_mode(dir: &Path) -> Option<u32> {
         probe = curr.parent();
     }
     None
+}
+
+#[cfg(not(unix))]
+fn read_simulated_unwritable_or_unsafe_mode(dir: &Path) -> Option<u32> {
+    read_simulated_mode_any_host(dir)
 }
 
 fn simulate_open_command_on_fixture_host(
@@ -1110,7 +1235,7 @@ fn simulate_open_command_on_fixture_host(
         .join("Contents")
         .join("MacOS")
         .join("ZaloFixture.mjs");
-    if mjs_entry.exists() {
+    if fs::symlink_metadata(&mjs_entry).is_ok_and(|m| m.is_file()) {
         let mut full_args = vec![mjs_entry.to_string_lossy().into_owned()];
         full_args.extend(app_args);
         let req = SpawnDetachedRequest {
@@ -1160,12 +1285,44 @@ fn spawn_detached_os_process(req: &SpawnDetachedRequest) -> Result<u32, DimError
 
         let mut child = cmd.spawn()?;
         let pid = child.id();
-        // Reap exited child asynchronously so Unix processes never linger in `<defunct>` zombie state.
         std::thread::spawn(move || {
             let _ = child.wait();
         });
         Ok(pid)
     }
+}
+
+fn host_os_process_start_token(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        windows_process_creation_token(pid)
+    }
+    #[cfg(unix)]
+    {
+        unix_ps_lstart_token(pid)
+    }
+}
+
+#[cfg(unix)]
+fn unix_ps_lstart_token(pid: u32) -> Option<String> {
+    let out = Command::new("/bin/ps")
+        .args(["-p", &pid.to_string(), "-o", "lstart="])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!text.is_empty()).then_some(text)
 }
 
 #[cfg(windows)]
@@ -1265,7 +1422,6 @@ fn spawn_detached_windows_no_inherit(req: &SpawnDetachedRequest) -> Result<u32, 
         .as_ref()
         .map(|d| to_wide(&d.to_string_lossy()));
 
-    // Merge inherited env with explicit child overrides (case-insensitive keys on Windows).
     let mut env_map: Vec<(String, String)> = std::env::vars().collect();
     for (k, v) in &req.envs {
         if let Some(existing) = env_map
@@ -1296,7 +1452,7 @@ fn spawn_detached_windows_no_inherit(req: &SpawnDetachedRequest) -> Result<u32, 
             cmd_w.as_mut_ptr(),
             std::ptr::null(),
             std::ptr::null(),
-            0, // FALSE: never inherit parent spawnSync pipes!
+            0,
             CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
             env_block.as_ptr().cast(),
             cwd_w.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()),
@@ -1365,9 +1521,16 @@ fn terminate_host_os_pid(pid: u32) -> Result<bool, DimError> {
 }
 
 #[cfg(windows)]
-fn windows_pid_alive(pid: u32) -> bool {
+fn windows_process_creation_token(pid: u32) -> Option<String> {
     const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
     const STILL_ACTIVE: u32 = 259;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        low_date_time: u32,
+        high_date_time: u32,
+    }
 
     #[link(name = "kernel32")]
     extern "system" {
@@ -1377,20 +1540,42 @@ fn windows_pid_alive(pid: u32) -> bool {
             process_id: u32,
         ) -> *mut core::ffi::c_void;
         fn GetExitCodeProcess(process: *mut core::ffi::c_void, exit_code: *mut u32) -> i32;
+        fn GetProcessTimes(
+            process: *mut core::ffi::c_void,
+            creation_time: *mut FileTime,
+            exit_time: *mut FileTime,
+            kernel_time: *mut FileTime,
+            user_time: *mut FileTime,
+        ) -> i32;
         fn CloseHandle(object: *mut core::ffi::c_void) -> i32;
     }
 
-    // SAFETY: `OpenProcess`, `GetExitCodeProcess`, and `CloseHandle` are standard Win32 handle APIs.
+    // SAFETY: Standard Win32 handle queries with valid stack-allocated `FileTime` structs.
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if handle.is_null() {
-            return false;
+            return None;
         }
         let mut exit_code: u32 = 0;
-        let ok = GetExitCodeProcess(handle, &mut exit_code);
+        let alive = GetExitCodeProcess(handle, &mut exit_code) != 0 && exit_code == STILL_ACTIVE;
+        let mut creation = FileTime::default();
+        let mut exit = FileTime::default();
+        let mut kernel = FileTime::default();
+        let mut user = FileTime::default();
+        let times_ok =
+            GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) != 0;
         let _ = CloseHandle(handle);
-        ok != 0 && exit_code == STILL_ACTIVE
+        if !alive || !times_ok {
+            return None;
+        }
+        let ticks = (u64::from(creation.high_date_time) << 32) | u64::from(creation.low_date_time);
+        Some(format!("winft:{ticks}"))
     }
+}
+
+#[cfg(windows)]
+fn windows_pid_alive(pid: u32) -> bool {
+    windows_process_creation_token(pid).is_some()
 }
 
 #[cfg(windows)]
@@ -1469,7 +1654,7 @@ fn unix_free_disk_bytes(path: &Path) -> Result<u64, DimError> {
     use std::os::unix::ffi::OsStrExt;
 
     let mut probe = path;
-    while !probe.exists() {
+    while fs::symlink_metadata(probe).is_err() {
         if let Some(parent) = probe.parent() {
             if parent.as_os_str().is_empty() {
                 break;

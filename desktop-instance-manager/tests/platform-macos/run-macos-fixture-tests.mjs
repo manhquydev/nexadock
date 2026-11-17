@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * End-to-end macOS multi-instance & safety fixture test runner (`run-macos-fixture-tests.mjs`).
+ * End-to-end macOS multi-instance & safety hardening fixture test runner (`run-macos-fixture-tests.mjs`).
  *
  * Drives the compiled `dim_macos_cli` binary (`crates/platform-macos/examples/dim_macos_cli.rs`)
- * and `fixture-macos-app.mjs` across all 13 required verification scenarios in an isolated temporary
- * directory (leaving the git worktree 100% clean).
+ * and `fixture-macos-app.mjs` across 16 end-to-end scenarios (the 13 baseline scenarios +
+ * 3 Stage-2 runtime hardening scenarios: 12-surface live isolation audit, slow pre-lock startup &
+ * deterministic user-id derivation, and graceful delayed/hung/orphan shutdown) in an isolated
+ * temporary directory (leaving the git worktree 100% clean).
  */
 
 import assert from 'node:assert/strict';
@@ -61,6 +63,16 @@ function buildOrLocateCliBin(explicitBin) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return Boolean(err && err.code === 'EPERM');
+  }
 }
 
 function readJson(filePath) {
@@ -264,8 +276,14 @@ async function main() {
       };
     });
 
-    // Scenario 4: Isolated data verification across Application Support, Preferences, Caches, and Duplicate Account Guard
-    await recordScenario(4, 'isolated_data', 'Isolated ZaloData, Preferences, Caches & Duplicate Account Guard', async () => {
+    // Scenario 4 + 14: 12-Surface Live Isolation Audit & Duplicate Account Guard (`P0-2`)
+    await recordScenario(4, 'isolated_data_12_surfaces', '12-Surface Runtime Isolation Audit & Duplicate Account Guard', async () => {
+      const isoReport = runCli(cliBin, ctx, ['verify-isolation', p1.id, p2.id, p3.id]).json.data;
+      assert.equal(isoReport.verified_surfaces_count, 12);
+      assert.equal(isoReport.distinct_tmpdirs, 3);
+      assert.equal(isoReport.distinct_caches, 3);
+      assert.equal(isoReport.primary_zalo_data_untouched, true);
+
       for (const prof of [p1, p2, p3]) {
         const pdir = path.join(ctx.dataDir, 'Profiles', prof.directory_name);
         const prefXml = fs.readFileSync(
@@ -273,15 +291,13 @@ async function main() {
           'utf8',
         );
         assert.match(prefXml, new RegExp(`<string>${prof.id}</string>`));
-        const cacheMeta = readJson(
-          path.join(pdir, 'Library', 'Caches', 'com.vng.zalo', 'cache-meta.json'),
+        assert.equal(
+          fs.lstatSync(path.join(pdir, 'Downloads')).isSymbolicLink(),
+          false,
+          'Downloads must be an isolated directory by default (zero cross-profile symlink sharing)',
         );
-        assert.equal(cacheMeta.profile_id, prof.id);
-        const profileMeta = readJson(path.join(pdir, '.macos-profile-meta.json'));
-        assert.equal(profileMeta.profile_id, prof.id);
       }
 
-      // Duplicate logged-in zalo_user_id guard
       const st = runCli(cliBin, ctx, ['status']).json;
       const p1Uid = st.profiles.find((x) => x.record.id === p1.id).runtime.detected_zalo_user_id;
       const dupProf = runCli(cliBin, ctx, ['create', 'Duplicate UID Probe']).json.data;
@@ -301,7 +317,11 @@ async function main() {
       assert.equal(dupLaunch.json.error_code, 'DUPLICATE_ZALO_USER_ID');
       runCli(cliBin, ctx, ['delete', dupProf.id, '--confirm']);
 
-      return { isolated_profiles_verified: 3, duplicate_account_blocked: dupLaunch.json.error_code };
+      return {
+        verified_surfaces_count: isoReport.verified_surfaces_count,
+        distinct_tmpdirs: isoReport.distinct_tmpdirs,
+        duplicate_account_blocked: dupLaunch.json.error_code,
+      };
     });
 
     // Scenario 6: Individual close (stop P2 while P1 and P3 stay running!)
@@ -329,19 +349,16 @@ async function main() {
 
     // Scenario 5: Relaunch & Idempotent Launch + Offline Backup/Restore
     await recordScenario(5, 'relaunch', 'Relaunch, Idempotent Running Launch & Offline Backup/Restore', async () => {
-      // Idempotent launch on already-running p1 keeps exact same PID!
       const stBefore = runCli(cliBin, ctx, ['status']).json;
       const p1Pid = stBefore.profiles.find((x) => x.record.id === p1.id).runtime.main_pid;
       const idem = runCli(cliBin, ctx, ['launch', p1.id]).json.data.runtime;
       assert.equal(idem.main_pid, p1Pid);
 
-      // Relaunch stopped p2 cleanly
       const relaunched = runCli(cliBin, ctx, ['launch', p2.id]).json.data.runtime;
       assert.equal(relaunched.running, true);
       const p2State = readJson(path.join(relaunched.zalo_data_dir, 'launch-state.json'));
       assert.equal(p2State.launch_count, 2);
 
-      // Stop all 3 cleanly and verify offline backup + restore to new profile
       runCli(cliBin, ctx, ['stop', p1.id]);
       runCli(cliBin, ctx, ['stop', p2.id]);
       runCli(cliBin, ctx, ['stop', p3.id]);
@@ -373,8 +390,8 @@ async function main() {
       return { blocked_error_code: racing.json.error_code, message: racing.json.message };
     });
 
-    // Scenario 8: Crash recovery (stale SingletonLock, SingletonSocket, SingletonCookie, lockfile)
-    await recordScenario(8, 'crash_recovery', 'Crash Recovery Cleaning Stale SingletonLock & Socket Remnants', async () => {
+    // Scenario 8: Crash recovery (stale SingletonLock, SingletonSocket, SingletonCookie, lockfile, short TMPDIR)
+    await recordScenario(8, 'crash_recovery', 'Crash Recovery Cleaning Stale SingletonLock & Short TMPDIR Remnants', async () => {
       const crashProf = runCli(cliBin, ctx, ['create', 'Crash Recovery Mac']).json.data;
       runCli(cliBin, ctx, ['launch', crashProf.id], {
         extraFlags: ['--crash', '--crash-delay-ms', '80'],
@@ -396,16 +413,21 @@ async function main() {
       return { stale_detected: true, crash_recovered: recovered.crash_recovered };
     });
 
-    // Scenario 9: Process ownership (recycled foreign PID defense) & Primary Zalo protection
-    await recordScenario(9, 'ownership_and_primary_protection', 'Process Ownership Verification & Primary Zalo Protection', async () => {
+    // Scenario 9: Multi-evidence Process Ownership (Foreign & Same-Binary Zalo PID Reuse) + Primary Protection (`P0-3`)
+    await recordScenario(9, 'ownership_and_primary_protection', 'Multi-Evidence PID Reuse Defense & Primary Zalo Protection', async () => {
       const guardProbe = runCli(cliBin, ctx, ['verify-foreign-or-primary-guard', p1.id]).json.data;
       assert.equal(guardProbe.foreign_not_owned, true, 'Foreign Safari PID must NOT be owned');
       assert.equal(guardProbe.foreign_stop_count, 0);
       assert.equal(guardProbe.safari_still_alive, true, 'Foreign PID must remain untouched');
+      assert.equal(
+        guardProbe.same_binary_pid_reuse_rejected,
+        true,
+        'Same-UID same-binary Zalo PID reuse with mismatched lstart must be rejected',
+      );
+      assert.equal(guardProbe.unowned_focus_error_code, 'PROCESS_ERROR');
       assert.equal(guardProbe.primary_detected, true, 'Primary Zalo.app PID must be detected');
       assert.equal(guardProbe.stop_primary_error_code, 'PROTECTED_PRIMARY_PROCESS');
 
-      // Primary ZaloData path overlap guard
       const primaryZaloDir = path.join(ctx.simHome, 'Library', 'Application Support', 'ZaloData');
       const pathBlocked = runCli(
         cliBin,
@@ -463,7 +485,6 @@ async function main() {
       };
       fs.mkdirSync(unicodeCtx.simHome, { recursive: true });
 
-      // NFD decomposed primary path must STILL be blocked when simHome is NFC!
       const nfdPrimaryZalo = path.join(
         tempRoot,
         'Users',
@@ -480,10 +501,7 @@ async function main() {
       );
       assert.equal(nfdBlocked.json.error_code, 'PROTECTED_PRIMARY_PATH');
 
-      const cjkProf = runCli(unicodeCtx && cliBin, unicodeCtx, [
-        'create',
-        '東京 営業部 — Nguyễn Ánh',
-      ]).json.data;
+      const cjkProf = runCli(cliBin, unicodeCtx, ['create', '東京 営業部 — Nguyễn Ánh']).json.data;
       const launched = runCli(cliBin, unicodeCtx, ['launch', cjkProf.id]).json.data.runtime;
       assert.equal(launched.running, true);
       runCli(cliBin, unicodeCtx, ['stop', cjkProf.id]);
@@ -494,8 +512,8 @@ async function main() {
       };
     });
 
-    // Scenario 12: Long paths (`SUN_LEN` 104B short TMPDIR fallback & `PATH_MAX` 1024B guard)
-    await recordScenario(12, 'long_paths_sun_len_path_max', 'macOS SUN_LEN (104B) Short TMPDIR Fallback & PATH_MAX (1024B) Guard', async () => {
+    // Scenario 12: Long paths (`SUN_LEN` 104B `/tmp/dz-<uid>/<id>` short TMPDIR & `PATH_MAX` 1024B guard)
+    await recordScenario(12, 'long_paths_sun_len_path_max', 'Darwin SUN_LEN (104B) /tmp/dz-<uid>/<id> Hardening & PATH_MAX (1024B) Guard', async () => {
       const longProf = runCli(cliBin, ctx, [
         'create',
         'Doanh Nghiệp Chi Nhánh Thành Phố Hồ Chí Minh Số 01',
@@ -508,6 +526,7 @@ async function main() {
       const pdir = path.join(ctx.dataDir, 'Profiles', longProf.directory_name);
       const meta = readJson(path.join(pdir, '.macos-profile-meta.json'));
       assert.equal(meta.short_tmpdir_fallback, true, 'Long profile path must trigger short TMPDIR fallback');
+      assert.match(meta.effective_tmpdir.replace(/\\/g, '/'), /\/dz-\d+\/[0-9a-f]{8}$/);
 
       const cacheMeta = readJson(
         path.join(pdir, 'Library', 'Caches', 'com.vng.zalo', 'cache-meta.json'),
@@ -518,21 +537,24 @@ async function main() {
       );
 
       runCli(cliBin, ctx, ['stop', longProf.id]);
+      assert.equal(
+        fs.existsSync(meta.effective_tmpdir),
+        false,
+        'Short /tmp/dz-<uid>/<id> slot must be cleaned up upon stop()',
+      );
       runCli(cliBin, ctx, ['delete', longProf.id, '--confirm']);
 
-      // >= 1024-byte path rejected with PATH_TRAVERSAL
       const overPathMax = path.join(tempRoot, 'x'.repeat(1030));
-      const maxBlocked = runCli(
-        cliBin,
-        { ...ctx, app_path: overPathMax },
-        ['discover'],
-        { expectOk: false, extraFlags: ['--app-path', overPathMax] },
-      );
+      const maxBlocked = runCli(cliBin, ctx, ['discover'], {
+        expectOk: false,
+        extraFlags: ['--app-path', overPathMax],
+      });
       assert.equal(maxBlocked.json.error_code, 'PATH_TRAVERSAL');
 
       return {
         short_tmpdir_fallback: meta.short_tmpdir_fallback,
         socket_path_bytes: cacheMeta.socket_path_bytes,
+        short_tmpdir_cleaned_on_stop: true,
         path_max_rejected: maxBlocked.json.error_code,
       };
     });
@@ -542,7 +564,6 @@ async function main() {
       const diagBefore = runCli(cliBin, ctx, ['diagnostics']).json;
       assert.equal(diagBefore.profiles_acl_safe, true);
 
-      // Simulate world-writable `0777` on `Profiles/`
       const modeSidecar = path.join(ctx.dataDir, 'Profiles', '.dim-simulated-posix-mode');
       fs.writeFileSync(modeSidecar, '0777\n', 'utf8');
       if (process.platform !== 'win32') {
@@ -551,13 +572,11 @@ async function main() {
       const diagInsecure = runCli(cliBin, ctx, ['diagnostics']).json;
       assert.equal(diagInsecure.profiles_acl_safe, false);
 
-      // Restore 0700
       fs.unlinkSync(modeSidecar);
       if (process.platform !== 'win32') {
         fs.chmodSync(path.join(ctx.dataDir, 'Profiles'), 0o700);
       }
 
-      // Unwritable `0500` parent directory must reject profile layout initialization cleanly
       const roRoot = path.join(tempRoot, 'ReadOnlyDataRoot');
       const roProfiles = path.join(roRoot, 'Profiles');
       fs.mkdirSync(roProfiles, { recursive: true });
@@ -577,14 +596,101 @@ async function main() {
       assert.notEqual(permFail.status, 0);
       assert.equal(permFail.json.error_code, 'IO_ERROR');
 
+      return {
+        acl_safe_normal: diagBefore.profiles_acl_safe,
+        acl_safe_0777: diagInsecure.profiles_acl_safe,
+        readonly_error_code: permFail.json.error_code,
+      };
+    });
+
+    // Scenario 14: Slow Pre-Lock Startup (`DEFECT-03` / `LC-07`) & Auto User-ID (`DEFECT-02` / `XP-MAC-03`)
+    await recordScenario(14, 'slow_prelock_and_auto_userid', 'Slow Pre-Lock Startup Ownership (LC-07) & Auto User-ID Derivation (XP-MAC-03)', async () => {
+      const slowProf = runCli(cliBin, ctx, ['create', 'Slow PreLock Mac']).json.data;
+      const autoProf = runCli(cliBin, ctx, ['create', 'Auto UserId Mac']).json.data;
+
+      const rtSlow = runCli(cliBin, ctx, ['launch', slowProf.id], {
+        extraFlags: ['--slow-startup-pre-lock-ms', '2000'],
+      }).json.data.runtime;
+      assert.equal(
+        rtSlow.running,
+        true,
+        'Launch must return running=true immediately via .runtime-launch.json even before SingletonLock exists',
+      );
+
+      const rtAuto = runCli(cliBin, ctx, ['launch', autoProf.id]).json.data.runtime;
+      assert.equal(rtAuto.running, true);
+
+      await sleep(800);
+      const st = runCli(cliBin, ctx, ['status']).json;
+      const uidSlow = st.profiles.find((x) => x.record.id === slowProf.id).runtime.detected_zalo_user_id;
+      const uidAuto = st.profiles.find((x) => x.record.id === autoProf.id).runtime.detected_zalo_user_id;
+      assert.ok(uidSlow && uidAuto);
+      assert.notEqual(uidSlow, uidAuto);
+
+      runCli(cliBin, ctx, ['stop', slowProf.id]);
+      runCli(cliBin, ctx, ['stop', autoProf.id]);
+      runCli(cliBin, ctx, ['delete', slowProf.id, '--confirm']);
+      runCli(cliBin, ctx, ['delete', autoProf.id, '--confirm']);
+
+      return { slow_pid: rtSlow.main_pid, uid_slow: uidSlow, uid_auto: uidAuto };
+    });
+
+    // Scenario 15: Graceful Delayed Shutdown, Hung Process Fail-Closed, and Orphan Helper Reaping (`P1-2`)
+    await recordScenario(15, 'graceful_delayed_hung_orphan_shutdown', 'Delayed Cooperative Quit, Hung Fail-Closed Error & Orphan Helper Reaping', async () => {
+      // 1. Delayed exit within graceful window
+      const delayedProf = runCli(cliBin, ctx, ['create', 'Delayed Quit Mac']).json.data;
+      const rtDelayed = runCli(cliBin, ctx, ['launch', delayedProf.id], {
+        extraFlags: ['--delayed-exit-ms', '160'],
+      }).json.data.runtime;
+      runCli(cliBin, ctx, ['stop', delayedProf.id], { extraFlags: ['--timeout-ms', '1800'] });
+      const lsDelayed = readJson(path.join(rtDelayed.zalo_data_dir, 'launch-state.json'));
+      assert.equal(lsDelayed.exit_reason, 'graceful_quit_signal');
+      runCli(cliBin, ctx, ['delete', delayedProf.id, '--confirm']);
+
+      // 2. Orphan helper (`ppid == 1`) reaped via SIGTERM escalation
+      const orphanProf = runCli(cliBin, ctx, ['create', 'Orphan Helper Mac']).json.data;
+      const rtOrphan = runCli(cliBin, ctx, ['launch', orphanProf.id], {
+        extraFlags: ['--orphan-helper'],
+      }).json.data.runtime;
+      const lsOrphan = readJson(path.join(rtOrphan.zalo_data_dir, 'launch-state.json'));
+      const orphanPid = lsOrphan.orphan_helper_pid;
+      assert.equal(isPidAlive(orphanPid), true);
+      const stopOrphan = runCli(cliBin, ctx, ['stop', orphanProf.id], {
+        extraFlags: ['--timeout-ms', '2500'],
+      }).json.data;
+      assert.ok(stopOrphan.terminated_process_count >= 2);
+      assert.equal(isPidAlive(orphanPid), false, 'Orphan helper PID must be terminated');
+      runCli(cliBin, ctx, ['delete', orphanProf.id, '--confirm']);
+
+      // 3. Hung process (`--hang-on-quit`) fails closed with PROCESS_ERROR
+      const hungProf = runCli(cliBin, ctx, ['create', 'Hung Process Mac']).json.data;
+      const hungDir = path.join(ctx.dataDir, 'Profiles', hungProf.directory_name);
+      runCli(cliBin, ctx, ['launch', hungProf.id], {
+        extraFlags: ['--hang-on-quit', '--stay-ms', '1400'],
+      });
+      const hungStop = runCli(cliBin, ctx, ['stop', hungProf.id], {
+        expectOk: false,
+        extraFlags: ['--timeout-ms', '350'],
+      });
+      assert.notEqual(hungStop.status, 0);
+      assert.equal(hungStop.json.error_code, 'PROCESS_ERROR');
+      assert.equal(
+        fs.existsSync(path.join(hungDir, '.runtime-launch.json')),
+        true,
+        '.runtime-launch.json must remain intact when stop() times out on hung process',
+      );
+      await sleep(1300);
+      runCli(cliBin, ctx, ['recover', hungProf.id]);
+      runCli(cliBin, ctx, ['delete', hungProf.id, '--confirm']);
+
       // Clean up p1 & p2
       runCli(cliBin, ctx, ['delete', p1.id, '--confirm']);
       runCli(cliBin, ctx, ['delete', p2.id, '--confirm']);
 
       return {
-        acl_safe_normal: diagBefore.profiles_acl_safe,
-        acl_safe_0777: diagInsecure.profiles_acl_safe,
-        readonly_error_code: permFail.json.error_code,
+        delayed_exit_reason: lsDelayed.exit_reason,
+        orphan_pid_reaped: orphanPid,
+        hung_stop_error_code: hungStop.json.error_code,
       };
     });
 
@@ -593,6 +699,8 @@ async function main() {
       executed_at_utc: new Date().toISOString(),
       host_platform: process.platform,
       host_arch: process.arch,
+      verification_state:
+        process.platform === 'darwin' ? 'DARWIN_NATIVE_TESTED' : 'WINDOWS_HOST_FIXTURE_TESTED',
       live_zalo_status: 'LIVE_ZALO_NOT_TESTED',
       total_scenarios: scenarios.length,
       passed_scenarios: scenarios.filter((s) => s.status === 'PASS').length,

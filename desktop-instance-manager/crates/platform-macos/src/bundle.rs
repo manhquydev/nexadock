@@ -1,12 +1,13 @@
-//! macOS `.app` bundle discovery, XML & binary `bplist00` `Info.plist` parsing,
-//! helper bundle inspection (`ZaloHelper.app` / `ZaloCall`), and pure-Rust Mach-O
-//! CPU architecture slice verification (`arm64`, `x86_64`, Universal2 `FAT_MAGIC`).
+//! macOS `.app` bundle discovery, symlink-escape guards, XML & binary `bplist00` `Info.plist`
+//! parsing, nested helper bundle enumeration (`Contents/Frameworks/*.app`, `ZaloHelper.app`),
+//! and pure-Rust Mach-O CPU slice verification (`arm64`, `x86_64`, Universal2 `FAT_MAGIC`).
 
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use dim_core::DimError;
+use dim_profile_store::is_symlink_or_reparse;
 
 use crate::ops::MacOsSystemOps;
 
@@ -16,7 +17,8 @@ pub const DEFAULT_SYSTEM_ZALO_APP: &str = "/Applications/Zalo.app";
 /// Maximum path byte length permitted on Darwin (`PATH_MAX` in `<sys/syslimits.h>`).
 pub const MACOS_PATH_MAX: usize = 1024;
 
-/// Known official VNG Zalo Desktop bundle identifiers on macOS.
+/// Known official VNG Zalo Desktop bundle identifiers on macOS (used for Spotlight lookup hints only,
+/// never as proof of cryptographic publisher identity).
 pub const OFFICIAL_ZALO_BUNDLE_IDS: &[&str] =
     &["com.vng.zalo", "com.vng.zalopc", "vn.com.vng.zalo"];
 
@@ -37,10 +39,43 @@ pub const FAT_MAGIC_64: u32 = 0xCAFE_BABF;
 /// Byte-swapped 64-bit fat header cigam (`0xBFBAFECA`).
 pub const FAT_CIGAM_64: u32 = 0xBFBA_FECA;
 
-/// Darwin `<mach/machine.h>` `CPU_TYPE_X86_64` (`0x01000007`).
+/// Darwin `<mach/machine.h>` `CPU_TYPE_X86_64` (`0x0100_0007`).
 pub const CPU_TYPE_X86_64: i32 = 0x0100_0007;
-/// Darwin `<mach/machine.h>` `CPU_TYPE_ARM64` (`0x0100000C`).
+/// Darwin `<mach/machine.h>` `CPU_TYPE_ARM64` (`0x0100_000C`).
 pub const CPU_TYPE_ARM64: i32 = 0x0100_000C;
+
+/// Strict 5-tier macOS application identity verification ladder (`P0-1`).
+///
+/// Lower tiers NEVER imply higher tiers: in particular, valid bundle layout, `CFBundleIdentifier`,
+/// or a generic Apple signature never implies [`Self::VerifiedPublisherIdentity`] without a
+/// cryptographically verified Apple Designated Requirement (`-R=...`) against a pinned `TeamIdentifier`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AppIdentityVerificationTier {
+    /// Tier 1: `.app` bundle layout, `Info.plist` (`APPL`), and executable exist with zero symlink escapes.
+    BundlePresent = 1,
+    /// Tier 2: Main executable has a valid Mach-O / Universal2 header compatible with the host CPU.
+    ValidMachO = 2,
+    /// Tier 3: `codesign --verify --deep --strict` succeeded on the main bundle and nested helpers (non-adhoc, untampered).
+    ValidCodeSignature = 3,
+    /// Tier 4: Gatekeeper `spctl --assess --type execute` accepted the bundle without policy tampering.
+    GatekeeperAssessed = 4,
+    /// Tier 5: Cryptographic Apple Designated Requirement (`-R=...`) and pinned `TeamIdentifier` verified.
+    VerifiedPublisherIdentity = 5,
+}
+
+impl AppIdentityVerificationTier {
+    /// Stable machine-readable tier identifier.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::BundlePresent => "BUNDLE_PRESENT",
+            Self::ValidMachO => "VALID_MACHO",
+            Self::ValidCodeSignature => "VALID_CODESIGN",
+            Self::GatekeeperAssessed => "GATEKEEPER_ASSESSED",
+            Self::VerifiedPublisherIdentity => "VERIFIED_PUBLISHER_IDENTITY",
+        }
+    }
+}
 
 /// CPU architecture slice found inside a Mach-O or Universal2 fat executable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,13 +185,17 @@ pub struct ValidatedMacOsBundle {
     pub helper_bundle_path: Option<PathBuf>,
     /// Optional `ZaloCall` helper executable path.
     pub zalo_call_path: Option<PathBuf>,
+    /// Nested helper `.app` bundles and helper executables subject to per-item `codesign` checks.
+    pub nested_signable_paths: Vec<PathBuf>,
     /// Parsed `Info.plist` properties.
     pub plist: PlistMetadata,
     /// Pure-Rust Mach-O slice inspection result, if main executable is readable.
     pub macho: Option<MachOInspection>,
+    /// Highest structural tier reached prior to `codesign`/`spctl` (`BundlePresent` or `ValidMachO`).
+    pub structural_tier: Option<AppIdentityVerificationTier>,
     /// Diagnostic notes collected during bundle inspection.
     pub notes: Vec<String>,
-    /// Structural or architecture validation error when invalid.
+    /// Structural, plist, symlink-escape, or architecture validation error when invalid.
     pub validation_error: Option<String>,
 }
 
@@ -190,6 +229,41 @@ pub fn validate_macos_path(path: &Path) -> Result<(), DimError> {
     Ok(())
 }
 
+/// Verifies that `target` (inside `bundle_root`) does not escape `bundle_root` via symlinks.
+pub fn ensure_bundle_no_symlink_escape(bundle_root: &Path, target: &Path) -> Result<(), String> {
+    let root_meta = fs::symlink_metadata(bundle_root)
+        .map_err(|e| format!("cannot stat bundle root '{}': {e}", bundle_root.display()))?;
+    if is_symlink_or_reparse(&root_meta) {
+        return Err(format!(
+            "bundle root '{}' must be a real directory, not a symlink",
+            bundle_root.display()
+        ));
+    }
+    let canon_root = fs::canonicalize(bundle_root).map_err(|e| {
+        format!(
+            "cannot canonicalize bundle root '{}': {e}",
+            bundle_root.display()
+        )
+    })?;
+
+    if fs::symlink_metadata(target).is_ok() {
+        let canon_target = fs::canonicalize(target).map_err(|_| {
+            format!(
+                "broken or unresolvable symlink inside bundle: '{}'",
+                target.display()
+            )
+        })?;
+        if !canon_target.starts_with(&canon_root) {
+            return Err(format!(
+                "bundle component '{}' escapes bundle root via symlink to '{}'",
+                target.display(),
+                canon_target.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Inspects up to 4096 header bytes of a file to identify Mach-O thin or Universal2 fat slices.
 pub fn inspect_macho_file(path: &Path) -> Result<MachOInspection, DimError> {
     let mut file = File::open(path)?;
@@ -212,7 +286,6 @@ pub fn inspect_macho_bytes(bytes: &[u8]) -> MachOInspection {
     let magic_be = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     let magic_le = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
 
-    // Thin 64-bit or 32-bit little-endian Mach-O (`CF FA ED FE` or `CE FA ED FE` on disk).
     if magic_le == MH_MAGIC_64 || magic_le == MH_MAGIC {
         let cpu_type = i32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
         return MachOInspection {
@@ -222,7 +295,6 @@ pub fn inspect_macho_bytes(bytes: &[u8]) -> MachOInspection {
         };
     }
 
-    // Thin big-endian Mach-O (`FE ED FA CF` or `FE ED FA CE` on disk).
     if magic_le == MH_CIGAM_64 || magic_le == MH_CIGAM {
         let cpu_type = i32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
         return MachOInspection {
@@ -232,7 +304,6 @@ pub fn inspect_macho_bytes(bytes: &[u8]) -> MachOInspection {
         };
     }
 
-    // Universal2 32-bit fat header (`CA FE BA BE` on disk, big-endian).
     if magic_be == FAT_MAGIC || magic_be == FAT_CIGAM {
         let swap = magic_be == FAT_CIGAM;
         let nfat = read_u32(&bytes[4..8], !swap) as usize;
@@ -266,7 +337,6 @@ pub fn inspect_macho_bytes(bytes: &[u8]) -> MachOInspection {
         };
     }
 
-    // Universal2 64-bit fat header (`CA FE BA BF` on disk, big-endian, 32-byte entries).
     if magic_be == FAT_MAGIC_64 || magic_be == FAT_CIGAM_64 {
         let swap = magic_be == FAT_CIGAM_64;
         let nfat = read_u32(&bytes[4..8], !swap) as usize;
@@ -305,6 +375,38 @@ pub fn inspect_macho_bytes(bytes: &[u8]) -> MachOInspection {
         is_universal_fat: false,
         architectures: Vec::new(),
     }
+}
+
+/// Validates structural well-formedness of an XML `Info.plist` document before extracting keys.
+pub fn validate_plist_xml_structure(plist_xml: &str) -> Result<(), String> {
+    let trimmed = plist_xml.trim();
+    if trimmed.is_empty() {
+        return Err("Info.plist is empty".to_owned());
+    }
+    if !trimmed.contains("<dict>") && !trimmed.contains("<dict/>") {
+        return Err("malformed Info.plist XML: missing <dict> root".to_owned());
+    }
+    let open_dicts = trimmed.matches("<dict>").count();
+    let close_dicts = trimmed.matches("</dict>").count();
+    if open_dicts != close_dicts {
+        return Err(format!(
+            "malformed Info.plist XML: unbalanced <dict> ({open_dicts}) vs </dict> ({close_dicts})"
+        ));
+    }
+    let open_keys = trimmed.matches("<key>").count();
+    let close_keys = trimmed.matches("</key>").count();
+    if open_keys != close_keys {
+        return Err("malformed Info.plist XML: unbalanced <key> tags".to_owned());
+    }
+    let open_strings = trimmed.matches("<string>").count();
+    let close_strings = trimmed.matches("</string>").count();
+    if open_strings != close_strings {
+        return Err("malformed Info.plist XML: unbalanced <string> tags".to_owned());
+    }
+    if trimmed.contains("<plist") && !trimmed.contains("</plist>") {
+        return Err("malformed Info.plist XML: missing closing </plist>".to_owned());
+    }
+    Ok(())
 }
 
 /// Parses an Apple XML `Info.plist` payload into [`PlistMetadata`].
@@ -358,14 +460,19 @@ pub fn extract_plist_bool_key(plist_xml: &str, key: &str) -> Option<bool> {
     }
 }
 
-/// Reads and parses `Contents/Info.plist`, automatically converting binary `bplist00` files via
-/// `/usr/bin/plutil -convert xml1 -o -` when available on macOS (or mock harness).
-pub fn read_bundle_plist(
+/// Reads, validates, and parses `Contents/Info.plist`, converting binary `bplist00` files via
+/// `/usr/bin/plutil -convert xml1 -o -` on macOS and rejecting malformed plists.
+pub fn read_bundle_plist_checked(
     ops: &dyn MacOsSystemOps,
     plist_path: &Path,
-) -> Result<PlistMetadata, DimError> {
+) -> Result<Result<PlistMetadata, String>, DimError> {
     let raw_bytes = fs::read(plist_path)?;
     if raw_bytes.starts_with(b"bplist00") {
+        if raw_bytes.len() < 16 {
+            return Ok(Err(
+                "malformed truncated binary Info.plist (bplist00)".to_owned()
+            ));
+        }
         let args = vec![
             "-convert".to_owned(),
             "xml1".to_owned(),
@@ -373,20 +480,42 @@ pub fn read_bundle_plist(
             "-".to_owned(),
             plist_path.to_string_lossy().into_owned(),
         ];
-        if let Ok(out) = ops.run_command(Path::new("/usr/bin/plutil"), &args, &[]) {
-            if out.success() {
-                let mut parsed = parse_info_plist_xml(&out.stdout_lossy());
-                parsed.was_binary_plist = true;
-                return Ok(parsed);
+        if ops.is_native_macos() {
+            match ops.run_command(Path::new("/usr/bin/plutil"), &args, &[]) {
+                Ok(out) if out.success() => {
+                    let xml = out.stdout_lossy();
+                    if let Err(e) = validate_plist_xml_structure(&xml) {
+                        return Ok(Err(e));
+                    }
+                    let mut parsed = parse_info_plist_xml(&xml);
+                    parsed.was_binary_plist = true;
+                    return Ok(Ok(parsed));
+                }
+                Ok(out) => {
+                    return Ok(Err(format!(
+                        "malformed binary Info.plist (`plutil` failed): {}",
+                        out.stderr_lossy().trim()
+                    )));
+                }
+                Err(err) => {
+                    return Ok(Err(format!("failed to execute `/usr/bin/plutil`: {err}")));
+                }
             }
         }
         let mut fallback = parse_binary_plist_ascii_fallback(&raw_bytes);
         fallback.was_binary_plist = true;
-        return Ok(fallback);
+        return Ok(Ok(fallback));
     }
 
-    let xml = String::from_utf8_lossy(&raw_bytes);
-    Ok(parse_info_plist_xml(&xml))
+    let Ok(xml) = std::str::from_utf8(&raw_bytes) else {
+        return Ok(Err(
+            "malformed Info.plist: neither valid UTF-8 XML nor binary bplist00".to_owned(),
+        ));
+    };
+    if let Err(e) = validate_plist_xml_structure(xml) {
+        return Ok(Err(e));
+    }
+    Ok(Ok(parse_info_plist_xml(xml)))
 }
 
 /// Discovers and validates the macOS Zalo `.app` bundle across `custom_root`,
@@ -397,7 +526,7 @@ pub fn discover_zalo_bundle(
 ) -> Result<Option<ValidatedMacOsBundle>, DimError> {
     if let Some(explicit) = custom_root {
         validate_macos_path(explicit)?;
-        if !explicit.exists() {
+        if fs::symlink_metadata(explicit).is_err() {
             return Ok(None);
         }
         return Ok(Some(inspect_bundle_at(ops, explicit)?));
@@ -409,12 +538,11 @@ pub fn discover_zalo_bundle(
     }
 
     for cand in &candidates {
-        if cand.exists() {
+        if fs::symlink_metadata(cand).is_ok() {
             return Ok(Some(inspect_bundle_at(ops, cand)?));
         }
     }
 
-    // Spotlight fallback on macOS when Zalo.app was moved outside /Applications.
     if ops.is_native_macos() {
         for bundle_id in OFFICIAL_ZALO_BUNDLE_IDS {
             let query = format!("kMDItemCFBundleIdentifier == '{bundle_id}'");
@@ -427,7 +555,8 @@ pub fn discover_zalo_bundle(
                             continue;
                         }
                         let cand = PathBuf::from(trimmed);
-                        if validate_macos_path(&cand).is_ok() && cand.exists() {
+                        if validate_macos_path(&cand).is_ok() && fs::symlink_metadata(&cand).is_ok()
+                        {
                             return Ok(Some(inspect_bundle_at(ops, &cand)?));
                         }
                     }
@@ -439,7 +568,7 @@ pub fn discover_zalo_bundle(
     Ok(None)
 }
 
-/// Inspects an existing `.app` directory for plist metadata, executable slices, `app.asar`, and `ZaloHelper.app`.
+/// Inspects an existing `.app` directory for symlink safety, plist validity, Mach-O slices, `app.asar`, and nested helpers.
 pub fn inspect_bundle_at(
     ops: &dyn MacOsSystemOps,
     bundle_path: &Path,
@@ -448,28 +577,54 @@ pub fn inspect_bundle_at(
 
     let contents_dir = bundle_path.join("Contents");
     let info_plist_path = contents_dir.join("Info.plist");
-    let mut notes = Vec::new();
+    let default_exe = contents_dir.join("MacOS").join("Zalo");
 
-    let plist = if info_plist_path.is_file() {
-        read_bundle_plist(ops, &info_plist_path)?
-    } else {
-        return Ok(ValidatedMacOsBundle {
-            bundle_path: bundle_path.to_path_buf(),
+    if let Err(sym_err) = ensure_bundle_no_symlink_escape(bundle_path, &contents_dir) {
+        return Ok(invalid_bundle_result(
+            bundle_path,
             info_plist_path,
-            executable_path: contents_dir.join("MacOS").join("Zalo"),
-            app_asar_path: None,
-            helper_bundle_path: None,
-            zalo_call_path: None,
-            plist: PlistMetadata::default(),
-            macho: None,
-            notes,
-            validation_error: Some(format!(
-                "missing Contents/Info.plist inside {}",
-                bundle_path.display()
-            )),
-        });
+            default_exe,
+            sym_err,
+        ));
+    }
+
+    let plist_meta = match fs::symlink_metadata(&info_plist_path) {
+        Ok(m) if m.is_file() || m.file_type().is_symlink() => m,
+        _ => {
+            return Ok(invalid_bundle_result(
+                bundle_path,
+                info_plist_path,
+                default_exe,
+                format!(
+                    "missing Contents/Info.plist inside {}",
+                    bundle_path.display()
+                ),
+            ));
+        }
+    };
+    let _ = plist_meta;
+    if let Err(sym_err) = ensure_bundle_no_symlink_escape(bundle_path, &info_plist_path) {
+        return Ok(invalid_bundle_result(
+            bundle_path,
+            info_plist_path,
+            default_exe,
+            sym_err,
+        ));
+    }
+
+    let plist = match read_bundle_plist_checked(ops, &info_plist_path)? {
+        Ok(p) => p,
+        Err(plist_err) => {
+            return Ok(invalid_bundle_result(
+                bundle_path,
+                info_plist_path,
+                default_exe,
+                plist_err,
+            ));
+        }
     };
 
+    let mut notes = Vec::new();
     if plist.was_binary_plist {
         notes.push("Parsed binary Info.plist (bplist00).".to_owned());
     }
@@ -486,17 +641,51 @@ pub fn inspect_bundle_at(
         .filter(|s| !s.contains('/') && !s.contains('\\') && *s != "..")
         .unwrap_or("Zalo");
     let executable_path = contents_dir.join("MacOS").join(exe_name);
-    let asar_candidate = contents_dir.join("Resources").join("app.asar");
-    let app_asar_path = asar_candidate.is_file().then_some(asar_candidate);
+    if let Err(sym_err) = ensure_bundle_no_symlink_escape(bundle_path, &executable_path) {
+        return Ok(invalid_bundle_result(
+            bundle_path,
+            info_plist_path,
+            executable_path,
+            sym_err,
+        ));
+    }
 
-    let (helper_bundle_path, zalo_call_path) = locate_zalo_helper(&contents_dir);
+    let asar_candidate = contents_dir.join("Resources").join("app.asar");
+    let mut app_asar_path = None;
+    if fs::symlink_metadata(&asar_candidate).is_ok() {
+        if let Err(sym_err) = ensure_bundle_no_symlink_escape(bundle_path, &asar_candidate) {
+            return Ok(invalid_bundle_result(
+                bundle_path,
+                info_plist_path,
+                executable_path,
+                sym_err,
+            ));
+        }
+        if asar_candidate.is_file() {
+            app_asar_path = Some(asar_candidate);
+        }
+    }
+
+    let (helper_bundle_path, zalo_call_path, nested_signable_paths, nested_escape_err) =
+        collect_nested_helpers(bundle_path, &contents_dir);
+    if let Some(sym_err) = nested_escape_err {
+        return Ok(invalid_bundle_result(
+            bundle_path,
+            info_plist_path,
+            executable_path,
+            sym_err,
+        ));
+    }
     if zalo_call_path.is_some() {
         notes.push(
             "Detected ZaloCall helper (binds global /tmp/socketzalorecv2021 on calls).".to_owned(),
         );
     }
 
-    if !executable_path.is_file() {
+    if !fs::symlink_metadata(&executable_path)
+        .is_ok_and(|m| m.is_file() || m.file_type().is_symlink())
+        || !executable_path.is_file()
+    {
         return Ok(ValidatedMacOsBundle {
             bundle_path: bundle_path.to_path_buf(),
             info_plist_path,
@@ -504,8 +693,10 @@ pub fn inspect_bundle_at(
             app_asar_path,
             helper_bundle_path,
             zalo_call_path,
+            nested_signable_paths,
             plist,
             macho: None,
+            structural_tier: None,
             notes,
             validation_error: Some(format!(
                 "bundle executable missing at {}",
@@ -523,8 +714,10 @@ pub fn inspect_bundle_at(
                 app_asar_path,
                 helper_bundle_path,
                 zalo_call_path,
+                nested_signable_paths,
                 plist,
                 macho: None,
+                structural_tier: None,
                 notes,
                 validation_error: Some(format!(
                     "unexpected CFBundlePackageType '{pkg_type}' (expected 'APPL')"
@@ -535,23 +728,46 @@ pub fn inspect_bundle_at(
 
     let macho = inspect_macho_file(&executable_path).ok();
     let mut arch_error: Option<String> = None;
+    let mut structural_tier = Some(AppIdentityVerificationTier::BundlePresent);
 
-    if let Some(ref m) = macho {
-        notes.push(format!("Executable binary format: {}.", m.summary_label()));
-        if m.is_macho {
+    match &macho {
+        Some(m) if m.is_macho => {
+            notes.push(format!("Executable binary format: {}.", m.summary_label()));
             let host_arch = ops.host_arch();
-            if host_arch == "x86_64" && !m.supports_x86_64() && m.supports_arm64() {
+            if !m.supports_arm64() && !m.supports_x86_64() {
+                arch_error = Some(format!(
+                    "unsupported Mach-O CPU architecture slices in {}",
+                    executable_path.display()
+                ));
+            } else if host_arch == "x86_64" && !m.supports_x86_64() && m.supports_arm64() {
                 arch_error = Some(
                     "Apple Silicon arm64-only Mach-O bundle cannot execute on Intel x86_64 host"
                         .to_owned(),
                 );
-            } else if host_arch == "aarch64" && !m.supports_arm64() && m.supports_x86_64() {
-                notes.push(
-                    "Intel x86_64-only Mach-O bundle on Apple Silicon (arm64) host: requires Rosetta 2 (oahd)."
-                        .to_owned(),
-                );
+            } else {
+                if host_arch == "aarch64" && !m.supports_arm64() && m.supports_x86_64() {
+                    notes.push(
+                        "Intel x86_64-only Mach-O bundle on Apple Silicon (arm64) host: requires Rosetta 2 (oahd)."
+                            .to_owned(),
+                    );
+                }
+                structural_tier = Some(AppIdentityVerificationTier::ValidMachO);
             }
         }
+        _ => {
+            notes.push("Executable header is non-Mach-O placeholder.".to_owned());
+            if ops.is_native_macos() {
+                arch_error = Some(format!(
+                    "invalid Mach-O header in bundle executable {}",
+                    executable_path.display()
+                ));
+                structural_tier = None;
+            }
+        }
+    }
+
+    if arch_error.is_some() {
+        structural_tier = Some(AppIdentityVerificationTier::BundlePresent);
     }
 
     Ok(ValidatedMacOsBundle {
@@ -561,27 +777,89 @@ pub fn inspect_bundle_at(
         app_asar_path,
         helper_bundle_path,
         zalo_call_path,
+        nested_signable_paths,
         plist,
         macho,
+        structural_tier,
         notes,
         validation_error: arch_error,
     })
 }
 
-fn locate_zalo_helper(contents_dir: &Path) -> (Option<PathBuf>, Option<PathBuf>) {
-    let helper_candidates = [
-        contents_dir.join("Frameworks").join("ZaloHelper.app"),
-        contents_dir.join("Resources").join("ZaloHelper.app"),
-        contents_dir.join("Frameworks").join("Zalo Helper.app"),
-    ];
-    for helper in helper_candidates {
-        if helper.is_dir() {
-            let call = helper.join("Contents").join("MacOS").join("ZaloCall");
-            let call_opt = call.is_file().then_some(call);
-            return (Some(helper), call_opt);
+fn invalid_bundle_result(
+    bundle_path: &Path,
+    info_plist_path: PathBuf,
+    executable_path: PathBuf,
+    err: String,
+) -> ValidatedMacOsBundle {
+    ValidatedMacOsBundle {
+        bundle_path: bundle_path.to_path_buf(),
+        info_plist_path,
+        executable_path,
+        app_asar_path: None,
+        helper_bundle_path: None,
+        zalo_call_path: None,
+        nested_signable_paths: Vec::new(),
+        plist: PlistMetadata::default(),
+        macho: None,
+        structural_tier: None,
+        notes: Vec::new(),
+        validation_error: Some(err),
+    }
+}
+
+fn collect_nested_helpers(
+    bundle_root: &Path,
+    contents_dir: &Path,
+) -> (
+    Option<PathBuf>,
+    Option<PathBuf>,
+    Vec<PathBuf>,
+    Option<String>,
+) {
+    let mut nested = Vec::new();
+    let mut helper_bundle = None;
+    let mut zalo_call = None;
+
+    for sub_name in ["Frameworks", "Resources"] {
+        let sub_dir = contents_dir.join(sub_name);
+        if fs::symlink_metadata(&sub_dir).is_err() {
+            continue;
+        }
+        if let Err(e) = ensure_bundle_no_symlink_escape(bundle_root, &sub_dir) {
+            return (None, None, Vec::new(), Some(e));
+        }
+        let Ok(entries) = fs::read_dir(&sub_dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Err(e) = ensure_bundle_no_symlink_escape(bundle_root, &p) {
+                return (None, None, Vec::new(), Some(e));
+            }
+            let name = entry.file_name();
+            let s = name.to_string_lossy();
+            if s.ends_with(".app") && p.is_dir() {
+                nested.push(p.clone());
+                if helper_bundle.is_none() && (s == "ZaloHelper.app" || s == "Zalo Helper.app") {
+                    let call = p.join("Contents").join("MacOS").join("ZaloCall");
+                    if fs::symlink_metadata(&call).is_ok() {
+                        if let Err(e) = ensure_bundle_no_symlink_escape(bundle_root, &call) {
+                            return (None, None, Vec::new(), Some(e));
+                        }
+                        if call.is_file() {
+                            nested.push(call.clone());
+                            zalo_call = Some(call);
+                        }
+                    }
+                    helper_bundle = Some(p);
+                }
+            }
         }
     }
-    (None, None)
+    nested.sort();
+    nested.dedup();
+    (helper_bundle, zalo_call, nested, None)
 }
 
 fn read_u32(bytes: &[u8], big_endian: bool) -> u32 {
@@ -621,7 +899,6 @@ fn decode_xml_entities(raw: &str) -> String {
         .replace("&apos;", "'")
 }
 
-/// Best-effort ASCII token extractor when inspecting a `bplist00` fixture on a non-macOS host without `plutil`.
 fn parse_binary_plist_ascii_fallback(bytes: &[u8]) -> PlistMetadata {
     let runs = extract_ascii_runs(bytes);
     let find_after = |key: &str| -> Option<String> {
