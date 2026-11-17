@@ -1,253 +1,274 @@
 # Đề Xuất Hướng Giải Quyết Hợp Chuẩn & Kế Hoạch Thực Nghiệm Tiếp Theo (`recommended-next-experiments.md`)
 
 **Nhánh nghiên cứu:** `research/desktop-compatibility`  
-**Nguyên tắc thiết kế:** Tuyệt đối không chứa mã khai thác, không vá cơ chế xác thực/chữ ký của Zalo, không inject DLL/hook kernel, không tắt Windows Smart App Control hay Ubuntu AppArmor, và không mô phỏng trái phép máy chủ/endpoint của VNG. Mọi đề xuất đều nhắm tới thu hẹp thực chất giới hạn sản phẩm bằng các cơ chế hợp lệ của từng hệ điều hành.
+**Đồng bộ truy xuất:** Khớp 100% mã phát hiện (`F-CORE-01..02`, `F-WIN-01..07`, `F-MAC-01..05`, `F-UBU-01..07`), đặc tả kiểm thử (`TC-H1A`, `TC-H1B`, `TC-H2`..`TC-H8` trong `./test-specifications.md`) và yêu cầu tích hợp (`IR-WIN-01..04`, `IR-MAC-01..04`, `IR-UBU-01..05` trong `./implementation-backlog.md`).  
+**Nguyên tắc thiết kế bất biến:** Tuyệt đối không chứa mã khai thác, không vá cơ chế xác thực/chữ ký của Zalo (`Zalo.exe`, `Zalo.app`, `app.asar`), không inject DLL/hook kernel, không tắt Windows Smart App Control (`SAC`) hay Ubuntu AppArmor (`--no-sandbox` / `sysctl=0`), không tự động hóa đăng nhập hoặc gọi điện tới người dùng không đồng thuận, và không mô phỏng trái phép máy chủ/endpoint của VNG.
+
+---
+
+## Khung Xếp Hạng Ưu Tiên Theo Giá Trị Sản Phẩm (`Product-Value Ranking Rubric`)
+
+Mọi hạng mục khắc phục và thực nghiệm trong tài liệu này bắt buộc tuân theo thứ bậc tác động sản phẩm từ cao xuống thấp (các rủi ro cấp tài khoản và toàn vẹn dữ liệu luôn đứng trên các tính năng phụ trợ; **tuyệt đối không để công việc Gọi thoại/Video (`P2`) chiếm tài nguyên trước khi khóa chặt an toàn dữ liệu và xác minh đăng nhập độc lập tài khoản thứ hai (`L3`, `P0`)**):
+
+| Thứ bậc giá trị sản phẩm | Nhóm tác động người dùng | Mức ưu tiên bắt buộc |
+| :--- | :--- | :--- |
+| **1. Nguy cơ mất dữ liệu / hỏng DB** | Sao lưu thiếu DB ngoài (`db_path.location`), xóa nhầm qua NTFS junction, bắn `SIGTERM`/`SIGKILL` sớm khi đang đóng SQLite WAL | **`P0`** |
+| **2. Đóng nhầm tiến trình / cửa sổ** | `EnumWindows` chọn nhầm popup `notiWin`/helper để gửi `WM_CLOSE`; `SingletonLock` tái sử dụng PID tiến trình khác | **`P0`** |
+| **3. Chặn đăng nhập / khởi chạy tài khoản thứ hai (`L3`)** | Chưa xác minh `L3` 2 tài khoản thật; lỗi chặn mở phiên (`TMPDIR` > 104 byte trên macOS, `bwrap --die-with-parent`, thiếu preflight AppArmor) | **`P0`** |
+| **4. Nhắn tin & hộp thoại gửi/nhận tệp** | Thiếu thư mục `Downloads`/`Pictures`/`.config/user-dirs.dirs` làm hộp thoại chọn/lưu tệp mở vào thư mục rỗng | **`P1`** |
+| **5. Đóng/mở lại giữ phiên & chuyển cửa sổ** | Đánh thức cửa sổ ẩn dưới System Tray vượt Win32 Foreground Lock; kích hoạt cửa sổ macOS không đòi Accessibility TCC; `focus` trên Linux | **`P1`** |
+| **6. Thông báo (`Notifications`)** | Gom nhóm `AppUserModelId("com.vng.zalo")` / `CFBundleIdentifier` vs popup nội bộ `notiWin` & xung đột badge `zalo.desktop` | **`P2`** |
+| **7. Gọi điện thoại & Gọi video (`Calls`)** | Xung đột kênh IPC cục bộ của helper gọi (`PipeZCall*`, `/tmp/socketzalo*2021`, cổng TCP `29631/29632`) | **`P2`** |
 
 ---
 
 ## Phần I — Phân Tích & Hướng Giải Quyết Chi Tiết Cho 8 Giới Hạn Kỹ Thuật Cốt Lõi
 
----
-
-### Giới hạn 1: Xung đột kênh IPC cố định của Gọi thoại & Gọi video (`PipeZCall*` / `/tmp/socketzalo*` / `29631-29632`)
-
-1. **Nguyên nhân có bằng chứng:**
-   - Trong `app.asar/main-dist/main.js:311828..317500` (module `"3Zc2"`), Zalo gán cứng tên kênh IPC toàn cục: `\\.\pipe\PipeZCallRecv` & `PipeZCallSend` trên Windows; `/tmp/socketzalorecv2021` & `/tmp/socketzalosend2021` trên macOS; và bản cộng đồng `zalo-for-linux` (`patch-zcall-native.js:307-308`) gán cứng `127.0.0.1:29631` & `29632`.
-   - Quan sát thực tế trên host Windows 11 xác nhận phiên đầu tiên đăng nhập khởi chạy sẵn `ZaloCall.exe` (`PID 15624`, `ev_9145f8bd...`) và giữ mở cả 2 pipe ngay ở trạng thái nghỉ (idle). Trên Windows, phiên thứ 2 bị `EADDRINUSE` nhưng vẫn spawn `ZaloCall.exe` kết nối nhầm vào pipe server của phiên 1, làm đè biến hàm gửi `O` của phiên 1; trên macOS, phiên mở sau cùng gọi `fs.unlink` chiếm socket của phiên trước (`ducngfi` `README.md:199`).
-2. **Những phần chưa biết:**
-   - Trên Windows, nếu đóng êm phiên chính (hoặc phiên đang giữ `PipeZCall*`) rồi mở lại duy nhất một phiên phụ cần gọi, phiên phụ đó có khởi tạo trọn vẹn cuộc gọi 1-1 và gọi nhóm với âm thanh/hình ảnh hai chiều ổn định 100% hay không (`L4-2` chưa chạy với tài khoản thật).
-   - Trên Linux (với AppImage cộng đồng trong cấu hình hợp lệ), việc chạy mỗi phiên trong một rootless network namespace riêng (`pasta` / `slirp4netns`, tạo giao diện loopback `127.0.0.1` độc lập cho mỗi phiên mà vẫn có kết nối Internet) có giúp 2 phiên lắng nghe độc lập trên `127.0.0.1:29631/29632` hay không.
-3. **Ảnh hưởng UX:**
-   - Người dùng mở nhiều tài khoản sẽ thấy nút gọi ở tài khoản phụ không phản hồi, kẹt trạng thái kết nối, hoặc làm mất điều khiển cuộc gọi của tài khoản chính.
-4. **Phương án tương thích hợp lệ:**
-   - **Điều phối "Chế độ Ưu tiên Cuộc gọi" (Designated Call-Owner Mode) trong Manager UI & CLI:**
-     - **Giám sát chủ động:** Dùng Win32 `GetNamedPipeServerProcessId` trên `\\.\pipe\PipeZCallRecv` (Windows) hoặc kiểm tra tiến trình giữ `/tmp/socketzalorecv2021` qua `lsof -U` (macOS) để hiển thị rõ huy hiệu **"Đang giữ quyền Gọi (Call Ready)"** cạnh đúng 1 profile duy nhất trên giao diện Manager!
-     - **Chuyển quyền Gọi 1-click (macOS):** Tận dụng hành vi `fs.unlink` tự nhiên của Zalo macOS — cung cấp nút *"Chuyển quyền Gọi sang tài khoản này"* thực hiện đóng êm (`terminate`) và mở lại riêng profile đó (hoặc tạm dừng các phiên phụ khác) để nó nắm `/tmp/socketzalo*2021` sạch sẽ.
-     - **Chuyển quyền Gọi có xác nhận (Windows):** Cảnh báo rõ khi `PipeZCallRecv` đang thuộc về một phiên khác (kể cả Zalo chính); nếu là giữa các phiên phụ do Manager quản lý, cho phép tạm dừng êm các phiên phụ đang giữ pipe rồi khởi động lại phiên cần gọi trước, sau đó mở lại các phiên kia ở chế độ chỉ nhắn tin (lưu ý: nếu phiên mở lại sau vẫn tự spawn `ZaloCall.exe` làm đè biến `O` của phiên đang giữ pipe, Manager chỉ mở duy nhất phiên cần gọi trong suốt cuộc gọi rồi khôi phục các phiên khác sau khi gọi xong!).
-5. **Phương án nên loại bỏ vì không an toàn hoặc không khả thi:**
-   - Sửa chuỗi `PipeZCallSend`/`socketzalorecv2021` trong `app.asar` hoặc vá nhị phân `ZaloCall.exe` (vi phạm bản quyền, làm vỡ chữ ký số VNG / `CALL_NATIVE_HASH` `verifyMd5` tại `main.js:314500`, hỏng cập nhật tự động).
-   - Tiêm DLL (`Detours`/`MinHook`/`SbieDll.dll`) hoặc cài kernel driver `SbieDrv.sys` (`GPL-3.0`, bị chặn bởi Smart App Control, đòi quyền Admin).
-6. **Test cần thiết:**
-   - Kiểm tra API `GetNamedPipeServerProcessId` trên `\\.\pipe\PipeZCallRecv` xác định đúng PID của phiên đang nắm pipe.
-   - Thực nghiệm E2E với 2 tài khoản thật trên Windows: đo chính xác xem việc mở phiên 2 sau phiên 1 có làm hỏng cuộc gọi đang rảnh của phiên 1 (do ghi đè biến `O`) hay không.
-7. **Những thay đổi có thể giao cho agent Windows/macOS/Ubuntu:**
-   - **Windows Agent:** Bổ sung hàm đọc owner PID của `\\.\pipe\PipeZCallRecv` trong `crates/platform-windows/src/win32_ffi.rs` (mở handle đọc thuộc tính không phá kết nối hoặc đối chiếu tiến trình con `ZaloCall.exe`) và xuất trường `call_owner_pid` trong `diagnostics`/`status`.
-   - **macOS Agent:** Cập nhật `inspect_call_sockets_at` (`crates/platform-macos/src/layout.rs`) để báo cáo trạng thái sở hữu socket trong `diagnostics`.
-   - **UI Agent:** Hiển thị nhãn rõ ràng profile nào đang giữ kênh gọi và cảnh báo khi thực hiện cuộc gọi ở các cửa sổ còn lại.
-8. **Mức độ ưu tiên:** **P0 (Cao nhất về minh bạch sản phẩm & bảo vệ ổn định cuộc gọi phiên chính).**
+*(Áp dụng nghiêm ngặt hệ phân loại bằng chứng 6 bậc: `Confirmed by source code`, `Confirmed by static binary inspection`, `Observed on running system`, `Confirmed by controlled experiment`, `Inference`, `Not tested`.)*
 
 ---
 
-### Giới hạn 2: Hộp thoại gửi/lưu tệp (File Dialogs) mở vào thư mục rỗng trên Windows & Linux
+### Giới hạn 1: Xung đột kênh IPC cố định của Gọi thoại & Gọi video (`PipeZCall*` / `/tmp/socketzalo*2021` / `127.0.0.1:29631-29632`)
+- **Liên kết định danh:** Findings `F-WIN-06`, `F-MAC-05`, `F-UBU-07` | Tests `TC-H1A`, `TC-H1B` (Giai đoạn 2), `TC-H5`, `TC-H8` (Phần 8C) | Integration Requests `IR-WIN-02`, `IR-MAC-04`, `IR-UBU-05`.
 
-1. **Nguyên nhân có bằng chứng:**
-   - `crates/platform-windows/src/layout.rs:14-29` đặt `USERPROFILE=<ProfileDir>` nhưng chỉ tạo `Desktop` và `Documents\Zalo Received Files`, bỏ thiếu `Downloads`, `Pictures`, `Videos`, `Music`. Khi Zalo gọi `dialog.showOpenDialog` / `showSaveDialog` (`main.js:997824`), Windows Shell mở vào cây thư mục giả lập trống rỗng.
-   - `crates/platform-linux/src/layout.rs:22-35` chỉ tạo `.config/ZaloData`, `.local/share`, `.cache`, `tmp`, thiếu `Downloads`, `Documents` và tệp `.config/user-dirs.dirs` mà `patch-xdg-user-dirs.js:395-465` dựa vào.
-2. **Những phần chưa biết:**
-   - Khi tạo NTFS junction cho `Downloads` và `Desktop` sang thư mục thật của người dùng trên Windows 11, liệu `IFileOpenDialog` có hiển thị đầy đủ mục *Quick Access / Downloads* như phiên chính hay không.
+1. **Nguyên nhân & Phân tầng bằng chứng đã hiệu chỉnh:**
+   - **Windows (`F-WIN-06`):**
+     - `Confirmed by source code`: `app.asar/main-dist/main.js:311828..317500` (module `"3Zc2"`) gán cứng `\\.\pipe\PipeZCallRecv` và `\\.\pipe\PipeZCallSend`; nhánh `win32` không gỡ pipe khi gặp `EADDRINUSE`, và trong `serverSend` có gán `O = t => V(e, t)` mỗi khi client mới kết nối.
+     - `Confirmed by static binary inspection`: REA `inspect_pe_imports` trên `ZaloCall.exe` (`ev_9145f8bd...`) xác nhận dùng `WINMM.dll` / `qtaudio_wasapi.dll` (WASAPI Shared Mode — tầng phần cứng âm thanh không phải điểm nghẽn; riêng webcam DirectShow UVC có thể bận nếu 2 tiến trình mở đồng thời không qua FrameServer — `Inference`).
+     - `Observed on running system`: Trên máy Windows 11 nghiên cứu, 1 phiên Zalo chính đang đăng nhập ở trạng thái nghỉ (idle) có tiến trình `ZaloCall.exe` (`PID 15624`) và giữ mở cả 2 pipe.
+     - **Hiệu chỉnh hạ cấp bằng chứng (`Inference` / `Not tested`):** Quan sát pipe mở lúc nghỉ trên Tài khoản #1 **chưa phải bằng chứng thực nghiệm** rằng Tài khoản #2 thất bại ở mọi chế độ gọi (ví dụ WebRTC nội bộ / `zcall_ia32.node`), chưa chứng minh trên Zalo thật `ZaloCall.exe` của Tài khoản #2 được spawn ngay lúc đăng nhập hay chỉ khi bấm nút Gọi, và chưa chứng minh việc ghi đè `O` làm treo vĩnh viễn cuộc gọi đi của Tài khoản #1 ngoài thực tế. Cần kiểm chứng tách bạch qua `TC-H1A` (tự động trên pipe tổng hợp) và `TC-H1B` Giai đoạn 2 (thủ công có đồng thuận).
+   - **macOS (`F-MAC-05`):**
+     - `Confirmed by source code`: `main.js:311828,314800` gán cứng `"/tmp/socketzalorecv2021"` & `"/tmp/socketzalosend2021"` và gọi `fs.unlink` khi `EADDRINUSE` (phiên khởi tạo sau cùng chiếm socket — `Author claim` từ `ducngfi` `README.md:199`; chưa chạy thực nghiệm tại workspace này: `Not tested`).
+   - **Ubuntu (`F-UBU-07` — Phân tách 4 nguồn riêng biệt, không đánh đồng):**
+     - *(A) Giới hạn của bản port cộng đồng (`Confirmed by source code`):* `VN-Linux-Family/zalo-for-linux` (`patch-zcall-native.js:307-318`) gán cứng cổng TCP `127.0.0.1:29631` & `29632`.
+     - *(B) Lỗi của `dim-platform-linux` adapter (`Confirmed by source code`):* `crates/platform-linux/src/layout.rs:82-131` thiếu bind socket PipeWire/PulseAudio (`$XDG_RUNTIME_DIR/pulse/native`) và `/dev/video*` trong `bwrap`.
+     - *(C) Ràng buộc môi trường mạng dùng chung vs cô lập (`Inference` / `Not tested`):* Lỗi `EADDRINUSE` trên cổng `29631/29632` **chỉ xảy ra khi các phiên dùng chung host network namespace (`lo`)**; nếu chạy mỗi phiên trong rootless network namespace riêng (`pasta`), mỗi phiên có giao diện `127.0.0.1` độc lập nên không xung đột cổng TCP (kiểm chứng tại `TC-H8C`). Riêng webcam vật lý V4L2 `/dev/video0` vẫn khóa đơn luồng (`EBUSY`) khi mở đồng thời.
+     - *(D) Giới hạn của Zalo VNG chính thức (`Confirmed by source code` — `Unsupported`):* VNG không phát hành bản Linux Desktop chính thức (`main.js:314392`, `file-utilities/index.js:36`).
+2. **Những phần chưa biết (`Not tested`):**
+   - Thời điểm chính xác `ZaloCall.exe` khởi chạy trên Tài khoản #2 (lúc quét QR xong hay lúc bấm Gọi) và khả năng khôi phục 100% cuộc gọi 1-1/nhóm khi đóng êm các phiên khác trên Windows (`TC-H1B` Giai đoạn 2).
+   - Hành vi thực tế của 2 phiên lắng nghe độc lập `127.0.0.1:29631/29632` qua `pasta` kết hợp chia sẻ socket PipeWire trên Ubuntu 24.04 (`TC-H8C`).
 3. **Ảnh hưởng UX:**
-   - Người dùng gửi tài liệu/ảnh hoặc lưu file đính kèm phải bấm nhiều tầng ổ đĩa `C:\Users\<tên>\Downloads` rất bất tiện ở mọi lần gửi file.
-4. **Phương án tương thích hợp lệ:**
-   - **Mặc định an toàn (Isolated by Default):** Luôn tạo đủ các thư mục con chuẩn (`Downloads`, `Documents\Zalo Received Files`, `Desktop`, `Pictures`, `Videos`, `Music`) trên Windows và tạo thêm `.config/user-dirs.dirs` hợp lệ trên Linux để không bao giờ lỗi đường dẫn.
-   - **Tùy chọn liên kết thư mục tiện lợi ( Per-Profile Opt-in Host Folder Links):** Cho phép người dùng bật tùy chọn *"Liên kết thư mục Tải về & Màn hình nền thật"* cho từng profile: tạo NTFS junction (Windows, không cần Admin) hoặc symlink (macOS/Linux) cho `Downloads`, `Desktop`, `Pictures` sang thư mục thật của user, **nhưng vẫn giữ `Documents\Zalo Received Files` tách riêng theo từng profile** (hoặc trong thư mục con `Downloads\Zalo - <Tên Profile>`) để tránh lẫn lộn tệp tự động tải về giữa các tài khoản! Bảo toàn chốt an toàn `unlink_reparse_points_safe` trước khi xóa profile.
-5. **Phương án nên loại bỏ vì không an toàn hoặc không khả thi:**
-   - Trỏ thẳng `USERPROFILE` về thư mục thật của người dùng (làm mất hoàn toàn khả năng cô lập `AppData\Roaming\ZaloData` trên Windows!).
-   - Xóa đệ quy thư mục profile bằng lệnh thường mà không gỡ reparse point trước (nguy cơ xóa nhầm toàn bộ file `Downloads`/`Desktop` thật của người dùng — lỗi kinh điển phải chặn cứng bằng unit test).
-6. **Test cần thiết:**
-   - Unit test & integration test trên Windows/Linux xác nhận tạo đủ thư mục chuẩn, tạo/gỡ junction `Downloads` an toàn, và xóa profile không chạm vào bất kỳ tệp nào trong `Downloads` thật.
-7. **Những thay đổi có thể giao cho agent Windows/macOS/Ubuntu:**
-   - **Windows Agent:** Mở rộng `ensure_windows_profile_layout` (`crates/platform-windows/src/layout.rs` + `scripts/dim-host.ps1`) tạo đủ thư mục chuẩn và hỗ trợ cờ cấu hình liên kết junction an toàn.
-   - **Ubuntu Agent:** Mở rộng `ensure_linux_profile_layout` (`crates/platform-linux/src/layout.rs`) tạo `Downloads`, `Documents`, `Pictures` và ghi tệp `.config/user-dirs.dirs`.
-8. **Mức độ ưu tiên:** **P1 (Cải thiện trực tiếp trải nghiệm gửi/nhận tệp hằng ngày).**
+   - Gọi thoại/video ở tài khoản phụ có thể không kết nối được hoặc chiếm kênh gọi của tài khoản đang mở trước/sau tùy hệ điều hành.
+4. **Phương án tương thích hợp lệ (Chỉ triển khai sau khi xong `P0` & `P1`):**
+   - **Chẩn đoán thụ động chỉ đọc & Chế độ "Ưu tiên Cuộc gọi" (Designated Call-Owner Mode):**
+     - Trên Windows (`IR-WIN-02`): Truy vấn thụ động chỉ đọc PID giữ `\\.\pipe\PipeZCallRecv` (`GetNamedPipeServerProcessId` / đối chiếu cây PID `ZaloCall.exe`) trong `diagnostics` mà không gửi dữ liệu vào pipe; hiển thị nhãn rõ ràng profile nào đang nắm kênh gọi và hướng dẫn đóng êm các phiên khác khi cần thực hiện cuộc gọi quan trọng.
+     - Trên macOS (`IR-MAC-04`): Mở rộng `inspect_call_sockets_at` (`crates/platform-macos/src/layout.rs:138-149`) báo cáo chủ sở hữu `/tmp/socketzalo*2021` và cung cấp tùy chọn khởi động lại sau cùng profile cần gọi (tận dụng cơ chế `fs.unlink` tự nhiên).
+     - Trên Ubuntu (`IR-UBU-05`): Báo cáo trung thực sự khác biệt 4 tầng, kiểm tra thụ động trạng thái cổng `29631/29632` và hỗ trợ hook tùy chọn `pasta` rootless netns khi có sẵn trên máy.
+5. **Phương án loại bỏ vì không an toàn hoặc không khả thi:**
+   - Sửa chuỗi tên pipe/socket trong `app.asar` hoặc vá nhị phân `ZaloCall.exe` (làm vỡ chữ ký số VNG và `CALL_NATIVE_HASH` `verifyMd5` tại `main.js:314500`).
+   - Inject DLL (`Detours`/`MinHook`/`SbieDll.dll`) hoặc cài kernel driver (vi phạm ranh giới an toàn, bị chặn bởi Smart App Control).
+6. **Test cần thiết:** `TC-H1A` (tự động), `TC-H1B` Giai đoạn 2 (thủ công tùy chọn sau `L3`), `TC-H5` (tự động macOS), `TC-H8` Phần `8C` (tự động Ubuntu).
+7. **Phân công Agent:** `Windows agent` (`IR-WIN-02`), `macOS agent` (`IR-MAC-04`), `Ubuntu agent` (`IR-UBU-05`), `Human QA opt-in` (`TC-H1B`).
+8. **Mức độ ưu tiên:** **`P2` (Tính năng phụ trợ Gọi điện — Hạ từ mức `P0` cũ xuống `P2` theo đúng thang giá trị sản phẩm để tuyệt đối không làm chậm việc sửa lỗi an toàn dữ liệu và xác minh đăng nhập tài khoản thứ 2 `L3`!).**
 
 ---
 
-### Giới hạn 3: Lỗi chọn nhầm cửa sổ phụ (`EnumWindows`) & Chặn kích hoạt cửa sổ ẩn ở Tray trên Windows
+### Giới hạn 2: Hộp thoại gửi/lưu tệp mở vào thư mục rỗng trên Windows & Linux + Chốt an toàn xóa NTFS Junction
+- **Liên kết định danh:** Findings `F-WIN-04`, `F-UBU-02` | Tests `TC-H7`, `TC-H8` (Phần 8A) | Integration Requests `IR-WIN-03`, `IR-UBU-02`.
 
-1. **Nguyên nhân có bằng chứng:**
-   - Trong `crates/platform-windows/src/win32_ffi.rs:884-908`, `enum_windows_cb` nhận ngay cửa sổ `IsWindowVisible != 0` đầu tiên theo thứ tự Z-order của bất kỳ PID nào trong cây tiến trình mà không lọc class `Chrome_WidgetWin_1`, không kiểm tra `GetWindow(hwnd, GW_OWNER) == 0`, không loại bỏ `WS_EX_TOOLWINDOW`, và nhận cả cửa sổ tiêu đề rỗng. Cửa sổ thông báo nổi `notiWin` (`352x82`, `alwaysOnTop: true`, `main.js:2726777`) hoặc `ZaloCall.exe` dễ bị nhận nhầm làm cửa sổ chính!
-   - Ngoài ra, khi cửa sổ chính ẩn xuống System Tray (`IsWindowVisible == 0`) hoặc khi gọi `SetForegroundWindow` từ tiến trình nền (`ui-server.mjs`), Win32 Foreground Lock chặn việc đưa cửa sổ lên trước.
-2. **Những phần chưa biết:**
-   - Tốc độ phản hồi trung bình của cơ chế handoff `second-instance` khi máy đang mở 4–5 phiên Zalo đã đăng nhập đầy đủ.
-3. **Ảnh hưởng UX:**
-   - Bấm *"Chuyển tới cửa sổ (Focus)"* không mở được cửa sổ đang ẩn dưới khay, hoặc chỉ nhấp nháy Taskbar, hoặc gửi nhầm `WM_CLOSE` vào cửa sổ popup khi đóng phiên.
+1. **Nguyên nhân & Bằng chứng:**
+   - `Confirmed by source code`: `crates/platform-windows/src/layout.rs:14-29` đặt `USERPROFILE=<ProfileDir>` nhưng chỉ tạo `Desktop` và `Documents\Zalo Received Files`, thiếu `Downloads`, `Pictures`, `Videos`, `Music`. Khi Zalo mở `dialog.showOpenDialog` / `showSaveDialog` (`main.js:997824`), hộp thoại mở vào thư mục giả lập trống.
+   - `Confirmed by source code`: `crates/platform-linux/src/layout.rs:22-42` chưa tạo `Downloads`, `Documents`, `Pictures` và thiếu tệp `.config/user-dirs.dirs` (`patch-xdg-user-dirs.js:395-465`).
+   - `Confirmed by source code` & `Confirmed by controlled experiment`: `crates/profile-store/src/store.rs:377-427` đã có `unlink_reparse_points_safe` (`Test-8` trong `run-fixture-tests.mjs`), cần kiểm thử mở rộng với bộ tệp canary đầy đủ cho `Downloads`/`Desktop` trong `TC-H7`.
+2. **Những phần chưa biết (`Not tested`):**
+   - Cách hiển thị mục *Quick Access* của `IFileOpenDialog` trên Windows 11 khi dùng NTFS junction chọn lọc trên tài khoản thật (`L3-3` trong `TC-H1B`).
+3. **Ảnh hưởng UX & An toàn dữ liệu:**
+   - Thiếu thư mục làm giảm mạnh tốc độ gửi/lưu tệp hằng ngày (`P1`); nếu triển khai liên kết thư mục mà thiếu kiểm chứng gỡ reparse point trước khi xóa sẽ gây nguy cơ mất dữ liệu host (`P0`).
 4. **Phương án tương thích hợp lệ:**
-   - Sửa `enum_windows_cb` trong `win32_ffi.rs` và `scripts/dim-host.ps1`:
-     1. Chỉ xét PID là `main_pid` của Electron (hoặc lọc class `Chrome_WidgetWin_1`).
-     2. Bắt buộc `GetWindow(hwnd, GW_OWNER) == NULL`, không mang cờ `WS_EX_TOOLWINDOW`, có tiêu đề khác rỗng (`"Zalo"`) và kích thước khung hình lớn hơn ngưỡng popup thông báo (`width >= 400 && height >= 400`).
-   - Trong `focus_or_restore`: Nếu cửa sổ đang ẩn ở System Tray (`window_handle.is_none()`) hoặc sau khi gọi `focus_window(hwnd)` mà `GetForegroundWindow() != hwnd`, thực hiện gọi handoff `Zalo-<ver>\Zalo.exe` trong môi trường cô lập của profile đó (giống `ducngfi` `ZaloControl.cs:1539`) để chính Zalo kích hoạt `second-instance` (`setAlwaysOnTop(true)` -> `show()` -> `focus()`).
-5. **Phương án nên loại bỏ vì không an toàn hoặc không khả thi:**
-   - Dùng kỹ thuật giả lập phím bấm toàn cục (`SendInput` `Alt` key) hoặc `AttachThreadInput` xuyên tiến trình để cưỡng bức cướp quyền `SetForegroundWindow` (dễ gây kẹt hàng đợi thông điệp `USER32` nếu tiến trình đích bị treo).
-6. **Test cần thiết:**
-   - Tạo cửa sổ phụ giả lập (`352x82`, `WS_EX_TOPMOST | WS_EX_TOOLWINDOW`) trong `dim-test-fixture` để xác minh `find_main_window_for_pids` luôn bỏ qua popup và chọn đúng cửa sổ chính.
-7. **Những thay đổi có thể giao cho agent Windows:**
-   - Sửa `crates/platform-windows/src/win32_ffi.rs` (`enum_windows_cb`, `focus_window`), `crates/platform-windows/src/adapter.rs` (`focus_or_restore`), và đồng bộ sang `scripts/dim-host.ps1`.
-8. **Mức độ ưu tiên:** **P0 (Sửa lỗi đúng đắn cốt lõi của điều khiển cửa sổ & đóng phiên trên Windows).**
+   - **Mặc định cô lập đầy đủ (`IR-WIN-03`, `IR-UBU-02`):** Tạo sẵn `Downloads`, `Pictures`, `Videos`, `Music`, `Desktop`, `Documents\Zalo Received Files` trên Windows và tạo `Downloads`, `Documents`, `Pictures` + `.config/user-dirs.dirs` trên Linux.
+   - **Opt-in NTFS Junction có chốt an toàn (`IR-WIN-03`):** Cho phép bật liên kết junction theo từng profile cho `Downloads` và `Desktop`, **bắt buộc giữ `Documents\Zalo Received Files` là thư mục vật lý riêng của từng profile**, và cưỡng bức `unlink_reparse_points_safe` trước mọi thao tác xóa.
+5. **Phương án loại bỏ:** Trỏ `USERPROFILE` về thư mục thật của user (mất cô lập `ZaloData`) hoặc gọi xóa đệ quy không kiểm tra `FILE_ATTRIBUTE_REPARSE_POINT`.
+6. **Test cần thiết:** `TC-H7` (Phần 7A), `TC-H8` (Phần 8A).
+7. **Phân công Agent:** `Windows agent` (`IR-WIN-03`), `Ubuntu agent` (`IR-UBU-02`).
+8. **Mức độ ưu tiên:** **`P0` (cho chốt an toàn xóa reparse point chống mất dữ liệu host) / `P1` (cho tạo bố cục thư mục & UX hộp thoại tệp).**
 
 ---
 
-### Giới hạn 4: Định danh Thông báo dùng chung (`com.vng.zalo`) trên Windows, macOS & Ubuntu
+### Giới hạn 3: Lỗi chọn nhầm cửa sổ phụ (`EnumWindows`) & Chặn kích hoạt cửa sổ ẩn ở System Tray trên Windows
+- **Liên kết định danh:** Findings `F-WIN-02`, `F-WIN-03` | Tests `TC-H2` (Phần 2A), `TC-H6` | Integration Requests `IR-WIN-01`, `IR-WIN-02`.
 
-1. **Nguyên nhân có bằng chứng:**
-   - `main.js:2720673` gọi cứng `app.setAppUserModelId("com.vng.zalo")`; `Zalo.lnk` (`ev_69ddf74b...`) gắn `com.vng.zalo` vào Stub `Zalo.exe` gốc. Trên macOS, `usernoted` định danh theo `CFBundleIdentifier = "com.vng.zalo"`. Trên Ubuntu (`zalo-for-linux`), `patch-notification-badge.js:859-886` phát tín hiệu đếm badge chung cho `application://zalo.desktop`.
-   - Điểm sáng phát hiện từ mã nguồn (`main.js:2726777`): Zalo có sẵn hệ thống popup thông báo độc lập `notiWin` (`znotification.html` + `preload-noti.js`) thuộc quyền sở hữu riêng của từng tiến trình Electron!
-2. **Những phần chưa biết:**
-   - Trên Windows 11 và macOS, cấu hình mặc định của Zalo 26.10.20 sau khi đăng nhập ưu tiên bật `notiWin` hay OS Native `Notification`, và người dùng có thể chuyển đổi hoàn toàn trong mục *Cài đặt → Thông báo* của Zalo hay không.
-3. **Ảnh hưởng UX:**
-   - Thông báo lưu trong Windows Action Center không ghi thuộc tài khoản nào và bấm vào thông báo cũ trong Action Center có thể mở Zalo chính; số badge đỏ trên Ubuntu Dock bị ghi đè qua lại giữa các phiên.
-4. **Phương án tương thích hợp lệ:**
-   - Hướng dẫn cấu hình chính thức trong tài liệu & gợi ý trên UI Manager: Khuyến nghị người dùng sử dụng **chế độ popup thông báo nội bộ của Zalo (`notiWin`)** để khi bấm vào thông báo nổi luôn mở chính xác cửa sổ của tài khoản đó.
-   - Trên macOS: Tận dụng badge độc lập trên từng biểu tượng Dock của từng phiên `open -n`.
-5. **Phương án nên loại bỏ vì không an toàn hoặc không khả thi:**
-   - Sửa `app.setAppUserModelId` bên trong `app.asar` theo từng profile hoặc nhân bản/ký lại `Zalo.app` trên macOS với `CFBundleIdentifier` giả (làm vỡ chữ ký số VNG, vỡ `SecureCipher.checkAppSigned()` tại `main.js:3562292` và hỏng quyền Keychain/TCC).
-   - Ghi đè tệp `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Zalo.lnk` của người dùng chính.
-6. **Test cần thiết:**
-   - Kịch bản kiểm thử tương tác `L4-1` (`scripts/run-interactive-l3-checklist.ps1`): gửi tin nhắn tới Phiên Phụ A khi đang thu nhỏ, kiểm tra cả popup `notiWin` và banner hệ thống.
-7. **Những thay đổi có thể giao cho agent Windows/macOS/Ubuntu:**
-   - Cập nhật hướng dẫn sử dụng (`docs/user-guide/`) và bổ sung bước kiểm tra riêng cho `notiWin` vs Action Center trong script checklist `L4-1`.
-8. **Mức độ ưu tiên:** **P2 (Tối ưu cấu hình & hướng dẫn UX, không can thiệp binary).**
+1. **Nguyên nhân & Bằng chứng:**
+   - `Confirmed by source code`: Trong `crates/platform-windows/src/win32_ffi.rs:884-908`, `enum_windows_cb` nhận ngay HWND `IsWindowVisible != 0` đầu tiên của bất kỳ PID nào trong cây mà không lọc `main_pid`, class `Chrome_WidgetWin_1`, `GetWindow(hwnd, GW_OWNER) == 0`, `!WS_EX_TOOLWINDOW`, tiêu đề khác rỗng và kích thước tối thiểu. Cửa sổ popup `notiWin` (`352x82`, `alwaysOnTop: true` tại `main.js:2726777`) hoặc helper nằm đầu Z-order có nguy cơ nhận nhầm `WM_CLOSE` khi `stop()` (`adapter.rs:743-745`)!
+   - `Confirmed by source code`: Khi cửa sổ chính ẩn xuống System Tray (`IsWindowVisible == 0`) hoặc bị Win32 Foreground Lock chặn khi gọi `SetForegroundWindow` từ nền (`win32_ffi.rs:930-944`, `adapter.rs:642-665`), chỉ gọi `focus_window(hwnd)` sẽ không đưa được cửa sổ lên trước, trong khi Zalo có sẵn handler `second-instance` (`main.js:3565794`) tự gọi `setAlwaysOnTop(true)` -> `focus()`.
+2. **Những phần chưa biết (`Not tested`):**
+   - Phân bố độ trễ thực tế (`ms`) của handoff `second-instance` khi ẩn dưới Tray và bị đè bởi cửa sổ tiền cảnh (`TC-H6`).
+3. **Ảnh hưởng UX & Độ tin cậy:**
+   - Gửi nhầm `WM_CLOSE` vào cửa sổ phụ làm hỏng luồng đóng phiên chuẩn (`P0`); không đánh thức được cửa sổ từ Tray gây cản trở thao tác chuyển tài khoản hằng ngày (`P1`).
+4. **Phương án tương thích hợp lệ (`IR-WIN-01`, `IR-WIN-02`):**
+   - Siết chặt bộ lọc trong `win32_ffi.rs` và `scripts/dim-host.ps1`: chỉ nhận cửa sổ thuộc `main_pid`, class `Chrome_WidgetWin_1` (hoặc class cửa sổ chính của fixture), `GetWindow(hwnd, GW_OWNER) == 0`, không có `WS_EX_TOOLWINDOW`, tiêu đề khác rỗng và kích thước `>= 400x400`; phân loại riêng `notiWin` (`352x82`) để loại trừ khỏi `stop()`/`focus_or_restore()`.
+   - Trong `focus_or_restore`: khi `window_handle.is_none()` (ẩn ở Tray) hoặc sau `focus_window(hwnd)` mà `GetForegroundWindow() != hwnd`, tự động kích hoạt handoff `second-instance` trong môi trường cô lập của profile đó.
+5. **Phương án loại bỏ:** Dùng `AttachThreadInput` xuyên tiến trình hoặc giả lập phím `Alt` qua `SendInput` (gây nguy cơ treo message queue `USER32`).
+6. **Test cần thiết:** `TC-H2` (Phần 2A — `P0`), `TC-H6` (`P1`).
+7. **Phân công Agent:** `Windows agent` (`IR-WIN-01`, `IR-WIN-02`).
+8. **Mức độ ưu tiên:** **`P0` (Sửa bộ lọc `EnumWindows` chống đóng nhầm cửa sổ) / `P1` (Handoff đánh thức cửa sổ từ System Tray & vượt Foreground Lock).**
 
 ---
 
-### Giới hạn 5: Bốn lỗi tĩnh nghiêm trọng trong `dim-platform-macos` (`TMPDIR` > 104 byte, `SIGTERM` sớm, Accessibility TCC, thiếu kiểm tra Bundle ID & Pre-seed)
+### Giới hạn 4: Định danh Thông báo dùng chung (`com.vng.zalo`) & Xung đột Unread Badge trên Windows, macOS, Ubuntu
+- **Liên kết định danh:** Findings `F-WIN-05`, `F-MAC-04`, `F-UBU-06` | Tests `TC-H2` (Phần 2B), `TC-H4`, `TC-H8` | Integration Requests `IR-WIN-02`, `IR-MAC-04`, `IR-UBU-02`, `IR-UBU-05`.
 
-1. **Nguyên nhân có bằng chứng:**
-   - `crates/platform-macos/src/layout.rs:97`: Truyền `--env TMPDIR=<profile_dir>/tmp` làm đường dẫn `<TMPDIR>/org.chromium.Chromium.XXXXXX/SingletonSocket` vượt giới hạn `104 bytes` của `sockaddr_un.sun_path` trên nhân Darwin.
-   - `crates/platform-macos/src/adapter.rs:380-394`: Gửi `libc::kill(pid, libc::SIGTERM)` **ngay lập tức** sau lệnh `osascript ... terminate()` trước khi vào vòng lặp chờ `timeout_ms`, nguy cơ ngắt ngang quá trình đóng SQLite WAL!
-   - `crates/platform-macos/src/adapter.rs:342-346`: Gọi `tell application "System Events"` đòi quyền Accessibility TCC không cần thiết.
-   - `crates/platform-macos/src/adapter.rs:193` & `layout.rs:34-51`: Chỉ kiểm tra `kill(pid, 0)` mà không kiểm tra `bundleIdentifier == "com.vng.zalo"`; thiếu pre-seed `zmeta.json` và `migrate-config.json`.
-2. **Những phần chưa biết:**
-   - Thời gian trung bình để `NSRunningApplication.terminate()` đóng hoàn toàn Zalo 26.x và `ZaloHelper` trên chip Apple Silicon (`arm64`) và Intel (`x86_64`), cũng như hành vi hộp thoại Keychain ở lần mở đầu tiên.
+1. **Nguyên nhân & Bằng chứng:**
+   - `Confirmed by source code` & `Confirmed by static binary inspection`: `main.js:2720673` gọi cứng `app.setAppUserModelId("com.vng.zalo")`; `Zalo.lnk` (`ev_69ddf74b...`) trỏ về Stub `Zalo.exe` gốc. Trên macOS, `usernoted` gom theo `CFBundleIdentifier = "com.vng.zalo"`, nhưng badge đỏ trên Dock (`app.dock.setBadge`, `main.js:1013307`) gắn riêng theo từng tiến trình `open -n` (`Inference` từ kiến trúc AppKit). Trên Ubuntu, bản cộng đồng `patch-notification-badge.js:859-886` phát `LauncherEntry.Update` đè lên chung `application://zalo.desktop` (`Confirmed by source code`), và cần `NOTIFY_IGNORE_PORTAL=1` cho Electron 22 (`main.js:725-727`).
+   - `Confirmed by source code`: Zalo có sẵn cửa sổ popup thông báo nội bộ `notiWin` (`main.js:2726777`, `znotification.html` + `preload-noti.js`) chạy riêng trong từng tiến trình Electron (`Inference` định tuyến click chính xác 100%, `Not tested` trên 2 tài khoản thật).
+2. **Những phần chưa biết (`Not tested`):**
+   - Hành vi click banner gốc của macOS `usernoted` và Windows `notiWin` khi 2+ tài khoản thật đang mở.
 3. **Ảnh hưởng UX:**
-   - Nếu không sửa trước khi chạy trên máy Mac thật: phiên phụ có thể không khởi động được do lỗi `SingletonSocket`, hiện bảng đòi quyền Accessibility nhạy cảm khi chuyển cửa sổ, và có nguy cơ lỗi DB khi bấm Stop!
+   - Bấm lại thông báo cũ trong lịch sử Windows Action Center có thể mở Zalo chính; số badge trên Ubuntu Dock nhảy theo phiên cập nhật cuối.
 4. **Phương án tương thích hợp lệ:**
-   1. Bỏ ghi đè `TMPDIR` dài trong `build_open_args` (giữ `/var/folders/...` ngắn mặc định của macOS giống `ducngfi` `ZaloControl.swift:1017`, hoặc nếu cần thư mục tạm riêng thì tạo `/tmp/dim-<profile_id>` dài ~20 ký tự với quyền `0700`).
-   2. Trong `MacOsPlatformAdapter::stop`: Chờ vòng lặp `timeout_ms` cho `terminate()` hoàn tất trước; chỉ gửi `SIGTERM` khi xác nhận không còn tiến trình `--type=renderer` và không còn tệp mở trong `Database/_production/` (`lsof`).
-   3. Chuyển `focus_or_restore` sang gọi `NSRunningApplication.runningApplicationWithProcessIdentifier(pid).activateWithOptions(...)` (không cần `System Events`).
-   4. Bổ sung kiểm tra đường dẫn thực thi / `bundleIdentifier` cho PID đọc từ `SingletonLock`, và pre-seed `zmeta.json` + `migrate-config.json` trong `ensure_macos_profile_layout`.
-5. **Phương án nên loại bỏ vì không an toàn hoặc không khả thi:**
-   - Bắn `SIGKILL` (`kill -9`) vào tiến trình Zalo đang đăng nhập trên macOS.
-   - Đòi người dùng cấp quyền Accessibility toàn hệ thống cho trình quản lý.
-6. **Test cần thiết:**
-   - Unit test kiểm tra độ dài đường dẫn socket `< 104 bytes`, kiểm tra thứ tự chờ trước `SIGTERM`, và chạy bộ kiểm thử thực tế trên máy Mac (Apple Silicon / macOS 14+).
-7. **Những thay đổi có thể giao cho agent macOS:**
-   - Sửa trực tiếp `crates/platform-macos/src/layout.rs` và `crates/platform-macos/src/adapter.rs` kèm unit test.
-8. **Mức độ ưu tiên:** **P0 (Bắt buộc sửa trước bất kỳ thử nghiệm thực tế nào trên macOS).**
+   - Hướng dẫn người dùng bật chế độ **popup thông báo nội bộ của Zalo (`notiWin`)** trên Windows (`IR-WIN-02`), tận dụng badge riêng trên từng icon Dock của macOS (`IR-MAC-04`), và ghi nhận `NOTIFY_IGNORE_PORTAL=1` + cảnh báo giới hạn badge `zalo.desktop` trên Ubuntu (`IR-UBU-02`, `IR-UBU-05`).
+5. **Phương án loại bỏ:** Sửa `setAppUserModelId` trong `app.asar`, ghi đè `Zalo.lnk` của người dùng chính, hoặc nhân bản/ký lại `Zalo.app` với `CFBundleIdentifier` giả (phá vỡ `SecureCipher.checkAppSigned()` tại `main.js:3562292` và làm hỏng quyền Keychain/TCC).
+6. **Test cần thiết:** `TC-H2` (Phần 2B).
+7. **Phân công Agent:** `Windows agent` (`IR-WIN-02`), `macOS agent` (`IR-MAC-04`), `Ubuntu agent` (`IR-UBU-05`), `Human QA opt-in` (`TC-H2` Phần 2B).
+8. **Mức độ ưu tiên:** **`P2` (Tối ưu cấu hình & hướng dẫn UX thông báo).**
 
 ---
 
-### Giới hạn 6: Năm lỗi thiết kế trong `dim-platform-linux` (`--die-with-parent`, thiếu bind Desktop Sockets trong `bwrap`, `focus` rỗng, `SIGKILL` sớm)
+### Giới hạn 5: Bốn lỗi tĩnh nghiêm trọng trong `dim-platform-macos` (`TMPDIR` vs 104-byte socket, `SIGTERM` sớm, Accessibility TCC, thiếu kiểm tra `bundleIdentifier` & Pre-seed)
+- **Liên kết định danh:** Findings `F-MAC-01`, `F-MAC-02`, `F-MAC-03`, `F-MAC-04` | Tests `TC-H3`, `TC-H4` | Integration Requests `IR-MAC-01`, `IR-MAC-02`, `IR-MAC-03`.
 
-1. **Nguyên nhân có bằng chứng:**
-   - `crates/platform-linux/src/layout.rs:84`: `--die-with-parent` làm `bwrap` giết ngay tiến trình Zalo khi lệnh ngắn hạn `dim-cli launch` kết thúc.
-   - `crates/platform-linux/src/layout.rs:82-131`: `build_bwrap_args` thiếu bind `$XDG_RUNTIME_DIR` (Wayland, PipeWire, PulseAudio, D-Bus `gnome-keyring`/Notifications), `/tmp/.X11-unix`, `/etc/fonts`, `/etc/machine-id`, `/dev/dri`, `/dev/video*` và không tương thích với mount FUSE của `.AppImage`.
-   - `crates/platform-linux/src/adapter.rs:310-318`: `focus_or_restore` là hàm rỗng `Ok(())`.
-   - `crates/platform-linux/src/adapter.rs:357`: Bắn `SIGKILL` vô điều kiện sau `timeout_ms`.
-2. **Những phần chưa biết:**
-   - Hành vi kích hoạt lại cửa sổ từ `second-instance` trên GNOME Wayland (Ubuntu 24.04) so với phiên Xorg.
-3. **Ảnh hưởng UX:**
-   - Bật chế độ `bwrap` hiện tại sẽ làm ứng dụng tắt ngay lập tức hoặc không hiện giao diện/âm thanh; bấm chuyển cửa sổ trên Linux không có tác dụng.
+1. **Nguyên nhân & Phân tầng bằng chứng đã hiệu chỉnh:**
+   - **Rủi ro đường dẫn socket `104 bytes` & `TMPDIR` (`F-MAC-01`):**
+     - `Confirmed by source code`: `crates/platform-macos/src/layout.rs:97` truyền `--env TMPDIR=<profile_dir>/tmp`, và `layout.rs:34-51` thiếu pre-seed `zmeta.json` & `migrate-config.json`. Trong SDK Darwin `<sys/un.h>`, `sockaddr_un.sun_path` có kích thước cố định `104` bytes (`sizeof(sockaddr_un) == 106`); đồng thời cả `libuv` (`uv_pipe_bind`) lẫn Chromium (`ProcessSingletonPosix` / `IPC::SocketPosix`) đều kiểm tra cứng độ dài đường dẫn `< sizeof(sun_path)` = `104` bytes (dù nhân XNU BSD ở tầng syscall thô có lưu ý `SUN_LEN`/`SOCK_MAXADDRLEN = 255`, các thư viện C/C++ user-space của Electron/Node vẫn chặn cứng tại 104 bytes!).
+     - **Hiệu chỉnh hạ cấp bằng chứng (`Inference` / `Not tested`):** Vì chưa chạy trên máy Mac vật lý và trong Chromium `base/files/file_util_mac.mm` (`GetTempDir()`) ưu tiên `NSTemporaryDirectory()` / `confstr(_CS_DARWIN_USER_TEMP_DIR)` (`-> /var/folders/...`) trừ khi dùng `MAC_CHROMIUM_TMPDIR` (`< 50` ký tự) trong khi Node.js `os.tmpdir()` lại đọc `getenv("TMPDIR")`, khẳng định lỗi khởi chạy `SingletonSocket` đầu-cuối dưới `/usr/bin/open -n --env CFFIXED_USER_HOME=...` được hạ cấp xuống mức `Inference` / `Not tested` chờ `TC-H3` xác minh.
+   - **Lỗi `SIGTERM` sớm trước vòng chờ (`F-MAC-02` — `Confirmed by source code`):** `crates/platform-macos/src/adapter.rs:387-394` bắn `libc::kill(raw_pid, libc::SIGTERM)` **ngay trước** vòng lặp `while Instant::now() < deadline` ở dòng `397`, nguy cơ ngắt ngang quá trình đóng SQLite WAL sau lệnh bất đồng bộ `terminate()`.
+   - **Lỗi đòi Accessibility TCC & thiếu kiểm tra `bundleIdentifier` (`F-MAC-03` — `Confirmed by source code`):** `adapter.rs:342-346` gọi `System Events` đòi quyền nhạy cảm `kTCCServiceAccessibility`; `adapter.rs:193` chỉ kiểm tra `kill(pid, 0)` mà không kiểm tra `bundleIdentifier == "com.vng.zalo"`, dễ nhầm tiến trình nếu hệ điều hành tái sử dụng PID của `SingletonLock` cũ.
+2. **Những phần chưa biết (`Not tested`):**
+   - Thời gian đóng trung bình của `terminate()` trên Apple Silicon (`arm64`) / Intel (`x86_64`) và trải nghiệm hộp thoại Keychain lần đầu (`TC-H3`, `TC-H4`).
+3. **Ảnh hưởng UX & An toàn dữ liệu:**
+   - Nguy cơ chặn khởi chạy (`P0`), nguy cơ hỏng cơ sở dữ liệu khi bấm Stop (`P0`), nguy cơ báo nhầm/dừng nhầm PID (`P0`), và đòi quyền Accessibility không cần thiết (`P1`).
 4. **Phương án tương thích hợp lệ:**
-   - Bỏ `--die-with-parent` trong `build_bwrap_args`; bổ sung bind có kiểm tra sự tồn tại (`--ro-bind-try` / `--bind-try` / `--dev-bind-try`) cho socket Wayland (`$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY`), PulseAudio/PipeWire (`$XDG_RUNTIME_DIR/pulse`, `$XDG_RUNTIME_DIR/pipewire-0`), D-Bus phiên, `/tmp/.X11-unix`, `/etc/fonts`, `/etc/machine-id`, `/dev/dri`, `/dev/video0` (nếu cho phép camera). Với `.AppImage`, kiểm tra `libfuse2` khi chạy ngoài `bwrap` hoặc hỗ trợ thư mục AppDir đã giải nén sẵn của người dùng.
-   - Cài đặt `focus_or_restore` trên Linux bằng cách gọi lại thực thi mục tiêu trong cùng biến môi trường XDG/HOME cô lập để kích hoạt handler `second-instance` (`showMainWindow` tại `bbb6f99e.../main.js:556-598`).
-   - Loại bỏ `SIGKILL` tự động đối với phiên đang mở cơ sở dữ liệu tài khoản trong `stop()`.
-5. **Phương án nên loại bỏ vì không an toàn hoặc không khả thi:**
-   - Dùng Zalo Web bọc trong trình duyệt để giả làm bản Zalo Desktop Linux.
-   - Đóng gói hoặc phân phối kèm bản trích xuất `app.asar` từ `zalo-for-linux`.
-6. **Test cần thiết:**
-   - Chạy `cargo test` + kiểm thử `dim-test-fixture` trên runner Ubuntu 22.04 và 24.04 (có và không có `bwrap` với `xvfb` / D-Bus session).
-7. **Những thay đổi có thể giao cho agent Ubuntu:**
-   - Sửa `crates/platform-linux/src/layout.rs` và `crates/platform-linux/src/adapter.rs` kèm kiểm thử tích hợp trên CI Linux.
-8. **Mức độ ưu tiên:** **P1 (Cần thiết để chế độ `EXPERIMENTAL` trên Ubuntu hoạt động đúng thiết kế).**
+   - `IR-MAC-01` (`P0`): Bỏ truyền `--env TMPDIR=<profile_dir>/tmp` dài trong `build_open_args` (giữ `/var/folders/...` ngắn mặc định của macOS hoặc bảo đảm tổng đường dẫn socket `< 104` bytes); bổ sung pre-seed `zmeta.json` và `migrate-config.json` trong `ensure_macos_profile_layout`.
+   - `IR-MAC-02` (`P0`): Trong `MacOsPlatformAdapter::stop`, đặt vòng lặp chờ `timeout_ms` cho `terminate()` **trước** khi xét `SIGTERM`, kiểm tra không còn tệp mở trong `Database/_production/`, tuyệt đối không bắn `SIGKILL`.
+   - `IR-MAC-03` (`P0`/`P1`): Đối chiếu `bundleIdentifier == "com.vng.zalo"` (hoặc đường dẫn thực thi) cho PID đọc từ `SingletonLock`; đổi `focus_or_restore` sang `NSRunningApplication(processIdentifier:)?.activate()` không cần `System Events`.
+5. **Phương án loại bỏ:** Bắn `SIGKILL` vào phiên đang mở DB hoặc bắt người dùng cấp quyền Accessibility TCC toàn máy.
+6. **Test cần thiết:** `TC-H3` (`P0`), `TC-H4` (`P0` / `P1`).
+7. **Phân công Agent:** `macOS agent` (`IR-MAC-01`, `IR-MAC-02`, `IR-MAC-03`).
+8. **Mức độ ưu tiên:** **`P0` (cho `IR-MAC-01`, `IR-MAC-02` và kiểm tra PID của `IR-MAC-03`) / `P1` (cho kích hoạt cửa sổ AppKit của `IR-MAC-03`).**
+
+---
+
+### Giới hạn 6: Năm lỗi thiết kế trong `dim-platform-linux` (`--die-with-parent`, thiếu bind Desktop Runtime Sockets trong `bwrap`, `focus` rỗng, `SIGKILL` mù)
+- **Liên kết định danh:** Findings `F-UBU-01`, `F-UBU-02`, `F-UBU-03`, `F-UBU-05` | Test `TC-H8` (Phần 8A) | Integration Requests `IR-UBU-01`, `IR-UBU-02`, `IR-UBU-03`.
+
+1. **Nguyên nhân & Bằng chứng (`Confirmed by source code`):**
+   - `crates/platform-linux/src/layout.rs:84` (`F-UBU-01`): Cờ `--die-with-parent` làm `bwrap` giết ngay phiên ứng dụng khi lệnh ngắn hạn `dim-cli launch` thoát. (Lưu ý phân biệt rõ với phần chính thức của `F-UBU-01`: Zalo VNG chính thức là `Unsupported` trên Linux).
+   - `crates/platform-linux/src/layout.rs:82-131` (`F-UBU-02`): `build_bwrap_args` thiếu bind `$XDG_RUNTIME_DIR` (Wayland, PipeWire, PulseAudio, Session D-Bus cho `gnome-keyring` & Notifications), `/tmp/.X11-unix`, `/etc/fonts`, `/etc/machine-id`, `/dev/dri`, `/dev/video*`, `/dev/fuse`.
+   - `crates/platform-linux/src/adapter.rs:357` (`F-UBU-03`): Bắn `libc::SIGKILL` vô điều kiện ngay khi hết `timeout_ms` dù cơ sở dữ liệu có thể đang mở.
+   - `crates/platform-linux/src/adapter.rs:310-318` (`F-UBU-05`): `focus_or_restore` là stub rỗng `Ok(())`.
+2. **Những phần chưa biết (`Not tested`):**
+   - Phản hồi `xdg_activation_v1` trên GNOME Wayland Ubuntu 24.04 so với phiên X11 khi kích hoạt qua `second-instance`.
+3. **Ảnh hưởng UX & An toàn dữ liệu:**
+   - Ứng dụng tắt ngay sau khi mở hoặc mất kết nối GUI/Keyring (`P0`), nguy cơ hỏng DB do `SIGKILL` (`P0`), không chuyển được cửa sổ (`P1`).
+4. **Phương án tương thích hợp lệ:**
+   - `IR-UBU-01` (`P0`): Xóa `--die-with-parent` trong `build_bwrap_args`; bỏ `SIGKILL` tự động khi còn tệp DB mở trong `.config/ZaloData/Database/_production/`.
+   - `IR-UBU-02` (`P0`/`P1`): Bổ sung bind có kiểm tra tồn tại (`--ro-bind-try` / `--bind-try` / `--dev-bind-try`) cho các socket desktop thiết yếu + tạo `Downloads`/`Documents`/`Pictures`/`.config/user-dirs.dirs`.
+   - `IR-UBU-03` (`P1`): Cài đặt `focus_or_restore` bằng cách gọi lại thực thi mục tiêu trong cùng biến môi trường `HOME`/`XDG_*` cô lập để kích hoạt `second-instance` (`showMainWindow`), kèm ghi chú trung thực về Focus Stealing Prevention của GNOME Wayland.
+5. **Phương án loại bỏ:** Dùng Zalo Web bọc trình duyệt thay cho Desktop hoặc tự tải/phân phối lại `app.asar` độc quyền của VNG.
+6. **Test cần thiết:** `TC-H8` (Phần 8A).
+7. **Phân công Agent:** `Ubuntu agent` (`IR-UBU-01`, `IR-UBU-02`, `IR-UBU-03`).
+8. **Mức độ ưu tiên:** **`P0` (cho `IR-UBU-01` và các bind sống còn của `IR-UBU-02`) / `P1` (cho `.config/user-dirs.dirs` và `IR-UBU-03`).**
 
 ---
 
 ### Giới hạn 7: Hạn chế AppArmor Unprivileged User Namespaces trên Ubuntu 23.10+ / 24.04 LTS
+- **Liên kết định danh:** Finding `F-UBU-04` | Test `TC-H8` (Phần 8B) | Integration Request `IR-UBU-04`.
 
-1. **Nguyên nhân có bằng chứng:**
-   - Ubuntu 24.04 bật mặc định `kernel.apparmor_restrict_unprivileged_userns = 1`. Tệp `.AppImage` mount tạm tại `/tmp/.mount_ZaloXXXXXX/zalo` không có AppArmor profile cấp quyền `userns,`, khiến `chrome-sandbox` của Electron từ chối chạy (`bbb6f99e.../known-issues.md:108,119`).
-2. **Những phần chưa biết:**
-   - Khác biệt chi tiết giữa các bản cập nhật gói `apparmor` trên Ubuntu 24.04.1+ khi áp dụng profile cho đường dẫn AppImage cố định vs thư mục AppDir giải nén cố định tại `~/.local/opt/` hoặc `/opt/`.
-3. **Ảnh hưởng UX:**
-   - Người dùng Ubuntu 24.04 cấp đường dẫn `.AppImage` sẽ thấy tiến trình thoát ngay lúc khởi chạy nếu hệ thống chưa có cấu hình AppArmor tương ứng.
-4. **Phương án tương thích hợp lệ:**
-   - **Kiểm tra Preflight trung thực trong `dim-platform-linux`:** Đọc `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` và `/sys/module/apparmor/parameters/enabled`. Nếu đang bật (`1`), kiểm tra xem đường dẫn binary của người dùng đã có profile AppArmor hợp lệ hay chưa; nếu chưa, trả về trạng thái chẩn đoán rõ ràng (`BLOCKED: AppArmor restricts unprivileged userns for unprofiled AppImage`) kèm mẫu tài liệu hướng dẫn quản trị viên tạo profile AppArmor chuẩn tại `/etc/apparmor.d/` (chỉ cấp đúng quyền `userns,` cho đường dẫn binary cố định đó, giữ nguyên toàn bộ Chromium renderer sandbox!).
-5. **Phương án nên loại bỏ vì không an toàn hoặc không khả thi:**
-   - Tự động truyền `--no-sandbox` hay `ELECTRON_DISABLE_SANDBOX=1` để ép ứng dụng nhắn tin chạy mất hoàn toàn lớp cô lập renderer của Chromium rồi đánh dấu `PASS`!
-   - Yêu cầu người dùng tắt bảo vệ AppArmor toàn hệ thống (`sysctl kernel.apparmor_restrict_unprivileged_userns=0`).
-6. **Test cần thiết:**
-   - Kiểm thử hàm đọc sysctl AppArmor preflight trên Ubuntu 24.04 và xác minh thông báo lỗi/hướng dẫn rõ ràng.
-7. **Những thay đổi có thể giao cho agent Ubuntu:**
-   - Bổ sung hàm chẩn đoán `apparmor_userns_restricted()` vào `crates/platform-linux` và xuất vào báo cáo `diagnostics`.
-8. **Mức độ ưu tiên:** **P1 (Đảm bảo tuân thủ bảo mật tuyệt đối trên Ubuntu 24.04).**
+1. **Nguyên nhân & Bằng chứng:**
+   - `Confirmed by source code` & tài liệu kernel Ubuntu 24.04: `kernel.apparmor_restrict_unprivileged_userns = 1` chặn `chrome-sandbox` của các `.AppImage` mount ngẫu nhiên tại `/tmp/.mount_ZaloXXXXXX` chưa có AppArmor profile cấp quyền `userns,`. Hiện `crates/platform-linux` mới có chuỗi hằng `APPARMOR_NO_SANDBOX_NOTE` (`layout.rs:12-13`), chưa đọc sysfs để kiểm tra preflight trung thực.
+2. **Những phần chưa biết (`Not tested`):**
+   - Khác biệt hành vi giữa AppArmor profile cho đường dẫn `.AppImage` cố định so với thư mục AppDir giải nén cố định trên Ubuntu 24.04.1+.
+3. **Ảnh hưởng UX & Bảo mật:**
+   - Tiến trình thoát ngay khi khởi chạy mà không có giải thích rõ ràng (`P0` launch blocker trên Ubuntu 24.04).
+4. **Phương án tương thích hợp lệ (`IR-UBU-04`):**
+   - Đọc `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` và `/sys/module/apparmor/parameters/enabled` trước khi chạy; nếu đang bật (`1`) và đường dẫn thực thi chưa có AppArmor profile hợp lệ, trả về trạng thái chẩn đoán trung thực `BLOCKED` kèm mẫu hướng dẫn quản trị viên cấu hình `/etc/apparmor.d/` với quyền tối thiểu `userns,` (giữ nguyên 100% Chromium renderer sandbox).
+5. **Phương án loại bỏ tuyệt đối:** Truyền `--no-sandbox` / `ELECTRON_DISABLE_SANDBOX=1` hoặc yêu cầu tắt AppArmor toàn hệ thống (`sysctl=0`).
+6. **Test cần thiết:** `TC-H8` (Phần 8B).
+7. **Phân công Agent:** `Ubuntu agent` (`IR-UBU-04`).
+8. **Mức độ ưu tiên:** **`P0` (Chặn khởi chạy có kiểm soát & tuân thủ bảo mật tuyệt đối trên Ubuntu 24.04).**
 
 ---
 
-### Giới hạn 8: Rủi ro cấu hình ngoài biến môi trường (`db_path.location` ổ đĩa ngoài, `HKCU\...\Run` & Cập nhật khi đang mở nhiều phiên)
+### Giới hạn 8: Rủi ro cấu hình ngoài biến môi trường (`db_path.location` ổ đĩa ngoài, Cập nhật khi đang mở nhiều phiên & Xác minh Đăng nhập Độc lập `L3`)
+- **Liên kết định danh:** Findings `F-CORE-01`, `F-CORE-02`, `F-WIN-01`, `F-WIN-07` | Tests `TC-H7` (Phần 7B), `TC-H1B` (Giai đoạn 1) | Integration Request `IR-WIN-04`.
 
-1. **Nguyên nhân có bằng chứng:**
-   - Trong Cài đặt của Zalo Windows, người dùng có thể chuyển nơi lưu tin nhắn (`config.json -> db_path.location`) và tệp (`resource.location.path`) ra ngoài `ZaloData` (`ducngfi` `how-it-works.md:995`). Hiện tại `dim-core` (`crates/core/src/zalo_identity.rs`) mới đọc `db_path.location` để lấy `zalo_user_id`, nhưng `dim-profile-store` **chưa kiểm tra khi `backup`** (dẫn tới nguy cơ tạo bản sao lưu thiếu toàn bộ cơ sở dữ liệu tin nhắn!) và `dim-process-manager` **chưa chặn 2 profile cùng trỏ `db_path.location` vào một thư mục ngoài**.
-   - Khi `Update.exe` (`main.js:2441895`) hoặc `Squirrel.Mac` (`main.js:3396325`) chạy trong lúc các phiên phụ vẫn mở, tệp nhị phân của phiên bản cũ bị khóa file (Windows) hoặc bị thay thế dưới chân tiến trình đang chạy (macOS).
-2. **Những phần chưa biết:**
-   - Liệu Zalo 26.10+ trên macOS có cho phép đổi `db_path.location` ra ngoài `ZaloData` tương tự bản Windows hay không.
-3. **Ảnh hưởng UX:**
-   - Người dùng tưởng đã sao lưu xong nhưng khi khôi phục sang máy khác lại mất lịch sử tin nhắn (nếu từng đổi thư mục lưu sang ổ `D:\`); hoặc cập nhật Zalo báo lỗi không xóa được thư mục cũ.
-4. **Phương án tương thích hợp lệ:**
-   - **Bổ sung `ExternalStorageGuard` trong `dim-core` & `dim-profile-store`:**
-     1. Trước khi `launch`: Kiểm tra `db_path.location` và `resource.location.path` trong `config.json` của mọi profile đang chạy và cả Zalo chính — nếu trùng đường dẫn đích với một phiên đang mở, từ chối mở với mã lỗi rõ ràng `SHARED_EXTERNAL_DB_PATH`.
-     2. Trước khi `backup`: Nếu `db_path.location` nằm ngoài thư mục `<ProfileDir>`, từ chối sao lưu mặc định (hoặc yêu cầu cờ xác nhận rõ ràng rằng DB ngoài không nằm trong gói backup) để không tạo cảm giác an toàn giả!
-   - **Hỗ trợ quy trình Cập nhật Sạch (Safe Upgrade Workflow):** Thêm lệnh/nút *"Đóng êm mọi phiên phụ để Cập nhật Zalo"* trước khi người dùng bấm cập nhật trong Zalo chính.
-5. **Phương án nên loại bỏ vì không an toàn hoặc không khả thi:**
-   - Chặn hoặc vô hiệu hóa `Update.exe` / máy chủ cập nhật của Zalo (khiến người dùng kẹt ở phiên bản cũ có lỗ hổng bảo mật hoặc bị máy chủ Zalo ngừng hỗ trợ giao thức).
-   - Tự ý sửa tệp `config.json` của Zalo để ép đổi `db_path.location`.
-6. **Test cần thiết:**
-   - Unit test trong `dim-profile-store` và `dim-process-manager` với `config.json` giả lập có `db_path.location` trỏ ra ngoài profile và trùng giữa 2 profile.
-7. **Những thay đổi có thể giao cho agent Core/Windows:**
-   - Bổ sung kiểm tra `db_path.location` / `resource.location` vào `crates/core/src/zalo_identity.rs`, `crates/process-manager/src/guard.rs`, `crates/profile-store/src/backup.rs` và `scripts/dim-host.ps1`.
-8. **Mức độ ưu tiên:** **P1 (Bảo vệ an toàn dữ liệu sao lưu & chống hỏng DB).**
+1. **Nguyên nhân & Bằng chứng:**
+   - `Confirmed by source code`: `crates/core/src/zalo_identity.rs:35-49` đọc `config.json -> db_path.location`, nhưng `crates/process-manager/src/guard.rs` **chưa chặn 2 profile (hoặc 1 profile phụ và Zalo chính) cùng mở chung một thư mục `db_path.location` / `resource.location.path` bên ngoài**, và `crates/profile-store/src/backup.rs` **chưa chặn/cảnh báo khi `backup` một profile có DB đặt ngoài `<ProfileDir>`** (`F-CORE-01`) — dẫn tới nguy cơ hỏng DB hoặc tạo bản sao lưu rỗng lịch sử tin nhắn!
+   - `Confirmed by source code` & `Confirmed by static binary inspection`: Khi `Update.exe` (`ev_9f322e5a...`, `main.js:2441895`) hoặc `Squirrel.Mac` (`main.js:3396325`) cập nhật trong lúc các phiên phụ vẫn mở, tệp nhị phân bị khóa file hoặc lệch ánh xạ `app.asar` (`F-CORE-02`); các khóa `HKCU` (`zalo://`, `Run`) dùng chung (`F-WIN-01`).
+   - `Confirmed by static binary inspection` / `Not tested` (runtime E2E): Cơ chế DPAPI `EnableCookieEncryption` + `SecureCipher` (`F-WIN-07`) đã xác minh tĩnh, nhưng đăng nhập thật 2 tài khoản song song (`L3`) trên host vẫn là `Not tested` (`TC-H1B` Giai đoạn 1).
+2. **Những phần chưa biết (`Not tested`):**
+   - Khả năng đổi `db_path.location` trên giao diện Zalo macOS 26.10+ và kết quả thực tế của `L3-1..L3-4` với 2 tài khoản thật.
+3. **Ảnh hưởng An toàn dữ liệu & Sản phẩm:**
+   - Nguy cơ mất dữ liệu tin nhắn khi khôi phục từ bản sao lưu thiếu DB ngoài và nguy cơ ghi đè hỏng SQLite giữa 2 phiên (`P0`).
+4. **Phương án tương thích hợp lệ (`IR-WIN-04`):**
+   - Cài đặt `ExternalStorageGuard` xuyên suốt `dim-core`, `dim-process-manager`, `dim-profile-store` và `scripts/dim-host.ps1`:
+     1. Chặn `launch` với mã lỗi `SHARED_EXTERNAL_DB_PATH` nếu `db_path.location` hoặc `resource.location.path` trùng với bất kỳ phiên đang chạy nào (kể cả `%APPDATA%\ZaloData\config.json` của Zalo chính).
+     2. Chặn `backup` mặc định với mã lỗi `EXTERNAL_DB_OUTSIDE_PROFILE` khi `db_path.location` nằm ngoài `<ProfileDir>` trừ khi người dùng truyền cờ xác nhận tường minh.
+     3. Cung cấp thao tác *"Đóng êm toàn bộ phiên phụ để Cập nhật Zalo"* (`F-CORE-02`).
+5. **Phương án loại bỏ:** Chặn `Update.exe` của Zalo hoặc tự ý sửa tệp `config.json` của tài khoản người dùng.
+6. **Test cần thiết:** `TC-H7` (Phần 7B — tự động), `TC-H1B` (Giai đoạn 1 — xác minh thủ công `L3`).
+7. **Phân công Agent:** `Windows agent` (`IR-WIN-04`) và `Human QA opt-in` (`TC-H1B` Giai đoạn 1).
+8. **Mức độ ưu tiên:** **`P0` (Ưu tiên số 1 về bảo toàn dữ liệu sao lưu, chống hỏng DB & xác minh đăng nhập cốt lõi `L3`).**
 
 ---
 
-## Phần II — 8 Giả Thuyết Kỹ Thuật Có Giá Trị Kiểm Chứng Cao Nhất (High-Value Testable Hypotheses)
+## Phần II — 8 Giả Thuyết Kỹ Thuật Có Giá Trị Kiểm Chứng Cao Nhất (`H1` – `H8`)
 
-Dưới đây là 8 giả thuyết có tác động quyết định lớn nhất tới kiến trúc và lộ trình sản phẩm, sắp xếp theo tỷ suất giá trị kỹ thuật / chi phí kiểm chứng:
+*(Giữ nguyên mã định danh `H1`–`H8` để bảo toàn tham chiếu chéo, nhưng gắn nhãn ưu tiên `P0`/`P1`/`P2` theo đúng thang Giá trị Sản phẩm và liên kết trực tiếp tới `F-*`, `TC-H*`, `IR-*`.)*
 
-### H1. Giả thuyết "Chiếm đoạt ngược Pipe gửi (`O` Callback Hijack) trên Windows"
-- **Phát biểu:** Khi Zalo chính đang đăng nhập (giữ `\\.\pipe\PipeZCallRecv` và `PipeZCallSend` ở chế độ `PIPE_UNLIMITED_INSTANCES`), việc mở và đăng nhập thêm một phiên Zalo phụ thứ hai sẽ khiến tiến trình `ZaloCall.exe` con của phiên phụ kết nối vào `serverSend` của Zalo chính và ghi đè biến hàm `O` (`main.js:315200`), làm **hỏng luôn khả năng phát cuộc gọi đi của chính Zalo chính** cho tới khi Zalo chính khởi động lại `ZaloCall.exe`.
-- **Cách kiểm chứng:** Đăng nhập Tài khoản A ở Zalo chính, kiểm tra gọi thử 1 cuộc thành công -> mở và đăng nhập Tài khoản B ở Phiên phụ -> bấm gọi đi từ Tài khoản A (Zalo chính) và quan sát xem cuộc gọi của Tài khoản A có bị treo không phản hồi hay không.
-- **Giá trị mở khóa:** Nếu **Đúng**, việc cảnh báo đơn thuần "phiên phụ không gọi được" là chưa đủ — Manager cần cảnh báo rõ ràng rằng mở phiên phụ thứ 2 có thể ảnh hưởng tới cuộc gọi của phiên chính và cung cấp nút *"Khôi phục cuộc gọi cho phiên chính"* (đóng phiên phụ + khởi động lại `ZaloCall.exe` / phiên chính).
+### `H1` — Giả thuyết Phân tách Pha Khởi tạo Pipe Lúc Đăng nhập vs Ghi đè Callback `O` Lúc Gọi trên Windows
+- **Ưu tiên Giá trị Sản phẩm:** **`P0` cho Giai đoạn 1 (`L3` đăng nhập độc lập)** / **`P2` cho Giai đoạn 2 & Harness ống gọi (`Calls`)**
+- **Liên kết:** `F-WIN-06`, `F-WIN-07` | `TC-H1A` (tự động), `TC-H1B` (thủ công 2 giai đoạn) | `IR-WIN-02`
+- **Trạng thái bằng chứng hiện tại:** Mã gán cứng `PipeZCall*` và `O = t => V(e, t)` là `Confirmed by source code`; 1 phiên chính mở pipe khi nghỉ là `Observed on running system`; việc Tài khoản #2 lỗi ở thời điểm nào và có làm treo cuộc gọi đi của Tài khoản #1 hay không là **`Inference` / `Not tested`**.
+- **Cách kiểm chứng an toàn:** Chạy tự động `TC-H1A` trên pipe tổng hợp `\\.\pipe\DimTestCall*` + kiểm tra thủ công có đồng thuận `TC-H1B` (hoàn thành Giai đoạn 1 `L3` đăng nhập/nhắn tin trước, sau đó mới đo Giai đoạn 2 cuộc gọi giữa chính 2 tài khoản của kiểm thử viên).
 
-### H2. Giả thuyết "Định tuyến chuẩn xác của Popup thông báo nội bộ `notiWin` trên Windows"
-- **Phát biểu:** Khi bật chế độ thông báo nổi của Zalo (`znotification.html` / `preload-noti.js` tại `main.js:2726777`), mỗi phiên Zalo cô lập tự hiển thị và nhận sự kiện click nội bộ mà không đi qua `AppUserModelId("com.vng.zalo")` của Windows Action Center, nhờ đó bấm vào thông báo luôn mở đúng cửa sổ tài khoản nhận tin 100% ngay cả khi mở 3+ tài khoản cùng lúc.
-- **Cách kiểm chứng:** Chạy `scripts/run-interactive-l3-checklist.ps1` (`L4-1`) với 2 tài khoản đã đăng nhập và thu nhỏ cả hai xuống khay hệ thống; gửi tin nhắn lần lượt tới từng tài khoản và bấm trực tiếp vào popup góc màn hình.
-- **Giá trị mở khóa:** Chuyển trạng thái Thông báo trên Windows từ `BLOCKED` sang **`PARTIALLY_SUPPORTED` (hoạt động tốt qua in-app banner)** chỉ bằng cấu hình sẵn có trong Zalo.
+### `H2` — Giả thuyết Loại trừ Cửa sổ Phụ `notiWin` trong `EnumWindows` & Định tuyến Click Nội bộ trên Windows
+- **Ưu tiên Giá trị Sản phẩm:** **`P0` cho bộ lọc `EnumWindows` chống đóng nhầm cửa sổ** / **`P2` cho UX click thông báo `notiWin`**
+- **Liên kết:** `F-WIN-02`, `F-WIN-05` | `TC-H2` (Phần 2A tự động, Phần 2B thủ công tùy chọn) | `IR-WIN-01`, `IR-WIN-02`
+- **Trạng thái bằng chứng hiện tại:** Thiếu bộ lọc trong `win32_ffi.rs:884-908` và kiến trúc `notiWin` (`352x82`) tại `main.js:2726777` là `Confirmed by source code`; click thực tế trên 2 tài khoản thật là `Inference` / `Not tested`.
+- **Cách kiểm chứng an toàn:** Chạy tự động `TC-H2` Phần 2A tạo đồng thời cửa sổ chính `>= 800x600` và popup `352x82` (`WS_EX_TOPMOST | WS_EX_TOOLWINDOW`) để chứng minh `stop()`/`focus` không bao giờ chạm nhầm popup; kiểm tra tùy chọn click `notiWin` trong `TC-H2` Phần 2B.
 
-### H3. Giả thuyết "Vỡ `SingletonSocket` trên macOS do `TMPDIR` vượt 104 ký tự (`UNIX_PATH_MAX`)"
-- **Phát biểu:** Trên macOS 14+, lệnh `open -n` hiện tại trong `crates/platform-macos/src/layout.rs:97` truyền `--env TMPDIR=<profile_dir>/tmp` sẽ làm Chromium thất bại khi `bind()` `SingletonSocket` nếu tổng đường dẫn vượt 104 bytes; bỏ ghi đè `TMPDIR` (giữ `/var/folders/.../T/` mặc định của macOS) sẽ giúp Chromium tạo `SingletonLock` thành công mà vẫn giữ cô lập 100% `Library/Application Support/ZaloData`.
-- **Cách kiểm chứng:** Chạy thử nghiệm 2 trường hợp độ dài `<profile_dir>` (ngắn `< 30` ký tự vs thực tế `~95` ký tự trong `~/Library/Application Support/MultiZaloDesktop/Profiles/...`) trên máy Mac thật và kiểm tra `SingletonLock` + `lsof` các tệp mở trong `/var/folders`.
-- **Giá trị mở khóa:** Ngăn chặn lỗi chặn đứng (showstopper) ngay lần chạy đầu tiên của `dim-platform-macos` trên máy người dùng thật.
+### `H3` — Giả thuyết Ranh giới `104-byte` `sockaddr_un` trên Darwin & Xung đột `TMPDIR` dưới `open -n`
+- **Ưu tiên Giá trị Sản phẩm:** **`P0` (Chặn khởi chạy đa phiên trên macOS)**
+- **Liên kết:** `F-MAC-01` | `TC-H3` | `IR-MAC-01`
+- **Trạng thái bằng chứng hiện tại:** `layout.rs:97` truyền `--env TMPDIR=<profile_dir>/tmp` và kiểm tra `< 104` bytes của `libuv` (`uv_pipe_bind`) / Chromium (`ProcessSingletonPosix`) là `Confirmed by source code`; tương tác runtime giữa `getenv("TMPDIR")` và `NSTemporaryDirectory()` (`confstr(_CS_DARWIN_USER_TEMP_DIR)`) dưới `open -n --env CFFIXED_USER_HOME=...` là **`Inference` / `Not tested`**.
+- **Cách kiểm chứng an toàn:** Thực thi `TC-H3` tự động trên macOS 14+ với đường dẫn ngắn (`< 30` ký tự) đối chứng đường dẫn thực tế (`~95` ký tự) và xác nhận bản sửa `IR-MAC-01` (không ghi đè `TMPDIR` dài + pre-seed `zmeta.json`/`migrate-config.json`).
 
-### H4. Giả thuyết "Chia sẻ êm khóa bọc `"Zalo Safe Storage"` trong macOS Keychain không gây hộp thoại lặp"
-- **Phát biểu:** Vì `SecureCipher` (`main.js:3561081`) lưu khóa đối xứng 32-byte `secure_ks_<hash>` riêng trong từng thư mục `ZaloData` và chỉ dùng mục `"Zalo Safe Storage"` trong `login.keychain-db` làm khóa bọc chung cho cùng nhị phân `/Applications/Zalo.app` có chữ ký VNG, việc mở đồng thời 3 profile có symlink `Library/Keychains` sẽ giữ vững phiên đăng nhập qua nhiều lần khởi động lại mà không làm hỏng khóa của nhau và không hỏi mật khẩu Keychain ở mỗi lần mở.
-- **Cách kiểm chứng:** Trên macOS thật, đăng nhập 2 tài khoản ở 2 profile cô lập -> đóng cả hai -> khởi động lại máy Mac -> mở lại đồng thời cả 2 profile và đếm số lần xuất hiện hộp thoại Keychain (kỳ vọng: `0` lần sau lần cấp quyền chuẩn đầu tiên của Zalo).
-- **Giá trị mở khóa:** Xác nhận mô hình lưu trữ phiên không xâm lấn trên macOS đạt chuẩn sản phẩm thương mại.
+### `H4` — Giả thuyết Đóng êm Bảo toàn DB trước `SIGTERM`, Chống Nhầm PID & Chia sẻ Khóa Bọc Keychain trên macOS
+- **Ưu tiên Giá trị Sản phẩm:** **`P0` (Chống hỏng DB khi `stop` & chống nhầm PID)** / **`P1` (Kích hoạt cửa sổ không cần Accessibility TCC & giữ phiên Keychain)**
+- **Liên kết:** `F-MAC-02`, `F-MAC-03`, `F-MAC-04` | `TC-H4` | `IR-MAC-02`, `IR-MAC-03`
+- **Trạng thái bằng chứng hiện tại:** Lỗi bắn `SIGTERM` ở dòng `391` trước vòng chờ dòng `397`, lỗi gọi `System Events` dòng `342`, thiếu kiểm tra `bundleIdentifier` dòng `193` và cơ chế `SecureCipher` (`secure_ks_<hash>`) là `Confirmed by source code`; hành vi giữ phiên thực tế trên Mac là `Author claim` / `Not tested`.
+- **Cách kiểm chứng an toàn:** Chạy tự động `TC-H4` Phần 4A–4C với fixture giữ khóa `test.db` `1500ms` và tiến trình `foreign_pid` giả lập tái sử dụng PID; tùy chọn kiểm tra Keychain thủ công ở Phần 4D.
 
-### H5. Giả thuyết "Chuyển quyền cuộc gọi tức thì trên macOS nhờ cơ chế `fs.unlink` tự nhiên"
-- **Phát biểu:** Trên macOS, do nhánh `!g` trong `main.js:314800` chủ động `fs.unlink("/tmp/socketzalorecv2021")` và `socketzalosend2021` khi khởi chạy module gọi, bất kỳ profile phụ nào được khởi động lại sau cùng (khi các profile khác đang rảnh hoặc tạm đóng) sẽ thực hiện được đầy đủ cuộc gọi thoại và gọi video (kèm quyền TCC Micro/Camera kế thừa từ `/Applications/Zalo.app`).
-- **Cách kiểm chứng:** Mở Phiên 1 rồi mở Phiên 2 trên máy Mac thật -> thực hiện cuộc gọi thoại & video từ Phiên 2 -> sau đó đóng/mở lại Phiên 1 và thực hiện cuộc gọi từ Phiên 1.
-- **Giá trị mở khóa:** Cho phép cung cấp tính năng **"Chuyển micro/cuộc gọi sang cửa sổ này"** mượt mà trên macOS mà không cần đặt lại làm Zalo chính!
+### `H5` — Giả thuyết Chuyển quyền Socket Gọi Tức thì trên macOS nhờ Cơ chế `fs.unlink` (Last-Writer-Wins)
+- **Ưu tiên Giá trị Sản phẩm:** **`P2` (Điều phối tính năng phụ trợ Gọi điện trên macOS)**
+- **Liên kết:** `F-MAC-05`, `F-MAC-04` | `TC-H5` | `IR-MAC-04`
+- **Trạng thái bằng chứng hiện tại:** Nhánh `!g` gọi `fs.unlink("/tmp/socketzalo*2021")` tại `main.js:314800` là `Confirmed by source code`; quan sát chiếm socket là `Author claim`, chuyển giao qua lại có kiểm soát là `Not tested`.
+- **Cách kiểm chứng an toàn:** Chạy tự động `TC-H5` trên cặp socket tổng hợp `/tmp/dim-test-zcall-*` (không chạm `/tmp/socketzalo*2021` thật) kết hợp kiểm thử `inspect_call_sockets_at`.
 
-### H6. Giả thuyết "Kích hoạt cửa sổ ẩn dưới System Tray không bị chặn Foreground Lock nhờ Handoff `second-instance`"
-- **Phát biểu:** Trên Windows 11, gọi thực thi `Zalo-<ver>\Zalo.exe` với đúng khối biến môi trường cô lập của một profile đang chạy ngầm dưới System Tray sẽ luôn đánh thức và đưa cửa sổ đó lên tiền cảnh thành công 100% (nhờ tiến trình đang giữ khóa tự gọi `setAlwaysOnTop(true)` + `focus()` tại `main.js:3565794`), ngay cả khi lệnh được phát từ Web UI server chạy nền.
-- **Cách kiểm chứng:** Ẩn 3 phiên Zalo cô lập xuống System Tray (bấm nút `X` đóng cửa sổ), mở một trình duyệt toàn màn hình đè lên, sau đó bấm nút *"Focus"* trên giao diện Web UI cho từng phiên và đo tỷ lệ hiện lên trên cùng + độ trễ (`ms`).
-- **Giá trị mở khóa:** Giải quyết dứt điểm bài toán chuyển đổi cửa sổ tin cậy trên cả Tauri lẫn Signed-Host Web UI.
+### `H6` — Giả thuyết Đánh thức Cửa sổ Ẩn dưới System Tray Vượt Foreground Lock nhờ Handoff `second-instance` trên Windows
+- **Ưu tiên Giá trị Sản phẩm:** **`P1` (Chuyển đổi & khôi phục cửa sổ hằng ngày)**
+- **Liên kết:** `F-WIN-03` | `TC-H6` | `IR-WIN-01`
+- **Trạng thái bằng chứng hiện tại:** Handler `second-instance` (`setAlwaysOnTop(true)` -> `focus()`) tại `main.js:3565794` và nhánh thiếu fallback Foreground Lock tại `adapter.rs:651-654` là `Confirmed by source code`; đo độ trễ `< 2000ms` với cửa sổ ẩn dưới Tray là `Inference` / `Not tested`.
+- **Cách kiểm chứng an toàn:** Chạy tự động `TC-H6` với GUI fixture ẩn `SW_HIDE` phía sau một cửa sổ tiền cảnh độc lập, gọi từ tiến trình nền và xác minh `GetForegroundWindow() == target_hwnd` trong `< 2000ms`.
 
-### H7. Giả thuyết "Tương thích trọn vẹn Hộp thoại Tệp Windows qua NTFS Junction chọn lọc (`Downloads` + `Desktop`)"
-- **Phát biểu:** Khi tạo NTFS junction cho `Downloads` và `Desktop` trỏ về thư mục thật của user nhưng giữ `Documents\Zalo Received Files` là thư mục thật tách riêng bên trong `<ProfileDir>`, hộp thoại gửi/lưu tệp của Zalo sẽ truy cập tức thì tệp của người dùng trong khi tệp tự động tải về của từng tài khoản vẫn tách biệt 100% và sao lưu/xóa profile không bao giờ đi xuyên qua junction.
-- **Cách kiểm chứng:** Bật junction `Downloads`/`Desktop` trên 2 profile Windows -> gửi tệp từ `Downloads`, nhận tệp tự động vào `Zalo Received Files` -> chạy `backup` và `delete` trên 1 profile -> kiểm tra toàn vẹn `Downloads` thật của host.
-- **Giá trị mở khóa:** Đạt điểm cân bằng tối ưu giữa tiện lợi UX và cô lập dữ liệu tệp đính kèm.
+### `H7` — Giả thuyết Tương thích Hộp thoại Tệp qua NTFS Junction Chọn lọc & Bảo vệ Toàn vẹn `ExternalStorageGuard`
+- **Ưu tiên Giá trị Sản phẩm:** **`P0` (Chống xóa xuyên Junction, chống ghi chung DB ngoài & chống Backup rỗng)** / **`P1` (UX Hộp thoại Tệp)**
+- **Liên kết:** `F-WIN-04`, `F-CORE-01`, `F-CORE-02` | `TC-H7` | `IR-WIN-03`, `IR-WIN-04`
+- **Trạng thái bằng chứng hiện tại:** Thiếu thư mục `Downloads` trong `layout.rs:14-29` và thiếu kiểm tra `db_path.location` khi `launch`/`backup` trong `guard.rs` & `backup.rs` là `Confirmed by source code`; hàm `unlink_reparse_points_safe` đã `Confirmed by controlled experiment` ở mức cơ bản và cần mở rộng kiểm tra canary + parity mã lỗi.
+- **Cách kiểm chứng an toàn:** Chạy tự động `TC-H7` với thư mục `mock-host` chứa tệp canary kiểm tra SHA-256 và `config.json` tổng hợp kiểm tra mã lỗi `SHARED_EXTERNAL_DB_PATH` & `EXTERNAL_DB_OUTSIDE_PROFILE`.
 
-### H8. Giả thuyết "Cô lập hoàn toàn cổng gọi `29631/29632` trên Ubuntu bằng Rootless Network Namespace (`pasta`) + AppArmor Profile đường dẫn cố định"
-- **Phát biểu:** Trên Ubuntu 24.04 LTS có cài đặt một AppArmor profile hợp chuẩn tại `/etc/apparmor.d/` cho đường dẫn cố định của AppImage do người dùng cung cấp (không dùng `--no-sandbox`), việc bọc mỗi phiên trong không gian mạng rootless riêng (`pasta` tạo loopback `lo` riêng cho từng phiên nhưng vẫn chuyển tiếp UDP/TCP ra Internet) kết hợp bind socket PipeWire (`$XDG_RUNTIME_DIR/pulse/native`) sẽ cho phép nhiều phiên khởi tạo độc lập cổng `127.0.0.1:29631/29632` mà không gặp lỗi `EADDRINUSE`!
-- **Cách kiểm chứng:** Trên máy ảo Ubuntu 24.04 LTS, cấu hình AppArmor profile chuẩn cho 1 AppImage kiểm thử -> khởi chạy 2 phiên trong 2 namespace `pasta` riêng cùng bind socket `pipewire-pulse` -> kiểm tra `ss -tlnp` trong từng namespace đều lắng nghe `127.0.0.1:29631/29632` thành công và phát/thu âm qua PipeWire đồng thời.
-- **Giá trị mở khóa:** Chứng minh rằng ngay cả giới hạn cổng cứng trên Linux cũng giải quyết được sạch sẽ bằng cơ chế namespace chuẩn của nhân Linux mà không cần sửa mã ứng dụng hay tắt AppArmor.
+### `H8` — Giả thuyết Sống sót `bwrap`, Preflight AppArmor Trung thực & Cô lập Cổng `29631/29632` bằng Rootless `pasta` trên Ubuntu
+- **Ưu tiên Giá trị Sản phẩm:** **`P0` (8A sống sót tiến trình/an toàn `stop` & 8B AppArmor preflight không `--no-sandbox`)** / **`P1` (8A `user-dirs.dirs` & `focus`)** / **`P2` (8C cô lập cổng gọi `29631/29632` bằng `pasta`)**
+- **Liên kết:** `F-UBU-01..07` | `TC-H8` (`TC-H8A`, `TC-H8B`, `TC-H8C`) | `IR-UBU-01..05`
+- **Trạng thái bằng chứng hiện tại:** 4 nguồn giới hạn trên Ubuntu (VNG `Unsupported`, 5 lỗi `dim-platform-linux`, cổng cứng `29631/29632` của bản cộng đồng, và khác biệt shared netns vs `pasta` netns) đã phân định rõ từ `Confirmed by source code`; khả năng chạy song song 2 cổng `29631/29632` trong `pasta` kèm chia sẻ PipeWire là `Inference` / `Not tested`.
+- **Cách kiểm chứng an toàn:** Chạy tự động bộ 3 phần `TC-H8A`, `TC-H8B`, `TC-H8C` trên Ubuntu 22.04/24.04 bằng `fixture-app.mjs` và probe TCP (không tài khoản thật, không `--no-sandbox`).
+
+---
+
+## Phần III — Lộ Trình Thực Thi Bắt Buộc Theo Thứ Tự Giá Trị Sản Phẩm (`P0 -> P1 -> P2`)
+
+| Giai đoạn triển khai | Hạng mục Yêu cầu Tích hợp (`IR-*`) | Bài kiểm thử nghiệm thu (`TC-*`) | Mục tiêu mở khóa |
+| :--- | :--- | :--- | :--- |
+| **Đợt 1 — `P0` (An toàn dữ liệu, Chống đóng nhầm & Mở khóa Khởi chạy / Đăng nhập `L3`)** | `IR-WIN-04`, `IR-WIN-03` (phần delete guard), `IR-WIN-01` & `IR-WIN-02` (phần lọc HWND), `IR-MAC-01`, `IR-MAC-02`, `IR-MAC-03` (phần PID guard), `IR-UBU-01`, `IR-UBU-02` (phần runtime mounts), `IR-UBU-04` | `TC-H7`, `TC-H2` (Phần 2A), `TC-H1B` (**Giai đoạn 1 — `L3` Login**), `TC-H3`, `TC-H4` (Phần 4A–4B), `TC-H8` (`8A` & `8B`) | Đảm bảo 0% nguy cơ mất dữ liệu backup/xóa junction/hỏng WAL, 0% nguy cơ đóng nhầm cửa sổ/PID, khởi chạy sạch trên cả 3 OS và xác nhận đăng nhập độc lập 2 tài khoản `L3`. |
+| **Đợt 2 — `P1` (Hộp thoại tệp, Giữ phiên & Chuyển cửa sổ mượt mà)** | `IR-WIN-03` (bố cục `Downloads` & opt-in junction), `IR-WIN-01` (handoff System Tray / Foreground Lock), `IR-MAC-03` (AppKit `activate`), `IR-UBU-02` (`.config/user-dirs.dirs`), `IR-UBU-03` (`focus_or_restore`) | `TC-H6`, `TC-H7` (Phần 7A), `TC-H4` (Phần 4C–4D), `TC-H8` (`8A` phần `user-dirs` & `focus`) | Hoàn thiện trải nghiệm nhắn tin, gửi/lưu tệp và chuyển đổi cửa sổ không bị chặn Foreground Lock hay đòi quyền Accessibility TCC. |
+| **Đợt 3 — `P2` (Thông báo & Chẩn đoán / Điều phối Kênh Gọi điện)** | `IR-WIN-02` (chẩn đoán thụ động `PipeZCallRecv` & hướng dẫn `notiWin`), `IR-MAC-04` (`inspect_call_sockets_at` & Dock badge), `IR-UBU-05` (chẩn đoán cổng `29631/29632`, badge & hook `pasta`) | `TC-H1A`, `TC-H1B` (**Giai đoạn 2 tùy chọn — Calls**), `TC-H2` (Phần 2B), `TC-H5`, `TC-H8` (`8C`) | Minh bạch hóa quyền sở hữu kênh gọi và tối ưu thông báo sau khi nền tảng cốt lõi `P0`/`P1` đã vững chắc 100%. |
