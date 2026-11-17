@@ -288,6 +288,18 @@ jobs:
             done
           fi
 
+      - name: Run C2 Cross-Platform Reliability Harness (Ubuntu)
+        working-directory: desktop-instance-manager
+        run: |
+          if [ -f tests/cross-platform/Cargo.toml ]; then
+            echo "::group::C2 reliability suite on x86_64-unknown-linux-gnu"
+            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
+            echo "::endgroup::"
+          else
+            echo "::error::tests/cross-platform/Cargo.toml not found — C2 reliability suite missing"
+            exit 1
+          fi
+
       - name: Generate Ubuntu 24.04 Section 7 artifact manifest and SHA256SUMS
         run: |
           OUT_DIR="${RUNNER_TEMP}/ci-ubuntu-2404"
@@ -422,6 +434,19 @@ jobs:
             --file $cliExe `
             --out "$outDir/inspect-dim-cli.json"
 
+      - name: Run C2 Cross-Platform Reliability Harness (Windows)
+        shell: pwsh
+        run: |
+          if (Test-Path "desktop-instance-manager/tests/cross-platform/Cargo.toml") {
+            Write-Host "::group::C2 reliability suite on x86_64-pc-windows-msvc"
+            cargo test --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml --locked
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Write-Host "::endgroup::"
+          } else {
+            Write-Host "::error::tests/cross-platform/Cargo.toml not found — C2 reliability suite missing"
+            exit 1
+          }
+
       - name: Generate Windows Section 7 artifact manifest and SHA256SUMS
         shell: pwsh
         run: |
@@ -543,6 +568,18 @@ jobs:
               [ -e "${DMG}" ] || continue
               hdiutil imageinfo "${DMG}" >/dev/null
             done
+          fi
+
+      - name: Run C2 Cross-Platform Reliability Harness (macOS arm64)
+        working-directory: desktop-instance-manager
+        run: |
+          if [ -f tests/cross-platform/Cargo.toml ]; then
+            echo "::group::C2 reliability suite on aarch64-apple-darwin"
+            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
+            echo "::endgroup::"
+          else
+            echo "::error::tests/cross-platform/Cargo.toml not found — C2 reliability suite missing"
+            exit 1
           fi
 
       - name: Generate macOS arm64 Section 7 artifact manifest and SHA256SUMS
@@ -670,6 +707,18 @@ jobs:
               [ -e "${DMG}" ] || continue
               hdiutil imageinfo "${DMG}" >/dev/null
             done
+          fi
+
+      - name: Run C2 Cross-Platform Reliability Harness (macOS Intel)
+        working-directory: desktop-instance-manager
+        run: |
+          if [ -f tests/cross-platform/Cargo.toml ]; then
+            echo "::group::C2 reliability suite on x86_64-apple-darwin"
+            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
+            echo "::endgroup::"
+          else
+            echo "::error::tests/cross-platform/Cargo.toml not found — C2 reliability suite missing"
+            exit 1
           fi
 
       - name: Generate macOS Intel Section 7 artifact manifest and SHA256SUMS

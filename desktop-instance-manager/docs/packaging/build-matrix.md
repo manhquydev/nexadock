@@ -83,7 +83,7 @@ flowchart TD
 
 ## 4. Grounded Private-Repository GitHub Actions Cost & Quota Governance
 
-Verified via `gh api repos/manhquydev/zalo` (`private: true`, `owner_type: User`) and current GitHub Actions pricing (`docs.github.com/.../about-billing-for-github-actions`, per-job minute rounding; Free tier includes `2,000` Linux-eq min / `$12.00` monthly credit, Pro includes `3,000` min / `$18.00` credit):
+Verified via `gh api repos/manhquydev/zalo` (`private: true`, `owner_type: User`) and current GitHub Actions pricing (`docs.github.com/.../about-billing-for-github-actions`, per-job minute rounding; Free tier includes **`$12.00 USD/month`** compute credit, Pro includes `$18.00/month` credit):
 
 | Job ID | Runner Label | Billing SKU & Verified Rate | Classic Multiplier | Est. Rounded Min | Est. USD / Run | Multiplier Min | Default Input |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
@@ -94,8 +94,8 @@ Verified via `gh api repos/manhquydev/zalo` (`private: true`, `owner_type: User`
 | `macos-arm64-build` | `macos-15` | `actions_macos` (`$0.062/min`) | **10x** (`~10.33x` $) | `14m` | **`$0.868`** | **`140m`** | **`enable_macos_arm64: false`** |
 | `macos-intel-build` | `macos-15-intel` | `actions_macos` (`$0.062/min`) | **10x** (`~10.33x` $) | `15m` | **`$0.930`** | **`150m`** | **`enable_macos_intel: false`** |
 | `artifact-verification` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | **1x** | `2m` | `$0.012` | `2m` | Always (`if: always()`) |
-| **Default Dispatch (Ubuntu + Win)** | — | — | — | **`33m`** | **`$0.246`** | **`45m`** (`2.25%` of 2,000) | Safe routine validation |
-| **Full 4-OS Dispatch (+ 2x macOS)** | — | — | — | **`62m`** | **`$2.044`** | **`335m`** (`16.75%` of 2,000) | Explicit opt-in (**88.0% saved** when off) |
+| **Default Dispatch (Ubuntu + Win)** | — | — | — | **`33m`** | **`$0.246`** | **`ESTIMATED_PRE_RUN`** | Safe routine validation |
+| **Full 4-OS Dispatch (+ 2x macOS)** | — | — | — | **`62m`** | **`$2.044`** | **`ESTIMATED_PRE_RUN`** | Explicit opt-in (**88.0% saved** when off) |
 
 **Mandatory Cost Controls:** (1) `schedule` crons are strictly banned; (2) both `$0.062/min` (`10x`) macOS jobs default to `false`; (3) every job declares bounded `timeout-minutes` (`10–30m`); (4) all artifact uploads set `retention-days: 7`.
 

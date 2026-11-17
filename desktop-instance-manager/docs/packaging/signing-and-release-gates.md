@@ -114,7 +114,7 @@ An artifact candidate advances from **Development Validation** to **Public Produ
 ### Gate G6 — Human Release Approval, Default-Branch Rollout & Least-Privilege CI Gate
 
 1. **Read-Only Permissions & Zero Auto-Release:** `.github/workflows/cross-platform-validation.yml` enforces top-level `permissions: contents: read`, zero `${{ secrets.* }}` references, `retention-days: 7`, and zero release-creation steps.
-2. **Controlled Rollout & Private-Repo Cost Guard:** Manual `workflow_dispatch` requires landing the workflow on `origin/main` first via interactive `gh auth refresh -h github.com -s workflow,user` and reviewed fast-forward/PR merge (zero `--force`, zero plaintext PAT scripts). Both `$0.062/min` (`10x`) macOS jobs default to `false` (`$0.246/run` default vs `$2.044/run` full 4-OS, saving `88.0%`).
+2. **Controlled Rollout & Private-Repo Cost Guard:** Manual `workflow_dispatch` requires landing the workflow on `origin/main` first via interactive `gh auth refresh -h github.com -s workflow` and reviewed fast-forward/PR merge (zero `--force`, zero plaintext PAT scripts). Both `$0.062/min` (`10x`) macOS jobs default to `false` (`$0.246/run` default vs `$2.044/run` full 4-OS, saving `88.0%`).
 
 ---
 

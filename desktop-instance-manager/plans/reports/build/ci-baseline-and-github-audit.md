@@ -95,7 +95,7 @@ X-Oauth-Scopes: gist, read:org, repo
 
 Pricing and multiplier rules were verified against official GitHub Actions billing documentation (`docs.github.com/en/billing/managing-billing-for-your-products/managing-billing-for-github-actions/about-billing-for-github-actions`):
 
-- **Repository Billing Class:** `manhquydev/zalo` is `private: true` (`owner_type: User`). Standard GitHub-hosted runners are free only on public repositories; private repositories consume monthly plan inclusions (GitHub Free: `2,000` Linux-equivalent min or `$12.00` monthly compute credit; GitHub Pro: `3,000` min or `$18.00` credit) and bill overages per minute (with **each job rounded up to the next whole minute**).
+- **Repository Billing Class:** `manhquydev/zalo` is `private: true` (`owner_type: User`). Standard GitHub-hosted runners are free only on public repositories; private repositories consume monthly plan inclusions (GitHub Free: **`$12.00 USD/month`** included compute credit; GitHub Pro: `$18.00/month` credit) and bill overages per minute (with **each job rounded up to the next whole minute**).
 - **Verified Standard Runner Rates & Multipliers:**
   - **Linux 2-core x64 (`ubuntu-24.04`, SKU `actions_linux`):** **`$0.006 / min`** (`1x` minute multiplier)
   - **Windows x64 (`windows-2022`, SKU `actions_windows`):** **`$0.010 / min`** (`~1.67x` USD rate; `2x` classic minute multiplier)
@@ -112,8 +112,8 @@ Pricing and multiplier rules were verified against official GitHub Actions billi
 | `macos-arm64-build` | `macos-15` | `actions_macos` | `14 min` | `$0.062` | `$0.868` | `140 min` (`10x`) | **`false`** *(opt-in)* |
 | `macos-intel-build` | `macos-15-intel` | `actions_macos` | `15 min` | `$0.062` | `$0.930` | `150 min` (`10x`) | **`false`** *(opt-in)* |
 | `artifact-verification` | `ubuntu-24.04` | `actions_linux` | `2 min` | `$0.006` | `$0.012` | `2 min` (`1x`) | Always (`if: always()`) |
-| **Default Run Total (Ubuntu + Windows)** | — | — | **`33 min`** | — | **`$0.246`** | **`45 min`** (`2.25%` of 2,000) | Default |
-| **Full 4-OS Run Total (+ macOS arm64 & Intel)** | — | — | **`62 min`** | — | **`$2.044`** | **`335 min`** (`16.75%` of 2,000) | Explicit opt-in only |
+| **Default Run Total (Ubuntu + Windows)** | — | — | **`33 min`** | — | **`$0.246`** | **`ESTIMATED_PRE_RUN`** | Default |
+| **Full 4-OS Run Total (+ macOS arm64 & Intel)** | — | — | **`62 min`** | — | **`$2.044`** | **`ESTIMATED_PRE_RUN`** | Explicit opt-in only |
 
 Keeping `enable_macos_arm64=false` and `enable_macos_intel=false` by default reduces routine manual dispatch cost by **88.0%** (`$2.044` -> `$0.246` per run) and prevents accidental exhaustion of private-repo Actions quota.
 
@@ -124,9 +124,9 @@ Keeping `enable_macos_arm64=false` and `enable_macos_intel=false` by default red
 Because interactive browser/device OAuth consent is required to add `workflow` scope and human approval is required before pushing to `origin` or spending private-repo Actions budget, execute the following safe rollout sequence (never force-push, never create plaintext PAT scripts):
 
 1. **Interactive OAuth Scope Upgrade (Human Terminal Action):**
-   Run GitHub CLI interactive web flow to grant `workflow` (and optional `user` for billing visibility) to the existing keyring token:
+   Run GitHub CLI interactive web flow to grant `workflow` scope to the existing keyring token:
    ```powershell
-   & "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow,user
+   & "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow
    & "C:\Program Files\GitHub CLI\gh.exe" api -i user | Select-String "X-Oauth-Scopes"
    ```
 2. **Pre-Flight Private-Repo Quota Check:**

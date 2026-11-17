@@ -224,11 +224,16 @@ function main() {
     assert.equal(overlay.bundle.macOS.minimumSystemVersion, '11.0');
     assert.ok(Array.isArray(overlay.bundle.linux.deb.depends));
     assert.ok(overlay.bundle.linux.deb.depends.includes('libwebkit2gtk-4.1-0'));
+    // IR-002 fix: overlay MUST NOT contain icon/resources/externalBin arrays (RFC 7396 clobber risk)
+    assert.equal(overlay.bundle.icon, undefined, 'Overlay must not contain bundle.icon array (JSON Merge Patch clobber risk)');
 
+    // Verify icons from tauri.conf.json instead (source of truth for bundle.icon)
+    const tauriConf = JSON.parse(fs.readFileSync(path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri', 'tauri.conf.json'), 'utf8'));
     const srcTauriDir = path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri');
-    for (const relIcon of overlay.bundle.icon) {
+    assert.ok(Array.isArray(tauriConf.bundle.icon), 'tauri.conf.json must have bundle.icon array');
+    for (const relIcon of tauriConf.bundle.icon) {
       const resolvedIcon = path.resolve(srcTauriDir, relIcon);
-      assert.ok(fs.existsSync(resolvedIcon), `Overlay icon path does not resolve: ${relIcon}`);
+      assert.ok(fs.existsSync(resolvedIcon), `tauri.conf.json icon path does not resolve: ${relIcon}`);
     }
   });
 
@@ -490,8 +495,10 @@ function main() {
       ], { stdio: 'pipe' });
       const prereq = JSON.parse(fs.readFileSync(prereqJsonPath, 'utf8'));
       assert.equal(prereq.requested_target, 'x86_64-pc-windows-msvc');
-      assert.equal(prereq.icons.has_icns, false);
-      assert.equal(prereq.icons.ci_bundle_overlay.mitigates_ir002_ir003_in_ci, true);
+      // After IR-002: icon.icns now lives in src-tauri/icons/ (not just the overlay)
+      assert.equal(prereq.icons.has_icns, true);
+      // After IR-002 fix: overlay MUST NOT mitigate icons (array removed to prevent JSON Merge Patch clobber)
+      assert.equal(prereq.icons.ci_bundle_overlay.mitigates_ir002_ir003_in_ci, false);
 
       // Dry-run cross-target check: non-native target MUST set native_runtime_test_possible === false and enforce `--locked`
       const foreignTriple = process.platform === 'darwin' ? 'x86_64-unknown-linux-gnu' : 'aarch64-apple-darwin';

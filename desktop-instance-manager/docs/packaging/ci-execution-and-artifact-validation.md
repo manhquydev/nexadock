@@ -53,7 +53,7 @@ Every enabled OS job executes all **7 native stages** sequentially:
 - **Safe 6-Step Default-Branch Rollout Plan (Zero Force-Push, Zero Plaintext PAT Scripts):**
   1. **Interactive OAuth Scope Refresh (Human Terminal):**
      ```powershell
-     & "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow,user
+     & "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow
      ```
   2. **Pre-Flight Private-Repo Quota Check:** `gh api users/manhquydev/settings/billing/usage`
   3. **Fast-Forward Sync `main` (`a5feb4a`) to `origin/main`:** `git -C C:/Users/manhquy/Downloads/zalo push origin main`
@@ -144,7 +144,7 @@ Inventory, checksums, advisories, provenance, signatures, and installer packagin
 
 ## 10. Grounded CI Cost & Quota Calculation (`manhquydev/zalo` Private Repo)
 
-Verified from official GitHub Actions billing docs (`docs.github.com/.../about-billing-for-github-actions`) for `private: true` (`owner_type: User`, jobs rounded up to whole minutes; Free includes `2,000` Linux-eq min / `$12.00` credit, Pro includes `3,000` min / `$18.00` credit):
+Verified from official GitHub Actions billing docs (`docs.github.com/.../about-billing-for-github-actions`) for `private: true` (`owner_type: User`, jobs rounded up to whole minutes; Free includes **`$12.00 USD/month`** compute credit, Pro includes `$18.00/month` credit):
 
 | Job ID | Runner | Verified Rate (USD/min) | Classic Multiplier | Est. Rounded Min | Est. USD / Run | Multiplier Min | Default Enabled? |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -155,8 +155,8 @@ Verified from official GitHub Actions billing docs (`docs.github.com/.../about-b
 | `3. macos-arm64-build` | `macos-15` | `$0.062` | `10x` (`~10.33x` $) | `14m` | `$0.868` | `140m` | **`false`** *(opt-in)* |
 | `4. macos-intel-build` | `macos-15-intel` | `$0.062` | `10x` (`~10.33x` $) | `15m` | `$0.930` | `150m` | **`false`** *(opt-in)* |
 | `artifact-verification` | `ubuntu-24.04` | `$0.006` | `1x` | `2m` | `$0.012` | `2m` | Always |
-| **Default Dispatch (Ubuntu + Windows)** | — | — | — | **`33m`** | **`$0.246`** | **`45m`** (`2.25%` of 2,000) | Routine validation |
-| **Full 4-OS Dispatch (+ 2x macOS)** | — | — | — | **`62m`** | **`$2.044`** | **`335m`** (`16.75%` of 2,000) | **88.0%** saved when off |
+| **Default Dispatch (Ubuntu + Windows)** | — | — | — | **`33m`** | **`$0.246`** | **`ESTIMATED_PRE_RUN`** | Routine validation |
+| **Full 4-OS Dispatch (+ 2x macOS)** | — | — | — | **`62m`** | **`$2.044`** | **`ESTIMATED_PRE_RUN`** | **88.0%** saved when off |
 
 ---
 
