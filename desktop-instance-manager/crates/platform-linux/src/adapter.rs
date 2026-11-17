@@ -6,9 +6,14 @@
 //! - Compatible local desktop applications, user-supplied `.AppImage` bundles, and multi-instance
 //!   test fixtures run under isolated `HOME` + XDG Base Directories (`0o700`) and optional
 //!   `bubblewrap` (`bwrap`) namespaces in [`SupportStatus::Experimental`] mode.
+//! - Default [`LauncherLifetimePolicy::PersistentDetachedSession`] detaches spawned instances into
+//!   a new POSIX session (`setsid` + `bwrap --new-session`, without `--die-with-parent`) so instances
+//!   survive short-lived CLI commands (`dim-cli launch <id>`), while `(pid, starttime_ticks)` +
+//!   `DIM_PROFILE_ID` + `DIM_INSTANCE_NONCE` guarantee PID-reuse-safe tracking and clean `stop()`.
 //! - Security controls (`AppArmor`, `chrome-sandbox`, non-root execution) are strictly preserved;
 //!   `--no-sandbox`, `killall`, `pkill`, and root execution are rejected with `SECURITY_BLOCKED`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -27,23 +32,24 @@ use crate::discovery::{
 #[cfg(unix)]
 use crate::isolation::current_effective_uid;
 use crate::isolation::{
-    enforce_launch_security_policy, probe_ubuntu_runtime_at, UbuntuRuntimeProbe,
+    enforce_launch_security_policy, probe_ubuntu_runtime_at, DisplaySessionKind, UbuntuRuntimeProbe,
 };
 use crate::layout::{
-    ensure_linux_profile_layout, linux_zalo_data_dir, looks_like_appimage,
-    measure_profile_disk_usage_bytes, verify_directory_ownership_and_mode,
-    APPARMOR_NO_SANDBOX_NOTE,
+    ensure_linux_profile_layout, is_safe_bindable_socket_or_file, linux_zalo_data_dir,
+    looks_like_appimage, measure_profile_disk_usage_bytes, plan_bwrap_desktop_sandbox,
+    verify_directory_ownership_and_mode, write_atomic_private_file, BwrapSandboxOptions,
+    BwrapSandboxPlan, DesktopSocketSurface, LauncherLifetimePolicy, APPARMOR_NO_SANDBOX_NOTE,
 };
 use crate::procfs::{collect_primary_process_tree, collect_profile_process_tree, read_lock_pid};
 
 #[cfg(target_os = "linux")]
 use crate::isolation::find_executable_in_path;
 #[cfg(target_os = "linux")]
-use crate::layout::{build_bwrap_desktop_args, build_sanitized_linux_spawn_env};
+use crate::layout::{build_sanitized_linux_spawn_env_with_nonce, generate_instance_nonce};
 #[cfg(target_os = "linux")]
-use crate::procfs::parse_wmctrl_windows_for_pids;
+use crate::procfs::{parse_wmctrl_windows_for_pids, read_proc_entry, read_proc_stat_starttime};
 
-/// Virtualized filesystem/procfs overrides for deterministic unit & cross-platform testing.
+/// Virtualized filesystem/procfs/session overrides for deterministic unit & cross-platform testing.
 #[derive(Debug, Clone)]
 struct VirtualLinuxEnv {
     fs_root: PathBuf,
@@ -52,23 +58,35 @@ struct VirtualLinuxEnv {
     effective_uid: u32,
     arch: String,
     bwrap_path: Option<PathBuf>,
+    env_vars: BTreeMap<String, String>,
 }
 
 /// Linux platform adapter managing isolated XDG/HOME profiles, `/proc` process trees,
-/// binary provenance checks, and Ubuntu AppArmor security preflights.
-#[derive(Debug, Default, Clone)]
+/// binary provenance checks, desktop socket sandboxing, and Ubuntu AppArmor security preflights.
+#[derive(Debug, Clone)]
 pub struct LinuxPlatformAdapter {
     prefer_bwrap: bool,
+    lifetime_policy: LauncherLifetimePolicy,
+    portal_file_chooser: bool,
     pinned_sha256: Option<String>,
     virtual_env: Option<VirtualLinuxEnv>,
 }
 
+impl Default for LinuxPlatformAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinuxPlatformAdapter {
-    /// Creates a new Linux platform adapter using standard unprivileged `HOME` + XDG isolation.
+    /// Creates a new Linux platform adapter using standard unprivileged `HOME` + XDG isolation,
+    /// [`LauncherLifetimePolicy::PersistentDetachedSession`], and portal file-chooser preference.
     #[must_use]
     pub fn new() -> Self {
         Self {
             prefer_bwrap: false,
+            lifetime_policy: LauncherLifetimePolicy::PersistentDetachedSession,
+            portal_file_chooser: true,
             pinned_sha256: None,
             virtual_env: None,
         }
@@ -81,6 +99,32 @@ impl LinuxPlatformAdapter {
     #[must_use]
     pub fn with_bwrap(mut self, enabled: bool) -> Self {
         self.prefer_bwrap = enabled;
+        self
+    }
+
+    /// Configures the spawned child session & `bwrap` lifetime policy.
+    ///
+    /// Defaults to [`LauncherLifetimePolicy::PersistentDetachedSession`] so instances launched via
+    /// `dim-cli launch <id>` survive after the CLI process exits; pass
+    /// [`LauncherLifetimePolicy::DieWithParent`] only for transient parent-bound test harnesses.
+    #[must_use]
+    pub fn with_lifetime_policy(mut self, policy: LauncherLifetimePolicy) -> Self {
+        self.lifetime_policy = policy;
+        self
+    }
+
+    /// Returns the active [`LauncherLifetimePolicy`] configured on this adapter.
+    #[must_use]
+    pub const fn lifetime_policy(&self) -> LauncherLifetimePolicy {
+        self.lifetime_policy
+    }
+
+    /// Controls whether `GTK_USE_PORTAL=1` is injected by default (when unset in host env) so
+    /// GTK/Electron file choosers route via `xdg-desktop-portal` over session D-Bus while keeping
+    /// direct downloads confined to `<profile_dir>/Downloads` and `<profile_dir>/Documents`.
+    #[must_use]
+    pub fn with_portal_file_chooser(mut self, enabled: bool) -> Self {
+        self.portal_file_chooser = enabled;
         self
     }
 
@@ -104,6 +148,8 @@ impl LinuxPlatformAdapter {
     ) -> Self {
         Self {
             prefer_bwrap: false,
+            lifetime_policy: LauncherLifetimePolicy::PersistentDetachedSession,
+            portal_file_chooser: true,
             pinned_sha256: None,
             virtual_env: Some(VirtualLinuxEnv {
                 fs_root,
@@ -112,8 +158,22 @@ impl LinuxPlatformAdapter {
                 effective_uid,
                 arch: arch.into(),
                 bwrap_path,
+                env_vars: BTreeMap::new(),
             }),
         }
+    }
+
+    /// Inserts a synthetic session environment variable on a virtualized adapter (no-op if live).
+    #[must_use]
+    pub fn with_virtual_env_var(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        if let Some(ref mut venv) = self.virtual_env {
+            venv.env_vars.insert(key.into(), value.into());
+        }
+        self
     }
 
     /// Probes Ubuntu distribution version, AppArmor `userns` restrictions, Wayland/X11 session,
@@ -125,11 +185,54 @@ impl LinuxPlatformAdapter {
                 &venv.fs_root,
                 &venv.arch,
                 venv.effective_uid,
-                &|_k| None,
+                &|k| venv.env_vars.get(k).cloned(),
                 venv.bwrap_path.clone(),
             );
         }
         crate::isolation::probe_live_ubuntu_runtime()
+    }
+
+    /// Computes the least-privilege `bubblewrap` (`bwrap`) sandbox plan and security-tradeoff
+    /// diagnostics for a profile and executable under the current (or virtualized) session environment.
+    #[must_use]
+    pub fn plan_sandbox(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        executable: &Path,
+        app_args: &[String],
+        instance_nonce: Option<&str>,
+    ) -> BwrapSandboxPlan {
+        let opts = BwrapSandboxOptions {
+            lifetime_policy: self.lifetime_policy,
+            profile_id: Some(&profile.id),
+            instance_nonce,
+            prefer_portal_file_chooser: self.portal_file_chooser,
+            extra_ro_files: &[],
+        };
+        if let Some(venv) = &self.virtual_env {
+            return plan_bwrap_desktop_sandbox(
+                profile_dir,
+                executable,
+                app_args,
+                &opts,
+                &|k| venv.env_vars.get(k).cloned(),
+                &|_| true,
+            );
+        }
+        let endpoint_probe: &dyn Fn(&Path) -> bool = if cfg!(target_os = "linux") {
+            &is_safe_bindable_socket_or_file
+        } else {
+            &|_| true
+        };
+        plan_bwrap_desktop_sandbox(
+            profile_dir,
+            executable,
+            app_args,
+            &opts,
+            &|k| std::env::var(k).ok(),
+            endpoint_probe,
+        )
     }
 
     /// Scans standard XDG `.desktop` directories and user AppImage folders for compatible local binaries.
@@ -138,7 +241,7 @@ impl LinuxPlatformAdapter {
         discover_compatible_apps_from_env(&|k| std::env::var(k).ok())
     }
 
-    /// Performs format, permission, startup-script, `ldd`, and SHA-256 inspection on a local binary.
+    /// Performs format, permission, startup-script, ELF dynamic dependency, and SHA-256 inspection on a local binary.
     pub fn inspect_local_binary(&self, path: &Path) -> Result<BinaryInspectionReport, DimError> {
         inspect_user_binary(path, self.pinned_sha256.as_deref())
     }
@@ -298,7 +401,12 @@ impl PlatformCapabilities for LinuxPlatformAdapter {
     fn capabilities(&self) -> PlatformCapabilityReport {
         let probe = self.probe_ubuntu_environment();
         let mut diagnostics = vec![
-            format!("prefer_bwrap={}", self.prefer_bwrap),
+            format!(
+                "prefer_bwrap={} lifetime_policy={} portal_file_chooser={}",
+                self.prefer_bwrap,
+                self.lifetime_policy.as_str(),
+                self.portal_file_chooser
+            ),
             format!(
                 "distro={} version={} session={} euid={}",
                 probe.distro_id,
@@ -319,11 +427,35 @@ impl PlatformCapabilities for LinuxPlatformAdapter {
                 probe.dev_fuse_present,
                 probe.camera_device_present
             ),
-            "Isolation mode: separate HOME + XDG_CONFIG_HOME/XDG_DATA_HOME/XDG_CACHE_HOME/XDG_STATE_HOME + user-dirs.dirs + 0o700 (data separation; optional bwrap for filesystem/IPC sandboxing)"
+            "Isolation mode: separate HOME + XDG_CONFIG_HOME/XDG_DATA_HOME/XDG_CACHE_HOME/XDG_STATE_HOME + user-dirs.dirs + 0o700 (data separation; optional bwrap for filesystem/IPC sandboxing; never binds full $HOME, full /dev, full $XDG_RUNTIME_DIR, or system D-Bus)"
                 .to_owned(),
         ];
         if let Some(de) = &probe.desktop_environment {
             diagnostics.push(format!("desktop_environment={de}"));
+        }
+
+        // Surface explicit sandbox socket security-tradeoff notes for active host surfaces.
+        if probe.display_session == DisplaySessionKind::X11 {
+            diagnostics.push(DesktopSocketSurface::X11Server.security_tradeoff_note().to_owned());
+        }
+        diagnostics.push(
+            DesktopSocketSurface::SessionDbus
+                .security_tradeoff_note()
+                .to_owned(),
+        );
+        if probe.pipewire_socket_present {
+            diagnostics.push(
+                DesktopSocketSurface::PipeWireDaemon
+                    .security_tradeoff_note()
+                    .to_owned(),
+            );
+        }
+        if probe.pulse_socket_present {
+            diagnostics.push(
+                DesktopSocketSurface::PulseAudioServer
+                    .security_tradeoff_note()
+                    .to_owned(),
+            );
         }
 
         PlatformCapabilityReport {
@@ -341,9 +473,11 @@ impl PlatformCapabilities for LinuxPlatformAdapter {
                 "User-supplied local AppImage and Node.js/Rust test fixtures run in EXPERIMENTAL HOME/XDG/bwrap isolation."
                     .to_owned(),
                 APPARMOR_NO_SANDBOX_NOTE.to_owned(),
+                "Sharing X11 (`/tmp/.X11-unix/X<n>`), unfiltered session D-Bus (`DBUS_SESSION_BUS_ADDRESS`), or PipeWire/PulseAudio sockets for desktop compatibility reduces `bwrap` sandbox isolation compared to pure Wayland + `xdg-desktop-portal` + `xdg-dbus-proxy`."
+                    .to_owned(),
                 "Community port `VN-Linux-Family/zalo-for-linux` binds hardcoded TCP `127.0.0.1:29631` and `127.0.0.1:29632` for zcall; concurrent calls across instances in shared host networking are BLOCKED."
                     .to_owned(),
-                "Native Wayland (GNOME Mutter on Ubuntu 24.04) restricts arbitrary external window activation; focus uses single-instance restore handoff on Wayland and PID-verified XID activation on X11."
+                "Native Wayland (GNOME Mutter on Ubuntu 24.04) restricts external window activation without an xdg-activation-v1 surface token; GUI window focus returns UNSUPPORTED_OPERATION on Wayland and uses strict PID-verified XID activation on X11 (`.focus-signal` for test fixtures)."
                     .to_owned(),
             ],
             diagnostics,
@@ -473,6 +607,7 @@ impl InstanceMonitor for LinuxPlatformAdapter {
         let zalo_data = linux_zalo_data_dir(profile_dir);
         let singleton_lock = zalo_data.join("SingletonLock");
         let fixture_lock = zalo_data.join("lockfile");
+        let runtime_pid_file = profile_dir.join(".runtime-pid");
         let detected_uid = detect_zalo_user_id(&zalo_data);
 
         if let Some(venv) = &self.virtual_env {
@@ -485,11 +620,16 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             );
             let singleton_present = fs::symlink_metadata(&singleton_lock).is_ok();
             let fixture_present = fs::symlink_metadata(&fixture_lock).is_ok();
-            let stale = tree.main_pid.is_none() && (singleton_present || fixture_present);
-            let lockfile_path = if singleton_present || !fixture_present {
+            let runtime_hint_present = fs::symlink_metadata(&runtime_pid_file).is_ok();
+            let stale =
+                tree.main_pid.is_none() && (singleton_present || fixture_present || runtime_hint_present);
+            let lockfile_path = if singleton_present || (!fixture_present && !runtime_hint_present)
+            {
                 singleton_lock
-            } else {
+            } else if fixture_present {
                 fixture_lock
+            } else {
+                runtime_pid_file
             };
             let disk_usage_bytes = measure_profile_disk_usage_bytes(profile_dir);
 
@@ -533,11 +673,16 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             // returns `false` on Unix! `symlink_metadata` accurately detects dangling symlinks.
             let singleton_present = fs::symlink_metadata(&singleton_lock).is_ok();
             let fixture_present = fs::symlink_metadata(&fixture_lock).is_ok();
-            let stale = tree.main_pid.is_none() && (singleton_present || fixture_present);
-            let lockfile_path = if singleton_present || !fixture_present {
+            let runtime_hint_present = fs::symlink_metadata(&runtime_pid_file).is_ok();
+            let stale =
+                tree.main_pid.is_none() && (singleton_present || fixture_present || runtime_hint_present);
+            let lockfile_path = if singleton_present || (!fixture_present && !runtime_hint_present)
+            {
                 singleton_lock
-            } else {
+            } else if fixture_present {
                 fixture_lock
+            } else {
+                runtime_pid_file
             };
 
             let (window_handle, window_title) = if tree.main_pid.is_some() {
@@ -574,7 +719,7 @@ impl InstanceMonitor for LinuxPlatformAdapter {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = (profile, singleton_lock, fixture_lock, detected_uid);
+            let _ = (profile, singleton_lock, fixture_lock, runtime_pid_file, detected_uid);
             Err(DimError::UnsupportedPlatform(
                 "Linux runtime inspection requires Linux".to_owned(),
             ))
@@ -614,7 +759,7 @@ impl InstanceLauncher for LinuxPlatformAdapter {
         ensure_linux_profile_layout(profile, profile_dir)?;
 
         // Perform portable preflight validation across both virtualized tests and live Linux.
-        let (exe, args, is_electron_appimage) = match target {
+        let (exe, args, is_electron_appimage, extra_ro_files) = match target {
             LaunchTarget::CustomExecutable { path, args } => {
                 validate_directory_input(path)?;
                 ensure_not_primary_zalo_path(path)?;
@@ -628,6 +773,7 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                         report.path.display()
                     )));
                 }
+                report.validate_executable_format()?;
                 if let Some(arch) = report.arch {
                     if !arch.matches_current_arch() {
                         return Err(DimError::UnsupportedPlatform(format!(
@@ -637,11 +783,14 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                         )));
                     }
                 }
-                let is_appimage = matches!(
-                    report.format,
-                    BinaryFormatKind::AppImageType2 | BinaryFormatKind::AppImageUruntimeDwarfs
-                );
-                (report.path, args.clone(), is_appimage)
+                let is_appimage = looks_like_appimage(&report.path)
+                    || matches!(
+                        report.format,
+                        BinaryFormatKind::AppImageType2
+                            | BinaryFormatKind::AppImageUruntimeDwarfs
+                            | BinaryFormatKind::ExtractedAppDir
+                    );
+                (report.path, args.clone(), is_appimage, Vec::new())
             }
             LaunchTarget::NodeFixture {
                 node_path,
@@ -680,7 +829,7 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                 };
                 let mut full = vec![script_path.to_string_lossy().into_owned()];
                 full.extend(extra_args.iter().cloned());
-                (resolved_node, full, false)
+                (resolved_node, full, false, vec![script_path.clone()])
             }
             LaunchTarget::OfficialZalo { .. } => unreachable!(),
         };
@@ -702,8 +851,14 @@ impl InstanceLauncher for LinuxPlatformAdapter {
             verify_directory_ownership_and_mode(profile_dir, self.effective_uid(), true)
                 .map_err(|reason| DimError::ProcessError(reason.to_audit_message()))?;
 
-            let env_map =
-                build_sanitized_linux_spawn_env(profile, profile_dir, &|k| std::env::var(k).ok());
+            let instance_nonce = generate_instance_nonce();
+            let env_map = build_sanitized_linux_spawn_env_with_nonce(
+                profile,
+                profile_dir,
+                Some(&instance_nonce),
+                self.portal_file_chooser,
+                &|k| std::env::var(k).ok(),
+            );
 
             let mut child = if self.prefer_bwrap {
                 let bwrap_bin = probe.bwrap_path.ok_or_else(|| {
@@ -711,38 +866,60 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                         "bubblewrap (`bwrap`) requested but not installed in PATH".to_owned(),
                     )
                 })?;
-                let bwrap_args =
-                    build_bwrap_desktop_args(profile_dir, &exe, &args, &|k| std::env::var(k).ok());
-                Command::new(bwrap_bin)
-                    .args(&bwrap_args)
+                let sandbox_opts = BwrapSandboxOptions {
+                    lifetime_policy: self.lifetime_policy,
+                    profile_id: Some(&profile.id),
+                    instance_nonce: Some(&instance_nonce),
+                    prefer_portal_file_chooser: self.portal_file_chooser,
+                    extra_ro_files: &extra_ro_files,
+                };
+                let sandbox_plan = plan_bwrap_desktop_sandbox(
+                    profile_dir,
+                    &exe,
+                    &args,
+                    &sandbox_opts,
+                    &|k| std::env::var(k).ok(),
+                    &is_safe_bindable_socket_or_file,
+                );
+                let mut cmd = Command::new(bwrap_bin);
+                cmd.args(&sandbox_plan.args)
                     .env_clear()
                     .envs(&env_map)
                     .current_dir(profile_dir)
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()?
+                    .stderr(Stdio::null());
+                configure_child_lifetime(&mut cmd, self.lifetime_policy);
+                cmd.spawn()?
             } else {
-                Command::new(&exe)
-                    .args(&args)
+                let mut cmd = Command::new(&exe);
+                cmd.args(&args)
                     .env_clear()
                     .envs(&env_map)
                     .current_dir(profile_dir)
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()?
+                    .stderr(Stdio::null());
+                configure_child_lifetime(&mut cmd, self.lifetime_policy);
+                cmd.spawn()?
             };
 
             let spawned_pid = child.id();
+            // Capture `/proc/<pid>/stat` field 22 (`starttime_ticks`) BEFORE calling `try_wait()`
+            // so the kernel cannot recycle `spawned_pid` prior to recording its start time.
+            let starttime_ticks = read_proc_stat_starttime(Path::new("/proc"), spawned_pid);
             let runtime_hint = serde_json::json!({
                 "pid": spawned_pid,
                 "profile_id": profile.id,
+                "instance_nonce": instance_nonce,
+                "starttime_ticks": starttime_ticks,
+                "lifetime_policy": self.lifetime_policy.as_str(),
+                "uses_bwrap": self.prefer_bwrap,
                 "started_at": now_rfc3339_utc(),
             });
-            let _ = fs::write(
-                profile_dir.join(".runtime-pid"),
-                format!("{runtime_hint}\n"),
+            let _ = write_atomic_private_file(
+                &profile_dir.join(".runtime-pid"),
+                format!("{runtime_hint}\n").as_bytes(),
             );
 
             // Wait up to 1,500 ms for `SingletonLock` or `lockfile` creation (exiting early if ready or exited).
@@ -764,7 +941,7 @@ impl InstanceLauncher for LinuxPlatformAdapter {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = (exe, args);
+            let _ = (exe, args, extra_ro_files);
             Err(DimError::UnsupportedPlatform(
                 "Linux launch requires Linux".to_owned(),
             ))
@@ -775,36 +952,51 @@ impl InstanceLauncher for LinuxPlatformAdapter {
         &self,
         target: &LaunchTarget,
         profile: &ProfileRecord,
-        profile_dir: &Path,
+        _profile_dir: &Path,
         state: &ProfileRuntimeState,
     ) -> Result<(), DimError> {
         if !state.running {
             return Err(DimError::NotRunning(profile.name.clone()));
         }
 
-        // Write `.focus-signal` atomically whenever focusing a fixture or hybrid target.
+        // 1. Fixture targets (or any running instance holding a fixture `lockfile`) support
+        //    deterministic `.focus-signal` IPC regardless of Wayland/X11/Headless session.
         let is_fixture = matches!(target, LaunchTarget::NodeFixture { .. })
             || state.zalo_data_dir.join("lockfile").is_file();
         if is_fixture {
-            let focus_path = state.zalo_data_dir.join(".focus-signal");
-            let tmp_path = state.zalo_data_dir.join(".focus-signal.tmp");
             let payload = format!("{{\"focused_at\":\"{}\"}}\n", now_rfc3339_utc());
-            fs::write(&tmp_path, payload)?;
-            fs::rename(&tmp_path, &focus_path)?;
+            write_atomic_private_file(
+                &state.zalo_data_dir.join(".focus-signal"),
+                payload.as_bytes(),
+            )?;
+            return Ok(());
         }
 
-        #[cfg(target_os = "linux")]
-        {
-            if self.virtual_env.is_none() && !is_fixture {
-                let _ = try_activate_linux_window(target, profile, profile_dir, state);
+        // 2. For GUI desktop targets, never return a fake `Ok(())` when PID-verified window focus
+        //    cannot be safely performed!
+        let probe = self.probe_ubuntu_environment();
+        match probe.display_session {
+            DisplaySessionKind::Wayland => Err(DimError::UnsupportedPlatform(
+                "UNSUPPORTED_OPERATION: safe PID-verified window focus is not supported on Wayland compositors without an xdg-activation-v1 surface token"
+                    .to_owned(),
+            )),
+            DisplaySessionKind::Headless => Err(DimError::UnsupportedPlatform(
+                "UNSUPPORTED_OPERATION: safe PID-verified window focus is unavailable in a headless session without DISPLAY or WAYLAND_DISPLAY"
+                    .to_owned(),
+            )),
+            DisplaySessionKind::X11 => {
+                #[cfg(target_os = "linux")]
+                {
+                    if self.virtual_env.is_none() {
+                        return activate_verified_x11_window(&state.process_ids);
+                    }
+                }
+                Err(DimError::UnsupportedPlatform(
+                    "UNSUPPORTED_OPERATION: X11 PID-verified window focus requires a live Linux X11 display server"
+                        .to_owned(),
+                ))
             }
         }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = (target, profile_dir);
-        }
-
-        Ok(())
     }
 
     fn stop(
@@ -831,9 +1023,9 @@ impl InstanceLauncher for LinuxPlatformAdapter {
 
         #[cfg(target_os = "linux")]
         {
-            let _ = fs::write(
-                state.zalo_data_dir.join(".quit-signal"),
-                format!("{{\"requested_at\":\"{}\"}}\n", now_rfc3339_utc()),
+            let _ = write_atomic_private_file(
+                &state.zalo_data_dir.join(".quit-signal"),
+                format!("{{\"requested_at\":\"{}\"}}\n", now_rfc3339_utc()).as_bytes(),
             );
 
             let euid = current_effective_uid();
@@ -845,20 +1037,45 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                 Some(euid),
             );
 
-            let targets = if initial_tree.process_ids.is_empty() {
-                vec![main_pid]
-            } else {
-                initial_tree.process_ids
-            };
-            let initial_count = u32::try_from(targets.len()).unwrap_or(1);
+            if initial_tree
+                .process_ids
+                .iter()
+                .any(|p| protected_primary_pids.contains(p))
+            {
+                return Err(DimError::ProtectedPrimaryProcess(format!(
+                    "refused to stop Linux process tree overlapping protected primary PID(s): profile_id={}",
+                    state.profile_id
+                )));
+            }
 
-            // Phase 1: Send graceful SIGTERM strictly to the verified root process first so
-            // Electron's `before-quit` / `will-quit` flushes SQLite WALs and hangs up calls cleanly.
-            send_signal_verified(main_pid, libc::SIGTERM, protected_primary_pids);
+            // If no active `/proc` entry matches `(profile_id, starttime_ticks, instance_nonce)`,
+            // the profile tree already exited (or `state.main_pid` was recycled by an unrelated
+            // process); clean up hints and NEVER signal unverified `state.main_pid`!
+            if initial_tree.process_ids.is_empty() {
+                reap_direct_children(&[main_pid]);
+                cleanup_post_stop_hints(&state.profile_dir, &state.zalo_data_dir);
+                return Ok(0);
+            }
+
+            let initial_targets = initial_tree.process_ids.clone();
+            let initial_count = u32::try_from(initial_targets.len()).unwrap_or(1);
+
+            // Phase 1: Send graceful SIGTERM strictly to the verified application main process
+            // (`initial_tree.main_pid`) so Electron's `before-quit` / `will-quit` flushes SQLite
+            // WALs cleanly (allowing any outer `bwrap` wrapper to exit naturally when its child exits).
+            if let Some(graceful_pid) = initial_tree.main_pid {
+                let exp_ticks = initial_tree.process_starttimes.get(&graceful_pid).copied();
+                send_signal_verified(
+                    graceful_pid,
+                    exp_ticks,
+                    libc::SIGTERM,
+                    protected_primary_pids,
+                );
+            }
 
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
             while std::time::Instant::now() < deadline {
-                reap_direct_children(&targets);
+                reap_direct_children(&initial_targets);
                 let live = collect_profile_process_tree(
                     Path::new("/proc"),
                     &state.profile_id,
@@ -866,15 +1083,16 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                     &state.zalo_data_dir,
                     Some(euid),
                 );
-                if live.process_ids.is_empty() && !is_unix_pid_active_non_zombie(main_pid) {
+                if live.process_ids.is_empty() {
                     cleanup_post_stop_hints(&state.profile_dir, &state.zalo_data_dir);
                     return Ok(initial_count);
                 }
                 std::thread::sleep(std::time::Duration::from_millis(40));
             }
 
-            // Phase 2: Escalate to SIGKILL ONLY on remaining verified profile-owned PIDs (leaves-first),
-            // NEVER invoking `killall` or `pkill`.
+            // Phase 2: Escalate to SIGKILL ONLY on remaining verified profile-owned PIDs in
+            // reverse topological order (leaves-first: helpers/renderers -> zygote -> app main ->
+            // outer `bwrap` wrapper), verifying `(pid, starttime_ticks)` right before each `kill(2)`.
             let remaining = collect_profile_process_tree(
                 Path::new("/proc"),
                 &state.profile_id,
@@ -883,14 +1101,13 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                 Some(euid),
             );
             for &pid in remaining.process_ids.iter().rev() {
-                send_signal_verified(pid, libc::SIGKILL, protected_primary_pids);
-            }
-            if remaining.process_ids.is_empty() && is_unix_pid_active_non_zombie(main_pid) {
-                send_signal_verified(main_pid, libc::SIGKILL, protected_primary_pids);
+                let exp_ticks = remaining.process_starttimes.get(&pid).copied();
+                send_signal_verified(pid, exp_ticks, libc::SIGKILL, protected_primary_pids);
             }
 
             std::thread::sleep(std::time::Duration::from_millis(40));
-            reap_direct_children(&targets);
+            reap_direct_children(&initial_targets);
+            reap_direct_children(&remaining.process_ids);
             cleanup_post_stop_hints(&state.profile_dir, &state.zalo_data_dir);
             Ok(initial_count)
         }
@@ -911,12 +1128,57 @@ pub fn read_linux_pid(zalo_data_dir: &Path) -> Option<u32> {
 }
 
 #[cfg(target_os = "linux")]
-fn send_signal_verified(pid: u32, sig: libc::c_int, protected_primary_pids: &[u32]) {
+fn detach_into_new_session() -> std::io::Result<()> {
+    // SAFETY: In a freshly forked child (`pid != pgid`), `setsid()` and `setpgid(0, 0)` are
+    // POSIX async-signal-safe syscalls creating a new session and process group without a
+    // controlling terminal so `dim-cli` exit or terminal `SIGHUP` never kills the desktop instance.
+    unsafe {
+        if libc::setsid() == -1 {
+            let _ = libc::setpgid(0, 0);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn configure_child_lifetime(
+    cmd: &mut std::process::Command,
+    policy: LauncherLifetimePolicy,
+) {
+    use std::os::unix::process::CommandExt;
+    if policy.detaches_from_launcher() {
+        // SAFETY: `detach_into_new_session` invokes only POSIX async-signal-safe syscalls
+        // (`setsid`/`setpgid`) in the post-fork child with zero heap allocation or lock usage.
+        unsafe {
+            cmd.pre_exec(detach_into_new_session);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn send_signal_verified(
+    pid: u32,
+    expected_starttime_ticks: Option<u64>,
+    sig: libc::c_int,
+    protected_primary_pids: &[u32],
+) {
     if pid <= 1 || protected_primary_pids.contains(&pid) {
         return;
     }
+    let Some(entry) = read_proc_entry(Path::new("/proc"), pid) else {
+        return;
+    };
+    if !entry.is_active() {
+        return;
+    }
+    if let Some(exp_ticks) = expected_starttime_ticks {
+        if entry.starttime_ticks != exp_ticks {
+            return;
+        }
+    }
     if let Ok(raw_pid) = libc::pid_t::try_from(pid) {
-        // SAFETY: `raw_pid > 1` targets a single verified non-primary process ID (never 0 or -1 group broadcast).
+        // SAFETY: `raw_pid > 1` targets a single `(pid, starttime_ticks)`-verified non-primary
+        // process ID (never 0 or -1 group broadcast).
         unsafe {
             let _ = libc::kill(raw_pid, sig);
         }
@@ -934,22 +1196,6 @@ fn reap_direct_children(pids: &[u32]) {
             }
         }
     }
-}
-
-#[cfg(target_os = "linux")]
-fn is_unix_pid_active_non_zombie(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    if let Some(entry) = crate::procfs::read_proc_entry(Path::new("/proc"), pid) {
-        return entry.is_active();
-    }
-    let Ok(raw) = libc::pid_t::try_from(pid) else {
-        return false;
-    };
-    // SAFETY: Signal 0 probes process existence without delivering a signal.
-    let rc = unsafe { libc::kill(raw, 0) };
-    rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 #[cfg(target_os = "linux")]
@@ -993,76 +1239,67 @@ fn query_x11_window_for_pids(pids: &[u32]) -> (Option<u64>, Option<String>) {
 }
 
 #[cfg(target_os = "linux")]
-fn try_activate_linux_window(
-    target: &LaunchTarget,
-    profile: &ProfileRecord,
-    profile_dir: &Path,
-    state: &ProfileRuntimeState,
-) -> Result<(), DimError> {
+fn activate_verified_x11_window(allowed_pids: &[u32]) -> Result<(), DimError> {
     use std::process::{Command, Stdio};
 
-    // 1. On X11 / XWayland, prefer exact PID-verified window ID activation via `wmctrl` or `xdotool`.
-    if std::env::var_os("DISPLAY").is_some() {
-        if let Some(wmctrl) = find_executable_in_path("wmctrl") {
-            if let Ok(out) = Command::new(&wmctrl).arg("-lp").output() {
-                if out.status.success() {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    if let Some(win) =
-                        parse_wmctrl_windows_for_pids(&stdout, &state.process_ids).first()
-                    {
-                        let status = Command::new(wmctrl)
-                            .args(["-i", "-a", &win.window_id_hex])
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .status()?;
-                        if status.success() {
-                            return Ok(());
-                        }
+    if allowed_pids.is_empty() {
+        return Err(DimError::ProcessError(
+            "X11 PID-verified window focus failed: profile has no verified active PIDs".to_owned(),
+        ));
+    }
+
+    let wmctrl_bin = find_executable_in_path("wmctrl");
+    let xdotool_bin = find_executable_in_path("xdotool");
+
+    if wmctrl_bin.is_none() && xdotool_bin.is_none() {
+        return Err(DimError::ProcessError(
+            "X11 PID-verified window focus failed: neither `wmctrl` nor `xdotool` is installed in PATH"
+                .to_owned(),
+        ));
+    }
+
+    if let Some(wmctrl) = wmctrl_bin {
+        if let Ok(out) = Command::new(&wmctrl).arg("-lp").output() {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for win in parse_wmctrl_windows_for_pids(&stdout, allowed_pids) {
+                    let status = Command::new(&wmctrl)
+                        .args(["-i", "-a", &win.window_id_hex])
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()?;
+                    if status.success() {
+                        return Ok(());
                     }
                 }
             }
         }
-        if let Some(xdotool) = find_executable_in_path("xdotool") {
-            for &pid in &state.process_ids {
-                let status = Command::new(&xdotool)
-                    .args([
-                        "search",
-                        "--onlyvisible",
-                        "--pid",
-                        &pid.to_string(),
-                        "windowactivate",
-                    ])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-                if status.is_ok_and(|s| s.success()) {
-                    return Ok(());
-                }
+    }
+
+    if let Some(xdotool) = xdotool_bin {
+        for &pid in allowed_pids {
+            let status = Command::new(&xdotool)
+                .args([
+                    "search",
+                    "--onlyvisible",
+                    "--pid",
+                    &pid.to_string(),
+                    "windowactivate",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            if status.is_ok_and(|s| s.success()) {
+                return Ok(());
             }
         }
     }
 
-    // 2. On Wayland (or without wmctrl/xdotool), trigger Electron's single-instance restore handoff
-    // inside the exact isolated profile environment so the owning instance restores its own window.
-    if let LaunchTarget::CustomExecutable { path, args } = target {
-        if path.is_file() {
-            let env_map =
-                build_sanitized_linux_spawn_env(profile, profile_dir, &|k| std::env::var(k).ok());
-            let _ = Command::new(path)
-                .args(args)
-                .env_clear()
-                .envs(&env_map)
-                .current_dir(profile_dir)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn();
-        }
-    }
-
-    Ok(())
+    Err(DimError::ProcessError(format!(
+        "X11 PID-verified window focus failed: no visible X11 window matched verified profile PIDs {allowed_pids:?}"
+    )))
 }
 
 #[cfg(target_os = "linux")]
