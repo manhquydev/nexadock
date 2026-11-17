@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pure Node binary header & package inspector + safe read-only OS tool checks
+ * Pure Node binary header, Apple ICNS, & OS package inspector + safe read-only OS tool checks
  * for Multi-Zalo Desktop cross-platform build artifacts.
  *
  * Enforces strict classification rules:
@@ -9,6 +9,7 @@
  *   - `.msi` -> `installer-msi` (`is_installer: true`)
  *   - `.app` -> `macos-app-bundle` (`is_installer: false`)
  *   - `.dmg` -> `macos-dmg-installer` (`is_installer: true`)
+ *   - `.icns` -> `macos-icns-icon` (`is_installer: false`)
  *   - `.deb` -> `debian-package` (`is_installer: true`)
  *   - `.AppImage` -> `linux-appimage` (`is_installer: false`)
  *   - Unsigned or ad-hoc signed builds strictly report `UNSIGNED_DEVELOPMENT_ARTIFACT`!
@@ -59,7 +60,6 @@ function probeReadOnlyCmd(bin, args) {
 export function computeFileSha256AndSize(filePath) {
   const stat = fs.statSync(filePath);
   if (stat.isDirectory()) {
-    // Deterministic composite hash & total byte size for macOS `.app` bundle directories
     const relFiles = [];
     let totalBytes = 0;
     const walk = (dir) => {
@@ -126,7 +126,6 @@ function readInspectableBuffer(filePath, maxFullBytes = 64 * 1024 * 1024) {
   if (stat.size <= maxFullBytes) {
     return { buffer: fs.readFileSync(filePath), truncated: false, totalSize: stat.size };
   }
-  // For multi-hundred-MB installers, read first 8 MiB + last 2 MiB
   const headLen = 8 * 1024 * 1024;
   const tailLen = 2 * 1024 * 1024;
   const fd = fs.openSync(filePath, 'r');
@@ -161,6 +160,14 @@ export function classifyArtifact(artifactPath, headerBytes = null) {
       is_installer: true,
       os: 'macos',
       classification_note: 'macOS UDIF .dmg disk image installer container',
+    };
+  }
+  if (lowerBase.endsWith('.icns')) {
+    return {
+      artifact_kind: 'macos-icns-icon',
+      is_installer: false,
+      os: 'macos',
+      classification_note: 'Apple Icon Image (.icns) multi-resolution icon container',
     };
   }
   if (lowerBase.endsWith('.msi')) {
@@ -208,7 +215,17 @@ export function classifyArtifact(artifactPath, headerBytes = null) {
     };
   }
 
-  // Extensionless or custom filename: inspect magic bytes
+  if (headerBytes && headerBytes.length >= 8) {
+    if (headerBytes.subarray(0, 4).toString('ascii') === 'icns') {
+      return {
+        artifact_kind: 'macos-icns-icon',
+        is_installer: false,
+        os: 'macos',
+        classification_note: 'Apple Icon Image (.icns) multi-resolution icon container',
+      };
+    }
+  }
+
   if (headerBytes && headerBytes.length >= 16) {
     if (headerBytes[0] === 0x4d && headerBytes[1] === 0x5a) {
       return {
@@ -265,6 +282,73 @@ export function classifyArtifact(artifactPath, headerBytes = null) {
   };
 }
 
+export function parseIcnsHeaders(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 16) {
+    return { valid_icns: false, error: 'Buffer smaller than minimum ICNS header + chunk (16 bytes)' };
+  }
+  const magicAscii = buffer.subarray(0, 4).toString('ascii');
+  const magicHex = buffer.subarray(0, 4).toString('hex');
+  if (magicAscii !== 'icns') {
+    return { valid_icns: false, magic_hex: magicHex, error: 'Missing icns (69636e73) file magic' };
+  }
+
+  const declaredTotalBytes = buffer.readUInt32BE(4);
+  if (declaredTotalBytes !== buffer.length) {
+    return {
+      valid_icns: false,
+      magic_hex: magicHex,
+      declared_total_bytes: declaredTotalBytes,
+      actual_total_bytes: buffer.length,
+      error: `ICNS header length (${declaredTotalBytes}) does not match file size (${buffer.length})`,
+    };
+  }
+
+  const pngSig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const chunks = [];
+  let offset = 8;
+  while (offset < declaredTotalBytes) {
+    if (offset + 8 > declaredTotalBytes) {
+      return { valid_icns: false, error: `Truncated ICNS chunk header at offset ${offset}` };
+    }
+    const osType = buffer.subarray(offset, offset + 4).toString('ascii');
+    const chunkLen = buffer.readUInt32BE(offset + 4);
+    if (chunkLen < 8 || offset + chunkLen > declaredTotalBytes) {
+      return {
+        valid_icns: false,
+        error: `Invalid ICNS chunk length ${chunkLen} for ${osType} at offset ${offset}`,
+      };
+    }
+    const payload = buffer.subarray(offset + 8, offset + chunkLen);
+    const isPngPayload = payload.length >= 24 && payload.subarray(0, 8).equals(pngSig);
+    let pngWidth = null;
+    let pngHeight = null;
+    if (isPngPayload && payload.subarray(12, 16).toString('ascii') === 'IHDR') {
+      pngWidth = payload.readUInt32BE(16);
+      pngHeight = payload.readUInt32BE(20);
+    }
+    chunks.push({
+      os_type: osType,
+      chunk_bytes: chunkLen,
+      payload_bytes: payload.length,
+      is_png: isPngPayload,
+      width: pngWidth,
+      height: pngHeight,
+    });
+    offset += chunkLen;
+  }
+
+  return {
+    valid_icns: chunks.length > 0 && offset === declaredTotalBytes,
+    magic_hex: magicHex,
+    declared_total_bytes: declaredTotalBytes,
+    actual_total_bytes: buffer.length,
+    chunks_count: chunks.length,
+    chunks,
+    has_ic07_128x128: chunks.some((c) => c.os_type === 'ic07' && c.is_png && c.width === 128 && c.height === 128),
+    has_ic08_256x256: chunks.some((c) => c.os_type === 'ic08' && c.is_png && c.width === 256 && c.height === 256),
+  };
+}
+
 export function parsePeHeaders(buffer, filePath = null) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 64) {
     return { valid_pe: false, error: 'Buffer smaller than DOS header (64 bytes)' };
@@ -318,7 +402,6 @@ export function parsePeHeaders(buffer, filePath = null) {
     const dataDirOffset = optMagic === 0x020b ? optOffset + 112 : optOffset + 96;
     if (rvaCountOffset + 4 <= buffer.length) {
       const numRvaAndSizes = buffer.readUInt32LE(rvaCountOffset);
-      // IMAGE_DIRECTORY_ENTRY_SECURITY is index 4 (offset +32 into DataDirectory array)
       const secEntryOffset = dataDirOffset + 4 * 8;
       if (numRvaAndSizes > 4 && secEntryOffset + 8 <= optOffset + sizeOfOptionalHeader && secEntryOffset + 8 <= buffer.length) {
         certTableOffset = buffer.readUInt32LE(secEntryOffset);
@@ -329,7 +412,6 @@ export function parsePeHeaders(buffer, filePath = null) {
 
   const hasAuthenticodeCertTable = certTableOffset > 0 && certTableSize > 0;
 
-  // Scan binary for all embedded XML application manifest (<assembly ... </assembly>) blocks
   const latin1Text = buffer.toString('latin1');
   const embeddedManifest = {
     present: false,
@@ -378,7 +460,6 @@ export function parsePeHeaders(buffer, filePath = null) {
   }
   embeddedManifest.supported_os_guids = Array.from(guidSet);
 
-  // Check WebView2Loader.dll dynamic import & sidecar presence
   const importsWebView2Loader = /WebView2Loader\.dll/i.test(latin1Text);
   let sidecarWebView2Loader = { present: false, path: null, size_bytes: null };
   if (filePath) {
@@ -437,7 +518,6 @@ export function parseMachOHeaders(buffer) {
   const magicBE = buffer.readUInt32BE(0);
   const magicLE = buffer.readUInt32LE(0);
 
-  // Universal / Fat binary (`0xcafebabe` big-endian with 1..16 slices)
   if (magicBE === 0xcafebabe || magicBE === 0xcafebabf) {
     const nfatArch = buffer.readUInt32BE(4);
     if (nfatArch >= 1 && nfatArch <= 16 && buffer.length >= 8 + nfatArch * 20) {
@@ -461,7 +541,6 @@ export function parseMachOHeaders(buffer) {
     }
   }
 
-  // Thin 64-bit Mach-O (`MH_MAGIC_64` = 0xfeedfacf)
   if (magicLE === 0xfeedfacf || magicBE === 0xfeedfacf) {
     const isLE = magicLE === 0xfeedfacf;
     const readU32 = (off) => (isLE ? buffer.readUInt32LE(off) : buffer.readUInt32BE(off));
@@ -470,7 +549,6 @@ export function parseMachOHeaders(buffer) {
     const ncmds = readU32(16);
     const arch = mapMachOCpuType(cpuType);
 
-    // Check load commands for LC_CODE_SIGNATURE (0x1d)
     let hasCodeSigLoadCmd = false;
     let cmdOffset = 32;
     for (let i = 0; i < Math.min(ncmds, 256); i += 1) {
@@ -547,8 +625,8 @@ export function parseElfHeaders(buffer) {
     return { valid_elf: false, error: 'Missing \\x7fELF magic' };
   }
 
-  const eiClass = buffer[4]; // 1 = 32-bit, 2 = 64-bit
-  const eiData = buffer[5];  // 1 = little-endian, 2 = big-endian
+  const eiClass = buffer[4];
+  const eiData = buffer[5];
   const isLE = eiData === 1;
   const readU16 = (off) => (isLE ? buffer.readUInt16LE(off) : buffer.readUInt16BE(off));
 
@@ -562,7 +640,6 @@ export function parseElfHeaders(buffer) {
   const cpuArch = machineMap[eMachine] || `unknown(0x${eMachine.toString(16)})`;
   const isAppImageType2 = buffer[8] === 0x41 && buffer[9] === 0x49 && buffer[10] === 0x02;
 
-  // Extract GLIBC_2.xx symbol floor strings directly from binary
   const text = buffer.toString('latin1');
   const glibcSet = new Set();
   for (const m of text.matchAll(/GLIBC_(\d+\.\d+(?:\.\d+)?)/g)) {
@@ -724,19 +801,20 @@ export function inspectArtifact(artifactPath) {
   if (classification.artifact_kind === 'compiled-executable' && classification.os === 'windows') {
     const pe = parsePeHeaders(buffer, absPath);
     cpuArchitecture = pe.cpu_architecture || 'unknown';
-    signingStatus = pe.authenticode?.signing_status === 'UNSIGNED_DEVELOPMENT_ARTIFACT'
-      ? 'UNSIGNED_DEVELOPMENT_ARTIFACT'
-      : 'UNSIGNED_DEVELOPMENT_ARTIFACT';
+    signingStatus = 'UNSIGNED_DEVELOPMENT_ARTIFACT';
     details = { pe };
   } else if (classification.artifact_kind === 'installer-nsis') {
     const pe = parsePeHeaders(buffer, absPath);
-    // Note: NSIS installer stubs may be 32-bit x86 (`0x014c`) even when installing x86_64 app payload!
     cpuArchitecture = /x64|x86_64/i.test(path.basename(absPath)) ? 'x86_64' : (pe.cpu_architecture || 'x86_64');
     details = { pe, nsis_stub_arch: pe.cpu_architecture };
   } else if (classification.artifact_kind === 'installer-msi') {
     const msi = parseMsiHeaders(buffer);
     cpuArchitecture = /arm64|aarch64/i.test(path.basename(absPath)) ? 'aarch64' : 'x86_64';
     details = { msi };
+  } else if (classification.artifact_kind === 'macos-icns-icon') {
+    const icns = parseIcnsHeaders(buffer);
+    cpuArchitecture = 'any';
+    details = { icns };
   } else if (classification.artifact_kind === 'compiled-executable' && classification.os === 'macos') {
     const macho = parseMachOHeaders(buffer);
     const codesign = inspectDarwinCodesignReadOnly(absPath);

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Cross-platform build & packaging prerequisite checker for Multi-Zalo Desktop
- * (desktop-instance-manager).
+ * Cross-platform build, native-architecture, and packaging prerequisite checker
+ * for Multi-Zalo Desktop (desktop-instance-manager).
  *
  * Strictly read-only: NEVER modifies OS policy, Smart App Control, Cargo.lock,
  * or system packages, and NEVER prompts for signing credentials.
  *
  * CLI:
- *   node check-prerequisites.mjs --target <triple> [--require-bundler] [--require-compile] [--out <json-path>]
+ *   node check-prerequisites.mjs --target <triple> [--require-bundler] [--require-compile] [--require-native-target] [--out <json-path>]
  */
 
 import { spawnSync } from 'node:child_process';
@@ -20,6 +20,10 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const WORKSPACE_ROOT = path.resolve(__dirname, '..', '..');
+
+export const PINNED_TAURI_CLI_VERSION = '2.12.5';
+export const PINNED_TAURI_NPM_SPEC = `@tauri-apps/cli@${PINNED_TAURI_CLI_VERSION}`;
+export const DEFAULT_TAURI_CI_OVERLAY_PATH = path.join(__dirname, 'tauri-ci-bundle-overlay.json');
 
 function safeRealpath(p) {
   try {
@@ -38,6 +42,28 @@ function isMainModule(metaUrl) {
     : entry === self;
 }
 
+function discoverWindowsMingwDirs(baseEnv) {
+  if (process.platform !== 'win32') return [];
+  const found = [];
+  const localAppData = baseEnv.LOCALAPPDATA;
+  if (localAppData) {
+    const wingetPkgs = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages');
+    if (fs.existsSync(wingetPkgs)) {
+      try {
+        for (const entry of fs.readdirSync(wingetPkgs, { withFileTypes: true })) {
+          if (entry.isDirectory() && entry.name.startsWith('BrechtSanders.WinLibs')) {
+            const candidate = path.join(wingetPkgs, entry.name, 'mingw64', 'bin');
+            if (fs.existsSync(candidate)) found.push(candidate);
+          }
+        }
+      } catch {
+        // Ignore unreadable WinGet package dirs
+      }
+    }
+  }
+  return found;
+}
+
 export function buildAugmentedEnv(baseEnv = process.env) {
   const extraDirs = [];
   if (baseEnv.CARGO_HOME) {
@@ -47,6 +73,8 @@ export function buildAugmentedEnv(baseEnv = process.env) {
   if (home) {
     extraDirs.push(path.join(home, '.cargo', 'bin'));
   }
+  extraDirs.push(...discoverWindowsMingwDirs(baseEnv));
+
   const pathKey = Object.keys(baseEnv).find((k) => k.toLowerCase() === 'path') || 'PATH';
   const currentPath = baseEnv[pathKey] || '';
   const merged = [...extraDirs.filter((d) => fs.existsSync(d)), currentPath]
@@ -128,11 +156,52 @@ function defaultHostTriple() {
   return process.arch === 'arm64' ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu';
 }
 
+function normalizeArchCanonical(rawArch) {
+  const s = String(rawArch || '').trim().toLowerCase();
+  if (s === 'x86_64' || s === 'amd64' || s === 'x64') return 'x86_64';
+  if (s === 'aarch64' || s === 'arm64') return 'aarch64';
+  if (s === 'i686' || s === 'x86' || s === 'ia32') return 'x86';
+  return s || 'unknown';
+}
+
+function parseTargetArchAndOs(triple) {
+  let arch = 'unknown';
+  if (triple.startsWith('x86_64-')) arch = 'x86_64';
+  else if (triple.startsWith('aarch64-')) arch = 'aarch64';
+  else if (triple.startsWith('i686-')) arch = 'x86';
+
+  let osPlatform = 'unknown';
+  if (triple.includes('-windows-')) osPlatform = 'win32';
+  else if (triple.includes('-apple-darwin')) osPlatform = 'darwin';
+  else if (triple.includes('-linux-')) osPlatform = 'linux';
+
+  return { arch, osPlatform };
+}
+
+export function probeNativeHardwareArch(env = buildAugmentedEnv()) {
+  if (process.platform === 'win32') {
+    const raw = env.PROCESSOR_ARCHITEW6432 || env.PROCESSOR_ARCHITECTURE || process.arch;
+    return {
+      source: 'PROCESSOR_ARCHITECTURE',
+      raw,
+      canonical_arch: normalizeArchCanonical(raw),
+    };
+  }
+  const uname = probeCommand('uname', ['-m'], { env });
+  const raw = uname.available && uname.stdout ? uname.stdout.split(/\r?\n/)[0].trim() : process.arch;
+  return {
+    source: uname.available ? 'uname -m' : 'process.arch',
+    raw,
+    canonical_arch: normalizeArchCanonical(raw),
+  };
+}
+
 function parseArgs(argv) {
   const opts = {
     target: null,
     requireBundler: false,
     requireCompile: false,
+    requireNativeTarget: false,
     out: null,
     help: false,
   };
@@ -144,6 +213,8 @@ function parseArgs(argv) {
       opts.requireBundler = true;
     } else if (arg === '--require-compile' || arg === '--strict') {
       opts.requireCompile = true;
+    } else if (arg === '--require-native-target') {
+      opts.requireNativeTarget = true;
     } else if (arg === '--target' && i + 1 < argv.length) {
       opts.target = argv[++i];
     } else if (arg.startsWith('--target=')) {
@@ -169,9 +240,10 @@ function readCargoMsrv(cargoTomlPath) {
   return m ? m[1] : null;
 }
 
-function inspectIconsAndTauriConf() {
-  const confPath = path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri', 'tauri.conf.json');
-  const iconsDir = path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri', 'icons');
+function inspectIconsAndBundleOverlay() {
+  const srcTauriDir = path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri');
+  const confPath = path.join(srcTauriDir, 'tauri.conf.json');
+  const iconsDir = path.join(srcTauriDir, 'icons');
   if (!fs.existsSync(confPath)) {
     return { tauri_conf_exists: false, error: 'tauri.conf.json not found' };
   }
@@ -181,12 +253,47 @@ function inspectIconsAndTauriConf() {
     ? fs.readdirSync(iconsDir).sort()
     : [];
   const missingConfigured = configuredIcons.filter(
-    (rel) => !fs.existsSync(path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri', rel)),
+    (rel) => !fs.existsSync(path.join(srcTauriDir, rel)),
   );
   const hasIco = configuredIcons.some((i) => i.endsWith('.ico')) && fs.existsSync(path.join(iconsDir, 'icon.ico'));
   const hasPng = configuredIcons.some((i) => i.endsWith('.png')) && fs.existsSync(path.join(iconsDir, '128x128.png'));
   const hasIcnsInConfig = configuredIcons.some((i) => i.endsWith('.icns'));
   const hasIcnsOnDisk = existingFiles.some((f) => f.endsWith('.icns'));
+
+  // Inspect CI bundle overlay (`scripts/ci-cross-platform/tauri-ci-bundle-overlay.json` + assets)
+  const overlayIcnsPath = path.join(__dirname, 'assets', 'icon.icns');
+  const overlayRetinaPath = path.join(__dirname, 'assets', '128x128@2x.png');
+  let ciBundleOverlay = {
+    present: false,
+    overlay_path: null,
+    has_valid_icns: false,
+    has_retina_2x_png: false,
+    mitigates_ir002_ir003_in_ci: false,
+  };
+
+  if (fs.existsSync(DEFAULT_TAURI_CI_OVERLAY_PATH)) {
+    try {
+      const overlayJson = JSON.parse(fs.readFileSync(DEFAULT_TAURI_CI_OVERLAY_PATH, 'utf8'));
+      const icnsValid = fs.existsSync(overlayIcnsPath) &&
+        fs.readFileSync(overlayIcnsPath).subarray(0, 4).toString('ascii') === 'icns';
+      const retinaValid = fs.existsSync(overlayRetinaPath) &&
+        fs.readFileSync(overlayRetinaPath).readUInt32BE(16) === 256;
+      const overlayIcons = Array.isArray(overlayJson?.bundle?.icon) ? overlayJson.bundle.icon : [];
+      const allOverlayIconsResolve = overlayIcons.length > 0 &&
+        overlayIcons.every((rel) => fs.existsSync(path.resolve(srcTauriDir, rel)));
+
+      ciBundleOverlay = {
+        present: true,
+        overlay_path: path.relative(WORKSPACE_ROOT, DEFAULT_TAURI_CI_OVERLAY_PATH).replace(/\\/g, '/'),
+        has_valid_icns: icnsValid,
+        has_retina_2x_png: retinaValid,
+        all_overlay_icons_resolve: allOverlayIconsResolve,
+        mitigates_ir002_ir003_in_ci: Boolean(icnsValid && retinaValid && allOverlayIconsResolve),
+      };
+    } catch {
+      // Leave ciBundleOverlay.present = false on parse failure
+    }
+  }
 
   return {
     tauri_conf_exists: true,
@@ -201,8 +308,9 @@ function inspectIconsAndTauriConf() {
     has_ico: hasIco,
     has_png: hasPng,
     has_icns: hasIcnsInConfig && hasIcnsOnDisk,
+    ci_bundle_overlay: ciBundleOverlay,
     macos_icns_warning: (!hasIcnsInConfig || !hasIcnsOnDisk)
-      ? 'IR-002: Missing icons/icon.icns in tauri.conf.json bundle.icon and apps/desktop/src-tauri/icons/; macOS .app/.dmg bundling requires a .icns asset.'
+      ? `IR-002: Base tauri.conf.json lacks icons/icon.icns and 128x128@2x.png (mitigated during CI bundling via ${ciBundleOverlay.overlay_path || 'tauri-ci-bundle-overlay.json'}; see ir-patches/0002-IR-002-*.patch for upstream integration).`
       : null,
   };
 }
@@ -215,7 +323,6 @@ function checkWindowsPrerequisites(env, target) {
     };
   }
 
-  // 1. MSVC linker / VS Build Tools check (read-only)
   const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
   const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
   const vswherePath = path.join(programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
@@ -232,11 +339,11 @@ function checkWindowsPrerequisites(env, target) {
   }
   const clOnPath = findExecutable('cl', env);
   const linkOnPath = findExecutable('link', env);
+  const gccOnPath = findExecutable('gcc', env);
   const windowsSdkLib = path.join(programFilesX86, 'Windows Kits', '10', 'Lib');
   const hasWindowsSdk = fs.existsSync(windowsSdkLib);
   const msvcAvailable = Boolean(vsInstallPath || clOnPath);
 
-  // 2. WebView2 Evergreen Runtime check (strictly read-only reg.exe query; never touches SAC)
   const webview2Guid = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
   const regKeys = [
     `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\${webview2Guid}`,
@@ -259,22 +366,13 @@ function checkWindowsPrerequisites(env, target) {
   const webview2Dir = path.join(programFilesX86, 'Microsoft', 'EdgeWebView', 'Application');
   const webview2DirExists = fs.existsSync(webview2Dir);
 
-  // 3. WiX (v3 candle/light or v4 wix) and NSIS (makensis) bundler checks
   const wixBinDirs = [
     process.env.WIX ? path.join(process.env.WIX, 'bin') : null,
     path.join(programFilesX86, 'WiX Toolset v3.14', 'bin'),
     path.join(programFilesX86, 'WiX Toolset v3.11', 'bin'),
   ].filter(Boolean);
-  const candlePath = findExecutable(
-    'candle',
-    env,
-    wixBinDirs.map((d) => path.join(d, 'candle.exe')),
-  );
-  const lightPath = findExecutable(
-    'light',
-    env,
-    wixBinDirs.map((d) => path.join(d, 'light.exe')),
-  );
+  const candlePath = findExecutable('candle', env, wixBinDirs.map((d) => path.join(d, 'candle.exe')));
+  const lightPath = findExecutable('light', env, wixBinDirs.map((d) => path.join(d, 'light.exe')));
   const wixV4Path = findExecutable('wix', env);
   const makensisPath = findExecutable('makensis', env, [
     path.join(programFilesX86, 'NSIS', 'makensis.exe'),
@@ -297,6 +395,10 @@ function checkWindowsPrerequisites(env, target) {
       cl_exe_on_path: clOnPath,
       link_exe_on_path: linkOnPath,
       windows_10_11_sdk_present: hasWindowsSdk,
+    },
+    gnu_mingw_toolchain: {
+      available: Boolean(gccOnPath),
+      gcc_path: gccOnPath,
     },
     webview2_evergreen_runtime: {
       installed: Boolean(webview2Version || webview2DirExists),
@@ -346,7 +448,6 @@ function checkMacosPrerequisites(env, target, installedTargets) {
   const lipoPath = findExecutable('lipo', env, ['/usr/bin/lipo']);
   const swVers = probeCommand('sw_vers', [], { env });
 
-  // Passive check ONLY: never prompt keychain or request Apple credentials
   const hasAppleSigningEnv = Boolean(
     process.env.APPLE_SIGNING_IDENTITY &&
     process.env.APPLE_SIGNING_IDENTITY.trim() !== '-' &&
@@ -411,7 +512,7 @@ function checkLinuxPrerequisites(env, target) {
   if (process.platform !== 'linux') {
     return {
       applicable_on_host: false,
-      note: `Host OS is ${process.platform}; Ubuntu /etc/os-release, pkg-config, dpkg-deb, and FUSE checks execute natively on linux.`,
+      note: `Host OS is ${process.platform}; Ubuntu /etc/os-release, pkg-config, dpkg-deb, Xvfb, and FUSE checks execute natively on linux.`,
     };
   }
 
@@ -431,6 +532,7 @@ function checkLinuxPrerequisites(env, target) {
 
   const patchelf = probeCommand('patchelf', ['--version'], { env });
   const dpkgDeb = probeCommand('dpkg-deb', ['--version'], { env });
+  const xvfbRunPath = findExecutable('xvfb-run', env);
   const ldd = probeCommand('ldd', ['--version'], { env });
   let glibcVersion = null;
   if (ldd.stdout) {
@@ -467,6 +569,7 @@ function checkLinuxPrerequisites(env, target) {
     tools: {
       patchelf: { available: patchelf.available, version: patchelf.stdout.split(/\r?\n/)[0] || null },
       dpkg_deb: { available: dpkgDeb.available, version: dpkgDeb.stdout.split(/\r?\n/)[0] || null },
+      xvfb_run: { available: Boolean(xvfbRunPath), path: xvfbRunPath },
       ldd: { available: ldd.available, glibc_version: glibcVersion },
     },
     appimage_fuse_readiness: {
@@ -484,12 +587,71 @@ function checkLinuxPrerequisites(env, target) {
   };
 }
 
+function detectTauriCli(env, cargoAvailable) {
+  // 1. Check `tauri` / `tauri.cmd` on PATH or local node_modules (from pinned `@tauri-apps/cli@2.12.5`)
+  const tauriBin = findExecutable('tauri', env, [
+    path.join(WORKSPACE_ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tauri.cmd' : 'tauri'),
+    path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'node_modules', '.bin', process.platform === 'win32' ? 'tauri.cmd' : 'tauri'),
+  ]);
+  if (tauriBin) {
+    const p = probeCommand(tauriBin, ['--version'], { env });
+    if (p.available) {
+      const verLine = p.stdout.split(/\r?\n/)[0] || '';
+      const semverMatch = verLine.match(/(\d+\.\d+\.\d+)/);
+      const detectedVer = semverMatch ? semverMatch[1] : verLine;
+      return {
+        available: true,
+        invocation: tauriBin,
+        kind: 'npm-tauri-cli',
+        version: verLine,
+        semver: detectedVer,
+        pinned_version_expected: PINNED_TAURI_CLI_VERSION,
+        matches_pinned_version: detectedVer === PINNED_TAURI_CLI_VERSION,
+      };
+    }
+  }
+
+  // 2. Check `cargo tauri --version`
+  if (cargoAvailable) {
+    const cp = probeCommand('cargo', ['tauri', '--version'], { env });
+    if (cp.available) {
+      const verLine = cp.stdout.split(/\r?\n/)[0] || '';
+      const semverMatch = verLine.match(/(\d+\.\d+\.\d+)/);
+      const detectedVer = semverMatch ? semverMatch[1] : verLine;
+      return {
+        available: true,
+        invocation: 'cargo tauri',
+        kind: 'cargo-tauri-subcommand',
+        version: verLine,
+        semver: detectedVer,
+        pinned_version_expected: PINNED_TAURI_CLI_VERSION,
+        matches_pinned_version: detectedVer === PINNED_TAURI_CLI_VERSION,
+      };
+    }
+  }
+
+  return {
+    available: false,
+    invocation: null,
+    kind: null,
+    version: null,
+    semver: null,
+    pinned_version_expected: PINNED_TAURI_CLI_VERSION,
+    pinned_npm_package: PINNED_TAURI_NPM_SPEC,
+    matches_pinned_version: false,
+  };
+}
+
 export function runPrerequisitesCheck(options = {}) {
   const target = options.target || defaultHostTriple();
   const env = buildAugmentedEnv();
 
+  const hwArch = probeNativeHardwareArch(env);
+  const { arch: targetCanonicalArch, osPlatform: targetOsPlatform } = parseTargetArchAndOs(target);
+
   const rustc = probeCommand('rustc', ['-Vv'], { env });
   const cargo = probeCommand('cargo', ['--version'], { env });
+  const cargoDeny = probeCommand('cargo-deny', ['--version'], { env });
   const rustupTargets = probeCommand('rustup', ['target', 'list', '--installed'], { env });
   const rustupToolchains = probeCommand('rustup', ['toolchain', 'list'], { env });
 
@@ -511,40 +673,19 @@ export function runPrerequisitesCheck(options = {}) {
 
   const targetInstalled = installedTargets.includes(target) || rustcHost === target;
 
-  // Check Tauri CLI (cargo tauri --version, cargo-tauri --version, or local node_modules/.bin/tauri)
-  let tauriCli = { available: false, invocation: null, version: null };
-  const cargoTauriProbe = cargo.available
-    ? probeCommand('cargo', ['tauri', '--version'], { env })
-    : { available: false };
-  if (cargoTauriProbe.available) {
-    tauriCli = {
-      available: true,
-      invocation: 'cargo tauri',
-      version: cargoTauriProbe.stdout.split(/\r?\n/)[0] || null,
-    };
-  } else {
-    const localTauriBin = findExecutable('tauri', env, [
-      path.join(WORKSPACE_ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tauri.cmd' : 'tauri'),
-      path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'node_modules', '.bin', process.platform === 'win32' ? 'tauri.cmd' : 'tauri'),
-    ]);
-    if (localTauriBin) {
-      const localProbe = probeCommand(localTauriBin, ['--version'], { env });
-      if (localProbe.available) {
-        tauriCli = {
-          available: true,
-          invocation: localTauriBin,
-          version: localProbe.stdout.split(/\r?\n/)[0] || null,
-        };
-      }
-    }
-  }
+  const isNativeHardwareAndOs =
+    process.platform === targetOsPlatform && hwArch.canonical_arch === targetCanonicalArch;
+  const isNativeRustHostTriple = rustcHost === target;
+  const nativeRuntimeTestPossible = isNativeHardwareAndOs && isNativeRustHostTriple;
+
+  const tauriCli = detectTauriCli(env, cargo.available);
 
   const workspaceMsrv = readCargoMsrv(path.join(WORKSPACE_ROOT, 'Cargo.toml'));
   const tauriMsrv = readCargoMsrv(path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri', 'Cargo.toml'));
   const effectiveMsrv = tauriMsrv || workspaceMsrv || '1.90';
   const msrvSatisfied = rustcRelease ? compareSemver(rustcRelease, effectiveMsrv) >= 0 : false;
 
-  const icons = inspectIconsAndTauriConf();
+  const icons = inspectIconsAndBundleOverlay();
   const windowsChecks = checkWindowsPrerequisites(env, target);
   const macosChecks = checkMacosPrerequisites(env, target, installedTargets);
   const linuxChecks = checkLinuxPrerequisites(env, target);
@@ -563,6 +704,11 @@ export function runPrerequisitesCheck(options = {}) {
       `Rust target ${target} is not installed on active toolchain (host=${rustcHost}; installed=${installedTargets.join(', ')})`,
     );
   }
+  if (!nativeRuntimeTestPossible) {
+    warnings.push(
+      `Non-native target configuration (hardware=${process.platform}/${hwArch.canonical_arch}, rustc_host=${rustcHost}, requested_target=${target}); cross-compilation can NEVER substitute for native runtime testing.`,
+    );
+  }
   if (workspaceMsrv && tauriMsrv && workspaceMsrv !== tauriMsrv) {
     warnings.push(
       `IR-001: MSRV mismatch between desktop-instance-manager/Cargo.toml (${workspaceMsrv}) and apps/desktop/src-tauri/Cargo.toml (${tauriMsrv}).`,
@@ -573,15 +719,18 @@ export function runPrerequisitesCheck(options = {}) {
   }
 
   if (!tauriCli.available) {
-    blockingBundlerIssues.push('Tauri CLI (cargo-tauri / @tauri-apps/cli) is not installed');
+    blockingBundlerIssues.push(`Tauri CLI (${PINNED_TAURI_NPM_SPEC} / cargo-tauri) is not installed`);
   }
 
   if (target.includes('-windows-')) {
     if (process.platform !== 'win32') {
-      blockingCompileIssues.push(`Target ${target} requires a Windows build runner (current host: ${process.platform})`);
+      blockingCompileIssues.push(`Target ${target} requires a native Windows runner (current host: ${process.platform})`);
     } else {
       if (target.endsWith('-msvc') && !windowsChecks.msvc_toolchain.available) {
         blockingCompileIssues.push('MSVC C++ Build Tools (cl.exe / link.exe) not detected for x86_64-pc-windows-msvc');
+      }
+      if (target.endsWith('-gnu') && !windowsChecks.gnu_mingw_toolchain.available) {
+        blockingCompileIssues.push('MinGW-w64 gcc.exe not detected for x86_64-pc-windows-gnu');
       }
       if (!windowsChecks.bundlers.wix_msi.available && !windowsChecks.bundlers.nsis_setup.available) {
         blockingBundlerIssues.push('Neither WiX (candle/light/wix) nor NSIS (makensis) is installed on this Windows host');
@@ -604,13 +753,13 @@ export function runPrerequisitesCheck(options = {}) {
       if (!macosChecks.tools.hdiutil.available) {
         blockingBundlerIssues.push('hdiutil missing on macOS host (.dmg creation unavailable)');
       }
-      if (!icons.has_icns) {
-        blockingBundlerIssues.push('icons/icon.icns missing from tauri.conf.json and icons/ (IR-002)');
+      if (!icons.has_icns && !icons.ci_bundle_overlay.has_valid_icns) {
+        blockingBundlerIssues.push('Neither base tauri.conf.json nor CI bundle overlay provides a valid icon.icns (IR-002)');
       }
     }
   } else if (target.includes('-unknown-linux-')) {
     if (process.platform !== 'linux') {
-      blockingCompileIssues.push(`Target ${target} requires an Ubuntu/Linux build host (current host: ${process.platform})`);
+      blockingCompileIssues.push(`Target ${target} requires a native Ubuntu/Linux runner (current host: ${process.platform})`);
     } else {
       const pkgs = linuxChecks.pkg_config.packages;
       if (!pkgs['webkit2gtk-4.1'].available) {
@@ -650,15 +799,25 @@ export function runPrerequisitesCheck(options = {}) {
   }
 
   return {
-    schema_version: 1,
+    schema_version: 2,
     checked_at_utc: new Date().toISOString(),
     host: {
       platform: process.platform,
       arch: process.arch,
+      hardware_arch_probe: hwArch,
       release: os.release(),
       node_version: process.version,
     },
     requested_target: target,
+    native_execution_verification: {
+      target_os: targetOsPlatform,
+      target_canonical_arch: targetCanonicalArch,
+      host_hardware_canonical_arch: hwArch.canonical_arch,
+      rustc_host_triple: rustcHost,
+      is_native_hardware_and_os: isNativeHardwareAndOs,
+      is_native_rustc_host: isNativeRustHostTriple,
+      native_runtime_test_possible: nativeRuntimeTestPossible,
+    },
     status,
     compile_ready: compileReady,
     bundler_ready: bundlerReady,
@@ -671,6 +830,11 @@ export function runPrerequisitesCheck(options = {}) {
       cargo_available: cargo.available,
       cargo_path: cargo.resolved_path,
       cargo_version: cargo.available ? cargo.stdout : null,
+      cargo_deny: {
+        available: cargoDeny.available,
+        path: cargoDeny.resolved_path,
+        version: cargoDeny.available ? cargoDeny.stdout : null,
+      },
       installed_toolchains: installedToolchains,
       installed_targets: installedTargets,
       requested_target_installed: targetInstalled,
@@ -696,7 +860,7 @@ function cliMain() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
     console.log(
-      'Usage: node check-prerequisites.mjs --target <triple> [--require-bundler] [--require-compile] [--out <json-path>]',
+      'Usage: node check-prerequisites.mjs --target <triple> [--require-bundler] [--require-compile] [--require-native-target] [--out <json-path>]',
     );
     process.exit(0);
   }
@@ -714,9 +878,12 @@ function cliMain() {
     status: report.status,
     compile_ready: report.compile_ready,
     bundler_ready: report.bundler_ready,
+    native_runtime_test_possible: report.native_execution_verification.native_runtime_test_possible,
     rustc_release: report.toolchain.rustc_release,
     rustc_host: report.toolchain.rustc_host,
+    cargo_deny_version: report.toolchain.cargo_deny.version,
     tauri_cli_available: report.toolchain.tauri_cli.available,
+    ci_bundle_overlay_ready: report.icons.ci_bundle_overlay.mitigates_ir002_ir003_in_ci,
     blocking_compile_issues: report.blocking_compile_issues,
     blocking_bundler_issues: report.blocking_bundler_issues,
     warnings_count: report.warnings.length,
@@ -724,6 +891,9 @@ function cliMain() {
   }, null, 2));
 
   if (!report.toolchain.rustc_available || !report.toolchain.cargo_available) {
+    process.exit(1);
+  }
+  if (opts.requireNativeTarget && !report.native_execution_verification.native_runtime_test_possible) {
     process.exit(1);
   }
   if (opts.requireBundler && !report.bundler_ready) {

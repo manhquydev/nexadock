@@ -5,16 +5,19 @@
  *
  * Verifies:
  *   1. `node --check` syntax validation across ALL `.mjs` scripts in `scripts/ci-cross-platform/`.
- *   2. Synthetic PE32+ (`x86_64` & `aarch64`), MSI CFB, Mach-O 64-bit (`arm64` & `x86_64`),
+ *   2. Real generated `assets/icon.icns` (`icns` magic `69636e73`, `ic07` 128x128 + `ic08` 256x256 PNG),
+ *      `assets/128x128@2x.png` (256x256 RGBA), and `tauri-ci-bundle-overlay.json` schema & icon resolution.
+ *   3. Synthetic PE32+ (`x86_64` & `aarch64`), MSI CFB, Mach-O 64-bit (`arm64` & `x86_64`),
  *      Mach-O Universal Fat binary, `.app` `Info.plist`, `.dmg` UDIF `koly` trailer,
  *      Linux ELF64 (`x86_64`) + `GLIBC_2.xx` floor, Type-2 `.AppImage` (`AI\x02`), and `.deb` `ar` parsers.
- *   3. Honesty invariants:
+ *   4. Honesty & 7-pillar supply-chain invariants:
  *      - Raw `.exe` / Mach-O / ELF binaries are `compiled-executable` (`is_installer === false`), NEVER installers!
- *      - NSIS `*-setup.exe` (`bundle/nsis/`) and `.msi` / `.dmg` / `.deb` have `is_installer === true`.
  *      - Unsigned artifacts report `UNSIGNED_DEVELOPMENT_ARTIFACT` (never `signed` or `production`).
- *   4. Section 7 manifest schema completeness, SHA-256 verification, `--merge-manifests` cross-OS consolidation,
- *      and Zero-VNG-Binary Policy hard rejection when a `Zalo.exe` payload is planted in `os.tmpdir()`.
- *   5. `check-prerequisites.mjs` and `dependency-audit.mjs` CLI contracts (including IR-001 MSRV mismatch detection).
+ *      - Provenance reports `SELF_REPORTED_UNATTESTED` (SBOM != provenance).
+ *      - `dependency-audit.mjs` reports real `cargo-deny` / RustSec scan when present, AND strictly reports
+ *        `UNVERIFIED_ADVISORY_DB_NOT_SCANNED` (`vulnerabilities_found === null`) when no advisory DB was scanned!
+ *   5. `build-and-package.mjs --dry-run` enforces `--locked` on all cargo stages, pins `@tauri-apps/cli@2.12.5`,
+ *      and marks `native_runtime_test_possible === false` on non-native cross targets.
  */
 
 import assert from 'node:assert/strict';
@@ -33,15 +36,18 @@ import {
   parseDebHeaders,
   parseDmgTrailer,
   parseElfHeaders,
+  parseIcnsHeaders,
   parseMachOHeaders,
   parseMsiHeaders,
   parsePeHeaders,
 } from './inspect-artifact.mjs';
 import { SECTION_7_REQUIRED_FIELDS } from './generate-artifact-manifest.mjs';
 import { evaluateSpdxExpression } from './dependency-audit.mjs';
+import { PINNED_TAURI_CLI_VERSION, PINNED_TAURI_NPM_SPEC } from './check-prerequisites.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const WORKSPACE_ROOT = path.resolve(__dirname, '..', '..');
 
 function buildSyntheticPe64Buffer({
   machine = 0x8664,
@@ -51,29 +57,22 @@ function buildSyntheticPe64Buffer({
   includeWebView2Import = true,
 } = {}) {
   const buf = Buffer.alloc(2048, 0);
-  // DOS Header: 'MZ' + e_lfanew = 0x80
   buf[0] = 0x4d;
   buf[1] = 0x5a;
   const eLfanew = 0x80;
   buf.writeUInt32LE(eLfanew, 0x3c);
-
-  // PE Signature: 'PE\0\0'
   buf.write('PE\0\0', eLfanew, 'ascii');
 
-  // COFF Header (20 bytes at 0x84)
   const coff = eLfanew + 4;
-  buf.writeUInt16LE(machine, coff + 0); // Machine
-  buf.writeUInt16LE(3, coff + 2);       // NumberOfSections
-  buf.writeUInt16LE(240, coff + 16);    // SizeOfOptionalHeader (PE32+ standard = 240)
-  buf.writeUInt16LE(0x0022, coff + 18); // Characteristics: EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+  buf.writeUInt16LE(machine, coff + 0);
+  buf.writeUInt16LE(3, coff + 2);
+  buf.writeUInt16LE(240, coff + 16);
+  buf.writeUInt16LE(0x0022, coff + 18);
 
-  // Optional Header PE32+ (at 0x98)
   const opt = coff + 20;
-  buf.writeUInt16LE(0x020b, opt + 0);   // PE32+ magic
-  buf.writeUInt16LE(2, opt + 68);       // Subsystem: WINDOWS_GUI
-  buf.writeUInt32LE(16, opt + 108);     // NumberOfRvaAndSizes = 16
-
-  // DataDirectory[4] = IMAGE_DIRECTORY_ENTRY_SECURITY at opt + 112 + 32 = opt + 144
+  buf.writeUInt16LE(0x020b, opt + 0);
+  buf.writeUInt16LE(2, opt + 68);
+  buf.writeUInt32LE(16, opt + 108);
   buf.writeUInt32LE(certOffset, opt + 144);
   buf.writeUInt32LE(certSize, opt + 148);
 
@@ -105,26 +104,24 @@ function buildSyntheticPe64Buffer({
 
 function buildSyntheticMachO64Buffer({ cpuType = 0x0100000c, withCodeSigCmd = false } = {}) {
   const buf = Buffer.alloc(256, 0);
-  buf.writeUInt32LE(0xfeedfacf, 0); // MH_MAGIC_64 (little-endian)
-  buf.writeUInt32LE(cpuType, 4);    // CPU_TYPE_ARM64 (0x0100000c) or CPU_TYPE_X86_64 (0x01000007)
-  buf.writeUInt32LE(0, 8);          // cpusubtype
-  buf.writeUInt32LE(2, 12);         // MH_EXECUTE
-  buf.writeUInt32LE(withCodeSigCmd ? 1 : 0, 16); // ncmds
-  buf.writeUInt32LE(withCodeSigCmd ? 16 : 0, 20); // sizeofcmds
+  buf.writeUInt32LE(0xfeedfacf, 0);
+  buf.writeUInt32LE(cpuType, 4);
+  buf.writeUInt32LE(0, 8);
+  buf.writeUInt32LE(2, 12);
+  buf.writeUInt32LE(withCodeSigCmd ? 1 : 0, 16);
+  buf.writeUInt32LE(withCodeSigCmd ? 16 : 0, 20);
   if (withCodeSigCmd) {
-    buf.writeUInt32LE(0x1d, 32);    // LC_CODE_SIGNATURE
-    buf.writeUInt32LE(16, 36);      // cmdsize
+    buf.writeUInt32LE(0x1d, 32);
+    buf.writeUInt32LE(16, 36);
   }
   return buf;
 }
 
 function buildSyntheticMachOFatBuffer() {
   const buf = Buffer.alloc(128, 0);
-  buf.writeUInt32BE(0xcafebabe, 0); // FAT_MAGIC (big-endian)
-  buf.writeUInt32BE(2, 4);          // nfat_arch = 2
-  // Slice 0: x86_64
+  buf.writeUInt32BE(0xcafebabe, 0);
+  buf.writeUInt32BE(2, 4);
   buf.writeUInt32BE(0x01000007, 8);
-  // Slice 1: arm64
   buf.writeUInt32BE(0x0100000c, 28);
   return buf;
 }
@@ -132,20 +129,19 @@ function buildSyntheticMachOFatBuffer() {
 function buildSyntheticElf64Buffer({ isAppImage = false, machine = 0x3e } = {}) {
   const buf = Buffer.alloc(512, 0);
   buf[0] = 0x7f;
-  buf[1] = 0x45; // 'E'
-  buf[2] = 0x4c; // 'L'
-  buf[3] = 0x46; // 'F'
-  buf[4] = 2;    // ELFCLASS64
-  buf[5] = 1;    // ELFDATA2LSB (little-endian)
-  buf[6] = 1;    // EV_CURRENT
+  buf[1] = 0x45;
+  buf[2] = 0x4c;
+  buf[3] = 0x46;
+  buf[4] = 2;
+  buf[5] = 1;
+  buf[6] = 1;
   if (isAppImage) {
-    // AppImage Type 2 magic at offset 8..10: 'A', 'I', 0x02
     buf[8] = 0x41;
     buf[9] = 0x49;
     buf[10] = 0x02;
   }
-  buf.writeUInt16LE(3, 16);         // ET_DYN (PIE)
-  buf.writeUInt16LE(machine, 18);   // EM_X86_64 (0x3e)
+  buf.writeUInt16LE(3, 16);
+  buf.writeUInt16LE(machine, 18);
   buf.write('GLIBC_2.2.5\0GLIBC_2.34\0GLIBC_2.39\0', 128, 'ascii');
   return buf;
 }
@@ -166,7 +162,6 @@ function buildSyntheticMsiBuffer() {
 
 function buildSyntheticDmgBuffer() {
   const buf = Buffer.alloc(1024, 0);
-  // UDIF 512-byte trailer starts with 'koly' at length - 512
   buf.write('koly', 512, 'ascii');
   return buf;
 }
@@ -195,7 +190,49 @@ function main() {
     });
   }
 
-  // 2. SPDX expression evaluator unit tests
+  // 2. Validate generated Apple `.icns`, Retina `128x128@2x.png`, and `tauri-ci-bundle-overlay.json`
+  runTest('icns-retina-assets-and-tauri-bundle-overlay', () => {
+    const icnsPath = path.join(__dirname, 'assets', 'icon.icns');
+    const retinaPath = path.join(__dirname, 'assets', '128x128@2x.png');
+    const overlayPath = path.join(__dirname, 'tauri-ci-bundle-overlay.json');
+
+    assert.ok(fs.existsSync(icnsPath), 'Missing assets/icon.icns');
+    assert.ok(fs.existsSync(retinaPath), 'Missing assets/128x128@2x.png');
+    assert.ok(fs.existsSync(overlayPath), 'Missing tauri-ci-bundle-overlay.json');
+
+    const icnsParsed = parseIcnsHeaders(fs.readFileSync(icnsPath));
+    assert.equal(icnsParsed.valid_icns, true, 'icon.icns failed ICNS structural validation');
+    assert.equal(icnsParsed.magic_hex, '69636e73');
+    assert.equal(icnsParsed.declared_total_bytes, icnsParsed.actual_total_bytes);
+    assert.equal(icnsParsed.has_ic07_128x128, true, 'icon.icns missing ic07 128x128 PNG chunk');
+    assert.equal(icnsParsed.has_ic08_256x256, true, 'icon.icns missing ic08 256x256 PNG chunk');
+
+    const icnsInspected = inspectArtifact(icnsPath);
+    assert.equal(icnsInspected.artifact_kind, 'macos-icns-icon');
+    assert.equal(icnsInspected.is_installer, false);
+    assert.equal(icnsInspected.details.icns.valid_icns, true);
+
+    const retinaBuf = fs.readFileSync(retinaPath);
+    assert.equal(retinaBuf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+    assert.equal(retinaBuf.readUInt32BE(16), 256);
+    assert.equal(retinaBuf.readUInt32BE(20), 256);
+    assert.equal(retinaBuf[24], 8);
+    assert.equal(retinaBuf[25], 6); // RGBA
+
+    const overlay = JSON.parse(fs.readFileSync(overlayPath, 'utf8'));
+    assert.equal(overlay.bundle.windows.webviewInstallMode.type, 'downloadBootstrapper');
+    assert.equal(overlay.bundle.macOS.minimumSystemVersion, '11.0');
+    assert.ok(Array.isArray(overlay.bundle.linux.deb.depends));
+    assert.ok(overlay.bundle.linux.deb.depends.includes('libwebkit2gtk-4.1-0'));
+
+    const srcTauriDir = path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri');
+    for (const relIcon of overlay.bundle.icon) {
+      const resolvedIcon = path.resolve(srcTauriDir, relIcon);
+      assert.ok(fs.existsSync(resolvedIcon), `Overlay icon path does not resolve: ${relIcon}`);
+    }
+  });
+
+  // 3. SPDX expression evaluator unit tests
   runTest('spdx-license-expression-evaluator', () => {
     const allowed = new Set(['MIT', 'Apache-2.0', 'Apache-2.0 WITH LLVM-exception', 'BSD-3-Clause', 'Zlib']);
     assert.equal(evaluateSpdxExpression('MIT OR Apache-2.0', allowed), true);
@@ -206,17 +243,15 @@ function main() {
     assert.equal(evaluateSpdxExpression('AGPL-3.0-only', allowed), false);
   });
 
-  // 3. Synthetic binary inspection, classification, and manifest tests in `os.tmpdir()`
+  // 4. Synthetic binary inspection, classification, and manifest tests in `os.tmpdir()`
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dim-ci-xplat-selftest-'));
   try {
-    // 3a. Raw Windows PE32+ executable (`dim-desktop.exe`) + sidecar `WebView2Loader.dll`
     const winRelDir = path.join(tmpRoot, 'target', 'x86_64-pc-windows-msvc', 'release');
     fs.mkdirSync(winRelDir, { recursive: true });
     const rawExePath = path.join(winRelDir, 'dim-desktop.exe');
     fs.writeFileSync(rawExePath, buildSyntheticPe64Buffer());
     fs.writeFileSync(path.join(winRelDir, 'WebView2Loader.dll'), Buffer.from('MZ-sidecar-placeholder'));
 
-    // 3b. NSIS setup installer (`bundle/nsis/*-setup.exe`) and MSI (`bundle/msi/*.msi`)
     const nsisDir = path.join(winRelDir, 'bundle', 'nsis');
     const msiDir = path.join(winRelDir, 'bundle', 'msi');
     fs.mkdirSync(nsisDir, { recursive: true });
@@ -248,12 +283,10 @@ function main() {
       assert.equal(msiInsp.is_installer, true);
       assert.equal(msiInsp.details.msi.valid_cfb_header, true);
 
-      // Also verify ARM64 PE header machine code 0xaa64
       const armPe = parsePeHeaders(buildSyntheticPe64Buffer({ machine: 0xaa64 }));
       assert.equal(armPe.cpu_architecture, 'aarch64');
     });
 
-    // 3c. macOS Mach-O (`arm64` & universal fat), `.app` bundle, and `.dmg`
     const macRelDir = path.join(tmpRoot, 'target', 'aarch64-apple-darwin', 'release');
     const appDir = path.join(macRelDir, 'bundle', 'macos', 'Multi-Zalo Desktop.app');
     const appMacosBinDir = path.join(appDir, 'Contents', 'MacOS');
@@ -307,7 +340,6 @@ function main() {
       assert.equal(parseDmgTrailer(buildSyntheticDmgBuffer()).valid_udif_koly_trailer, true);
     });
 
-    // 3d. Linux ELF64, Type-2 `.AppImage`, and `.deb`
     const linuxRelDir = path.join(tmpRoot, 'target', 'x86_64-unknown-linux-gnu', 'release');
     const debDir = path.join(linuxRelDir, 'bundle', 'deb');
     const appImageDir = path.join(linuxRelDir, 'bundle', 'appimage');
@@ -349,7 +381,7 @@ function main() {
       assert.equal(parseMsiHeaders(buildSyntheticMsiBuffer()).valid_cfb_header, true);
     });
 
-    // 4. End-to-end `generate-artifact-manifest.mjs` per-OS + `--merge-manifests` verification
+    // 5. End-to-end Section 7 manifest + `SELF_REPORTED_UNATTESTED` provenance verification
     const manifestsDir = path.join(tmpRoot, 'manifests');
     runTest('generate-and-merge-section7-manifests', () => {
       const winOutDir = path.join(manifestsDir, 'manifest-windows-x86_64');
@@ -361,25 +393,24 @@ function main() {
         path.join(__dirname, 'generate-artifact-manifest.mjs'),
         '--artifacts-dir', winRelDir,
         '--target', 'x86_64-pc-windows-msvc',
-        '--os-label', 'windows-latest',
+        '--os-label', 'windows-2022',
         '--arch', 'x86_64',
-        '--test-status', 'PASSED (synthetic selftest)',
+        '--test-status', 'PASSED_NATIVE',
         '--build-log-url', 'https://example.invalid/runs/1',
         '--out-manifest', path.join(winOutDir, 'artifact-manifest.json'),
         '--out-sha256', path.join(winOutDir, 'SHA256SUMS.txt'),
         '--out-md', path.join(winOutDir, 'artifact-summary.md'),
       ], { stdio: 'pipe' });
 
-      // Also drop a non-manifest JSON file (`prereq.json`) into winOutDir to verify `--merge-manifests` ignores it cleanly!
       fs.writeFileSync(path.join(winOutDir, 'prereq.json'), JSON.stringify({ status: 'READY' }), 'utf8');
 
       execFileSync(process.execPath, [
         path.join(__dirname, 'generate-artifact-manifest.mjs'),
         '--artifacts-dir', macRelDir,
         '--target', 'aarch64-apple-darwin',
-        '--os-label', 'macos-14',
+        '--os-label', 'macos-15',
         '--arch', 'arm64',
-        '--test-status', 'PASSED (synthetic selftest)',
+        '--test-status', 'PASSED_NATIVE',
         '--build-log-url', 'https://example.invalid/runs/1',
         '--out-manifest', path.join(macOutDir, 'artifact-manifest.json'),
         '--out-sha256', path.join(macOutDir, 'SHA256SUMS.txt'),
@@ -391,22 +422,22 @@ function main() {
         '--target', 'x86_64-unknown-linux-gnu',
         '--os-label', 'ubuntu-24.04',
         '--arch', 'x86_64',
-        '--test-status', 'PASSED (synthetic selftest)',
+        '--test-status', 'PASSED_NATIVE',
         '--build-log-url', 'https://example.invalid/runs/1',
         '--out-manifest', path.join(linOutDir, 'artifact-manifest.json'),
         '--out-sha256', path.join(linOutDir, 'SHA256SUMS.txt'),
       ], { stdio: 'pipe' });
 
-      // Verify exact SHA-256 match on Windows raw binary
       const winManifest = JSON.parse(fs.readFileSync(path.join(winOutDir, 'artifact-manifest.json'), 'utf8'));
-      assert.equal(winManifest.artifacts.length, 3); // dim-desktop.exe, setup.exe, .msi (WebView2Loader.dll excluded as sidecar)
+      assert.equal(winManifest.provenance_trust_level, 'SELF_REPORTED_UNATTESTED');
+      assert.equal(winManifest.artifacts.length, 3);
       const rawEntry = winManifest.artifacts.find((a) => a.name === 'dim-desktop.exe');
       assert.ok(rawEntry);
       assert.equal(rawEntry.sha256, sha256Hex(rawExePath));
       assert.equal(rawEntry.is_installer, false);
       assert.equal(rawEntry.signing_status, 'UNSIGNED_DEVELOPMENT_ARTIFACT');
+      assert.equal(rawEntry.provenance_trust_level, 'SELF_REPORTED_UNATTESTED');
 
-      // Merge all 3 OS manifests
       execFileSync(process.execPath, [
         path.join(__dirname, 'generate-artifact-manifest.mjs'),
         '--merge-manifests', manifestsDir,
@@ -426,11 +457,12 @@ function main() {
           assert.notEqual(entry[field], '', `Empty field ${field}`);
         }
         assert.equal(entry.signing_status, 'UNSIGNED_DEVELOPMENT_ARTIFACT');
+        assert.equal(entry.provenance_trust_level, 'SELF_REPORTED_UNATTESTED');
         assert.equal(entry.vng_binary_embedded, false);
       }
     });
 
-    // 5. Verify Zero-VNG-Binary Policy rejects forbidden `Zalo.exe` payload immediately
+    // 6. Zero-VNG-Binary Policy rejection
     runTest('zero-vng-binary-policy-rejection', () => {
       const poisonedDir = path.join(tmpRoot, 'poisoned');
       fs.mkdirSync(poisonedDir, { recursive: true });
@@ -445,8 +477,11 @@ function main() {
       assert.match(`${res.stdout}\n${res.stderr}`, /Zero-VNG-Binary/i);
     });
 
-    // 6. Verify `check-prerequisites.mjs` CLI execution & IR-002 `.icns` detection
-    runTest('check-prerequisites-cli', () => {
+    // 7. `check-prerequisites.mjs` & `build-and-package.mjs --dry-run` native vs non-native verification
+    runTest('check-prerequisites-and-build-dry-run-contract', () => {
+      assert.equal(PINNED_TAURI_CLI_VERSION, '2.12.5');
+      assert.equal(PINNED_TAURI_NPM_SPEC, '@tauri-apps/cli@2.12.5');
+
       const prereqJsonPath = path.join(tmpRoot, 'prereq-out.json');
       execFileSync(process.execPath, [
         path.join(__dirname, 'check-prerequisites.mjs'),
@@ -455,13 +490,45 @@ function main() {
       ], { stdio: 'pipe' });
       const prereq = JSON.parse(fs.readFileSync(prereqJsonPath, 'utf8'));
       assert.equal(prereq.requested_target, 'x86_64-pc-windows-msvc');
-      assert.equal(prereq.icons.has_icns, false, 'Expected missing .icns warning (IR-002)');
-      assert.ok(prereq.warnings.some((w) => w.includes('IR-001')));
-      assert.ok(prereq.warnings.some((w) => w.includes('IR-002')));
+      assert.equal(prereq.icons.has_icns, false);
+      assert.equal(prereq.icons.ci_bundle_overlay.mitigates_ir002_ir003_in_ci, true);
+
+      // Dry-run cross-target check: non-native target MUST set native_runtime_test_possible === false and enforce `--locked`
+      const foreignTriple = process.platform === 'darwin' ? 'x86_64-unknown-linux-gnu' : 'aarch64-apple-darwin';
+      const buildSummaryPath = path.join(tmpRoot, 'dry-build-summary.json');
+      execFileSync(process.execPath, [
+        path.join(__dirname, 'build-and-package.mjs'),
+        '--target', foreignTriple,
+        '--bundles', 'none',
+        '--dry-run',
+        '--out', buildSummaryPath,
+      ], { stdio: 'pipe' });
+      const buildSummary = JSON.parse(fs.readFileSync(buildSummaryPath, 'utf8'));
+      assert.equal(buildSummary.native_runtime_test_possible, false);
+      assert.equal(buildSummary.cargo_locked_enforced, true);
+      assert.equal(buildSummary.pinned_tauri_cli_spec, '@tauri-apps/cli@2.12.5');
+      assert.match(buildSummary.runtime_fixture_status, /BLOCKED_NON_NATIVE_TARGET/);
+      for (const step of buildSummary.steps) {
+        assert.ok(step.command.includes('--locked'), `Cargo step missing --locked: ${step.command}`);
+      }
     });
 
-    // 7. Verify `dependency-audit.mjs` CLI execution & IR-001 MSRV warning
-    runTest('dependency-audit-cli', () => {
+    // 8. `dependency-audit.mjs` 7-pillar separation + honesty when advisory DB is unscanned vs real `cargo-deny`
+    runTest('dependency-audit-7-pillars-and-advisory-honesty', () => {
+      // 8a. Simulated unscanned advisory DB MUST report UNVERIFIED_ADVISORY_DB_NOT_SCANNED & null vulnerabilities!
+      const unverifiedJsonPath = path.join(tmpRoot, 'dep-audit-unverified.json');
+      execFileSync(process.execPath, [
+        path.join(__dirname, 'dependency-audit.mjs'),
+        '--simulate-no-advisory-db',
+        '--out-json', unverifiedJsonPath,
+      ], { stdio: 'pipe' });
+      const unverified = JSON.parse(fs.readFileSync(unverifiedJsonPath, 'utf8'));
+      assert.equal(unverified.checks.advisory_scan.status, 'UNVERIFIED_ADVISORY_DB_NOT_SCANNED');
+      assert.equal(unverified.checks.advisory_scan.vulnerabilities_found, null);
+      assert.equal(unverified.supply_chain_pillars.sbom.is_independent_build_provenance, false);
+      assert.equal(unverified.supply_chain_pillars.provenance.status, 'SELF_REPORTED_UNATTESTED');
+
+      // 8b. Live `dependency-audit.mjs` run
       const auditJsonPath = path.join(tmpRoot, 'dep-audit.json');
       const auditMdPath = path.join(tmpRoot, 'dep-audit.md');
       execFileSync(process.execPath, [
@@ -476,8 +543,15 @@ function main() {
       assert.equal(audit.checks.missing_or_invalid_checksums.length, 0);
       assert.equal(audit.checks.vng_proprietary_binaries_found.length, 0);
       assert.equal(audit.checks.msrv_alignment.mismatch_detected, true);
-      assert.equal(audit.checks.msrv_alignment.workspace_rust_version, '1.85');
-      assert.equal(audit.checks.msrv_alignment.tauri_rust_version, '1.90');
+      assert.deepEqual(Object.keys(audit.supply_chain_pillars), [
+        'lockfile_checksum_verification',
+        'license_policy',
+        'known_vulnerability_advisory_scan',
+        'sbom',
+        'provenance',
+        'artifact_signature',
+        'installer_integrity',
+      ]);
       assert.ok(fs.existsSync(auditMdPath));
     });
   } finally {

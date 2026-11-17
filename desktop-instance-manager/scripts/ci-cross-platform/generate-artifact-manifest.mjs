@@ -3,15 +3,17 @@
  * Section 7 Traceable Build Artifact Manifest & SHA256SUMS Generator
  * for Multi-Zalo Desktop (desktop-instance-manager).
  *
- * Supports:
- *   1) Per-OS artifact discovery & binary header inspection (`--scan-default-targets` / `--artifacts-dir`)
- *   2) Cross-platform manifest consolidation (`--merge-manifests <dir>`) for CI's `artifact-verification` gate
+ * Explicitly separates:
+ *   - Provenance trust level (`SELF_REPORTED_UNATTESTED` vs CI OIDC SLSA attestation)
+ *   - SBOM (declared dependency inventory, NOT independent build provenance)
+ *   - Signing status (`UNSIGNED_DEVELOPMENT_ARTIFACT`, never `signed` or `production`)
+ *   - Artifact classification (`compiled-executable` `is_installer: false` vs OS installers)
  *
  * CLI:
  *   node generate-artifact-manifest.mjs \
  *     [--artifacts-dir <dir-or-comma-paths>] [--scan-default-targets] [--target <triple>] \
  *     [--build-summary <json>] [--os-label <str>] [--arch <str>] [--test-status <str>] \
- *     [--build-log-url <url>] [--merge-manifests <dir>] \
+ *     [--provenance-trust-level <str>] [--build-log-url <url>] [--merge-manifests <dir>] \
  *     --out-manifest <manifest.json> [--out-sha256 <SHA256SUMS.txt>] [--out-md <summary.md>]
  */
 
@@ -40,6 +42,7 @@ export const SECTION_7_REQUIRED_FIELDS = [
   'tauri_version',
   'file_size_bytes',
   'sha256',
+  'provenance_trust_level',
   'signing_status',
   'notarization_status',
   'test_status',
@@ -211,7 +214,6 @@ function scanDirectoryForDeliverables(dirPath, collectedSet) {
       if (['.exe', '.msi', '.dmg', '.deb', '.appimage'].includes(ext)) {
         collectedSet.add(path.resolve(full));
       } else if (ext === '') {
-        // Check extensionless ELF / Mach-O executables (`dim-desktop`, `dim-cli`, `dim-test-fixture`, etc.)
         const fd = fs.openSync(full, 'r');
         const head = Buffer.alloc(16);
         let readBytes = 0;
@@ -322,7 +324,7 @@ export function renderManifestMarkdown(manifest) {
   const rows = manifest.artifacts.map((a) => {
     const shortSha = `${a.sha256.slice(0, 16)}...`;
     const installerLabel = a.is_installer ? 'Yes (Installer)' : 'No (Raw Binary / Bundle)';
-    return `| \`${a.name}\` | \`${a.artifact_kind}\` | ${installerLabel} | \`${a.os}\` (\`${a.cpu_architecture}\`) | \`${a.rust_target_triple}\` | ${a.file_size_bytes.toLocaleString('en-US')} | \`${shortSha}\` | \`${a.signing_status}\` | \`${a.test_status}\` |`;
+    return `| \`${a.name}\` | \`${a.artifact_kind}\` | ${installerLabel} | \`${a.os}\` (\`${a.cpu_architecture}\`) | \`${a.rust_target_triple}\` | ${a.file_size_bytes.toLocaleString('en-US')} | \`${shortSha}\` | \`${a.provenance_trust_level}\` | \`${a.signing_status}\` | \`${a.test_status}\` |`;
   }).join('\n');
 
   return `## Traceable Build Artifact Provenance Manifest
@@ -331,15 +333,17 @@ export function renderManifestMarkdown(manifest) {
 - **Commit SHA:** \`${manifest.build_commit_sha}\`
 - **Rust Toolchain:** \`${manifest.rust_version}\`
 - **Tauri Crate Version:** \`${manifest.tauri_version}\`
+- **Provenance Trust Level:** \`${manifest.provenance_trust_level}\` (script-generated manifest without independent OIDC/SLSA cryptographic attestation; SBOM != provenance)
 - **Signing Posture:** \`UNSIGNED_DEVELOPMENT_ARTIFACT\` (NOT signed, NOT a production release)
 - **Zero VNG Binary Policy:** Verified (\`vng_binary_embedded = false\` across all ${manifest.artifacts.length} artifact(s))
 
-| Artifact | Kind | Installer? | OS (Arch) | Target Triple | Size (Bytes) | SHA-256 (Prefix) | Signing Status | Test Status |
-| :--- | :--- | :--- | :--- | :--- | ---: | :--- | :--- | :--- |
-${rows || '| *(none)* | — | — | — | — | 0 | — | — | — |'}
+| Artifact | Kind | Installer? | OS (Arch) | Target Triple | Size (Bytes) | SHA-256 (Prefix) | Provenance Trust | Signing Status | Test Status |
+| :--- | :--- | :--- | :--- | :--- | ---: | :--- | :--- | :--- | :--- |
+${rows || '| *(none)* | — | — | — | — | 0 | — | — | — | — |'}
 
 > **Honesty & Runtime Compatibility Notice:**
 > - Raw executables (\`dim-desktop.exe\`, \`dim-cli.exe\`, \`dim-desktop\`) are **compiled executables**, never OS installers.
+> - \`SELF_REPORTED_UNATTESTED\` manifests record build metadata & SHA-256 digests without OIDC SLSA v1.0 attestation; SBOMs are dependency inventories, not build provenance.
 > - Compiling or packaging \`dim-desktop\` on macOS or Ubuntu 24.04 proves manager build integrity only — it is **not** proof of macOS Zalo multi-instance runtime isolation or official Linux Zalo availability.
 `;
 }
@@ -354,6 +358,7 @@ export function generateManifest(opts) {
   const tauriVersion = readTauriVersionFromLockfile();
   const buildLogUrl = resolveBuildLogUrl(opts.buildLogUrl);
   const testStatus = opts.testStatus || buildSummary?.test_status || 'VERIFIED_IN_LOCAL_OR_CI_STAGE';
+  const provenanceTrustLevel = opts.provenanceTrustLevel || buildSummary?.provenance_trust_level || 'SELF_REPORTED_UNATTESTED';
 
   const discoveredSet = new Set();
   if (opts.scanDefaultTargets) {
@@ -388,7 +393,6 @@ export function generateManifest(opts) {
       ? inspection.os
       : (opts.osLabel || process.platform);
 
-    // Enforce strict UNSIGNED_DEVELOPMENT_ARTIFACT honesty when unsigned
     const signingStatus = inspection.signing_status === 'APPLE_DEVELOPER_ID_SIGNED'
       ? 'APPLE_DEVELOPER_ID_SIGNED'
       : 'UNSIGNED_DEVELOPMENT_ARTIFACT';
@@ -411,6 +415,7 @@ export function generateManifest(opts) {
       tauri_version: tauriVersion,
       file_size_bytes: inspection.file_size_bytes,
       sha256: inspection.sha256,
+      provenance_trust_level: provenanceTrustLevel,
       signing_status: signingStatus,
       notarization_status: notarizationStatus,
       test_status: testStatus,
@@ -425,7 +430,7 @@ export function generateManifest(opts) {
   });
 
   const manifest = {
-    schema_version: 1,
+    schema_version: 2,
     manifest_kind: 'cross-platform-artifact-manifest',
     generated_at_utc: new Date().toISOString(),
     os_label: opts.osLabel || process.platform,
@@ -433,7 +438,16 @@ export function generateManifest(opts) {
     build_commit_sha: commitSha,
     rust_version: rustVersion,
     tauri_version: tauriVersion,
+    provenance_trust_level: provenanceTrustLevel,
+    supply_chain_separation: {
+      sbom_vs_provenance: 'SBOM_IS_DECLARED_INVENTORY_NOT_INDEPENDENT_BUILD_PROVENANCE',
+      provenance_trust_level: provenanceTrustLevel,
+      oidc_slsa_attestation_present: false,
+      signing_status: 'UNSIGNED_DEVELOPMENT_ARTIFACT',
+      raw_executables_are_installers: false,
+    },
     test_status: testStatus,
+    runtime_fixture_status: buildSummary?.runtime_fixture_status || null,
     bundle_status: buildSummary?.bundle_status || null,
     bundle_diagnostic_reason: buildSummary?.bundle_diagnostic_reason || null,
     signing_policy: 'UNSIGNED_DEVELOPMENT_ARTIFACT (never production or signed release)',
@@ -463,7 +477,6 @@ export function mergeManifestsFromDirectory(mergeDir, outManifestPath) {
       } else if (entry.isFile() && entry.name.endsWith('.json')) {
         try {
           const parsed = JSON.parse(fs.readFileSync(full, 'utf8'));
-          // Only include Section 7 artifact manifests (skip prereq.json, build-summary.json, inspect-*.json)
           if (
             parsed &&
             typeof parsed === 'object' &&
@@ -492,11 +505,16 @@ export function mergeManifestsFromDirectory(mergeDir, outManifestPath) {
       source_file: path.relative(absDir, mf.path).replace(/\\/g, '/'),
       os_label: mf.data.os_label || null,
       target_triple: mf.data.target_triple || null,
+      provenance_trust_level: mf.data.provenance_trust_level || 'SELF_REPORTED_UNATTESTED',
       bundle_status: mf.data.bundle_status || null,
       artifacts_count: mf.data.artifacts.length,
     });
 
-    for (const entry of mf.data.artifacts) {
+    for (const rawEntry of mf.data.artifacts) {
+      const entry = {
+        provenance_trust_level: mf.data.provenance_trust_level || 'SELF_REPORTED_UNATTESTED',
+        ...rawEntry,
+      };
       if (FORBIDDEN_VNG_ARTIFACT_RE.test(String(entry.name || ''))) {
         throw new Error(`FATAL Zero-VNG-Binary Policy violation in ${mf.path}: ${entry.name}`);
       }
@@ -507,7 +525,7 @@ export function mergeManifestsFromDirectory(mergeDir, outManifestPath) {
 
   const first = manifestFiles[0].data;
   const mergedManifest = {
-    schema_version: 1,
+    schema_version: 2,
     manifest_kind: 'cross-platform-artifact-manifest-merged',
     generated_at_utc: new Date().toISOString(),
     merged_manifests_count: manifestFiles.length,
@@ -515,6 +533,7 @@ export function mergeManifestsFromDirectory(mergeDir, outManifestPath) {
     build_commit_sha: first.build_commit_sha || resolveGitCommitSha(),
     rust_version: first.rust_version || 'multiple-runners',
     tauri_version: first.tauri_version || readTauriVersionFromLockfile(),
+    provenance_trust_level: first.provenance_trust_level || 'SELF_REPORTED_UNATTESTED',
     signing_policy: 'UNSIGNED_DEVELOPMENT_ARTIFACT (never production or signed release)',
     zero_vng_binary_policy_passed: true,
     artifacts_count: mergedArtifacts.length,
@@ -539,6 +558,7 @@ function parseArgs(argv) {
     osLabel: null,
     arch: null,
     testStatus: null,
+    provenanceTrustLevel: null,
     buildLogUrl: null,
     mergeManifests: null,
     outManifest: null,
@@ -574,7 +594,10 @@ function parseArgs(argv) {
     else if (arg.startsWith('--arch=')) opts.arch = arg.slice('--arch='.length);
     else if (arg === '--test-status') opts.testStatus = readVal(arg, i++);
     else if (arg.startsWith('--test-status=')) opts.testStatus = arg.slice('--test-status='.length);
-    else if (arg === '--build-log-url') opts.buildLogUrl = readVal(arg, i++);
+    else if (arg === '--provenance-trust-level') opts.provenanceTrustLevel = readVal(arg, i++);
+    else if (arg.startsWith('--provenance-trust-level=')) {
+      opts.provenanceTrustLevel = arg.slice('--provenance-trust-level='.length);
+    } else if (arg === '--build-log-url') opts.buildLogUrl = readVal(arg, i++);
     else if (arg.startsWith('--build-log-url=')) opts.buildLogUrl = arg.slice('--build-log-url='.length);
     else if (arg === '--merge-manifests') opts.mergeManifests = readVal(arg, i++);
     else if (arg.startsWith('--merge-manifests=')) opts.mergeManifests = arg.slice('--merge-manifests='.length);
@@ -593,7 +616,7 @@ function cliMain() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help || !opts.outManifest) {
     console.log(
-      'Usage: node generate-artifact-manifest.mjs [--artifacts-dir <paths>] [--scan-default-targets] [--target <triple>] [--build-summary <json>] [--os-label <str>] [--arch <str>] [--test-status <str>] [--build-log-url <url>] [--merge-manifests <dir>] --out-manifest <manifest.json> [--out-sha256 <SHA256SUMS.txt>] [--out-md <summary.md>]',
+      'Usage: node generate-artifact-manifest.mjs [--artifacts-dir <paths>] [--scan-default-targets] [--target <triple>] [--build-summary <json>] [--os-label <str>] [--arch <str>] [--test-status <str>] [--provenance-trust-level <str>] [--build-log-url <url>] [--merge-manifests <dir>] --out-manifest <manifest.json> [--out-sha256 <SHA256SUMS.txt>] [--out-md <summary.md>]',
     );
     process.exit(opts.help ? 0 : 1);
   }
@@ -623,6 +646,7 @@ function cliMain() {
     artifacts_count: manifest.artifacts_count,
     build_commit_sha: manifest.build_commit_sha,
     tauri_version: manifest.tauri_version,
+    provenance_trust_level: manifest.provenance_trust_level,
     zero_vng_binary_policy_passed: manifest.zero_vng_binary_policy_passed,
     out_manifest: outManifestAbs,
     out_sha256: opts.outSha256 ? path.resolve(opts.outSha256) : null,
