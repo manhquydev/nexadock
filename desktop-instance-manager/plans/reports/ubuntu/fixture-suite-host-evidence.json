@@ -1,0 +1,131 @@
+{
+  "timestamp_utc": "2026-11-17T16:54:18.222Z",
+  "host_platform": "win32",
+  "host_arch": "x64",
+  "live_linux_details": {
+    "is_linux": false,
+    "distro": null,
+    "kernel": "10.0.26300",
+    "apparmor_enabled": null,
+    "apparmor_restrict_unprivileged_userns": null,
+    "bwrap_installed": false,
+    "effective_uid": null
+  },
+  "all_15_scenarios_passed": true,
+  "passed_count": 15,
+  "total_count": 15,
+  "acceptance_classification": {
+    "LINUX_ADAPTER_TESTED": "NOT_TESTED",
+    "DESKTOP_FIXTURE_TESTED": "PORTABLE_HOST_VERIFIED_UBUNTU_RUNTIME_NOT_TESTED",
+    "COMMUNITY_PORT_TESTED": "NOT_TESTED",
+    "OFFICIAL_ZALO_UNSUPPORTED": "CONFIRMED_UNSUPPORTED",
+    "ZALO_LIVE_COMPATIBILITY": "BLOCKED"
+  },
+  "scenarios": [
+    {
+      "id": 1,
+      "scenario": "Application discovery & AppImage ELF64/SHA-256 verification",
+      "status": "PASS",
+      "duration_ms": 3,
+      "detail": "Verified ELF64 Type-2 magic & SHA-256 (41704257a281dcb0...); Official Zalo classified OFFICIAL_ZALO_UNSUPPORTED"
+    },
+    {
+      "id": 2,
+      "scenario": "Multiple concurrent fixture instances",
+      "status": "PASS",
+      "duration_ms": 106,
+      "detail": "pids=[440, 9316]"
+    },
+    {
+      "id": 3,
+      "scenario": "Process separation & PID ownership",
+      "status": "PASS",
+      "duration_ms": 2,
+      "detail": "lockA.pid=440, lockB.pid=9316"
+    },
+    {
+      "id": 4,
+      "scenario": "Data directory separation & cross-profile overwrite block",
+      "status": "PASS",
+      "duration_ms": 4,
+      "detail": "Isolated Database/_production/<uid> & .zalo-profile-id verified"
+    },
+    {
+      "id": 5,
+      "scenario": "XDG Base Directory & user-dirs.dirs confinement",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "HOME, XDG_*, TMPDIR, user-dirs.dirs verified; APPDATA stripped"
+    },
+    {
+      "id": 6,
+      "scenario": "File ownership & POSIX 0o700 permission verification",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Directory ownership verified (POSIX 0o700 bit assertion requires Linux filesystem)"
+    },
+    {
+      "id": 7,
+      "scenario": "Safe graceful shutdown without affecting sibling profile",
+      "status": "PASS",
+      "duration_ms": 181,
+      "detail": "Profile A shut down cleanly while Profile B remained active; zero killall/pkill"
+    },
+    {
+      "id": 8,
+      "scenario": "Crash recovery after abnormal exit",
+      "status": "PASS",
+      "duration_ms": 340,
+      "detail": "Simulated crash (exit=1) left stale lock; relaunch recovered cleanly (launch_count=2)"
+    },
+    {
+      "id": 9,
+      "scenario": "Stale SingletonLock & dead-PID lockfile detection",
+      "status": "PASS",
+      "duration_ms": 8,
+      "detail": "Dead-PID lockfile / dangling SingletonLock classified as stale"
+    },
+    {
+      "id": 10,
+      "scenario": "Path traversal rejection",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Rejected ../, ..\\, /etc/passwd, and NUL-byte relative profile paths"
+    },
+    {
+      "id": 11,
+      "scenario": "Symlink attack protection",
+      "status": "PASS",
+      "duration_ms": 1,
+      "detail": "Verified via Rust unit/integration tests (POSIX symlink creation requires Linux/Unix)"
+    },
+    {
+      "id": 12,
+      "scenario": "AppImage filename spaces, +ZaDark, and Vietnamese Unicode paths",
+      "status": "PASS",
+      "duration_ms": 1,
+      "detail": "Verified Zalo-26.11.10+ZaDark-26.3-e080c70-x86_64.AppImage inside Unicode/spaced directory"
+    },
+    {
+      "id": 13,
+      "scenario": "Missing dependency detection & Ubuntu 24.04/22.04 package hints",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Mapped libfuse2t64 (24.04) / libfuse2 (22.04), libopus0, libpulse0"
+    },
+    {
+      "id": 14,
+      "scenario": "Non-root execution check",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Non-root UID=0 SECURITY_BLOCKED guard verified in Rust test_14"
+    },
+    {
+      "id": 15,
+      "scenario": "Ubuntu AppArmor userns & --no-sandbox SECURITY_BLOCKED policy",
+      "status": "PASS",
+      "duration_ms": 1,
+      "detail": "Policy verified (never auto-injects --no-sandbox; live_linux=false, apparmor_restrict_userns=n/a)"
+    }
+  ]
+}
