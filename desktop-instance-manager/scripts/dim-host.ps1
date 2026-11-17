@@ -1466,6 +1466,23 @@ namespace DesktopInstanceManager.Host
             return snap;
         }
 
+        private static bool TryGetProcessStartFileTimeUtc(int pid, out long fileTimeUtc)
+        {
+            fileTimeUtc = 0L;
+            if (pid <= 0) return false;
+            try
+            {
+                Process p = Process.GetProcessById(pid);
+                if (p == null || p.HasExited) return false;
+                fileTimeUtc = p.StartTime.ToFileTimeUtc();
+                return fileTimeUtc > 0L;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static void CollectDescendants(ProcessTreeSnapshot snap, int rootPid, HashSet<int> result, bool includeNodeAndFixture)
         {
             Queue<int> q = new Queue<int>();
@@ -1474,66 +1491,79 @@ namespace DesktopInstanceManager.Host
             while (q.Count > 0)
             {
                 int cur = q.Dequeue();
+                long parentFt;
+                if (!TryGetProcessStartFileTimeUtc(cur, out parentFt)) continue;
+
                 List<int> children;
                 if (snap.ChildrenByParent.TryGetValue(cur, out children))
                 {
                     for (int i = 0; i < children.Count; i++)
                     {
                         int child = children[i];
+                        if (child <= 0 || child == cur) continue;
                         string exe;
                         if (snap.ExeNameByPid.TryGetValue(child, out exe) &&
                             (exe.StartsWith("Zalo", StringComparison.OrdinalIgnoreCase) ||
                              exe.StartsWith("zocr", StringComparison.OrdinalIgnoreCase) ||
-                             (includeNodeAndFixture && (exe.StartsWith("node", StringComparison.OrdinalIgnoreCase) || exe.StartsWith("dim-test-fixture", StringComparison.OrdinalIgnoreCase)))))
+                             (includeNodeAndFixture && (exe.StartsWith("node", StringComparison.OrdinalIgnoreCase) || exe.StartsWith("dim-test-fixture", StringComparison.OrdinalIgnoreCase) || exe.StartsWith("xf-desktop-fixture", StringComparison.OrdinalIgnoreCase)))))
                         {
-                            if (result.Add(child)) q.Enqueue(child);
+                            long childFt;
+                            if (TryGetProcessStartFileTimeUtc(child, out childFt) && childFt >= parentFt)
+                            {
+                                if (result.Add(child)) q.Enqueue(child);
+                            }
                         }
                     }
                 }
             }
         }
 
+        private static readonly object _rmSessionLock = new object();
+
         public List<int> GetLockingPids(string filePath)
         {
             List<int> result = new List<int>();
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return result;
 
-            uint sessionHandle = 0;
-            string sessionKey = Guid.NewGuid().ToString("N");
-            int startRes = NativeWin32.RmStartSession(out sessionHandle, 0, sessionKey);
-            if (startRes != 0) return result;
-
-            try
+            lock (_rmSessionLock)
             {
-                string[] resources = new string[] { filePath };
-                int regRes = NativeWin32.RmRegisterResources(sessionHandle, 1, resources, 0, null, 0, null);
-                if (regRes != 0) return result;
+                uint sessionHandle = 0;
+                string sessionKey = Guid.NewGuid().ToString("N");
+                int startRes = NativeWin32.RmStartSession(out sessionHandle, 0, sessionKey);
+                if (startRes != 0) return result;
 
-                uint needed = 0;
-                uint count = 0;
-                uint rebootReasons = 0;
-                int listRes = NativeWin32.RmGetList(sessionHandle, out needed, ref count, null, ref rebootReasons);
-                if (listRes == NativeWin32.ERROR_MORE_DATA && needed > 0)
+                try
                 {
-                    NativeWin32.RM_PROCESS_INFO[] infos = new NativeWin32.RM_PROCESS_INFO[needed];
-                    count = needed;
-                    listRes = NativeWin32.RmGetList(sessionHandle, out needed, ref count, infos, ref rebootReasons);
-                    if (listRes == 0)
+                    string[] resources = new string[] { filePath };
+                    int regRes = NativeWin32.RmRegisterResources(sessionHandle, 1, resources, 0, null, 0, null);
+                    if (regRes != 0) return result;
+
+                    uint needed = 0;
+                    uint count = 0;
+                    uint rebootReasons = 0;
+                    int listRes = NativeWin32.RmGetList(sessionHandle, out needed, ref count, null, ref rebootReasons);
+                    if (listRes == NativeWin32.ERROR_MORE_DATA && needed > 0)
                     {
-                        for (uint i = 0; i < count; i++)
+                        NativeWin32.RM_PROCESS_INFO[] infos = new NativeWin32.RM_PROCESS_INFO[needed];
+                        count = needed;
+                        listRes = NativeWin32.RmGetList(sessionHandle, out needed, ref count, infos, ref rebootReasons);
+                        if (listRes == 0)
                         {
-                            int pid = infos[i].Process.dwProcessId;
-                            if (IsManagedAppProcessAlive(pid) && !result.Contains(pid))
+                            for (uint i = 0; i < count; i++)
                             {
-                                result.Add(pid);
+                                int pid = infos[i].Process.dwProcessId;
+                                if (IsManagedAppProcessAlive(pid) && !result.Contains(pid))
+                                {
+                                    result.Add(pid);
+                                }
                             }
                         }
                     }
                 }
-            }
-            finally
-            {
-                NativeWin32.RmEndSession(sessionHandle);
+                finally
+                {
+                    NativeWin32.RmEndSession(sessionHandle);
+                }
             }
             return result;
         }

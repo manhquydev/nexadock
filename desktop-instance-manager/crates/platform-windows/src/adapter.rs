@@ -450,7 +450,11 @@ impl InstanceMonitor for WindowsPlatformAdapter {
             let zalo_data = roaming.join("ZaloData");
             let lockfile = zalo_data.join("lockfile");
 
-            let locking_pids = crate::win32_ffi::get_locking_pids(&lockfile);
+            let self_pid = std::process::id();
+            let locking_pids: Vec<u32> = crate::win32_ffi::get_locking_pids(&lockfile)
+                .into_iter()
+                .filter(|&pid| pid > 0 && pid != self_pid && crate::win32_ffi::is_pid_alive(pid))
+                .collect();
             let mut protected = Vec::new();
             let snap = crate::win32_ffi::ProcessSnapshot::capture();
             for root in &locking_pids {
@@ -812,6 +816,23 @@ impl InstanceLauncher for WindowsPlatformAdapter {
             let rm_locking_pids = crate::win32_ffi::get_locking_pids(&state.lockfile_path);
 
             let pre_snap = crate::win32_ffi::ProcessSnapshot::capture();
+            let mut pre_verified_owned_tree = Vec::new();
+            if let Some(lpid) = lease_verified_pid {
+                for pid in pre_snap.collect_tree(lpid) {
+                    if !pre_verified_owned_tree.contains(&pid) {
+                        pre_verified_owned_tree.push(pid);
+                    }
+                }
+            }
+            for &rpid in &rm_locking_pids {
+                if rpid > 0 {
+                    for pid in pre_snap.collect_tree(rpid) {
+                        if !pre_verified_owned_tree.contains(&pid) {
+                            pre_verified_owned_tree.push(pid);
+                        }
+                    }
+                }
+            }
             let is_zalo_exe = pre_snap
                 .exe_name(main_pid)
                 .map(|n| n.eq_ignore_ascii_case("zalo.exe"))
@@ -895,7 +916,7 @@ impl InstanceLauncher for WindowsPlatformAdapter {
                 }
             }
 
-            let mut verified_owned_tree = Vec::new();
+            let mut verified_owned_tree = pre_verified_owned_tree;
             for &root in &verified_roots {
                 for pid in snap.collect_tree(root) {
                     if !verified_owned_tree.contains(&pid) {

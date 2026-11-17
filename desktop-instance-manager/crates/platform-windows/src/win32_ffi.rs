@@ -663,12 +663,19 @@ pub fn spawn_process_isolated(
         .map(|s| s.pid)
 }
 
+/// Serializes in-process Windows Restart Manager (`rstrtmgr.dll`) sessions so concurrent threads
+/// calling `RmStartSession`..`RmEndSession` inside the same process cannot cross-contaminate results.
+static RM_SESSION_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Queries `rstrtmgr.dll` (`RmStartSession` -> `RmRegisterResources` -> `RmGetList`) for all PIDs
 /// holding locks on `lockfile_path`.
 pub fn get_locking_pids(lockfile_path: &Path) -> Vec<u32> {
     if !lockfile_path.exists() {
         return Vec::new();
     }
+
+    // Hold `_rm_lock` for the entire `RmStartSession`..`RmEndSession` (`_guard` drop) lifetime.
+    let _rm_lock = RM_SESSION_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut session_handle: u32 = 0;
     let mut session_key: [u16; 33] = [0; 33];
@@ -856,6 +863,35 @@ pub struct ProcessSnapshot {
     exe_names: HashMap<u32, String>,
 }
 
+fn query_pid_create_time_100ns(pid: u32) -> Option<u64> {
+    if pid == 0 {
+        return None;
+    }
+    // SAFETY: Query-only handle wrapped in HandleGuard; FILETIME structs are zeroed stack storage.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let _guard = HandleGuard(h);
+        let mut create_ft: FILETIME = zeroed();
+        let mut exit_ft: FILETIME = zeroed();
+        let mut kernel_ft: FILETIME = zeroed();
+        let mut user_ft: FILETIME = zeroed();
+        if GetProcessTimes(
+            h,
+            &mut create_ft,
+            &mut exit_ft,
+            &mut kernel_ft,
+            &mut user_ft,
+        ) == 0
+        {
+            return None;
+        }
+        Some((u64::from(create_ft.dw_high_date_time) << 32) | u64::from(create_ft.dw_low_date_time))
+    }
+}
+
 impl ProcessSnapshot {
     /// Captures a point-in-time Toolhelp32 process tree snapshot.
     pub fn capture() -> Self {
@@ -908,7 +944,14 @@ impl ProcessSnapshot {
         }
     }
 
-    /// Collects `root_pid` and all descendant PIDs in the process tree.
+    /// Collects `root_pid` and all true descendant PIDs in the process tree.
+    ///
+    /// Windows NT retains a child's `th32_parent_process_id` (`InheritedFromUniqueProcessId`)
+    /// after its original parent exits. When the kernel later recycles that dead parent PID for a
+    /// newly spawned process, `th32_parent_process_id == pid` can falsely match pre-existing
+    /// processes (e.g., Primary Zalo `Zalo.exe` whose Squirrel stub parent exited hours earlier).
+    /// Requiring `child_create_time >= parent_create_time` via `GetProcessTimes` rejects any
+    /// recycled parent-PID ghost deterministically.
     pub fn collect_tree(&self, root_pid: u32) -> Vec<u32> {
         let mut visited = HashSet::new();
         let mut result = Vec::new();
@@ -919,8 +962,20 @@ impl ProcessSnapshot {
                 continue;
             }
             result.push(pid);
+            let parent_start = query_pid_create_time_100ns(pid);
             if let Some(children) = self.children_by_parent.get(&pid) {
-                stack.extend(children.iter().copied());
+                if let Some(p_start) = parent_start {
+                    for &child in children {
+                        if child == 0 || child == pid {
+                            continue;
+                        }
+                        if let Some(c_start) = query_pid_create_time_100ns(child) {
+                            if c_start >= p_start {
+                                stack.push(child);
+                            }
+                        }
+                    }
+                }
             }
         }
         result
