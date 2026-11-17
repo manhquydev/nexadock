@@ -26,37 +26,67 @@ function loadInitialLocale() {
   return DEFAULT_LOCALE;
 }
 
-async function loadDictionary(locale) {
+async function loadDictionary(locale, { timeoutMs = 8000 } = {}) {
   const url = new URL(`./${locale}.json`, import.meta.url);
-  if (typeof process !== 'undefined' && process.versions?.node && url.protocol === 'file:') {
+  if (typeof process !== 'undefined' && process.versions?.node && url.protocol === 'file:' && typeof globalThis.__TEST_FETCH__ !== 'function') {
     const fs = await import('node:fs');
     const path = await import('node:path');
     const { fileURLToPath } = await import('node:url');
     const filePath = fileURLToPath(url);
     return JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
   }
-  const resp = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!resp.ok) {
-    throw new Error(`Failed to load i18n dictionary for ${locale}: HTTP ${resp.status}`);
+
+  const fetchImpl = typeof globalThis.__TEST_FETCH__ === 'function' ? globalThis.__TEST_FETCH__ : fetch;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller && timeoutMs > 0
+    ? setTimeout(() => controller.abort(new Error(`i18n load timeout after ${timeoutMs}ms`)), timeoutMs)
+    : null;
+
+  try {
+    const resp = await fetchImpl(url, {
+      headers: { Accept: 'application/json' },
+      ...(controller ? { signal: controller.signal } : {})
+    });
+    if (!resp.ok) {
+      throw new Error(`Failed to load i18n dictionary for ${locale}: HTTP ${resp.status}`);
+    }
+    const parsed = await resp.json();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`Invalid i18n dictionary payload for ${locale}`);
+    }
+    return parsed;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return await resp.json();
 }
 
-export async function initI18n() {
-  if (initialized) return;
-  try {
-    const [vi, en] = await Promise.all([
-      loadDictionary('vi-VN'),
-      loadDictionary('en-US')
-    ]);
-    DICTIONARIES['vi-VN'] = vi;
-    DICTIONARIES['en-US'] = en;
-    initialized = true;
-  } catch (err) {
-    if (typeof console !== 'undefined' && console.error) {
-      console.error('i18n initialization failed:', err);
-    }
+export function hasLoadedDictionary(locale = currentLocale) {
+  const dict = DICTIONARIES[locale];
+  return Boolean(dict && Object.keys(dict).length > 0);
+}
+
+export async function initI18n({ force = false, timeoutMs = 8000 } = {}) {
+  if (initialized && !force) return { ok: true, errors: [] };
+  const results = await Promise.allSettled([
+    loadDictionary('vi-VN', { timeoutMs }),
+    loadDictionary('en-US', { timeoutMs })
+  ]);
+  const errors = [];
+  if (results[0].status === 'fulfilled') {
+    DICTIONARIES['vi-VN'] = results[0].value;
+  } else {
+    errors.push(results[0].reason);
   }
+  if (results[1].status === 'fulfilled') {
+    DICTIONARIES['en-US'] = results[1].value;
+  } else {
+    errors.push(results[1].reason);
+  }
+  initialized = hasLoadedDictionary('vi-VN') || hasLoadedDictionary('en-US');
+  if (errors.length > 0 && typeof console !== 'undefined' && console.error) {
+    console.error('i18n initialization warning:', errors);
+  }
+  return { ok: errors.length === 0, errors };
 }
 
 function resolvePath(dict, key) {
@@ -217,6 +247,11 @@ export function formatDateTime(isoString, locale = currentLocale) {
 
 export function applyDomTranslations(root = typeof document !== 'undefined' ? document : null) {
   if (!root) return;
+  const hasAnyDictionary = hasLoadedDictionary(currentLocale)
+    || hasLoadedDictionary('en-US')
+    || hasLoadedDictionary(DEFAULT_LOCALE);
+  if (!hasAnyDictionary) return;
+
   if (root === document && document.documentElement) {
     document.documentElement.lang = currentLocale === 'vi-VN' ? 'vi' : 'en';
     document.title = t('app.windowTitle');

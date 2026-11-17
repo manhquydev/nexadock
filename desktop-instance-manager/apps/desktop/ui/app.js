@@ -28,6 +28,8 @@ const state = {
   activeDeleteId: null,
   activeRestoreBackupDir: null,
   openDialogContext: null, // { type: 'rename' | 'delete' | 'restore' | 'details', prof?, bk? }
+  openMenuProfileId: null,
+  refreshSeq: 0,
   banner: null, // { kind, messageKey?, messageParams?, rawText?, errorCode?, rawDetail? }
   pendingProfileActions: new Map(), // Map<profileId, action>
   pendingGlobalActions: new Set() // Set<'create' | 'restore' | 'refresh' | 'verify'>
@@ -359,6 +361,7 @@ function buildOverflowMenu(prof, isPending) {
 
   const openMenu = (focusMode = 'first') => {
     if (isPending) return;
+    state.openMenuProfileId = prof.id;
     if (supportsPopover) {
       positionMenu(moreBtn, menuList);
       if (!isOpen()) menuList.showPopover();
@@ -368,13 +371,16 @@ function buildOverflowMenu(prof, isPending) {
     }
     moreBtn.setAttribute('aria-expanded', 'true');
     const items = getEnabledItems();
-    if (items.length > 0) {
+    if (items.length > 0 && focusMode !== 'none') {
       const target = focusMode === 'last' ? items[items.length - 1] : items[0];
       target.focus();
     }
   };
 
   const closeMenu = ({ restoreFocus = false } = {}) => {
+    if (state.openMenuProfileId === prof.id) {
+      state.openMenuProfileId = null;
+    }
     if (supportsPopover) {
       if (isOpen()) {
         try {
@@ -398,15 +404,23 @@ function buildOverflowMenu(prof, isPending) {
       const openNow = event.newState === 'open';
       moreBtn.setAttribute('aria-expanded', openNow ? 'true' : 'false');
       if (openNow) {
+        state.openMenuProfileId = prof.id;
         positionMenu(moreBtn, menuList);
+      } else if (state.openMenuProfileId === prof.id) {
+        state.openMenuProfileId = null;
       }
     });
   } else {
-    document.addEventListener('click', (event) => {
+    const onDocClick = (event) => {
+      if (!menuWrap.isConnected) {
+        document.removeEventListener('click', onDocClick);
+        return;
+      }
       if (isOpen() && !menuWrap.contains(event.target)) {
         closeMenu({ restoreFocus: false });
       }
-    });
+    };
+    document.addEventListener('click', onDocClick);
   }
 
   moreBtn.addEventListener('click', () => {
@@ -487,6 +501,9 @@ function renderProfiles() {
   const emptyHint = document.getElementById('profiles-empty-hint');
   if (!list || !emptyEl) return;
 
+  const reopenMenuId = state.openMenuProfileId;
+  const focusWasInMenu = Boolean(document.activeElement?.closest?.('.overflow-menu'));
+
   list.replaceChildren();
   const allProfiles = state.status?.profiles || [];
   const filtered = filterProfiles(allProfiles, state.searchQuery);
@@ -553,6 +570,34 @@ function renderProfiles() {
     li.appendChild(main);
     li.appendChild(actions);
     list.appendChild(li);
+  }
+
+  if (reopenMenuId) {
+    const row = Array.from(list.querySelectorAll('.profile-row')).find(
+      (el) => el.dataset.profileId === reopenMenuId
+    );
+    const trigger = row?.querySelector('button[aria-haspopup="menu"]');
+    const menu = row?.querySelector('.overflow-menu');
+    if (trigger && menu && !trigger.disabled) {
+      if (Object.hasOwn(HTMLElement.prototype, 'popover')) {
+        positionMenu(trigger, menu);
+        try {
+          menu.showPopover();
+        } catch (_err) {
+          // Ignore if already open
+        }
+      } else {
+        menu.hidden = false;
+        menu.classList.add('is-fallback-open');
+      }
+      trigger.setAttribute('aria-expanded', 'true');
+      state.openMenuProfileId = reopenMenuId;
+      if (focusWasInMenu) {
+        menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
+      }
+    } else {
+      state.openMenuProfileId = null;
+    }
   }
 }
 
@@ -860,6 +905,7 @@ export async function refreshAll({ isVerify = false } = {}) {
   const key = isVerify ? 'verify' : 'refresh';
   if (state.pendingGlobalActions.has(key)) return;
 
+  const seq = ++state.refreshSeq;
   state.pendingGlobalActions.add(key);
   updatePendingControls();
   renderStatusBar();
@@ -873,13 +919,15 @@ export async function refreshAll({ isVerify = false } = {}) {
       apiCall('/api/diagnostics', 'GET', null, 'get_diagnostics', {}),
       apiCall('/api/verify-isolation', 'GET', null, 'verify_isolation', {})
     ]);
+    if (seq !== state.refreshSeq) return;
     state.status = statusData;
     state.backups = backupsData?.backups || [];
     state.diagnostics = diagData;
     state.isolation = isoData;
   } catch (err) {
+    if (seq !== state.refreshSeq) return;
     updateConnectionBadge(state.connectionMode || 'bridge', false);
-    showKeyBanner('statusBar.hostError', { message: err.message }, 'error');
+    showErrorBanner('UNKNOWN', err?.message || '');
   } finally {
     state.pendingGlobalActions.delete(key);
     renderAll();
@@ -910,7 +958,7 @@ async function runProfileAction(action, prof) {
     }
     await refreshAll();
   } catch (err) {
-    showRawBanner(err.message, 'error');
+    showErrorBanner('UNKNOWN', err?.message || '');
   } finally {
     state.pendingProfileActions.delete(prof.id);
     renderProfiles();
@@ -1031,7 +1079,7 @@ function wireDialogsAndFallbacks() {
       else showKeyBanner('messages.profileCreated', {}, 'success');
       await refreshAll();
     } catch (err) {
-      showRawBanner(err.message, 'error');
+      showErrorBanner('UNKNOWN', err?.message || '');
     } finally {
       state.pendingGlobalActions.delete('create');
       updatePendingControls();
@@ -1058,7 +1106,7 @@ function wireDialogsAndFallbacks() {
       else showKeyBanner('messages.profileRenamed', {}, 'success');
       await refreshAll();
     } catch (err) {
-      showRawBanner(err.message, 'error');
+      showErrorBanner('UNKNOWN', err?.message || '');
     } finally {
       state.pendingProfileActions.delete(targetId);
       renderProfiles();
@@ -1082,7 +1130,7 @@ function wireDialogsAndFallbacks() {
       else showKeyBanner('messages.profileDeleted', {}, 'success');
       await refreshAll();
     } catch (err) {
-      showRawBanner(err.message, 'error');
+      showErrorBanner('UNKNOWN', err?.message || '');
     } finally {
       state.pendingProfileActions.delete(targetId);
       renderProfiles();
@@ -1108,7 +1156,7 @@ function wireDialogsAndFallbacks() {
       else showKeyBanner('messages.backupRestored', {}, 'success');
       await refreshAll();
     } catch (err) {
-      showRawBanner(err.message, 'error');
+      showErrorBanner('UNKNOWN', err?.message || '');
     } finally {
       state.pendingGlobalActions.delete('restore');
       updatePendingControls();

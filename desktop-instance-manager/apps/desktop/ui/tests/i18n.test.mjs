@@ -19,7 +19,8 @@ import {
   resolveErrorInfo,
   formatBytes,
   formatDateTime,
-  formatNumber
+  formatNumber,
+  applyDomTranslations
 } from '../i18n/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -157,4 +158,63 @@ test('Intl formatters format bytes, numbers, and dates cleanly', () => {
   assert.equal(formatNumber(1234, 'en-US'), '1,234');
   assert.equal(formatDateTime(null), '—');
   assert.notEqual(formatDateTime('2026-01-15T10:30:00Z', 'vi-VN'), '—');
+});
+
+test('initI18n handles HTTP 404, invalid JSON, timeout, and rapid locale switching without raw key flash', async () => {
+  const savedVi = DICTIONARIES['vi-VN'];
+  const savedEn = DICTIONARIES['en-US'];
+
+  try {
+    // 1. HTTP 404 on vi-VN, valid en-US
+    globalThis.__TEST_FETCH__ = async (url) => {
+      if (String(url).includes('vi-VN')) return { ok: false, status: 404 };
+      return { ok: true, status: 200, json: async () => savedEn };
+    };
+    DICTIONARIES['vi-VN'] = {};
+    DICTIONARIES['en-US'] = {};
+    const res404 = await initI18n({ force: true });
+    assert.equal(res404.ok, false);
+    assert.equal(res404.errors.length, 1);
+
+    // 2. Invalid JSON payload
+    globalThis.__TEST_FETCH__ = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('Unexpected token'); }
+    });
+    DICTIONARIES['vi-VN'] = {};
+    DICTIONARIES['en-US'] = {};
+    const resBadJson = await initI18n({ force: true });
+    assert.equal(resBadJson.ok, false);
+    assert.equal(resBadJson.errors.length, 2);
+
+    // Ensure applyDomTranslations does NOT overwrite static HTML when dictionaries are empty
+    let overwritten = false;
+    const fakeRoot = {
+      querySelectorAll: () => [{ getAttribute: () => 'app.name', set textContent(_v) { overwritten = true; } }]
+    };
+    applyDomTranslations(fakeRoot);
+    assert.equal(overwritten, false);
+
+    // 3. Timeout via AbortController
+    globalThis.__TEST_FETCH__ = (_url, opts) => new Promise((_resolve, reject) => {
+      opts.signal.addEventListener('abort', () => reject(opts.signal.reason || new Error('Aborted')));
+    });
+    const resTimeout = await initI18n({ force: true, timeoutMs: 25 });
+    assert.equal(resTimeout.ok, false);
+    assert.match(String(resTimeout.errors[0]), /timeout/i);
+  } finally {
+    delete globalThis.__TEST_FETCH__;
+    DICTIONARIES['vi-VN'] = savedVi;
+    DICTIONARIES['en-US'] = savedEn;
+    await initI18n({ force: true });
+  }
+
+  // 4. Rapid locale switching settles deterministically on final locale
+  setLocale('en-US');
+  setLocale('vi-VN');
+  setLocale('en-US');
+  setLocale('vi-VN');
+  assert.equal(getLocale(), 'vi-VN');
+  assert.equal(t('nav.profiles'), 'Hồ sơ Zalo');
 });

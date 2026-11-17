@@ -114,6 +114,7 @@ function createMockState() {
 }
 
 let mockData = createMockState();
+const recordedRequests = [];
 
 function readJsonBody(req) {
   return new Promise((resolve) => {
@@ -141,6 +142,11 @@ const server = http.createServer(async (req, res) => {
       res.destroy();
       return;
     }
+    if (Array.isArray(mockData.statusDelayQueue) && mockData.statusDelayQueue.length > 0) {
+      const next = mockData.statusDelayQueue.shift();
+      await new Promise((r) => setTimeout(r, next.delayMs));
+      return json(200, next.payload);
+    }
     return json(200, mockData.status);
   }
   if (urlPath === '/api/backups') return json(200, mockData.backups);
@@ -149,6 +155,7 @@ const server = http.createServer(async (req, res) => {
 
   if (urlPath === '/api/profiles' && req.method === 'POST') {
     const body = await readJsonBody(req);
+    recordedRequests.push({ method: req.method, urlPath, body });
     const created = {
       id: `prof-${mockData.status.profiles.length + 1}`,
       name: body.name || 'New Profile',
@@ -171,6 +178,7 @@ const server = http.createServer(async (req, res) => {
 
   if (urlPath === '/api/backups/restore' && req.method === 'POST') {
     const body = await readJsonBody(req);
+    recordedRequests.push({ method: req.method, urlPath, body });
     return json(200, { ok: true, message: `Restored ${body.name || 'auto'}` });
   }
 
@@ -179,6 +187,8 @@ const server = http.createServer(async (req, res) => {
     const id = decodeURIComponent(profMatch[1]);
     const action = profMatch[2];
     const prof = mockData.status.profiles.find((p) => p.id === id);
+    const body = req.method === 'GET' ? {} : await readJsonBody(req);
+    recordedRequests.push({ method: req.method, urlPath, body });
 
     if (mockData.failNextAction) {
       const err = mockData.failNextAction;
@@ -211,7 +221,6 @@ const server = http.createServer(async (req, res) => {
       return json(200, { ok: true, message: `${action} ok` });
     }
     if (action === 'rename') {
-      const body = await readJsonBody(req);
       if (prof && body.newName) prof.name = body.newName;
       return json(200, { ok: true, message: 'Renamed' });
     }
@@ -449,6 +458,102 @@ try {
   const zoomMetrics = await evalJs(`({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth })`);
   assert.ok(zoomMetrics.scrollWidth <= zoomMetrics.innerWidth, 'Overflow at 200% zoom');
   await snap('zoom-200-vi-light.png');
+
+  // 6. Full 8 API operations + double-click dedup + out-of-order status + menu open across re-render
+  await setViewport(1160, 780, 1);
+  // Ensure prof-2 is stopped before testing launch double-click
+  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(2) .btn-danger')?.click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  recordedRequests.length = 0;
+
+  // Double-click launch on prof-2 -> only 1 launch request
+  mockData.delayNextLaunchMs = 200;
+  await evalJs(`(() => {
+    const btn = document.querySelector('#profiles-list .profile-row:nth-child(2) .btn-primary');
+    btn.click();
+    btn.click();
+  })()`);
+  await new Promise((r) => setTimeout(r, 320));
+  const launchReqs = recordedRequests.filter((r) => r.urlPath === '/api/profiles/prof-2/launch');
+  assert.equal(launchReqs.length, 1, 'Double-click must send only 1 launch request');
+
+  // Focus, Stop, Backup, Rename, Create, Delete, Restore
+  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(1) .btn-primary').click()`);
+  await new Promise((r) => setTimeout(r, 120));
+  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(2) .btn-danger').click()`);
+  await new Promise((r) => setTimeout(r, 120));
+  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(2) [role="menuitem"]:nth-child(2)').click()`);
+  await new Promise((r) => setTimeout(r, 120));
+
+  // Create
+  await evalJs(`(() => {
+    document.querySelector('button[commandfor="create-profile-dialog"]').click();
+    document.getElementById('create-profile-name').value = 'QA Temp';
+    document.getElementById('create-profile-notes').value = 'Sanitized';
+    document.getElementById('create-profile-dialog').close('create');
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+
+  // Rename prof-3
+  await evalJs(`(() => {
+    document.querySelector('#profiles-list .profile-row:nth-child(3) [role="menuitem"]:nth-child(1)').click();
+    document.getElementById('rename-profile-name').value = 'QA Renamed';
+    document.getElementById('rename-profile-dialog').close('rename');
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+
+  // Delete prof-3
+  await evalJs(`(() => {
+    document.querySelector('#profiles-list .profile-row:nth-child(3) [role="menuitem"]:nth-child(4)').click();
+    document.getElementById('delete-profile-dialog').close('delete');
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+
+  // Restore backup
+  await evalJs(`(() => {
+    document.querySelector('.nav-item[data-view="backups"]').click();
+    document.querySelector('#backups-tbody .btn-primary').click();
+    document.getElementById('restore-profile-name').value = 'Restored QA';
+    document.getElementById('restore-backup-dialog').close('restore');
+  })()`);
+  await new Promise((r) => setTimeout(r, 150));
+
+  const seenRoutes = new Set(recordedRequests.map((r) => `${r.method} ${r.urlPath}`));
+  for (const expected of [
+    'POST /api/profiles/prof-2/launch',
+    'POST /api/profiles/prof-1/focus',
+    'POST /api/profiles/prof-2/stop',
+    'POST /api/profiles/prof-2/backup',
+    'POST /api/profiles',
+    'POST /api/profiles/prof-3/rename',
+    'DELETE /api/profiles/prof-3',
+    'POST /api/backups/restore'
+  ]) {
+    assert.ok(seenRoutes.has(expected), `Missing recorded route: ${expected}`);
+  }
+
+  // Out-of-order /api/status responses: slower request #1 must not overwrite faster request #2
+  await evalJs(`document.querySelector('.nav-item[data-view="profiles"]').click()`);
+  const staleStatus = JSON.parse(JSON.stringify(mockData.status));
+  staleStatus.profiles = [staleStatus.profiles[0]];
+  const freshStatus = JSON.parse(JSON.stringify(mockData.status));
+  mockData.statusDelayQueue = [
+    { delayMs: 220, payload: staleStatus },
+    { delayMs: 20, payload: freshStatus }
+  ];
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 30));
+  await evalJs(`document.getElementById('btn-run-isolation').click()`);
+  await new Promise((r) => setTimeout(r, 320));
+  const countAfterRace = await evalJs(`document.querySelectorAll('#profiles-list .profile-row').length`);
+  assert.equal(countAfterRace, 2, 'Stale slower /api/status must not overwrite newer response');
+
+  // Overflow menu stays open when profiles re-render
+  await evalJs(`document.querySelector('#profiles-list .profile-row:first-child button[aria-haspopup="menu"]').click()`);
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const stillExpanded = await evalJs(`document.querySelector('#profiles-list .profile-row:first-child button[aria-haspopup="menu"]').getAttribute('aria-expanded')`);
+  assert.equal(stillExpanded, 'true', 'Overflow menu should stay open across profile re-render');
 
   assert.deepEqual(runtimeErrors, [], `Runtime errors: ${runtimeErrors.join('; ')}`);
   console.log('PASS (16 matrix combinations, WAI-ARIA menu, native radios, async pending, error banner, dialogs, 200% zoom, 0 runtime errors)');
