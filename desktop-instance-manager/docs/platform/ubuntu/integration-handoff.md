@@ -92,4 +92,15 @@ During cross-target Linux compilation and end-to-end integration review, five co
 - Currently `dim-platform-linux` prefixes security-blocked errors with `"SECURITY_BLOCKED: ..."` inside `DimError::ProcessError` and `ApplicationInstallation.signature_status = "SECURITY_BLOCKED"` so `dim-core` stays untouched. Adding `DimError::SecurityBlocked(String)` -> `"SECURITY_BLOCKED"` in `crates/core/src/error.rs` will expose a dedicated top-level `error_code` to CLI/UI consumers.
 
 ### IR-05 (CI Workflow — `.github/workflows/ci.yml`): Wire Ubuntu Fixture Suite on `ubuntu-latest`
-- Add `node tests/platform-linux/run-ubuntu-fixture-tests.mjs` on `runner.os == 'Linux'` in `.github/workflows/ci.yml` alongside `cargo test --workspace --all-targets` so every push/PR verifies both `test_16_native_linux_adapter_end_to_end_launch_focus_and_stop` and all 15 Node.js multi-instance XDG/HOME scenarios on a real Ubuntu 24.04 runner.
+- Add `node tests/platform-linux/run-ubuntu-fixture-tests.mjs` and `bash tests/platform-linux/run-native-ubuntu-validation.sh` on `runner.os == 'Linux'` in `.github/workflows/ci.yml` alongside `cargo test --workspace --all-targets` so every push/PR verifies both `test_16_native_linux_adapter_end_to_end_launch_focus_and_stop` and all 29 Node.js multi-instance XDG/HOME scenarios on a real Ubuntu 24.04 runner.
+
+### IR-06 (Optional — `crates/core/src/error.rs`): Dedicated `DimError::UnsupportedOperation` Variant
+- Currently `dim-platform-linux` returns `Err(DimError::UnsupportedPlatform("UNSUPPORTED_OPERATION: ..."))` for Wayland focus. Adding `DimError::UnsupportedOperation(String)` → `"UNSUPPORTED_OPERATION"` in `dim-core` will expose a semantically distinct error code for operations the platform recognizes but cannot safely perform (vs `UnsupportedPlatform` for platforms entirely unsupported).
+
+---
+
+## 4. B2 Hardening Updates (2026-11-18)
+
+Updated test suite: **45/45** Rust tests (16 unit + 29 integration), **29/29** Node fixture scenarios.
+
+New APIs: `LauncherLifetimePolicy`, `DesktopSocketSurface`, `BwrapSandboxPlan`, `RuntimePidHint`, `Elf64DynamicMetadata`, `AppImagePreflightReport`, `PreflightCategory`. See [runtime-hardening-and-native-validation.md](./runtime-hardening-and-native-validation.md) §7 for full export list.

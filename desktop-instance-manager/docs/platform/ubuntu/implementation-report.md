@@ -105,8 +105,27 @@ Because no Ubuntu test desktop and no user-supplied Zalo `.AppImage` were presen
 
 ---
 
-## 6. Related Deliverables
+## 6. B2 Runtime Hardening (2026-11-18)
 
+Mission B2 hardened this adapter with:
+- **Process Lifetime Fix:** `LauncherLifetimePolicy::PersistentDetachedSession` default (replaces unconditional `--die-with-parent`).
+- **PID-Reuse-Safe Tracking:** `(pid, starttime_ticks)` + 128-bit `DIM_INSTANCE_NONCE`.
+- **Static ELF64 Parser:** Pure-Rust bounds-checked parser replacing all `ldd` calls.
+- **Minimal `bwrap` Binds:** Individual validated socket binds instead of broad mounts.
+- **Honest Wayland Focus:** `UNSUPPORTED_OPERATION` error instead of fake `Ok(())`.
+- **AppArmor Delimiter Match:** Full-path matching only, no bare-filename bypass.
+- **14 Regression Tests:** Covering launcher exit, PID reuse, stale locks, symlinks, permission denial.
+- **Native Validation Script:** 7-check `run-native-ubuntu-validation.sh` for Ubuntu 24.04.
+
+Updated test counts: **45/45** Rust (16 unit + 29 integration), **29/29** Node fixture scenarios.
+
+See [runtime-hardening-and-native-validation.md](./runtime-hardening-and-native-validation.md) for full details.
+
+---
+
+## 7. Related Deliverables
+
+- [runtime-hardening-and-native-validation.md](./runtime-hardening-and-native-validation.md) ← **B2 Report**
 - [appimage-compatibility.md](./appimage-compatibility.md)
 - [security-and-license.md](./security-and-license.md)
 - [integration-handoff.md](./integration-handoff.md)

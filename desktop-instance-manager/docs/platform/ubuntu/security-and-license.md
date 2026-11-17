@@ -75,9 +75,13 @@ profile dim_zalo_appimage "/opt/zalo/Zalo-verified.AppImage" flags=(unconfined) 
 | Threat | Mitigation in `dim-platform-linux` | Verification Test |
 | :--- | :--- | :--- |
 | Broad process kill closing other profiles or primary Zalo | Zero `killall`/`pkill`; `SIGTERM` -> `waitpid(WNOHANG)` -> leaves-first `SIGKILL` strictly on `/proc` PIDs verified via `DIM_PROFILE_ID` & `PrimaryProtectionGuard` | `test_03`, `test_07` |
-| Recycled PID spoofing after crash (`gnome-shell` reuses dead PID) | `entry_matches_profile` inspects `/proc/<pid>/environ` & `cmdline` (`DIM_PROFILE_ID`, `XDG_CONFIG_HOME`, `HOME`) | `test_09` |
+| Recycled PID spoofing after crash (`gnome-shell` reuses dead PID) | `entry_matches_profile` inspects `/proc/<pid>/environ` & `cmdline` (`DIM_PROFILE_ID`, `XDG_CONFIG_HOME`, `HOME`) + `(pid, starttime_ticks)` triple defense + 128-bit `DIM_INSTANCE_NONCE` (B2) | `test_09`, `regression_05` |
 | Cross-profile data overwrite | `.zalo-profile-id` verified before layout/launch (`PROFILE_MARKER_MISMATCH`) | `test_04`, Node `#04` |
-| Received files leaking into real `~/Downloads` or `~/Documents` | Pre-seeds `.config/user-dirs.dirs` + `XDG_DOWNLOAD_DIR` / `XDG_DOCUMENTS_DIR` inside `<profile_dir>` | `test_05`, Node `#05` |
-| Symlink escape / destructive delete following symlinks | `reject_if_symlink` on layout creation + `unlink_profile_junctions` unlinks symlinks before recursive delete | `test_10`, `test_11` |
-| Ambient environment code injection (`LD_PRELOAD`, `NODE_OPTIONS`) | `Command::env_clear()` with strict `PASSTHROUGH_SESSION_ENV_KEYS` allowlist | `test_05` |
-| Root execution / setuid binaries / malicious wrapper scripts | `geteuid() == 0`, `mode & 0o6000`, `mode & 0o002`, and `analyze_startup_script` blocked (`SECURITY_BLOCKED`) | `test_14` |
+| Received files leaking into real `~/Downloads` or `~/Documents` | Pre-seeds `.config/user-dirs.dirs` + `XDG_DOWNLOAD_DIR` / `XDG_DOCUMENTS_DIR` inside `<profile_dir>` | `test_05`, Node `#05`, `regression_08` |
+| Symlink escape / destructive delete following symlinks | `reject_if_symlink` on layout creation + `unlink_profile_junctions` unlinks symlinks before recursive delete | `test_10`, `test_11`, `regression_06` |
+| Ambient environment code injection (`LD_PRELOAD`, `NODE_OPTIONS`) | `Command::env_clear()` with strict `PASSTHROUGH_SESSION_ENV_KEYS` allowlist | `test_05`, `regression_07` |
+| Root execution / setuid binaries / malicious wrapper scripts | `geteuid() == 0`, `mode & 0o6000`, `mode & 0o002`, and `analyze_startup_script` blocked (`SECURITY_BLOCKED`) | `test_14`, `regression_13` |
+| Untrusted binary inspection (`ldd` → arbitrary code execution) | Pure-Rust static ELF64 parser, zero `std::process` calls in `discovery.rs` (B2) | `regression_12` |
+| bwrap kills sessions on CLI exit (`--die-with-parent`) | `LauncherLifetimePolicy::PersistentDetachedSession` default + `--new-session` (B2) | `regression_01` |
+| Wayland focus returns fake `Ok(())` | Honest `Err(DimError::UnsupportedPlatform("UNSUPPORTED_OPERATION: ..."))` (B2) | `regression_10` |
+| AppArmor bare-filename false match | Delimiter-bounded full-path matching only (B2) | `regression_13` |
