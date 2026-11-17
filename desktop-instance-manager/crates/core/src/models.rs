@@ -17,6 +17,18 @@ pub const MIN_FREE_DISK_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 /// Hidden marker file stored inside each profile's `ZaloData` directory to bind identity.
 pub const ZALO_PROFILE_ID_FILE: &str = ".zalo-profile-id";
 
+/// Cross-process advisory lock file protecting `<data_dir>/profiles.json` read-modify-write cycles.
+pub const PROFILES_LOCK_FILE: &str = "profiles.lock";
+
+/// Cross-process per-profile advisory lock file protecting `<profile_dir>` spawn/stop/delete critical sections.
+pub const PROFILE_OP_LOCK_FILE: &str = ".dim-profile.lock";
+
+/// Atomic runtime process ownership lease file inside `<profile_dir>`.
+pub const RUNTIME_LEASE_FILE: &str = ".runtime-lease.json";
+
+/// Legacy compatibility PID hint file inside `<profile_dir>`.
+pub const RUNTIME_PID_FILE: &str = ".runtime-pid";
+
 /// Environment variable overriding the default application data root.
 pub const DIM_DATA_DIR_ENV: &str = "DIM_DATA_DIR";
 
@@ -209,6 +221,143 @@ pub struct ProfileRuntimeState {
     /// Human-readable status summary.
     pub status_label: String,
 }
+
+/// Explicit lifecycle state of an isolated profile runtime.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileLifecycleState {
+    /// No live owning process and no indeterminate ownership lock.
+    #[default]
+    Stopped,
+    /// Process has been spawned and verified via `.runtime-lease.json`, awaiting lockfile readiness.
+    Starting,
+    /// Process is live and holds/wrote its isolated profile lockfile.
+    Running,
+    /// Graceful or escalated termination is actively in progress for this profile.
+    Stopping,
+    /// Indeterminate or corrupted runtime artifacts require recovery before destructive operations.
+    RecoveryRequired,
+}
+
+impl ProfileLifecycleState {
+    /// Machine-readable snake_case identifier.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stopped => "stopped",
+            Self::Starting => "starting",
+            Self::Running => "running",
+            Self::Stopping => "stopping",
+            Self::RecoveryRequired => "recovery_required",
+        }
+    }
+
+    /// Returns `true` when an active OS process lifecycle (`Starting`, `Running`, or `Stopping`) is present.
+    #[must_use]
+    pub const fn is_active(self) -> bool {
+        matches!(self, Self::Starting | Self::Running | Self::Stopping)
+    }
+
+    /// Human-readable status summary label.
+    #[must_use]
+    pub const fn default_status_label(self, stale_lock_detected: bool) -> &'static str {
+        match self {
+            Self::Stopped => {
+                if stale_lock_detected {
+                    "Stopped (Stale Lock)"
+                } else {
+                    "Stopped"
+                }
+            }
+            Self::Starting => "Starting",
+            Self::Running => "Running",
+            Self::Stopping => "Stopping",
+            Self::RecoveryRequired => "Recovery Required",
+        }
+    }
+}
+
+/// Runtime ownership classification evaluated prior to destructive operations (`delete_profile`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeOwnershipState {
+    /// Verified no live process owns or locks the profile.
+    ConfirmedStopped,
+    /// Profile process is currently in pre-lock startup (`Starting`).
+    Starting,
+    /// Profile process is actively running (`Running`).
+    Running,
+    /// Profile process is currently shutting down (`Stopping`).
+    Stopping,
+    /// Runtime ownership cannot be proven stopped (`RecoveryRequired` / indeterminate lock or marker).
+    Unknown,
+}
+
+/// Explicit runtime verification proof evaluated before deleting a profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifiedDeletionState {
+    /// Runtime monitor confirmed the profile is stopped and has no indeterminate ownership.
+    ConfirmedStopped,
+    /// Runtime monitor observed an active or indeterminate state that MUST block deletion.
+    NotSafeToDelete(RuntimeOwnershipState),
+}
+
+impl VerifiedDeletionState {
+    /// Derives deletion safety proof from an inspected [`ProfileRuntimeState`].
+    #[must_use]
+    pub fn from_runtime_state(state: &ProfileRuntimeState) -> Self {
+        match state.lifecycle_state() {
+            ProfileLifecycleState::Starting => {
+                Self::NotSafeToDelete(RuntimeOwnershipState::Starting)
+            }
+            ProfileLifecycleState::Running => Self::NotSafeToDelete(RuntimeOwnershipState::Running),
+            ProfileLifecycleState::Stopping => {
+                Self::NotSafeToDelete(RuntimeOwnershipState::Stopping)
+            }
+            ProfileLifecycleState::RecoveryRequired => {
+                Self::NotSafeToDelete(RuntimeOwnershipState::Unknown)
+            }
+            ProfileLifecycleState::Stopped => {
+                if state.running {
+                    Self::NotSafeToDelete(RuntimeOwnershipState::Running)
+                } else {
+                    Self::ConfirmedStopped
+                }
+            }
+        }
+    }
+}
+
+impl ProfileRuntimeState {
+    /// Derives the explicit [`ProfileLifecycleState`] without breaking existing struct literals.
+    #[must_use]
+    pub fn lifecycle_state(&self) -> ProfileLifecycleState {
+        if self.status_label.eq_ignore_ascii_case("starting") {
+            ProfileLifecycleState::Starting
+        } else if self.status_label.eq_ignore_ascii_case("stopping") {
+            ProfileLifecycleState::Stopping
+        } else if self.status_label.eq_ignore_ascii_case("recovery required")
+            || self.status_label.eq_ignore_ascii_case("recovery_required")
+        {
+            ProfileLifecycleState::RecoveryRequired
+        } else if self.running {
+            ProfileLifecycleState::Running
+        } else {
+            ProfileLifecycleState::Stopped
+        }
+    }
+
+    /// Updates `running` and `status_label` atomically so `lifecycle_state()` and `running` never drift.
+    pub fn set_lifecycle_state(&mut self, state: ProfileLifecycleState) {
+        self.running = state.is_active();
+        self.status_label = state
+            .default_status_label(self.stale_lock_detected)
+            .to_owned();
+    }
+}
+
+/// Alias for [`ProfileRuntimeState`] exposing explicit [`ProfileLifecycleState`].
+pub type RuntimeStatus = ProfileRuntimeState;
 
 /// Inspection status of the user's untouched primary Zalo Desktop installation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

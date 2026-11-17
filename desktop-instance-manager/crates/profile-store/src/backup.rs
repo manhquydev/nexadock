@@ -564,7 +564,13 @@ fn should_skip_backup_rel(rel: &Path) -> bool {
     let file_name = rel.file_name().and_then(|s| s.to_str()).unwrap_or_default();
     matches!(
         file_name,
-        "lockfile" | "SingletonLock" | ".quit-signal" | ".focus-signal" | ".runtime-pid"
+        "lockfile"
+            | "SingletonLock"
+            | ".quit-signal"
+            | ".focus-signal"
+            | ".runtime-pid"
+            | ".runtime-lease.json"
+            | ".dim-profile.lock"
     ) || norm == "AppData/Local/Temp"
         || norm.starts_with("AppData/Local/Temp/")
         || norm == "tmp"

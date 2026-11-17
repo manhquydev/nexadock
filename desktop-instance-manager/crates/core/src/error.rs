@@ -95,6 +95,10 @@ pub enum DimError {
     #[error("process operation failed: {0}")]
     ProcessError(String),
 
+    /// Managed process failed to start or crashed during startup before reaching readiness.
+    #[error("launch failed: {0}")]
+    LaunchFailed(String),
+
     /// Stored metadata schema is unsupported or corrupt.
     #[error("schema error: {0}")]
     SchemaError(String),
@@ -135,6 +139,7 @@ impl DimError {
             Self::BackupError(_) => "BACKUP_ERROR",
             Self::RestoreError(_) => "RESTORE_ERROR",
             Self::ProcessError(_) => "PROCESS_ERROR",
+            Self::LaunchFailed(_) => "LAUNCH_FAILED",
             Self::SchemaError(_) => "SCHEMA_ERROR",
             Self::ConfirmationRequired(_) => "CONFIRM_REQUIRED",
             Self::Io(_) => "IO_ERROR",

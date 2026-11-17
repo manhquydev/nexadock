@@ -1,24 +1,38 @@
-//! Atomic `profiles.json` store, `.zalo-profile-id` verification, and junction-safe cleanup.
+//! Atomic `profiles.json` store with cross-process advisory locking,
+//! `.zalo-profile-id` verification, and junction-safe cleanup.
 
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use dim_core::{
     build_directory_name, ensure_not_primary_zalo_path, generate_profile_id, now_rfc3339_utc,
     resolve_data_dir, resolve_safe_child, validate_directory_input, validate_profile_name,
-    DimError, ProfileRecord, ProfileStore, ProfilesDocument, PROFILES_SCHEMA_VERSION,
-    ZALO_PROFILE_ID_FILE,
+    AdvisoryFileLock, DimError, ProfileRecord, ProfileStore, ProfilesDocument,
+    PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION, ZALO_PROFILE_ID_FILE,
+    clean_stale_temp_files, write_bytes_atomic, DEFAULT_ADVISORY_LOCK_TIMEOUT,
 };
 
-/// File-backed `profiles.json` store using atomic temp-file replacement.
+/// File-backed `profiles.json` store using cross-process advisory file locking
+/// and atomic unique-tmp-file replacement.
+///
+/// # Concurrency Safety
+///
+/// - **In-process:** Guarded by `Mutex<()>` preventing concurrent store mutations within
+///   the same `JsonProfileStore` instance.
+/// - **Cross-process:** Guarded by exclusive OS advisory file lock on `<data_dir>/profiles.lock`
+///   (`LockFileEx` on Windows, `flock` on Unix) held across the entire read-modify-write cycle.
+/// - **Atomic writes:** `profiles.json` is written via `write_bytes_atomic` (unique
+///   `profiles.json.<pid>.<hex>.tmp` → `sync_all()` → `MoveFileExW MOVEFILE_REPLACE_EXISTING |
+///   MOVEFILE_WRITE_THROUGH` on Windows / `fs::rename` on Unix). On failure, the unique `.tmp`
+///   is removed and the previous `profiles.json` is left completely untouched.
 #[derive(Debug)]
 pub struct JsonProfileStore {
     data_dir: PathBuf,
     profiles_dir: PathBuf,
     backups_dir: PathBuf,
     metadata_path: PathBuf,
+    lock_path: PathBuf,
     lock: Mutex<()>,
 }
 
@@ -30,11 +44,13 @@ impl JsonProfileStore {
         let profiles_dir = data_dir.join("Profiles");
         let backups_dir = data_dir.join("Backups");
         let metadata_path = data_dir.join("profiles.json");
+        let lock_path = data_dir.join(PROFILES_LOCK_FILE);
         Ok(Self {
             data_dir,
             profiles_dir,
             backups_dir,
             metadata_path,
+            lock_path,
             lock: Mutex::new(()),
         })
     }
@@ -75,6 +91,7 @@ impl JsonProfileStore {
             .lock
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("profile store mutex poisoned")))?;
+        let _fs_lock = self.acquire_cross_process_lock()?;
         self.ensure_initialized_locked()
     }
 
@@ -92,6 +109,7 @@ impl JsonProfileStore {
             .lock
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("profile store mutex poisoned")))?;
+        let _fs_lock = self.acquire_cross_process_lock()?;
         self.ensure_initialized_locked()?;
         let mut doc = self.read_document_locked()?;
         if doc
@@ -127,6 +145,7 @@ impl JsonProfileStore {
             .lock
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("profile store mutex poisoned")))?;
+        let _fs_lock = self.acquire_cross_process_lock()?;
         self.ensure_initialized_locked()?;
         let mut doc = self.read_document_locked()?;
         let idx = find_profile_index(&doc.profiles, id_or_name)
@@ -143,6 +162,11 @@ impl JsonProfileStore {
         Ok(())
     }
 
+    /// Acquires the cross-process advisory lock on `<data_dir>/profiles.lock`.
+    fn acquire_cross_process_lock(&self) -> Result<AdvisoryFileLock, DimError> {
+        AdvisoryFileLock::acquire_exclusive(&self.lock_path, DEFAULT_ADVISORY_LOCK_TIMEOUT)
+    }
+
     fn ensure_initialized_locked(&self) -> Result<(), DimError> {
         fs::create_dir_all(&self.data_dir)?;
         fs::create_dir_all(&self.profiles_dir)?;
@@ -154,29 +178,45 @@ impl JsonProfileStore {
         Ok(())
     }
 
+    /// Reads and validates `profiles.json`, distinguishing fresh init from corruption.
+    ///
+    /// # Fail-Closed Behavior (DEFECT-08 / CT-10)
+    ///
+    /// - **File does not exist:** Returns `Err(Io(NotFound))` — callers should use
+    ///   `ensure_initialized_locked()` first which creates it.
+    /// - **Empty (0-byte) file:** Returns `Err(Json(...))` — NEVER silently resets to `[]`.
+    /// - **Invalid UTF-8:** Returns `Err(Io(...))`.
+    /// - **Invalid JSON syntax:** Returns `Err(Json(...))`.
+    /// - **Incompatible `schema_version`:** Returns `Err(SchemaError(...))`.
+    /// - **Truncated write (valid JSON but missing fields):** Returns `Err(Json(...))`.
     fn read_document_locked(&self) -> Result<ProfilesDocument, DimError> {
         let raw = fs::read_to_string(&self.metadata_path)?;
+
+        // Fail-closed on empty/whitespace-only file: NEVER overwrite to `[]`.
+        if raw.trim().is_empty() {
+            return Err(DimError::Json(serde_json::from_str::<ProfilesDocument>("").unwrap_err()));
+        }
+
         let doc: ProfilesDocument = serde_json::from_str(&raw)?;
         if doc.schema_version != PROFILES_SCHEMA_VERSION {
             return Err(DimError::SchemaError(format!(
-                "unsupported profiles.json schema_version {}; expected {PROFILES_SCHEMA_VERSION}",
+                "unsupported profiles.json schema_version {}; expected {PROFILES_SCHEMA_VERSION}. \
+                 Recovery hint: back up profiles.json and restore from a compatible version.",
                 doc.schema_version
             )));
         }
         Ok(doc)
     }
 
+    /// Writes `profiles.json` atomically via unique temp file + sync + atomic replace.
     fn write_document_atomic_locked(&self, doc: &ProfilesDocument) -> Result<(), DimError> {
-        let json = serde_json::to_string_pretty(doc)?;
-        let tmp_path = self.data_dir.join("profiles.json.tmp");
-        {
-            let mut f = File::create(&tmp_path)?;
-            f.write_all(json.as_bytes())?;
-            f.write_all(b"\n")?;
-            f.sync_all()?;
-        }
-        fs::rename(&tmp_path, &self.metadata_path)?;
-        Ok(())
+        let mut json = serde_json::to_vec_pretty(doc)?;
+        json.push(b'\n');
+
+        // Clean any stale temp files from prior interrupted writes.
+        clean_stale_temp_files(&self.data_dir, "profiles.json");
+
+        write_bytes_atomic(&self.metadata_path, &json)
     }
 }
 
@@ -186,6 +226,7 @@ impl ProfileStore for JsonProfileStore {
             .lock
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("profile store mutex poisoned")))?;
+        let _fs_lock = self.acquire_cross_process_lock()?;
         self.ensure_initialized_locked()?;
         self.read_document_locked()
     }
@@ -207,6 +248,7 @@ impl ProfileStore for JsonProfileStore {
             .lock
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("profile store mutex poisoned")))?;
+        let _fs_lock = self.acquire_cross_process_lock()?;
         self.ensure_initialized_locked()?;
         let mut doc = self.read_document_locked()?;
 
@@ -247,6 +289,7 @@ impl ProfileStore for JsonProfileStore {
             .lock
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("profile store mutex poisoned")))?;
+        let _fs_lock = self.acquire_cross_process_lock()?;
         self.ensure_initialized_locked()?;
         let mut doc = self.read_document_locked()?;
 
@@ -282,6 +325,7 @@ impl ProfileStore for JsonProfileStore {
             .lock
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("profile store mutex poisoned")))?;
+        let _fs_lock = self.acquire_cross_process_lock()?;
         self.ensure_initialized_locked()?;
         let mut doc = self.read_document_locked()?;
         let idx = find_profile_index(&doc.profiles, id)

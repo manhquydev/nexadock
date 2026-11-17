@@ -1,8 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod state;
 
-use commands::AppState;
+use state::AppState;
 
 fn main() {
     let app_state = AppState::initialize().expect("failed to initialize Multi-Zalo Desktop state");

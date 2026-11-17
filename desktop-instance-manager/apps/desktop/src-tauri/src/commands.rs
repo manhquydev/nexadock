@@ -3,7 +3,6 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use dim_core::{
     ensure_not_primary_zalo_path, redact_sensitive_text, resolve_safe_child,
@@ -11,50 +10,10 @@ use dim_core::{
     InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities, PlatformKind,
     ProfileStore,
 };
-use dim_process_manager::InstanceCoordinator;
-use dim_profile_store::{FileBackupManager, JsonProfileStore};
 use serde::Serialize;
 use tauri::State;
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-use dim_platform_linux::LinuxPlatformAdapter as ActiveAdapter;
-#[cfg(target_os = "macos")]
-use dim_platform_macos::MacOsPlatformAdapter as ActiveAdapter;
-#[cfg(target_os = "windows")]
-use dim_platform_windows::WindowsPlatformAdapter as ActiveAdapter;
-
-/// Shared application state managed by Tauri.
-pub struct AppState {
-    pub store: Arc<JsonProfileStore>,
-    pub adapter: Arc<ActiveAdapter>,
-    pub coordinator: InstanceCoordinator<ActiveAdapter>,
-    pub backups: FileBackupManager,
-    pub op_lock: Mutex<()>,
-}
-
-impl AppState {
-    /// Initializes store, platform adapter, coordinator, and backup manager from `DIM_DATA_DIR` or OS defaults.
-    pub fn initialize() -> Result<Self, DimError> {
-        let store = Arc::new(JsonProfileStore::from_default_or_env(None)?);
-        store.ensure_initialized()?;
-
-        let adapter = Arc::new(ActiveAdapter::new());
-        let coordinator = InstanceCoordinator::new(Arc::clone(&store), Arc::clone(&adapter));
-
-        let adapter_for_probe = Arc::clone(&adapter);
-        let backups = FileBackupManager::new(Arc::clone(&store)).with_disk_space_probe(Arc::new(
-            move |path| adapter_for_probe.free_disk_bytes(path),
-        ));
-
-        Ok(Self {
-            store,
-            adapter,
-            coordinator,
-            backups,
-            op_lock: Mutex::new(()),
-        })
-    }
-}
+pub use crate::state::AppState;
 
 fn current_user_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
@@ -65,6 +24,12 @@ fn current_user_home() -> Option<PathBuf> {
 fn redact_err_text(err: impl std::fmt::Display) -> String {
     let home = current_user_home();
     redact_sensitive_text(&err.to_string(), home.as_deref())
+}
+
+fn join_err_envelope<T: Serialize>(err: impl std::fmt::Display) -> ApiEnvelope<T> {
+    ApiEnvelope::err(&DimError::ProcessError(format!(
+        "background command worker failed: {err}"
+    )))
 }
 
 #[derive(Debug, Serialize)]
@@ -124,206 +89,210 @@ pub struct StatusResponse {
 }
 
 #[tauri::command]
-pub fn get_status(
+pub async fn get_status(
     state: State<'_, AppState>,
     with_size: Option<bool>,
 ) -> Result<StatusResponse, String> {
-    let measure_size = with_size.unwrap_or(false);
-    let installation = state
-        .adapter
-        .discover_installation(None)
-        .map_err(redact_err_text)?;
-    let primary = state.adapter.inspect_primary().map_err(redact_err_text)?;
-    let records = state.store.list_profiles().map_err(redact_err_text)?;
-
-    let mut profiles = Vec::with_capacity(records.len());
-    for rec in records {
-        let dir = state.store.profile_dir_for(&rec).map_err(redact_err_text)?;
-        let rt = state
+    let app = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let measure_size = with_size.unwrap_or(false);
+        let installation = app
             .adapter
-            .inspect_profile(&rec, &dir)
+            .discover_installation(None)
             .map_err(redact_err_text)?;
-        let data_size = if measure_size {
-            Some(rt.disk_usage_bytes)
-        } else {
-            None
-        };
-        profiles.push(serde_json::json!({
-            "id": rec.id,
-            "name": rec.name,
-            "directory_name": rec.directory_name,
-            "created_at": rec.created_at,
-            "last_launched_at": rec.last_launched_at,
-            "zalo_user_id": rt.detected_zalo_user_id.or(rec.zalo_user_id),
-            "notes": rec.notes,
-            "running": rt.running,
-            "main_pid": rt.main_pid,
-            "process_count": rt.process_count,
-            "window_handle": rt.window_handle.unwrap_or(0),
-            "window_title": rt.window_title,
-            "total_working_set_bytes": rt.working_set_bytes,
-            "data_size_bytes": data_size,
-            "stale_lockfile_detected": rt.stale_lock_detected,
-        }));
-    }
+        let primary = app.adapter.inspect_primary().map_err(redact_err_text)?;
+        let records = app.store.list_profiles().map_err(redact_err_text)?;
 
-    Ok(StatusResponse {
-        ok: true,
-        platform: state.adapter.platform().as_str().to_owned(),
-        data_dir: state.store.data_dir().display().to_string(),
-        installation: serde_json::json!({
-            "valid": installation.is_valid,
-            "mode": "official-zalo",
-            "version": installation.version,
-            "authenticode_status": installation.signature_status,
-            "signer_subject": installation.signer_subject,
-            "error": installation.error,
-        }),
-        primary_zalo: serde_json::json!({
-            "is_running": primary.running,
-            "locking_pids": primary.protected_pids,
-            "process_count": primary.process_count,
-            "total_working_set_bytes": primary.working_set_bytes,
-            "zalo_user_id": primary.detected_zalo_user_id,
-        }),
-        profiles,
+        let mut profiles = Vec::with_capacity(records.len());
+        for rec in records {
+            let dir = app.store.profile_dir_for(&rec).map_err(redact_err_text)?;
+            let rt = app
+                .adapter
+                .inspect_profile(&rec, &dir)
+                .map_err(redact_err_text)?;
+            let data_size = if measure_size {
+                Some(rt.disk_usage_bytes)
+            } else {
+                None
+            };
+            let lifecycle_state = rt.lifecycle_state();
+            profiles.push(serde_json::json!({
+                "id": rec.id,
+                "name": rec.name,
+                "directory_name": rec.directory_name,
+                "created_at": rec.created_at,
+                "last_launched_at": rec.last_launched_at,
+                "zalo_user_id": rt.detected_zalo_user_id.or(rec.zalo_user_id),
+                "notes": rec.notes,
+                "running": rt.running,
+                "lifecycle_state": lifecycle_state,
+                "status_label": rt.status_label,
+                "main_pid": rt.main_pid,
+                "process_count": rt.process_count,
+                "window_handle": rt.window_handle.unwrap_or(0),
+                "window_title": rt.window_title,
+                "total_working_set_bytes": rt.working_set_bytes,
+                "data_size_bytes": data_size,
+                "stale_lockfile_detected": rt.stale_lock_detected,
+            }));
+        }
+
+        Ok(StatusResponse {
+            ok: true,
+            platform: app.adapter.platform().as_str().to_owned(),
+            data_dir: app.store.data_dir().display().to_string(),
+            installation: serde_json::json!({
+                "valid": installation.is_valid,
+                "mode": "official-zalo",
+                "version": installation.version,
+                "authenticode_status": installation.signature_status,
+                "signer_subject": installation.signer_subject,
+                "error": installation.error,
+            }),
+            primary_zalo: serde_json::json!({
+                "is_running": primary.running,
+                "locking_pids": primary.protected_pids,
+                "process_count": primary.process_count,
+                "total_working_set_bytes": primary.working_set_bytes,
+                "zalo_user_id": primary.detected_zalo_user_id,
+            }),
+            profiles,
+        })
     })
-}
-
-fn acquire_op_lock(state: &AppState) -> Result<std::sync::MutexGuard<'_, ()>, DimError> {
-    state
-        .op_lock
-        .lock()
-        .map_err(|_| DimError::Io(std::io::Error::other("operation mutex poisoned")))
+    .await
+    .map_err(redact_err_text)?
 }
 
 #[tauri::command]
-pub fn create_profile(
+pub async fn create_profile(
     state: State<'_, AppState>,
     name: String,
     notes: Option<String>,
-) -> ApiEnvelope<dim_core::ProfileRecord> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    match state
-        .store
-        .create_profile(&name, notes.as_deref().unwrap_or(""))
-    {
-        Ok(rec) => {
-            if let Ok(dir) = state.store.profile_dir_for(&rec) {
-                let _ = state.adapter.ensure_profile_layout(&rec, &dir);
+) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app
+            .store
+            .create_profile(&name, notes.as_deref().unwrap_or(""))
+        {
+            Ok(rec) => {
+                if let Ok(dir) = app.store.profile_dir_for(&rec) {
+                    let _ = app.adapter.ensure_profile_layout(&rec, &dir);
+                }
+                ApiEnvelope::ok(format!("Created profile '{}'.", rec.name), rec)
             }
-            ApiEnvelope::ok(format!("Created profile '{}'.", rec.name), rec)
+            Err(err) => ApiEnvelope::err(&err),
         }
-        Err(err) => ApiEnvelope::err(&err),
-    }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn rename_profile(
+pub async fn rename_profile(
     state: State<'_, AppState>,
     id: String,
     new_name: String,
-) -> ApiEnvelope<dim_core::ProfileRecord> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    match state.store.rename_profile(&id, &new_name) {
-        Ok(rec) => ApiEnvelope::ok(format!("Renamed profile to '{}'.", rec.name), rec),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app.store.rename_profile(&id, &new_name) {
+            Ok(rec) => ApiEnvelope::ok(format!("Renamed profile to '{}'.", rec.name), rec),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn delete_profile(
+pub async fn delete_profile(
     state: State<'_, AppState>,
     id: String,
     confirm: Option<bool>,
-) -> ApiEnvelope<serde_json::Value> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    match state
-        .coordinator
-        .delete_profile(&id, confirm.unwrap_or(false))
-    {
-        Ok(()) => ApiEnvelope::ok(
-            "Deleted profile.",
-            serde_json::json!({ "deleted_profile_id": id }),
-        ),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app.coordinator.delete_profile(&id, confirm.unwrap_or(false)) {
+            Ok(()) => ApiEnvelope::ok(
+                "Deleted profile.",
+                serde_json::json!({ "deleted_profile_id": id }),
+            ),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn launch_profile(
+pub async fn launch_profile(
     state: State<'_, AppState>,
     id: String,
-) -> ApiEnvelope<dim_core::ProfileRuntimeState> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    let target = LaunchTarget::OfficialZalo {
-        custom_install_root: None,
-    };
-    match state.coordinator.launch_profile(&id, &target) {
-        Ok(rt) => ApiEnvelope::ok("Launched profile.", rt),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<dim_core::ProfileRuntimeState>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let target = LaunchTarget::OfficialZalo {
+            custom_install_root: None,
+        };
+        match app.coordinator.launch_profile(&id, &target) {
+            Ok(rt) => ApiEnvelope::ok("Launched profile.", rt),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn focus_profile(
+pub async fn focus_profile(
     state: State<'_, AppState>,
     id: String,
-) -> ApiEnvelope<dim_core::ProfileRuntimeState> {
-    let target = LaunchTarget::OfficialZalo {
-        custom_install_root: None,
-    };
-    match state.coordinator.focus_profile(&id, &target) {
-        Ok(rt) => ApiEnvelope::ok("Focused profile.", rt),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<dim_core::ProfileRuntimeState>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let target = LaunchTarget::OfficialZalo {
+            custom_install_root: None,
+        };
+        match app.coordinator.focus_profile(&id, &target) {
+            Ok(rt) => ApiEnvelope::ok("Focused profile.", rt),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn stop_profile(state: State<'_, AppState>, id: String) -> ApiEnvelope<u32> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    match state.coordinator.stop_profile(&id) {
-        Ok(count) => ApiEnvelope::ok("Stopped profile.", count),
-        Err(err) => ApiEnvelope::err(&err),
-    }
-}
-
-#[tauri::command]
-pub fn backup_profile(
+pub async fn stop_profile(
     state: State<'_, AppState>,
     id: String,
-) -> ApiEnvelope<dim_core::BackupResult> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    let result = (|| -> Result<dim_core::BackupResult, DimError> {
-        let profile = state.store.get_profile(&id)?;
-        let dir = state.store.profile_dir_for(&profile)?;
-        let rt = state.adapter.inspect_profile(&profile, &dir)?;
-        state
-            .backups
-            .backup_profile(&profile, &dir, None, rt.running)
-    })();
-    match result {
-        Ok(bk) => ApiEnvelope::ok("Created offline atomic backup.", bk),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<u32>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app.coordinator.stop_profile(&id) {
+            Ok(count) => ApiEnvelope::ok("Stopped profile.", count),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
+}
+
+#[tauri::command]
+pub async fn backup_profile(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ApiEnvelope<dim_core::BackupResult>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app.backup_profile_synchronized(&id) {
+            Ok(bk) => ApiEnvelope::ok("Created offline atomic backup.", bk),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
@@ -366,58 +335,59 @@ pub fn list_backups(state: State<'_, AppState>) -> BackupsResponse {
 }
 
 #[tauri::command]
-pub fn restore_backup(
+pub async fn restore_backup(
     state: State<'_, AppState>,
     backup_dir: String,
     name: Option<String>,
-) -> ApiEnvelope<dim_core::ProfileRecord> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    let trimmed_dir = backup_dir.trim();
-    let candidate = PathBuf::from(trimmed_dir);
-    if let Err(err) = validate_directory_input(&candidate) {
-        return ApiEnvelope::err(&err);
-    }
-
-    let backups_root = state.store.backups_dir();
-    let resolved_dir = if candidate.is_absolute() {
-        let Ok(canon_root) = fs::canonicalize(backups_root) else {
-            return ApiEnvelope::err(&DimError::PathTraversal(
-                "backups root unavailable".to_owned(),
-            ));
-        };
-        let Ok(canon_cand) = fs::canonicalize(&candidate) else {
-            return ApiEnvelope::err(&DimError::PathTraversal(
-                "backup directory must exist inside managed Backups root".to_owned(),
-            ));
-        };
-        if !canon_cand.starts_with(&canon_root) || canon_cand == canon_root {
-            return ApiEnvelope::err(&DimError::PathTraversal(
-                "backup directory escapes managed Backups root".to_owned(),
-            ));
+) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let trimmed_dir = backup_dir.trim();
+        let candidate = PathBuf::from(trimmed_dir);
+        if let Err(err) = validate_directory_input(&candidate) {
+            return ApiEnvelope::err(&err);
         }
-        canon_cand
-    } else {
-        match resolve_safe_child(backups_root, trimmed_dir) {
-            Ok(p) => p,
-            Err(err) => return ApiEnvelope::err(&err),
+
+        let backups_root = app.store.backups_dir();
+        let resolved_dir = if candidate.is_absolute() {
+            let Ok(canon_root) = fs::canonicalize(backups_root) else {
+                return ApiEnvelope::err(&DimError::PathTraversal(
+                    "backups root unavailable".to_owned(),
+                ));
+            };
+            let Ok(canon_cand) = fs::canonicalize(&candidate) else {
+                return ApiEnvelope::err(&DimError::PathTraversal(
+                    "backup directory must exist inside managed Backups root".to_owned(),
+                ));
+            };
+            if !canon_cand.starts_with(&canon_root) || canon_cand == canon_root {
+                return ApiEnvelope::err(&DimError::PathTraversal(
+                    "backup directory escapes managed Backups root".to_owned(),
+                ));
+            }
+            canon_cand
+        } else {
+            match resolve_safe_child(backups_root, trimmed_dir) {
+                Ok(p) => p,
+                Err(err) => return ApiEnvelope::err(&err),
+            }
+        };
+
+        if let Err(err) = ensure_not_primary_zalo_path(&resolved_dir) {
+            return ApiEnvelope::err(&err);
         }
-    };
 
-    if let Err(err) = ensure_not_primary_zalo_path(&resolved_dir) {
-        return ApiEnvelope::err(&err);
-    }
-
-    let trimmed = name.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    match state
-        .backups
-        .restore_backup_as_new_profile(&resolved_dir, trimmed)
-    {
-        Ok(rec) => ApiEnvelope::ok(format!("Restored backup into '{}'.", rec.name), rec),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+        let trimmed = name.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        match app
+            .backups
+            .restore_backup_as_new_profile(&resolved_dir, trimmed)
+        {
+            Ok(rec) => ApiEnvelope::ok(format!("Restored backup into '{}'.", rec.name), rec),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
@@ -497,10 +467,17 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, 
 }
 
 #[tauri::command]
-pub fn verify_isolation(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let report = state
-        .coordinator
-        .verify_isolation(&*state.adapter, None, None)
-        .map_err(redact_err_text)?;
-    serde_json::to_value(report).map_err(redact_err_text)
+pub async fn verify_isolation(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let app = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let report = app
+            .coordinator
+            .verify_isolation(&*app.adapter, None, None)
+            .map_err(redact_err_text)?;
+        serde_json::to_value(report).map_err(redact_err_text)
+    })
+    .await
+    .map_err(redact_err_text)?
 }

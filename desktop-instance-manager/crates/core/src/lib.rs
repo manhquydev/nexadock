@@ -1,6 +1,8 @@
 //! Core domain types, traits, path-traversal guards, and identity checks for `MultiZaloDesktop`.
 
 pub mod error;
+pub mod fs_lock;
+pub mod lease;
 pub mod models;
 pub mod path_guard;
 pub mod sanitize;
@@ -13,9 +15,11 @@ pub use error::{DimError, OperationOutcome};
 pub use models::{
     resolve_data_dir, resolve_data_dir_for_platform, ApplicationInstallation, BackupFileEntry,
     BackupManifest, BackupResult, IsolationCheckItem, IsolationVerificationReport, LaunchTarget,
-    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileRecord,
-    ProfileRuntimeState, ProfilesDocument, RecoveryReport, SupportStatus, APP_DIR_NAME,
-    BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, MIN_FREE_DISK_BYTES, PROFILES_SCHEMA_VERSION,
+    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileLifecycleState,
+    ProfileRecord, ProfileRuntimeState, ProfilesDocument, RecoveryReport,
+    RuntimeOwnershipState, RuntimeStatus, SupportStatus, VerifiedDeletionState, APP_DIR_NAME,
+    BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE,
+    PROFILES_SCHEMA_VERSION, PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
     ZALO_PROFILE_ID_FILE,
 };
 pub use path_guard::{
@@ -36,6 +40,15 @@ pub use traits::{
 };
 pub use zalo_identity::{
     check_duplicate_zalo_user_id, detect_zalo_user_id, is_valid_zalo_user_id, MIN_ZALO_USER_ID_LEN,
+};
+pub use fs_lock::{
+    clean_stale_temp_files, unique_temp_file_path, write_bytes_atomic, AdvisoryFileLock,
+    DEFAULT_ADVISORY_LOCK_TIMEOUT,
+};
+pub use lease::{
+    build_runtime_lease, check_profile_lockfile_activity, query_process_identity,
+    remove_runtime_lease, verify_runtime_lease, write_runtime_lease, LeaseVerification,
+    ProcessIdentity, ProcessIdentityProbe, ProfileLockActivity, RuntimeLease,
 };
 
 #[cfg(test)]

@@ -177,6 +177,37 @@ namespace DesktopInstanceManager.Host
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool RemoveDirectoryW(string lpPathName);
 
+        public const uint LOCKFILE_FAIL_IMMEDIATELY = 0x00000001;
+        public const uint LOCKFILE_EXCLUSIVE_LOCK = 0x00000002;
+        public const uint MOVEFILE_REPLACE_EXISTING = 0x00000001;
+        public const uint MOVEFILE_WRITE_THROUGH = 0x00000008;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool LockFileEx(
+            Microsoft.Win32.SafeHandles.SafeFileHandle hFile,
+            uint dwFlags,
+            uint dwReserved,
+            uint nNumberOfBytesToLockLow,
+            uint nNumberOfBytesToLockHigh,
+            ref NativeOverlapped lpOverlapped);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool UnlockFileEx(
+            Microsoft.Win32.SafeHandles.SafeFileHandle hFile,
+            uint dwReserved,
+            uint nNumberOfBytesToUnlockLow,
+            uint nNumberOfBytesToUnlockHigh,
+            ref NativeOverlapped lpOverlapped);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool MoveFileExW(
+            string lpExistingFileName,
+            string lpNewFileName,
+            uint dwFlags);
+
         [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
         public static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
 
@@ -270,9 +301,13 @@ namespace DesktopInstanceManager.Host
         private readonly string _profilesRoot;
         private readonly string _backupsRoot;
         private readonly string _metadataFile;
+        private readonly string _lockFile;
         private readonly string _logFile;
         private readonly JavaScriptSerializer _json;
         private readonly object _storeLock = new object();
+        private FileStream _heldLockStream = null;
+        private int _heldLockDepth = 0;
+        private readonly Dictionary<string, object> _profileLocks = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 
         private static readonly string[] JunctionFolderNames = new string[]
         {
@@ -314,6 +349,7 @@ namespace DesktopInstanceManager.Host
             _profilesRoot = Path.Combine(_dataDir, "Profiles");
             _backupsRoot = Path.Combine(_dataDir, "Backups");
             _metadataFile = Path.Combine(_dataDir, "profiles.json");
+            _lockFile = Path.Combine(_dataDir, "profiles.lock");
             _logFile = Path.Combine(_dataDir, "logs", "dim-host.log");
 
             _json = new JavaScriptSerializer();
@@ -322,17 +358,222 @@ namespace DesktopInstanceManager.Host
 
         public string DataDir { get { return _dataDir; } }
 
+        private sealed class StoreLockScope : IDisposable
+        {
+            private HostEngine _owner;
+            public StoreLockScope(HostEngine owner) { _owner = owner; }
+            public void Dispose()
+            {
+                HostEngine o = Interlocked.Exchange(ref _owner, null);
+                if (o != null) o.ReleaseStoreLockScope();
+            }
+        }
+
+        private sealed class ProfileLockScope : IDisposable
+        {
+            private object _syncObj;
+            private FileStream _stream;
+            public ProfileLockScope(object syncObj, FileStream stream)
+            {
+                _syncObj = syncObj;
+                _stream = stream;
+            }
+            public void Dispose()
+            {
+                FileStream fs = Interlocked.Exchange(ref _stream, null);
+                if (fs != null)
+                {
+                    try
+                    {
+                        NativeOverlapped ov = new NativeOverlapped();
+                        NativeWin32.UnlockFileEx(fs.SafeFileHandle, 0, 1, 0, ref ov);
+                    }
+                    catch { }
+                    finally { fs.Dispose(); }
+                }
+                object sync = Interlocked.Exchange(ref _syncObj, null);
+                if (sync != null)
+                {
+                    Monitor.Exit(sync);
+                }
+            }
+        }
+
+        private IDisposable AcquireProfileLockScope(string profilePath, int timeoutMs)
+        {
+            Directory.CreateDirectory(profilePath);
+            string opLockPath = Path.Combine(profilePath, ".dim-profile.lock");
+            object syncObj;
+            lock (_profileLocks)
+            {
+                if (!_profileLocks.TryGetValue(opLockPath, out syncObj))
+                {
+                    syncObj = new object();
+                    _profileLocks[opLockPath] = syncObj;
+                }
+            }
+
+            bool entered = false;
+            try
+            {
+                Monitor.Enter(syncObj, ref entered);
+                Stopwatch sw = Stopwatch.StartNew();
+                int sleepMs = 2;
+                while (true)
+                {
+                    FileStream fs = null;
+                    try
+                    {
+                        fs = new FileStream(
+                            opLockPath,
+                            FileMode.OpenOrCreate,
+                            FileAccess.ReadWrite,
+                            FileShare.ReadWrite | FileShare.Delete);
+                        NativeOverlapped ov = new NativeOverlapped();
+                        if (NativeWin32.LockFileEx(
+                            fs.SafeFileHandle,
+                            NativeWin32.LOCKFILE_EXCLUSIVE_LOCK | NativeWin32.LOCKFILE_FAIL_IMMEDIATELY,
+                            0, 1, 0, ref ov))
+                        {
+                            FileStream acquired = fs;
+                            fs = null;
+                            return new ProfileLockScope(syncObj, acquired);
+                        }
+                        int winErr = Marshal.GetLastWin32Error();
+                        if (winErr != 32 && winErr != 33)
+                        {
+                            throw new InvalidOperationException("IO_ERROR: LockFileEx failed on .dim-profile.lock with Win32 error " + winErr);
+                        }
+                    }
+                    finally
+                    {
+                        if (fs != null) fs.Dispose();
+                    }
+
+                    if (timeoutMs <= 0 || sw.ElapsedMilliseconds >= timeoutMs)
+                    {
+                        throw new InvalidOperationException("PROFILE_RUNNING: Profile operation lock (.dim-profile.lock) is currently held by another process.");
+                    }
+                    Thread.Sleep(sleepMs);
+                    sleepMs = Math.Min(20, sleepMs * 2);
+                }
+            }
+            catch
+            {
+                if (entered) Monitor.Exit(syncObj);
+                throw;
+            }
+        }
+
+        private IDisposable AcquireStoreLockScope()
+        {
+            bool monitorEntered = false;
+            try
+            {
+                Monitor.Enter(_storeLock, ref monitorEntered);
+                if (_heldLockDepth == 0)
+                {
+                    Directory.CreateDirectory(_dataDir);
+                    Stopwatch sw = Stopwatch.StartNew();
+                    int sleepMs = 2;
+                    while (true)
+                    {
+                        FileStream fs = null;
+                        try
+                        {
+                            fs = new FileStream(
+                                _lockFile,
+                                FileMode.OpenOrCreate,
+                                FileAccess.ReadWrite,
+                                FileShare.ReadWrite | FileShare.Delete);
+                            NativeOverlapped ov = new NativeOverlapped();
+                            if (NativeWin32.LockFileEx(
+                                fs.SafeFileHandle,
+                                NativeWin32.LOCKFILE_EXCLUSIVE_LOCK | NativeWin32.LOCKFILE_FAIL_IMMEDIATELY,
+                                0, 1, 0, ref ov))
+                            {
+                                _heldLockStream = fs;
+                                fs = null;
+                                break;
+                            }
+                            int winErr = Marshal.GetLastWin32Error();
+                            if (winErr != 32 && winErr != 33)
+                            {
+                                throw new InvalidOperationException("IO_ERROR: LockFileEx failed on profiles.lock with Win32 error " + winErr);
+                            }
+                        }
+                        finally
+                        {
+                            if (fs != null) fs.Dispose();
+                        }
+
+                        if (sw.ElapsedMilliseconds >= 10000)
+                        {
+                            throw new InvalidOperationException("IO_ERROR: Timed out acquiring exclusive lock on profiles.lock after 10000ms.");
+                        }
+                        Thread.Sleep(sleepMs);
+                        sleepMs = Math.Min(20, sleepMs * 2);
+                    }
+                }
+                _heldLockDepth++;
+                return new StoreLockScope(this);
+            }
+            catch
+            {
+                if (monitorEntered && _heldLockDepth == 0)
+                {
+                    Monitor.Exit(_storeLock);
+                }
+                throw;
+            }
+        }
+
+        private void ReleaseStoreLockScope()
+        {
+            try
+            {
+                _heldLockDepth--;
+                if (_heldLockDepth <= 0)
+                {
+                    _heldLockDepth = 0;
+                    if (_heldLockStream != null)
+                    {
+                        try
+                        {
+                            NativeOverlapped ov = new NativeOverlapped();
+                            NativeWin32.UnlockFileEx(_heldLockStream.SafeFileHandle, 0, 1, 0, ref ov);
+                        }
+                        catch
+                        {
+                        }
+                        finally
+                        {
+                            _heldLockStream.Dispose();
+                            _heldLockStream = null;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Monitor.Exit(_storeLock);
+            }
+        }
+
         private void EnsureStorageInitialized()
         {
-            Directory.CreateDirectory(_dataDir);
-            Directory.CreateDirectory(_profilesRoot);
-            Directory.CreateDirectory(_backupsRoot);
-            Directory.CreateDirectory(Path.GetDirectoryName(_logFile));
-            if (!File.Exists(_metadataFile))
+            using (AcquireStoreLockScope())
             {
-                SaveStore(new ProfileStoreFile());
+                Directory.CreateDirectory(_dataDir);
+                Directory.CreateDirectory(_profilesRoot);
+                Directory.CreateDirectory(_backupsRoot);
+                Directory.CreateDirectory(Path.GetDirectoryName(_logFile));
+                if (!File.Exists(_metadataFile) && !Directory.Exists(_metadataFile))
+                {
+                    SaveStore(new ProfileStoreFile());
+                }
+                SweepAbandonedStagingDirs();
             }
-            SweepAbandonedStagingDirs();
         }
 
         private void SweepAbandonedStagingDirs()
@@ -398,19 +639,78 @@ namespace DesktopInstanceManager.Host
             return store;
         }
 
+        private void CleanStaleProfilesTmpFiles()
+        {
+            try
+            {
+                string[] files = Directory.GetFiles(_dataDir, "profiles.json*.tmp", SearchOption.TopDirectoryOnly);
+                for (int i = 0; i < files.Length; i++)
+                {
+                    string f = files[i];
+                    string name = Path.GetFileName(f);
+                    if (string.Equals(name, "profiles.json.tmp", StringComparison.OrdinalIgnoreCase) ||
+                        (name.StartsWith("profiles.json.", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (!IsReparsePoint(f))
+                        {
+                            try { File.Delete(f); } catch { }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
         private void SaveStore(ProfileStoreFile store)
         {
-            Directory.CreateDirectory(_dataDir);
-            string tmpPath = _metadataFile + ".tmp";
-            string serialized = PrettyPrintJson(_json.Serialize(store));
-            File.WriteAllText(tmpPath, serialized, new UTF8Encoding(false));
-            if (File.Exists(_metadataFile))
+            using (AcquireStoreLockScope())
             {
-                File.Replace(tmpPath, _metadataFile, null, true);
-            }
-            else
-            {
-                File.Move(tmpPath, _metadataFile);
+                Directory.CreateDirectory(_dataDir);
+                CleanStaleProfilesTmpFiles();
+                int pid = Process.GetCurrentProcess().Id;
+                string uniqueToken = Guid.NewGuid().ToString("N");
+                string tmpPath = _metadataFile + "." + pid.ToString(CultureInfo.InvariantCulture) + "." + uniqueToken + ".tmp";
+                byte[] utf8Bytes = new UTF8Encoding(false).GetBytes(PrettyPrintJson(_json.Serialize(store)));
+
+                try
+                {
+                    using (FileStream fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    {
+                        fs.Write(utf8Bytes, 0, utf8Bytes.Length);
+                        fs.Flush(true);
+                    }
+
+                    uint flags = NativeWin32.MOVEFILE_REPLACE_EXISTING | NativeWin32.MOVEFILE_WRITE_THROUGH;
+                    int[] retryMs = new int[] { 1, 2, 4, 6, 6, 6 };
+                    int lastErr = 0;
+                    bool moved = false;
+                    for (int attempt = 0; attempt <= retryMs.Length; attempt++)
+                    {
+                        if (NativeWin32.MoveFileExW(tmpPath, _metadataFile, flags))
+                        {
+                            moved = true;
+                            break;
+                        }
+                        lastErr = Marshal.GetLastWin32Error();
+                        if ((lastErr == 5 || lastErr == 32) && attempt < retryMs.Length)
+                        {
+                            Thread.Sleep(retryMs[attempt]);
+                            continue;
+                        }
+                        break;
+                    }
+                    if (!moved)
+                    {
+                        throw new InvalidOperationException("IO_ERROR: MoveFileExW atomic metadata commit failed with Win32 error " + lastErr);
+                    }
+                }
+                catch
+                {
+                    try { if (File.Exists(tmpPath)) File.Delete(tmpPath); } catch { }
+                    throw;
+                }
             }
         }
 
@@ -1769,7 +2069,7 @@ namespace DesktopInstanceManager.Host
                 return Fail("INVALID_NAME", nameErr);
             }
 
-            lock (_storeLock)
+            using (AcquireStoreLockScope())
             {
                 ProfileStoreFile store = LoadStore();
                 for (int i = 0; i < store.profiles.Count; i++)
@@ -1812,7 +2112,7 @@ namespace DesktopInstanceManager.Host
                 return Fail("INVALID_NAME", nameErr);
             }
 
-            lock (_storeLock)
+            using (AcquireStoreLockScope())
             {
                 ProfileStoreFile store = LoadStore();
                 ProfileRecord target = FindProfile(store, idOrName);
@@ -1841,7 +2141,7 @@ namespace DesktopInstanceManager.Host
                 return Fail("CONFIRM_REQUIRED", "Pass --confirm to delete a profile and its isolated directory.");
             }
 
-            lock (_storeLock)
+            using (AcquireStoreLockScope())
             {
                 ProfileStoreFile store = LoadStore();
                 ProfileRecord target = FindProfile(store, idOrName);
@@ -1937,6 +2237,8 @@ namespace DesktopInstanceManager.Host
             }
 
             string profilePath = GetProfilePath(target);
+            using (AcquireProfileLockScope(profilePath, 10000))
+            {
             ProcessTreeSnapshot snap = CaptureProcessTreeSnapshot();
             Dictionary<string, object> runtime = InspectProfileRuntime(target, snap, false);
             if ((bool)runtime["running"])
@@ -2054,7 +2356,7 @@ namespace DesktopInstanceManager.Host
                 }
             }
 
-            lock (_storeLock)
+            using (AcquireStoreLockScope())
             {
                 ProfileStoreFile fresh = LoadStore();
                 ProfileRecord rec = FindProfile(fresh, target.id);
@@ -2076,6 +2378,7 @@ namespace DesktopInstanceManager.Host
             data["crash_recovered"] = crashRecovered;
             data["profile_path"] = profilePath;
             return Ok("Launched profile '" + target.name + "'.", data);
+            }
         }
 
         public Dictionary<string, object> FocusProfile(string idOrName, string appPath, bool nodeFixture)
@@ -2446,6 +2749,8 @@ namespace DesktopInstanceManager.Host
                 if (string.Equals(fileName, "lockfile", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(fileName, "SingletonLock", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(fileName, ".runtime-pid", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(fileName, ".runtime-lease.json", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(fileName, ".dim-profile.lock", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(fileName, ".quit-signal", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(fileName, ".focus-signal", StringComparison.OrdinalIgnoreCase))
                 {
@@ -2595,7 +2900,7 @@ namespace DesktopInstanceManager.Host
                 baseName = origName + " (Restored)";
             }
 
-            lock (_storeLock)
+            using (AcquireStoreLockScope())
             {
                 ProfileStoreFile store = LoadStore();
                 string finalName = baseName;
