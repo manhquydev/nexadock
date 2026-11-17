@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "generated_at_utc": "2026-11-17T16:44:08.076Z",
+  "schema_version": 2,
+  "generated_at_utc": "2026-11-17T17:57:52.333Z",
   "policy_source": "desktop-instance-manager/deny.toml",
   "policy_summary": {
     "targets": [
@@ -10,6 +10,10 @@
       "aarch64-apple-darwin",
       "x86_64-apple-darwin"
     ],
+    "advisory_db_urls": [
+      "https://github.com/rustsec/advisory-db"
+    ],
+    "yanked_policy": "deny",
     "allowed_licenses": [
       "MIT",
       "Apache-2.0",
@@ -30,7 +34,64 @@
     ],
     "allowed_git": [],
     "unknown_registry_policy": "deny",
-    "unknown_git_policy": "deny"
+    "unknown_git_policy": "deny",
+    "cargo_deny_v021_compat": {
+      "has_deprecated_top_level_version_2": true,
+      "has_strict_wildcards_deny_on_unversioned_workspace_paths": true
+    }
+  },
+  "supply_chain_pillars": {
+    "lockfile_checksum_verification": {
+      "status": "VERIFIED",
+      "verified_registry_crates": 431,
+      "total_registry_crates": 431,
+      "allowed_registries_only": true,
+      "scope_boundary": "Verifies SHA-256 tarball digests in Cargo.lock against crates.io-index with --locked; does NOT prove absence of CVEs or cryptographic build provenance."
+    },
+    "license_policy": {
+      "status": "VERIFIED",
+      "evaluated_packages_count": 439,
+      "violations_count": 0,
+      "banned_crates_count": 0,
+      "scope_boundary": "Verifies SPDX license expressions and crate bans (zero openssl/openssl-sys) against deny.toml; orthogonal to security vulnerabilities and signing."
+    },
+    "known_vulnerability_advisory_scan": {
+      "status": "VERIFIED_CARGO_DENY_RUSTSEC_CLEAN",
+      "scanner": "cargo-deny",
+      "cargo_deny_version": "cargo-deny 0.21.0",
+      "advisory_db_url": "https://github.com/rustsec/advisory-db",
+      "advisory_db_commit_sha": "233155b4025b854c68a4b199c0e32d7fd53291a2",
+      "advisory_db_commit_date": "2026-11-17T11:14:35+01:00",
+      "vulnerabilities_found": 0,
+      "yanked_crates_found": 0,
+      "advisory_findings": [],
+      "scope_boundary": "Verified via cargo-deny 0.21.0 against rustsec/advisory-db @ 233155b4025b854c68a4b199c0e32d7fd53291a2 across both Cargo.lock (41 pkgs) and apps/desktop/src-tauri/Cargo.lock (434 pkgs)."
+    },
+    "sbom": {
+      "status": "DECLARED_DEPENDENCY_INVENTORY_ONLY",
+      "format": "CycloneDX 1.5 / cargo metadata v1",
+      "unique_components_count": 439,
+      "is_independent_build_provenance": false,
+      "scope_boundary": "SBOM enumerates declared Rust dependency components ONLY; an SBOM is NOT independent build provenance, NOT an advisory scan, and NOT an artifact signature."
+    },
+    "provenance": {
+      "status": "SELF_REPORTED_UNATTESTED",
+      "oidc_slsa_attestation_present": false,
+      "scope_boundary": "Build scripts emit traceable Section 7 SHA-256 manifests (`SELF_REPORTED_UNATTESTED`), NOT hardware/OIDC-attested SLSA v1.0 cryptographic provenance (`actions/attest-build-provenance` requires live GitHub Actions execution)."
+    },
+    "artifact_signature": {
+      "status": "UNSIGNED_DEVELOPMENT_ARTIFACT",
+      "windows_authenticode_signed": false,
+      "macos_developer_id_signed": false,
+      "macos_notarized": false,
+      "scope_boundary": "All compiled DIM binaries and CI bundles are UNSIGNED_DEVELOPMENT_ARTIFACT builds; production release remains blocked on Gate G3 (Authenticode) and Gate G4 (Apple Developer ID + Notarization)."
+    },
+    "installer_integrity": {
+      "status": "RAW_EXECUTABLES_ONLY_LOCALLY_CI_OVERLAY_READY",
+      "raw_executables_are_installers": false,
+      "ci_bundle_overlay_path": "desktop-instance-manager/scripts/ci-cross-platform/tauri-ci-bundle-overlay.json",
+      "scope_boundary": "Raw compiled executables (dim-desktop.exe, dim-cli.exe, dim-desktop) have is_installer=false; OS installers (.msi, -setup.exe, .dmg, .deb) require native OS bundlers + cryptographic signing before end-user distribution."
+    }
   },
   "lockfiles": {
     "workspace": {
@@ -97,6 +158,72 @@
         "crate": "dim-desktop@0.1.0",
         "rust_version": "1.90"
       }
+    },
+    "advisory_scan": {
+      "status": "VERIFIED_CARGO_DENY_RUSTSEC_CLEAN",
+      "scanner": "cargo-deny",
+      "cargo_deny_version": "cargo-deny 0.21.0",
+      "advisory_db_url": "https://github.com/rustsec/advisory-db",
+      "advisory_db_local_path": "advisory-db-3157b0e258782691",
+      "advisory_db_commit_sha": "233155b4025b854c68a4b199c0e32d7fd53291a2",
+      "advisory_db_commit_date": "2026-11-17T11:14:35+01:00",
+      "vulnerabilities_found": 0,
+      "advisory_errors_total": 0,
+      "yanked_crates_found": 0,
+      "advisory_findings": [],
+      "workspace_summary": {
+        "advisories": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 0,
+          "warnings": 0
+        },
+        "bans": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 0,
+          "warnings": 6
+        },
+        "licenses": {
+          "errors": 0,
+          "helps": 30,
+          "notes": 0,
+          "warnings": 6
+        },
+        "sources": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 0,
+          "warnings": 0
+        }
+      },
+      "tauri_summary": {
+        "advisories": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 0,
+          "warnings": 0
+        },
+        "bans": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 0,
+          "warnings": 27
+        },
+        "licenses": {
+          "errors": 0,
+          "helps": 323,
+          "notes": 0,
+          "warnings": 2
+        },
+        "sources": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 0,
+          "warnings": 0
+        }
+      },
+      "honesty_disclosure": "Verified via cargo-deny 0.21.0 against rustsec/advisory-db @ 233155b4025b854c68a4b199c0e32d7fd53291a2 across both Cargo.lock (41 pkgs) and apps/desktop/src-tauri/Cargo.lock (434 pkgs)."
     },
     "msrv_alignment": {
       "workspace_manifest": "desktop-instance-manager/Cargo.toml",
@@ -436,7 +563,8 @@
   ],
   "warnings": [
     "IR-001 WARNING: MSRV mismatch detected — workspace Cargo.toml specifies rust-version = \"1.85\" whereas apps/desktop/src-tauri/Cargo.toml specifies rust-version = \"1.90\". Cross-platform desktop builds require Rust >= 1.90.",
-    "IR-004 INFO: Repository maintains two separate Cargo lockfiles (desktop-instance-manager/Cargo.lock and apps/desktop/src-tauri/Cargo.lock) because src-tauri declares an independent [workspace]. Both lockfiles were audited.",
+    "DENY_TOML_COMPAT WARNING: desktop-instance-manager/deny.toml contains deprecated top-level `version = 2` (rejected by cargo-deny >= 0.20) and `wildcards = \"deny\"` against unversioned internal workspace path crates (`publish = false` unset). Remove `version = 2` and add `publish = false` (or `wildcards = \"warn\"`) in upstream integration patch.",
+    "IR-004 INFO: Repository maintains two separate Cargo lockfiles (desktop-instance-manager/Cargo.lock and apps/desktop/src-tauri/Cargo.lock) because src-tauri declares an independent [workspace]. Both lockfiles were audited with `--locked`.",
     "Transitive multi-version crates present (41 crate families across lockfiles; matches deny.toml multiple-versions = \"warn\")."
   ],
   "policy_check_passed": true
