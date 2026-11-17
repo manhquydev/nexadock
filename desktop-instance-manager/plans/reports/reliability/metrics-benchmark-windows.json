@@ -1,0 +1,123 @@
+{
+  "provenance": {
+    "os": "windows",
+    "kernel_or_build_version": "Microsoft Windows [Version 10.0.26300.9974]",
+    "architecture": "x86_64",
+    "logical_cpus": 16,
+    "rustc_version": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+    "node_version": "v26.13.1",
+    "git_commit": "a5feb4a52079",
+    "test_seed": "0x20261117",
+    "captured_at_utc": "2026-11-17T17:07:34Z"
+  },
+  "native_rust_fixture_startup": {
+    "runs": 10,
+    "min_ms": 27.0,
+    "p50_ms": 27.72,
+    "p95_ms": 34.04,
+    "max_ms": 38.06,
+    "mean_ms": 28.92
+  },
+  "native_rust_fixture_shutdown": {
+    "runs": 10,
+    "min_ms": 8.46,
+    "p50_ms": 31.24,
+    "p95_ms": 33.04,
+    "max_ms": 33.55,
+    "mean_ms": 25.02
+  },
+  "coordinator_node_fixture_startup": {
+    "runs": 10,
+    "min_ms": 308.81,
+    "p50_ms": 329.35,
+    "p95_ms": 371.11,
+    "max_ms": 374.17,
+    "mean_ms": 340.15
+  },
+  "coordinator_node_fixture_shutdown": {
+    "runs": 10,
+    "min_ms": 160.34,
+    "p50_ms": 190.8,
+    "p95_ms": 237.83,
+    "max_ms": 240.96,
+    "mean_ms": 192.37
+  },
+  "native_memory_scaling": [
+    {
+      "instance_count": 1,
+      "process_count": 1,
+      "total_working_set_bytes": 4947968,
+      "total_private_bytes": 765952,
+      "avg_working_set_mib_per_instance": 4.72
+    },
+    {
+      "instance_count": 3,
+      "process_count": 3,
+      "total_working_set_bytes": 14835712,
+      "total_private_bytes": 2285568,
+      "avg_working_set_mib_per_instance": 4.72
+    },
+    {
+      "instance_count": 5,
+      "process_count": 5,
+      "total_working_set_bytes": 24719360,
+      "total_private_bytes": 3788800,
+      "avg_working_set_mib_per_instance": 4.71
+    }
+  ],
+  "node_fixture_memory_scaling": [
+    {
+      "instance_count": 1,
+      "process_count": 1,
+      "total_working_set_bytes": 56176640,
+      "total_private_bytes": 23887872,
+      "avg_working_set_mib_per_instance": 53.57
+    },
+    {
+      "instance_count": 3,
+      "process_count": 3,
+      "total_working_set_bytes": 168595456,
+      "total_private_bytes": 72388608,
+      "avg_working_set_mib_per_instance": 53.6
+    },
+    {
+      "instance_count": 5,
+      "process_count": 5,
+      "total_working_set_bytes": 281255936,
+      "total_private_bytes": 119185408,
+      "avg_working_set_mib_per_instance": 53.65
+    }
+  ],
+  "native_idle_cpu": {
+    "observation_window_ms": 1200,
+    "instance_count": 3,
+    "cpu_time_delta_ms": 15.625,
+    "single_core_cpu_percent": 1.3019,
+    "host_normalized_cpu_percent": 0.0814,
+    "measurement_supported": true
+  },
+  "node_idle_cpu": {
+    "observation_window_ms": 1200,
+    "instance_count": 3,
+    "cpu_time_delta_ms": 15.625,
+    "single_core_cpu_percent": 1.3017,
+    "host_normalized_cpu_percent": 0.0814,
+    "measurement_supported": true
+  },
+  "filesystem_changes": {
+    "files_before": 1,
+    "files_after": 66,
+    "created_files": 65,
+    "modified_files": 1,
+    "deleted_files": 0,
+    "total_bytes_after": 23251
+  },
+  "cleanup_residuals": {
+    "surviving_pids": [],
+    "leftover_lock_artifacts": [],
+    "leftover_staging_dirs": []
+  },
+  "total_operations": 20,
+  "failed_operations": 0,
+  "failure_rate": 0.0
+}

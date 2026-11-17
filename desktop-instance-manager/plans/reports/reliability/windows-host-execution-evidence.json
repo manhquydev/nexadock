@@ -1,0 +1,1373 @@
+{
+  "harness_ok": true,
+  "strict_gate_ok": false,
+  "executed_at_utc": "2026-11-17T17:07:34Z",
+  "host_platform": "windows",
+  "seed": "0x20261117",
+  "total_cases": 55,
+  "passed_cases": 42,
+  "defects_reproduced_cases": 11,
+  "unexpected_failure_cases": 0,
+  "skipped_host_cases": 2,
+  "total_duration_ms": 88319,
+  "outcomes": [
+    {
+      "id": "LC-01",
+      "category": "lifecycle",
+      "title": "Launch 1, 2, 3, and 5 concurrent isolated fixture instances",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 7005,
+      "evidence": {
+        "checkpoints": [
+          {
+            "distinct_dirs": 1,
+            "distinct_pids": 1,
+            "distinct_user_ids": 1,
+            "scale": 1
+          },
+          {
+            "distinct_dirs": 2,
+            "distinct_pids": 2,
+            "distinct_user_ids": 2,
+            "scale": 2
+          },
+          {
+            "distinct_dirs": 3,
+            "distinct_pids": 3,
+            "distinct_user_ids": 3,
+            "scale": 3
+          },
+          {
+            "distinct_dirs": 5,
+            "distinct_pids": 5,
+            "distinct_user_ids": 5,
+            "scale": 5
+          }
+        ],
+        "verify_isolation_checks": [
+          {
+            "check_name": "ApplicationDiscovery",
+            "detail": "Mode=node-fixture, Script=C:\\Users\\<USER>\\Downloads\\zalo-cross-platform-tests\\desktop-instance-manager\\fixtures\\cross-platform\\xf-fixture.mjs",
+            "passed": true,
+            "status": "PASS"
+          },
+          {
+            "check_name": "PrimaryZaloDataSeparation",
+            "detail": "All 5 profile(s) isolated outside primary ZaloData (protected_pids=11)",
+            "passed": true,
+            "status": "PASS"
+          },
+          {
+            "check_name": "DistinctProfilePathsAndMarkers",
+            "detail": "Checked 5 profile(s), markers_valid=true, symlink_escape=false",
+            "passed": true,
+            "status": "PASS"
+          },
+          {
+            "check_name": "DistinctProcessOwnership",
+            "detail": "Active isolated PIDs=5, Primary PIDs=11",
+            "passed": true,
+            "status": "PASS"
+          },
+          {
+            "check_name": "DistinctZaloUserIds",
+            "detail": "No duplicate logged-in zalo_user_id among active instances",
+            "passed": true,
+            "status": "PASS"
+          },
+          {
+            "check_name": "RestrictiveNtfsAcls",
+            "detail": "Profiles directory restricts unprivileged multi-user write access",
+            "passed": true,
+            "status": "PASS"
+          },
+          {
+            "check_name": "FolderRedirectionCheck",
+            "detail": "AppData resolves locally under USERPROFILE",
+            "passed": true,
+            "status": "PASS"
+          }
+        ]
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "LC-02",
+      "category": "lifecycle",
+      "title": "Selective stop of 1 instance while 4 sibling instances stay active",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 5234,
+      "evidence": {
+        "stopped_pid": 29000,
+        "stopped_profile_id": "59034d25",
+        "surviving_siblings_verified": 4
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "LC-03",
+      "category": "lifecycle",
+      "title": "Stop all managed instances and verify clean shutdown persistence",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 3838,
+      "evidence": {
+        "clean_shutdown_persisted_count": 4,
+        "managed_instances_stopped": 4,
+        "surviving_pids": []
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "LC-04",
+      "category": "lifecycle",
+      "title": "Protect unmanaged external processes and primary Zalo PIDs from termination",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 724,
+      "evidence": {
+        "protected_pid_guard_code": "PROTECTED_PRIMARY_PROCESS",
+        "unmanaged_pid_survived_managed_stop": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "LC-05",
+      "category": "lifecycle",
+      "title": "Relaunch and recover state after mid-write simulated crash",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 1707,
+      "evidence": {
+        "boot_sequence_after_recovery": 2,
+        "stale_lock_detected_before_relaunch": true,
+        "torn_tmp_artifact_observed": true,
+        "unclean_previous_boot_flagged": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "LC-06",
+      "category": "lifecycle",
+      "title": "Duplicate launch of an already-running profile routes to focus without spawning second instance",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 1342,
+      "evidence": {
+        "boot_sequence": 1,
+        "focus_count": 1,
+        "pid_preserved": 6692
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "LC-07",
+      "category": "lifecycle",
+      "title": "Slow pre-lock startup (`--slow-startup-pre-lock-ms`) visibility and stop safety",
+      "platform_scope": "all",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 2865,
+      "evidence": {
+        "launch_returned_main_pid": null,
+        "launch_returned_running": false,
+        "orphan_process_survived_stop": true,
+        "runtime_pid_hint_on_disk": 20012,
+        "stop_profile_terminated_count": 0
+      },
+      "defect_id": "DEFECT-03",
+      "affected_files": [
+        "crates/platform-windows/src/adapter.rs:512-522,620-631",
+        "crates/platform-macos/src/adapter.rs:192-193,298,317",
+        "crates/platform-linux/src/adapter.rs:189,298-299"
+      ],
+      "minimal_reproduction": "Launch a profile with `--slow-startup-pre-lock-ms=3100`, then immediately call `stop_profile`: `launch_profile` returns `running=false, main_pid=null` while `.runtime-pid` process is alive, and `stop_profile` returns `0` leaving the starting process orphaned in the background."
+    },
+    {
+      "id": "LC-08",
+      "category": "lifecycle",
+      "title": "Concurrent multi-threaded launch/stop race on the same profile",
+      "platform_scope": "all",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 1420,
+      "evidence": {
+        "concurrent_threads": 4,
+        "returned_pids": [
+          5232,
+          5232,
+          5232,
+          5232
+        ],
+        "second_instance_collisions_logged": 2
+      },
+      "defect_id": "DEFECT-04",
+      "affected_files": [
+        "crates/process-manager/src/coordinator.rs:49-104",
+        "crates/profile-store/src/store.rs:169-180"
+      ],
+      "minimal_reproduction": "Invoke `InstanceCoordinator::launch_profile` concurrently from 4 threads on the same stopped profile (`--slow-startup-pre-lock-ms=220`): all 4 threads bypass `if runtime_before.running` simultaneously and spawn 4 racing OS processes instead of serializing launch per profile."
+    },
+    {
+      "id": "LC-09",
+      "category": "lifecycle",
+      "title": "Simulated process hang (`--hang-on-quit`) forced cleanup across NodeFixture & CustomExecutable",
+      "platform_scope": "all",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 9237,
+      "evidence": {
+        "custom_exe_detected_running_via_rstrtmgr": true,
+        "custom_exe_pid": 9024,
+        "custom_exe_survived_stop": true,
+        "node_hang_escalated_cleanly": true,
+        "stop_returned_count": 0
+      },
+      "defect_id": "DEFECT-06",
+      "affected_files": [
+        "crates/platform-windows/src/adapter.rs:492-498,771-785",
+        "scripts/dim-host.ps1:1032-1036,1117-1119,2295-2298",
+        "crates/platform-macos/src/adapter.rs:386-404"
+      ],
+      "minimal_reproduction": "Start `xf-desktop-fixture.exe --lock-mode=exclusive --hang-on-quit` on a profile: `WindowsPlatformAdapter::inspect_profile` detects `running=true, main_pid=<pid>` via `rstrtmgr.dll`, but `stop_profile()` skips `TerminateProcess` because `allowed_exe` hardcodes `zalo*`/`zocr*`/`node.exe`/`dim-test-fixture*`, returning `Ok(0)` while the hung process keeps holding `lockfile`."
+    },
+    {
+      "id": "PM-01",
+      "category": "profile_management",
+      "title": "Create, lookup, live-safe rename, and confirmed delete lifecycle",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 35,
+      "evidence": {
+        "confirm_guard_code": "CONFIRM_REQUIRED",
+        "immutable_directory_name": "phong-kinh-doanh-mien-bac_447fcdbc",
+        "profile_id": "447fcdbc"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "PM-02",
+      "category": "profile_management",
+      "title": "Bulk creation of 25 profiles with unique 8-hex IDs and collision-free directories",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 2269,
+      "evidence": {
+        "created_count": 25,
+        "unique_directories": 25,
+        "unique_ids": 25
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "PM-03",
+      "category": "profile_management",
+      "title": "Unicode Vietnamese NFC/NFD diacritics, Đ/đ folding, and symbol-only slug disambiguation",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 182,
+      "evidence": {
+        "emoji_dir_1": "profile_8846dcdb",
+        "emoji_dir_2": "profile_603dcf29",
+        "nfc_slug": "dang-thi-anh-tuyet",
+        "nfd_slug": "dang-thi-anh-tuyet"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "PM-04",
+      "category": "profile_management",
+      "title": "Unicode Vietnamese case-insensitive duplicate name rejection (`Đức` vs `đức`)",
+      "platform_scope": "all",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 202,
+      "evidence": {
+        "first_profile": {
+          "dir": "duc-cong-viec_b54cbf73",
+          "id": "b54cbf73",
+          "name": "Đức Công Việc"
+        },
+        "second_profile_unexpectedly_allowed": {
+          "dir": "duc-cong-viec_de052468",
+          "id": "de052468",
+          "name": "đức công việc"
+        }
+      },
+      "defect_id": "DEFECT-10",
+      "affected_files": [
+        "crates/profile-store/src/store.rs:100,216,260,439",
+        "scripts/dim-host.ps1:1777"
+      ],
+      "minimal_reproduction": "Create profile `'Đức Công Việc'`, then create `'đức công việc'`: `JsonProfileStore` uses `str::eq_ignore_ascii_case` which leaves non-ASCII `Đ`/`đ` and accented vowels unfolded, allowing duplicate Vietnamese profile names that `dim-host.ps1` (`OrdinalIgnoreCase`) rejects with `DUPLICATE_NAME`."
+    },
+    {
+      "id": "PM-05",
+      "category": "profile_management",
+      "title": "Profile name length boundaries (63/64/65 ASCII & multi-byte Vietnamese chars)",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 272,
+      "evidence": {
+        "len_63_dir_len": 49,
+        "len_64_dir_len": 49,
+        "len_65_rejected_code": "INVALID_NAME",
+        "viet_64_dir": "dddddddddddddddddddddddddddddddddddddddd_df98b957",
+        "viet_64_utf8_bytes": 128
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "PM-06",
+      "category": "profile_management",
+      "title": "Duplicate names (ASCII case-insensitive, whitespace-trimmed, and self-rename)",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 204,
+      "evidence": {
+        "duplicate_create_code": "DUPLICATE_NAME",
+        "duplicate_rename_code": "DUPLICATE_NAME",
+        "self_case_rename_allowed": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "PM-07",
+      "category": "profile_management",
+      "title": "Invalid profile names and unsafe/primary storage root path rejections",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 0,
+      "evidence": {
+        "invalid_names_rejected": 11,
+        "invalid_roots_rejected": 4,
+        "primary_zalo_data_blocked": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "PM-08",
+      "category": "profile_management",
+      "title": "Permission/write failure rollback on `profiles.json.tmp` & trait `delete_profile` running guard",
+      "platform_scope": "all",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 636,
+      "evidence": {
+        "atomic_tmp_block_error_code": "IO_ERROR",
+        "coordinator_delete_guard": "PROFILE_RUNNING",
+        "profiles_json_preserved_on_write_error": true,
+        "trait_delete_profile_bypassed_running_guard": true
+      },
+      "defect_id": "DEFECT-09",
+      "affected_files": [
+        "crates/profile-store/src/store.rs:271-273"
+      ],
+      "minimal_reproduction": "Launch a profile, then call `ProfileStore::delete_profile(&store, &id, true)`: `JsonProfileStore` hardcodes `is_running = false` in its trait implementation, deleting `profiles.json` metadata and unlinking files out from under a live running instance!"
+    },
+    {
+      "id": "DS-01",
+      "category": "data_safety",
+      "title": "Strict multi-profile data separation and SHA-256 payload isolation",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 2487,
+      "evidence": {
+        "bytes_per_profile": 8192,
+        "distinct_chunk0_digests": 3,
+        "isolated_profiles_verified": 3
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "DS-02",
+      "category": "data_safety",
+      "title": "Symlinks & Windows NTFS junctions: skipped during backup and unlinked safely on delete",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 98,
+      "evidence": {
+        "backup_skipped_junction": true,
+        "external_target_preserved_after_delete": true,
+        "symlink_backup_dest_rejected": "BACKUP_ERROR"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "DS-03",
+      "category": "data_safety",
+      "title": "Path traversal, Windows device names, NTFS ADS (`:$DATA`), and zip-slip manifest attacks",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 16,
+      "evidence": {
+        "rejected_traversal_and_ads_vectors": 21,
+        "zip_slip_manifest_rejected_code": "PATH_TRAVERSAL"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "DS-04",
+      "category": "data_safety",
+      "title": "Backup partial failure mid-copy cleans `.partial` staging directory cleanly",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 124,
+      "evidence": {
+        "leftover_partial_dirs": 0,
+        "mid_copy_failure_error_code": "IO_ERROR"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "DS-05",
+      "category": "data_safety",
+      "title": "Restore tamper/interruption & duplicate-name rollback preserve existing profiles",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 168,
+      "evidence": {
+        "duplicate_restore_name_code": "DUPLICATE_NAME",
+        "original_profile_preserved": true,
+        "staging_remnants": 0,
+        "tampered_payload_code": "BACKUP_ERROR"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "DS-06",
+      "category": "data_safety",
+      "title": "Disk full simulation enforces exact `5 GiB + payload` threshold on backup and restore",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 119,
+      "evidence": {
+        "below_threshold_rejected": "INSUFFICIENT_DISK_SPACE",
+        "exact_threshold_accepted": true,
+        "min_free_disk_bytes": 5368709120,
+        "payload_bytes": 10000,
+        "restore_below_threshold_rejected": "INSUFFICIENT_DISK_SPACE"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "DS-07",
+      "category": "data_safety",
+      "title": "Atomic `profiles.json` writes under concurrent reader stress & staging dir sweep",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 3428,
+      "evidence": {
+        "atomic_mutations_executed": 90,
+        "concurrent_torn_free_reads": 1642,
+        "swept_abandoned_staging_dirs": 2
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "DS-08",
+      "category": "data_safety",
+      "title": "Cross-platform macOS/Linux backup & restore `zalo_user_id` preservation",
+      "platform_scope": "all",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 520,
+      "evidence": {
+        "expected_linux_uid": "849888999",
+        "expected_mac_uid": "849777666",
+        "linux_manifest_uid": null,
+        "linux_restored_uid": null,
+        "mac_manifest_uid": null,
+        "mac_restored_uid": null
+      },
+      "defect_id": "DEFECT-07",
+      "affected_files": [
+        "crates/profile-store/src/backup.rs:143,339-345,455-460"
+      ],
+      "minimal_reproduction": "Create a macOS (`Library/Application Support/ZaloData/Database/_production/849777666`) or Linux (`.config/ZaloData/Database/_production/849888999`) profile where QR login happened after launch (`profile.zalo_user_id == None`), then run `backup_profile` + `restore_backup_as_new_profile`: `restore_backup_as_new_profile` hardcodes Windows `AppData/Roaming/ZaloData` and returns `zalo_user_id: None` on macOS/Linux!"
+    },
+    {
+      "id": "REL-01",
+      "category": "reliability",
+      "title": "10 consecutive full coordinator launch/stop restart cycles",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 7150,
+      "evidence": {
+        "clean_shutdown_count": 10,
+        "cycles_completed": 10,
+        "surviving_pids": 0
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "REL-02",
+      "category": "reliability",
+      "title": "100 fixture launch/stop soak cycles with zero leak verification",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 5806,
+      "evidence": {
+        "cycles_completed": 100,
+        "failure_rate": 0.0,
+        "first_10_startup_mean_ms": 30.32,
+        "last_10_startup_mean_ms": 31.71,
+        "runtime_mode": "native-rust-fixture",
+        "shutdown_latency": {
+          "max_ms": 31.16,
+          "mean_ms": 26.59,
+          "min_ms": 23.54,
+          "p50_ms": 26.46,
+          "p95_ms": 28.37,
+          "runs": 100
+        },
+        "startup_latency": {
+          "max_ms": 46.24,
+          "mean_ms": 31.25,
+          "min_ms": 25.74,
+          "p50_ms": 30.76,
+          "p95_ms": 36.68,
+          "runs": 100
+        },
+        "surviving_pids": 0
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "REL-03",
+      "category": "reliability",
+      "title": "Crash injection & controlled error matrix (`immediate`, `after-lock`, `corrupt-state`, `disk-full`, `eacces`)",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 480,
+      "evidence": {
+        "fault_modes_verified": [
+          {
+            "exit_code": 28,
+            "last_error_recorded": true,
+            "scenario": "error-disk-full",
+            "stale_lock_present": false
+          },
+          {
+            "exit_code": 13,
+            "last_error_recorded": true,
+            "scenario": "error-eacces",
+            "stale_lock_present": false
+          },
+          {
+            "exit_code": 65,
+            "last_error_recorded": true,
+            "scenario": "error-corrupt-cfg",
+            "stale_lock_present": false
+          },
+          {
+            "exit_code": 101,
+            "last_error_recorded": false,
+            "scenario": "crash-immediate",
+            "stale_lock_present": false
+          },
+          {
+            "exit_code": 137,
+            "last_error_recorded": false,
+            "scenario": "crash-after-lock",
+            "stale_lock_present": true
+          },
+          {
+            "exit_code": 139,
+            "last_error_recorded": false,
+            "scenario": "crash-corrupt-state",
+            "stale_lock_present": true
+          }
+        ]
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "REL-04",
+      "category": "reliability",
+      "title": "Slow disk I/O simulation (`--slow-io-ms`) with offline backup SHA-256 verification",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 980,
+      "evidence": {
+        "backed_up_bytes": 28436,
+        "backed_up_files": 17
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "REL-05",
+      "category": "reliability",
+      "title": "5 concurrent heartbeating profiles under parallel status & live rename stress",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 7335,
+      "evidence": {
+        "aggregate_heartbeat_ticks": 378,
+        "concurrent_profiles": 5,
+        "live_renames_completed": 25
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "REL-06",
+      "category": "reliability",
+      "title": "Corrupted metadata resilience (`profiles.json`, `.zalo-profile-id`, `ZaloData/config.json`)",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 52,
+      "evidence": {
+        "empty_metadata_code": "JSON_ERROR",
+        "marker_mismatch_code": "PROFILE_MARKER_MISMATCH",
+        "truncated_metadata_code": "JSON_ERROR",
+        "unsupported_schema_code": "SCHEMA_ERROR",
+        "zero_schema_code": "SCHEMA_ERROR"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "REL-07",
+      "category": "reliability",
+      "title": "Process tree cleanup with `--spawn-children=2` worker hierarchy",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 4394,
+      "evidence": {
+        "inspected_process_count": 6,
+        "spawned_child_pids": [
+          26108,
+          19416
+        ],
+        "surviving_children": 0,
+        "terminated_process_count": 1
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "REL-08",
+      "category": "reliability",
+      "title": "Stale locks, garbage lockfiles, and live non-Zalo PID-reuse spoof protection",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 131,
+      "evidence": {
+        "garbage_lock_detected_as_stale": true,
+        "recovered_artifact_count": 4,
+        "recycled_self_pid_running_reported": false
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-WIN-01",
+      "category": "cross_platform",
+      "title": "Windows: RestartManager (`rstrtmgr.dll`) & `CreateFileW` exclusive kernel lock ownership",
+      "platform_scope": "windows",
+      "verdict": "PASS",
+      "duration_ms": 120,
+      "evidence": {
+        "exclusively_locked_while_running": true,
+        "fixture_pid": 24588,
+        "restart_manager_locking_pids": [
+          24588
+        ],
+        "unlocked_after_shutdown": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-WIN-02",
+      "category": "cross_platform",
+      "title": "Windows: AppData UTF-16 env block, quoting, and Folder Redirection guards",
+      "platform_scope": "windows",
+      "verdict": "PASS",
+      "duration_ms": 542,
+      "evidence": {
+        "child_observed_appdata_isolated": true,
+        "folder_redirection_rules_verified": 4,
+        "utf16_block_code_units": 497
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-WIN-03",
+      "category": "cross_platform",
+      "title": "Windows: `CreateProcessW` `bInheritHandles=FALSE` prevents parent file-handle leakage",
+      "platform_scope": "windows",
+      "verdict": "PASS",
+      "duration_ms": 538,
+      "evidence": {
+        "parent_inheritable_handle_blocked_by_bInheritHandles_false": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-WIN-04",
+      "category": "cross_platform",
+      "title": "Windows: NTFS DACL verification (`GetNamedSecurityInfoW`) detects permissive `Everyone` write ACE",
+      "platform_scope": "windows",
+      "verdict": "PASS",
+      "duration_ms": 31,
+      "evidence": {
+        "default_profiles_dir_acl_safe": true,
+        "everyone_write_ace_detected_unsafe": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-MAC-01",
+      "category": "cross_platform",
+      "title": "macOS: `Application Support` path resolution, layout seeds, and `.app` `Info.plist` discovery",
+      "platform_scope": "macos-contract",
+      "verdict": "PASS",
+      "duration_ms": 22,
+      "evidence": {
+        "discovered_bundle_version": "26.10.20",
+        "honest_support_status": "not_tested",
+        "plist_parser_ok": true,
+        "resolved_data_dir": "/Users/tester\\Library\\Application Support\\MultiZaloDesktop"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-MAC-02",
+      "category": "cross_platform",
+      "title": "macOS: Launch Services (`open -n --env CFFIXED_USER_HOME`), Keychains symlinks, and call socket checks",
+      "platform_scope": "macos-contract",
+      "verdict": "PASS",
+      "duration_ms": 6,
+      "evidence": {
+        "has_cffixed_user_home": true,
+        "open_args_count": 11,
+        "socket_conflict_detected": true,
+        "symlink_dirs_configured": [
+          "Library/Keychains",
+          "Downloads",
+          "Desktop",
+          "Documents",
+          "Pictures",
+          "Movies",
+          "Music"
+        ]
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-MAC-03",
+      "category": "cross_platform",
+      "title": "macOS: `SingletonLock` dangling symlink detection (`DEFECT-01`) & `NodeFixture` launch parity (`DEFECT-02`)",
+      "platform_scope": "macos-contract",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 7,
+      "evidence": {
+        "missing_deterministic_fixture_user_id": true,
+        "singleton_lock_uses_path_exists_bug": true,
+        "writes_runtime_pid_but_never_reads_it": true
+      },
+      "defect_id": "DEFECT-02",
+      "affected_files": [
+        "crates/platform-macos/src/adapter.rs:192-196,298,305-320",
+        "crates/platform-windows/src/adapter.rs:600-607,620-629"
+      ],
+      "minimal_reproduction": "On macOS, launch 2 `NodeFixture` profiles without explicit `--user-id`: `MacOsPlatformAdapter::launch` neither derives a per-profile `--user-id` (both default to `100001`, colliding on `DUPLICATE_ZALO_USER_ID`) nor polls readiness nor reads `.runtime-pid` in `inspect_profile`, and uses `singleton_lock.exists()` which returns `false` on Chromium's dangling `SingletonLock` symlinks."
+    },
+    {
+      "id": "XP-MAC-04",
+      "category": "cross_platform",
+      "title": "macOS Runtime Gate: Live `CFFIXED_USER_HOME` process lifetime & POSIX `0700` permissions",
+      "platform_scope": "macos",
+      "verdict": "SKIPPED_HOST_PLATFORM",
+      "duration_ms": 0,
+      "evidence": {
+        "host_os": "windows",
+        "reason": "Live macOS Launch Services (`open -n`), `CFFIXED_USER_HOME` runtime, and APFS permissions cannot be marked PASS from a non-macOS host",
+        "required_os": "macos"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-LNX-01",
+      "category": "cross_platform",
+      "title": "Ubuntu: XDG Base Directory precedence (`XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`) & layout",
+      "platform_scope": "linux-contract",
+      "verdict": "PASS",
+      "duration_ms": 11,
+      "evidence": {
+        "home_fallback_data_dir": "/home/ubuntu\\.local\\share\\MultiZaloDesktop",
+        "isolated_env_keys": [
+          "DIM_PROFILE_ID",
+          "DIM_PROFILE_NAME",
+          "HOME",
+          "TMPDIR",
+          "XDG_CACHE_HOME",
+          "XDG_CONFIG_HOME",
+          "XDG_DATA_HOME"
+        ],
+        "xdg_override_data_dir": "/custom/xdg-data\\MultiZaloDesktop"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-LNX-02",
+      "category": "cross_platform",
+      "title": "Ubuntu: `.AppImage` discovery, `OfficialZalo` refusal, and dangling `SingletonLock` audit (`DEFECT-01`)",
+      "platform_scope": "linux-contract",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 13,
+      "evidence": {
+        "appimage_status": "experimental",
+        "dangling_singleton_lock_uses_path_exists": true,
+        "official_linux_status": "unsupported"
+      },
+      "defect_id": "DEFECT-01",
+      "affected_files": [
+        "crates/platform-linux/src/adapter.rs:190-191",
+        "crates/platform-macos/src/adapter.rs:194-195"
+      ],
+      "minimal_reproduction": "Create a Chromium-style dangling symlink `ln -s ubuntu-host-99999 .config/ZaloData/SingletonLock` (without JSON `lockfile`) for a dead PID `99999` and call `inspect_profile`: `singleton_lock.exists()` follows the dangling target and returns `false`, so `stale_lock_detected` is `false` and `StaleLockRecoveryManager` is skipped on relaunch!"
+    },
+    {
+      "id": "XP-LNX-03",
+      "category": "cross_platform",
+      "title": "Ubuntu: Bubblewrap (`bwrap`) user-namespace sandbox argv & Ubuntu 24.04 AppArmor advisory",
+      "platform_scope": "linux-contract",
+      "verdict": "PASS",
+      "duration_ms": 0,
+      "evidence": {
+        "apparmor_userns_advisory_present": true,
+        "bwrap_arg_count": 41,
+        "die_with_parent_enforced": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "XP-LNX-04",
+      "category": "cross_platform",
+      "title": "Ubuntu Runtime Gate: Live POSIX signals (`SIGTERM`/`SIGKILL`), symlinks, file ownership & `bwrap` probe",
+      "platform_scope": "linux",
+      "verdict": "SKIPPED_HOST_PLATFORM",
+      "duration_ms": 0,
+      "evidence": {
+        "host_os": "windows",
+        "reason": "Live Ubuntu `/proc` inspection, POSIX signals (`SIGTERM`/`SIGKILL`), `chmod 0700` ownership, and `bwrap` unprivileged user namespaces cannot be marked PASS from a non-Linux host",
+        "required_os": "linux"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "CT-01",
+      "category": "contract",
+      "title": "PlatformCapabilities contract & honest SupportStatus reporting across Windows, macOS, and Linux adapters",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 0,
+      "evidence": {
+        "linux": {
+          "appimage_status": "experimental",
+          "concurrent_calls_status": "unsupported",
+          "diagnostics": [
+            "prefer_bwrap=false",
+            "XDG_CONFIG_HOME / XDG_DATA_HOME / XDG_CACHE_HOME / HOME isolation"
+          ],
+          "fixture_status": "experimental",
+          "folder_redirection_detected": false,
+          "folder_redirection_path": null,
+          "limitations": [
+            "Official VNG Zalo Desktop is UNSUPPORTED on Linux (no official VNG build exists).",
+            "User-supplied local AppImage and Node.js test fixture run in EXPERIMENTAL XDG/HOME/bwrap isolation.",
+            "Ubuntu 23.10+/24.04 AppArmor restricts unprivileged user namespaces; user-supplied local Electron AppImages may require --no-sandbox unless an AppArmor profile is configured."
+          ],
+          "official_zalo_status": "unsupported",
+          "overall_status": "unsupported",
+          "platform": "linux"
+        },
+        "macos": {
+          "appimage_status": null,
+          "concurrent_calls_status": "blocked",
+          "diagnostics": [
+            "Singleton isolation relies on `open -n` + `CFFIXED_USER_HOME`.",
+            "Chromium lock parsed from `SingletonLock` symlink (`<host>-<pid>`)."
+          ],
+          "fixture_status": "experimental",
+          "folder_redirection_detected": false,
+          "folder_redirection_path": null,
+          "limitations": [
+            "macOS CFFIXED_USER_HOME isolation is NOT_TESTED on physical macOS hardware.",
+            "ZaloHelper.app binds fixed Unix domain socket /tmp/socketzalorecv2021 (fs.unlink conflict on concurrent calls)."
+          ],
+          "official_zalo_status": "not_tested",
+          "overall_status": "not_tested",
+          "platform": "macos"
+        },
+        "windows": {
+          "appimage_status": null,
+          "concurrent_calls_status": "blocked",
+          "diagnostics": [
+            "Per-process USERPROFILE/APPDATA/LOCALAPPDATA/TEMP isolation via CreateProcessW",
+            "Lockfile ownership inspection via Restart Manager (rstrtmgr.dll)"
+          ],
+          "fixture_status": "supported_and_tested",
+          "folder_redirection_detected": false,
+          "folder_redirection_path": "%USERPROFILE%\\AppData\\Roaming",
+          "limitations": [
+            "Concurrent voice/video calls are BLOCKED across simultaneous profiles by global named pipes \\\\.\\pipe\\PipeZCallSend and \\\\.\\pipe\\PipeZCallRecv.",
+            "Windows toast notifications share AppUserModelId(\"com.vng.zalo\").",
+            "Smart App Control hosts block unsigned locally compiled PEs unless code-signed or hosted via signed PowerShell/Node."
+          ],
+          "official_zalo_status": "partially_supported",
+          "overall_status": "partially_supported",
+          "platform": "windows"
+        }
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "CT-02",
+      "category": "contract",
+      "title": "ApplicationLocator input/output schema contract across missing, partial, and valid roots",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 6,
+      "evidence": {
+        "linux_missing_status": "NotApplicable",
+        "macos_missing_status": "NotFound",
+        "windows_missing_status": "NotFound"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "CT-03",
+      "category": "contract",
+      "title": "InstanceLauncher::ensure_profile_layout idempotency & `.zalo-profile-id` marker contract across all 3 adapters",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 33,
+      "evidence": {
+        "idempotent_layouts_verified": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "profile_marker_verified": "cafebabe"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "CT-04",
+      "category": "contract",
+      "title": "Exhaustive 22-variant `DimError::code()` & `OperationOutcome<T>` JSON envelope contract",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 0,
+      "evidence": {
+        "unique_error_codes": 22,
+        "verified_error_variants": 22
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "CT-05",
+      "category": "contract",
+      "title": "Unsupported platform operations (`UNSUPPORTED_PLATFORM`) & unsigned custom binary (`UNVERIFIED_BINARY`) safety contract",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 104,
+      "evidence": {
+        "cross_os_calls_fail_closed": true,
+        "linux_official_zalo_code": "UNSUPPORTED_PLATFORM",
+        "windows_unsigned_custom_exe_rejected": true
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "CT-06",
+      "category": "contract",
+      "title": "Primary PID protection contract (`PROTECTED_PRIMARY_PROCESS`) across Windows, macOS, and Linux `stop()`",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 6,
+      "evidence": {
+        "adapters_enforcing_pre_syscall_pid_guard": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "error_code": "PROTECTED_PRIMARY_PROCESS"
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "CT-07",
+      "category": "contract",
+      "title": "CLI public JSON output schema contract (`status`, `discover`, `diagnostics`, `verify-isolation`, `backups`)",
+      "platform_scope": "all",
+      "verdict": "PASS",
+      "duration_ms": 244,
+      "evidence": {
+        "isolation_check_count": 7,
+        "verified_commands": [
+          "discover",
+          "status",
+          "diagnostics",
+          "verify-isolation",
+          "backups"
+        ]
+      },
+      "defect_id": null,
+      "affected_files": [],
+      "minimal_reproduction": null
+    },
+    {
+      "id": "CT-08",
+      "category": "contract",
+      "title": "Differential CLI contract: 33..40 char profile slug parity (`dim-cli` vs `scripts/dim-host.ps1`)",
+      "platform_scope": "windows+ps-parity",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 1991,
+      "evidence": {
+        "input_name": "Tai Khoan Kinh Doanh Khu Vuc Mien Nam So 1",
+        "powershell_slug_len": 32,
+        "powershell_slug_prefix": "tai-khoan-kinh-doanh-khu-vuc-mie",
+        "rust_slug_len": 40,
+        "rust_slug_prefix": "tai-khoan-kinh-doanh-khu-vuc-mien-nam-so"
+      },
+      "defect_id": "DEFECT-08",
+      "affected_files": [
+        "crates/core/src/slug.rs:14,70",
+        "scripts/dim-host.ps1:582"
+      ],
+      "minimal_reproduction": "Run `create \"Tai Khoan Kinh Doanh Khu Vuc Mien Nam So 1\"` on both `dim-cli.exe` and `scripts/dim-host.ps1`: Rust caps `MAX_SLUG_LEN` at `40` chars whereas PowerShell `SlugifyName` breaks at `32` chars, producing mismatched directory naming conventions."
+    },
+    {
+      "id": "CT-09",
+      "category": "contract",
+      "title": "Differential CLI contract: Restore duplicate-name & 64-char name cap (`dim-cli` vs `scripts/dim-host.ps1`)",
+      "platform_scope": "windows+ps-parity",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 7757,
+      "evidence": {
+        "max_profile_name_len": 64,
+        "powershell_auto_restore_name_len": 69,
+        "powershell_duplicate_name_response": {
+          "allocated_name": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA #2",
+          "ok": true
+        },
+        "rust_auto_restore_name_len": 64,
+        "rust_duplicate_name_response": {
+          "error_code": "DUPLICATE_NAME",
+          "ok": false
+        }
+      },
+      "defect_id": "DEFECT-08",
+      "affected_files": [
+        "crates/profile-store/src/backup.rs:399-437",
+        "scripts/dim-host.ps1:2595-2608"
+      ],
+      "minimal_reproduction": "Backup a 58-char profile, then run `restore <dir> --name <existing>` and `restore <dir>`: Rust rejects duplicate `--name` with `DUPLICATE_NAME` and caps auto-restored names at `64` chars, whereas `dim-host.ps1` silently renames duplicates with ` #2` (`ok: true`) and creates a `69`-char profile name exceeding the `64`-char validation limit!"
+    },
+    {
+      "id": "CT-10",
+      "category": "contract",
+      "title": "Differential CLI contract: Empty/corrupt `profiles.json` fail-closed & missing-arg error codes (`dim-cli` vs `scripts/dim-host.ps1`)",
+      "platform_scope": "windows+ps-parity",
+      "verdict": "FAIL_DEFECT_REPRODUCED",
+      "duration_ms": 6392,
+      "evidence": {
+        "corrupt_profiles_json_codes": {
+          "powershell": "UNHANDLED_EXCEPTION",
+          "rust": "JSON_ERROR"
+        },
+        "empty_profiles_json": {
+          "powershell_ok": true,
+          "rust_code": "JSON_ERROR",
+          "rust_ok": false
+        },
+        "missing_arg_codes": {
+          "powershell": "MISSING_ARG",
+          "rust": "INVALID_NAME"
+        }
+      },
+      "defect_id": "DEFECT-08",
+      "affected_files": [
+        "fixtures/test-desktop-app/src/bin/dim-cli.rs:171-175",
+        "crates/profile-store/src/store.rs:157-167",
+        "scripts/dim-host.ps1:380-399,3005-3055"
+      ],
+      "minimal_reproduction": "Truncate `profiles.json` to 0 bytes or write `{corrupt` or invoke `create` without arguments on `dim-cli.exe` vs `scripts/dim-host.ps1`: Rust fails closed (`JSON_ERROR` / `INVALID_NAME`), whereas PowerShell silently resets 0-byte `profiles.json` to `ok: true` (masking corruption), returns `UNHANDLED_EXCEPTION` on malformed JSON, and returns `MISSING_ARG` on missing name."
+    }
+  ],
+  "defects": [
+    {
+      "defect_id": "DEFECT-01",
+      "severity": "HIGH",
+      "test_case_ids": [
+        "XP-LNX-02"
+      ],
+      "summary": "macOS and Linux adapters check `singleton_lock.exists()` instead of `fs::symlink_metadata()`, failing to detect Chromium's dangling `SingletonLock` (`<hostname>-<pid>`) symlinks after a crash.",
+      "affected_files": [
+        "crates/platform-linux/src/adapter.rs:190-191",
+        "crates/platform-macos/src/adapter.rs:194-195"
+      ],
+      "minimal_reproduction": "Create a Chromium-style dangling symlink `ln -s ubuntu-host-99999 .config/ZaloData/SingletonLock` (without JSON `lockfile`) for a dead PID `99999` and call `inspect_profile`: `singleton_lock.exists()` follows the dangling target and returns `false`, so `stale_lock_detected` is `false` and `StaleLockRecoveryManager` is skipped on relaunch!",
+      "observed_evidence": {
+        "appimage_status": "experimental",
+        "dangling_singleton_lock_uses_path_exists": true,
+        "official_linux_status": "unsupported"
+      }
+    },
+    {
+      "defect_id": "DEFECT-02",
+      "severity": "HIGH",
+      "test_case_ids": [
+        "XP-MAC-03"
+      ],
+      "summary": "macOS and Linux adapters neither read `.runtime-pid` nor inject deterministic fixture `--user-id` nor poll readiness on launch, causing false `running=false` right after spawn and `DUPLICATE_ZALO_USER_ID` collisions on multi-profile `NodeFixture` launches.",
+      "affected_files": [
+        "crates/platform-macos/src/adapter.rs:192-196,298,305-320",
+        "crates/platform-windows/src/adapter.rs:600-607,620-629"
+      ],
+      "minimal_reproduction": "On macOS, launch 2 `NodeFixture` profiles without explicit `--user-id`: `MacOsPlatformAdapter::launch` neither derives a per-profile `--user-id` (both default to `100001`, colliding on `DUPLICATE_ZALO_USER_ID`) nor polls readiness nor reads `.runtime-pid` in `inspect_profile`, and uses `singleton_lock.exists()` which returns `false` on Chromium's dangling `SingletonLock` symlinks.",
+      "observed_evidence": {
+        "missing_deterministic_fixture_user_id": true,
+        "singleton_lock_uses_path_exists_bug": true,
+        "writes_runtime_pid_but_never_reads_it": true
+      }
+    },
+    {
+      "defect_id": "DEFECT-03",
+      "severity": "HIGH",
+      "test_case_ids": [
+        "LC-07"
+      ],
+      "summary": "Slow-starting processes (`--slow-startup-pre-lock-ms`) are invisible to `inspect_profile` before `lockfile` creation because `.runtime-pid` is ignored unless `lockfile` is already exclusively locked, leaving orphan background processes when `stop_profile` is called during startup.",
+      "affected_files": [
+        "crates/platform-windows/src/adapter.rs:512-522,620-631",
+        "crates/platform-macos/src/adapter.rs:192-193,298,317",
+        "crates/platform-linux/src/adapter.rs:189,298-299"
+      ],
+      "minimal_reproduction": "Launch a profile with `--slow-startup-pre-lock-ms=3100`, then immediately call `stop_profile`: `launch_profile` returns `running=false, main_pid=null` while `.runtime-pid` process is alive, and `stop_profile` returns `0` leaving the starting process orphaned in the background.",
+      "observed_evidence": {
+        "launch_returned_main_pid": null,
+        "launch_returned_running": false,
+        "orphan_process_survived_stop": true,
+        "runtime_pid_hint_on_disk": 20012,
+        "stop_profile_terminated_count": 0
+      }
+    },
+    {
+      "defect_id": "DEFECT-04",
+      "severity": "HIGH",
+      "test_case_ids": [
+        "LC-08"
+      ],
+      "summary": "Missing cross-thread/cross-process synchronization in `InstanceCoordinator::launch_profile` and shared `profiles.json.tmp` path in `JsonProfileStore` / `dim-host.ps1` allows concurrent launches to spawn racing processes and concurrent CLI writes to clobber `profiles.json.tmp`.",
+      "affected_files": [
+        "crates/process-manager/src/coordinator.rs:49-104",
+        "crates/profile-store/src/store.rs:169-180"
+      ],
+      "minimal_reproduction": "Invoke `InstanceCoordinator::launch_profile` concurrently from 4 threads on the same stopped profile (`--slow-startup-pre-lock-ms=220`): all 4 threads bypass `if runtime_before.running` simultaneously and spawn 4 racing OS processes instead of serializing launch per profile.",
+      "observed_evidence": {
+        "concurrent_threads": 4,
+        "returned_pids": [
+          5232,
+          5232,
+          5232,
+          5232
+        ],
+        "second_instance_collisions_logged": 2
+      }
+    },
+    {
+      "defect_id": "DEFECT-06",
+      "severity": "HIGH",
+      "test_case_ids": [
+        "LC-09"
+      ],
+      "summary": "`WindowsPlatformAdapter::stop` and `inspect_profile` hardcode an executable name allowlist (`zalo*`, `zocr*`, `node.exe`, `dim-test-fixture*`), refusing to terminate hung `CustomExecutable` processes or non-matching helper children even when `RestartManager` proves they hold the profile's `lockfile`; `MacOsPlatformAdapter::stop` lacks `SIGKILL` escalation and child-tree cleanup altogether.",
+      "affected_files": [
+        "crates/platform-windows/src/adapter.rs:492-498,771-785",
+        "scripts/dim-host.ps1:1032-1036,1117-1119,2295-2298",
+        "crates/platform-macos/src/adapter.rs:386-404"
+      ],
+      "minimal_reproduction": "Start `xf-desktop-fixture.exe --lock-mode=exclusive --hang-on-quit` on a profile: `WindowsPlatformAdapter::inspect_profile` detects `running=true, main_pid=<pid>` via `rstrtmgr.dll`, but `stop_profile()` skips `TerminateProcess` because `allowed_exe` hardcodes `zalo*`/`zocr*`/`node.exe`/`dim-test-fixture*`, returning `Ok(0)` while the hung process keeps holding `lockfile`.",
+      "observed_evidence": {
+        "custom_exe_detected_running_via_rstrtmgr": true,
+        "custom_exe_pid": 9024,
+        "custom_exe_survived_stop": true,
+        "node_hang_escalated_cleanly": true,
+        "stop_returned_count": 0
+      }
+    },
+    {
+      "defect_id": "DEFECT-07",
+      "severity": "MEDIUM",
+      "test_case_ids": [
+        "DS-08"
+      ],
+      "summary": "`FileBackupManager::backup_profile` does not scan `ZaloData` for post-launch `zalo_user_id` logins, and `restore_backup_as_new_profile` hardcodes Windows `AppData/Roaming/ZaloData` when detecting `zalo_user_id` and writing fallback `.zalo-profile-id`, losing account IDs on macOS/Linux restores.",
+      "affected_files": [
+        "crates/profile-store/src/backup.rs:143,339-345,455-460"
+      ],
+      "minimal_reproduction": "Create a macOS (`Library/Application Support/ZaloData/Database/_production/849777666`) or Linux (`.config/ZaloData/Database/_production/849888999`) profile where QR login happened after launch (`profile.zalo_user_id == None`), then run `backup_profile` + `restore_backup_as_new_profile`: `restore_backup_as_new_profile` hardcodes Windows `AppData/Roaming/ZaloData` and returns `zalo_user_id: None` on macOS/Linux!",
+      "observed_evidence": {
+        "expected_linux_uid": "849888999",
+        "expected_mac_uid": "849777666",
+        "linux_manifest_uid": null,
+        "linux_restored_uid": null,
+        "mac_manifest_uid": null,
+        "mac_restored_uid": null
+      }
+    },
+    {
+      "defect_id": "DEFECT-08",
+      "severity": "MEDIUM",
+      "test_case_ids": [
+        "CT-08",
+        "CT-09",
+        "CT-10"
+      ],
+      "summary": "Contract divergences between Rust (`dim-cli`/`dim-core`) and PowerShell (`scripts/dim-host.ps1`): slug length cap (`40` vs `32`), restore duplicate-name handling (`DUPLICATE_NAME` vs silent `#2` rename that can exceed 64 chars), missing-arg error codes, and empty/corrupt `profiles.json` handling (`JSON_ERROR` fail-closed vs silent empty reset).",
+      "affected_files": [
+        "crates/core/src/slug.rs:14,70",
+        "scripts/dim-host.ps1:582",
+        "crates/profile-store/src/backup.rs:399-437",
+        "scripts/dim-host.ps1:2595-2608",
+        "fixtures/test-desktop-app/src/bin/dim-cli.rs:171-175",
+        "crates/profile-store/src/store.rs:157-167",
+        "scripts/dim-host.ps1:380-399,3005-3055"
+      ],
+      "minimal_reproduction": "Run `create \"Tai Khoan Kinh Doanh Khu Vuc Mien Nam So 1\"` on both `dim-cli.exe` and `scripts/dim-host.ps1`: Rust caps `MAX_SLUG_LEN` at `40` chars whereas PowerShell `SlugifyName` breaks at `32` chars, producing mismatched directory naming conventions.",
+      "observed_evidence": {
+        "input_name": "Tai Khoan Kinh Doanh Khu Vuc Mien Nam So 1",
+        "powershell_slug_len": 32,
+        "powershell_slug_prefix": "tai-khoan-kinh-doanh-khu-vuc-mie",
+        "rust_slug_len": 40,
+        "rust_slug_prefix": "tai-khoan-kinh-doanh-khu-vuc-mien-nam-so"
+      }
+    },
+    {
+      "defect_id": "DEFECT-09",
+      "severity": "MEDIUM",
+      "test_case_ids": [
+        "PM-08"
+      ],
+      "summary": "`JsonProfileStore::delete_profile` (trait implementation) hardcodes `is_running = false`, bypassing the running-instance guard if called directly instead of through `InstanceCoordinator::delete_profile`.",
+      "affected_files": [
+        "crates/profile-store/src/store.rs:271-273"
+      ],
+      "minimal_reproduction": "Launch a profile, then call `ProfileStore::delete_profile(&store, &id, true)`: `JsonProfileStore` hardcodes `is_running = false` in its trait implementation, deleting `profiles.json` metadata and unlinking files out from under a live running instance!",
+      "observed_evidence": {
+        "atomic_tmp_block_error_code": "IO_ERROR",
+        "coordinator_delete_guard": "PROFILE_RUNNING",
+        "profiles_json_preserved_on_write_error": true,
+        "trait_delete_profile_bypassed_running_guard": true
+      }
+    },
+    {
+      "defect_id": "DEFECT-10",
+      "severity": "MEDIUM",
+      "test_case_ids": [
+        "PM-04"
+      ],
+      "summary": "`JsonProfileStore` duplicate-name and lookup checks use `str::eq_ignore_ascii_case`, failing to fold non-ASCII Vietnamese uppercase/lowercase pairs (`Đức` vs `đức`, `Ánh` vs `ánh`), diverging from PowerShell `StringComparison.OrdinalIgnoreCase`.",
+      "affected_files": [
+        "crates/profile-store/src/store.rs:100,216,260,439",
+        "scripts/dim-host.ps1:1777"
+      ],
+      "minimal_reproduction": "Create profile `'Đức Công Việc'`, then create `'đức công việc'`: `JsonProfileStore` uses `str::eq_ignore_ascii_case` which leaves non-ASCII `Đ`/`đ` and accented vowels unfolded, allowing duplicate Vietnamese profile names that `dim-host.ps1` (`OrdinalIgnoreCase`) rejects with `DUPLICATE_NAME`.",
+      "observed_evidence": {
+        "first_profile": {
+          "dir": "duc-cong-viec_b54cbf73",
+          "id": "b54cbf73",
+          "name": "Đức Công Việc"
+        },
+        "second_profile_unexpectedly_allowed": {
+          "dir": "duc-cong-viec_de052468",
+          "id": "de052468",
+          "name": "đức công việc"
+        }
+      }
+    }
+  ]
+}

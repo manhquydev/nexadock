@@ -1,0 +1,39 @@
+[package]
+name = "dim-cross-platform-tests"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "Independent cross-platform reliability, fault-injection, OS boundary, and adapter contract test harness for Desktop Instance Manager"
+
+[lib]
+name = "dim_cross_platform_tests"
+path = "src/lib.rs"
+
+[[bin]]
+name = "xf-test-runner"
+path = "src/bin/xf-test-runner.rs"
+
+[dependencies]
+dim-core = { path = "../../crates/core" }
+dim-profile-store = { path = "../../crates/profile-store" }
+dim-process-manager = { path = "../../crates/process-manager" }
+dim-platform-windows = { path = "../../crates/platform-windows" }
+dim-platform-macos = { path = "../../crates/platform-macos" }
+dim-platform-linux = { path = "../../crates/platform-linux" }
+dim-xf-fixture = { path = "../../fixtures/cross-platform" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tempfile = "3.14"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[workspace]
