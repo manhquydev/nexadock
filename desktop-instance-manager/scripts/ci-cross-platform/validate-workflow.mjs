@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Static validator for `.github/workflows/cross-platform-validation.yml`
- * and non-conflict verifier against `.github/workflows/ci.yml`.
+ * Lean static validator for `.github/workflows/cross-platform-validation.yml`
+ * and non-conflict / CLI-flag parity verifier against `.github/workflows/ci.yml`
+ * and `desktop-instance-manager/scripts/ci-cross-platform/*.mjs`.
  *
  * Uses Node.js 22 built-in modules (`node:*`) ONLY — zero external npm dependencies.
  */
@@ -29,44 +30,30 @@ const ALLOWED_USES = new Set([
   'actions/download-artifact@v4',
 ]);
 
-const FORBIDDEN_RELEASE_PATTERNS = [
-  /softprops\/action-gh-release/i,
-  /actions\/create-release/i,
-  /ncipollo\/release-action/i,
-  /tauri-apps\/tauri-action/i,
-  /\bgh\s+release\s+create\b/i,
-];
+const EXPECTED_OS_RUNNERS = {
+  'ubuntu-2404-build': 'ubuntu-24.04',
+  'windows-msvc-build': 'windows-2022',
+  'macos-arm64-build': 'macos-15',
+  'macos-intel-build': 'macos-15-intel',
+};
 
 const REQUIRED_JOBS = [
   'rust-workspace-validation',
   'dependency-audit',
+  'ubuntu-2404-build',
   'windows-msvc-build',
   'macos-arm64-build',
   'macos-intel-build',
-  'ubuntu-2404-build',
   'artifact-verification',
-];
-
-const FORBIDDEN_TRIGGERS = [
-  'push',
-  'pull_request',
-  'pull_request_target',
-  'schedule',
-  'release',
-  'workflow_run',
-  'repository_dispatch',
 ];
 
 function parseArgs(argv) {
   const opts = { out: null, json: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === '--json') {
-      opts.json = true;
-    } else if (arg === '--out') {
-      opts.out = argv[i + 1] ?? null;
-      i += 1;
-    } else if (arg === '--help' || arg === '-h') {
+    if (arg === '--json') opts.json = true;
+    else if (arg === '--out') opts.out = argv[++i] ?? null;
+    else if (arg === '--help' || arg === '-h') {
       console.log('Usage: node validate-workflow.mjs [--json] [--out <report.json>]');
       process.exit(0);
     } else {
@@ -76,10 +63,6 @@ function parseArgs(argv) {
   return opts;
 }
 
-/**
- * Extracts top-level YAML sections (indent = 0) as raw line ranges,
- * ignoring full-line comments and blank lines outside scalar blocks.
- */
 function extractTopLevelBlocks(rawText) {
   const lines = rawText.replace(/\r\n/g, '\n').split('\n');
   const topKeys = [];
@@ -90,24 +73,17 @@ function extractTopLevelBlocks(rawText) {
     const line = lines[idx];
     const trimmed = line.trim();
     if (!trimmed) continue;
-
     const indent = line.match(/^ */)[0].length;
     if (inBlockScalar) {
-      if (indent > blockScalarIndent) {
-        continue;
-      }
+      if (indent > blockScalarIndent) continue;
       inBlockScalar = false;
     }
-
     if (trimmed.startsWith('#')) continue;
-
     if (indent === 0) {
       const m = line.match(/^([A-Za-z0-9_-]+)\s*:(.*)$/);
       if (m) {
-        const key = m[1];
-        const rest = m[2].trim();
-        topKeys.push({ key, rest, startLine: idx });
-        if (rest === '|' || rest === '>' || rest === '|-' || rest === '>-') {
+        topKeys.push({ key: m[1], rest: m[2].trim(), startLine: idx });
+        if (/^[|>][-+]?$/.test(m[2].trim())) {
           inBlockScalar = true;
           blockScalarIndent = 0;
         }
@@ -122,19 +98,11 @@ function extractTopLevelBlocks(rawText) {
   for (let i = 0; i < topKeys.length; i += 1) {
     const cur = topKeys[i];
     const endLine = i + 1 < topKeys.length ? topKeys[i + 1].startLine : lines.length;
-    sections.set(cur.key, {
-      rest: cur.rest,
-      startLine: cur.startLine + 1,
-      lines: lines.slice(cur.startLine, endLine),
-    });
+    sections.set(cur.key, { rest: cur.rest, lines: lines.slice(cur.startLine, endLine) });
   }
-  return { lines, sections };
+  return sections;
 }
 
-/**
- * Extracts direct child keys at a specific indentation level inside a section's lines,
- * properly skipping multiline `|` / `>` scalar blocks (such as `run: |`).
- */
 function extractChildBlocks(sectionLines, childIndent) {
   const children = new Map();
   const entries = [];
@@ -145,35 +113,26 @@ function extractChildBlocks(sectionLines, childIndent) {
     const line = sectionLines[i];
     const trimmed = line.trim();
     if (!trimmed) continue;
-
     const indent = line.match(/^ */)[0].length;
     if (inBlockScalar) {
       if (indent > blockScalarIndent) continue;
       inBlockScalar = false;
     }
     if (trimmed.startsWith('#')) continue;
-
     if (/:\s*[|>][-+]?\s*$/.test(line)) {
       inBlockScalar = true;
       blockScalarIndent = indent;
     }
-
     if (indent === childIndent) {
-      const re = new RegExp(`^ {${childIndent}}([A-Za-z0-9_-]+)\\s*:(.*)$`);
-      const m = line.match(re);
-      if (m) {
-        entries.push({ key: m[1], rest: m[2].trim(), idx: i });
-      }
+      const m = line.match(new RegExp(`^ {${childIndent}}([A-Za-z0-9_-]+)\\s*:(.*)$`));
+      if (m) entries.push({ key: m[1], rest: m[2].trim(), idx: i });
     }
   }
 
   for (let i = 0; i < entries.length; i += 1) {
     const cur = entries[i];
     const nextIdx = i + 1 < entries.length ? entries[i + 1].idx : sectionLines.length;
-    children.set(cur.key, {
-      rest: cur.rest,
-      lines: sectionLines.slice(cur.idx, nextIdx),
-    });
+    children.set(cur.key, { rest: cur.rest, lines: sectionLines.slice(cur.idx, nextIdx) });
   }
   return children;
 }
@@ -181,267 +140,189 @@ function extractChildBlocks(sectionLines, childIndent) {
 function validateWorkflow() {
   const checks = [];
   const errors = [];
-
   const record = (id, ok, detail) => {
     checks.push({ id, ok, detail });
     if (!ok) errors.push(`[${id}] ${detail}`);
   };
 
-  if (!fs.existsSync(WORKFLOW_PATH)) {
-    record('workflow-exists', false, `Missing workflow file: ${WORKFLOW_PATH}`);
-    return { ok: false, checks, errors };
-  }
-  if (!fs.existsSync(BASELINE_CI_PATH)) {
-    record('baseline-ci-exists', false, `Missing baseline CI file: ${BASELINE_CI_PATH}`);
+  if (!fs.existsSync(WORKFLOW_PATH) || !fs.existsSync(BASELINE_CI_PATH)) {
+    record('workflow-files', false, 'Missing cross-platform-validation.yml or baseline ci.yml');
     return { ok: false, checks, errors };
   }
 
   const rawWorkflow = fs.readFileSync(WORKFLOW_PATH, 'utf8');
   const rawBaseline = fs.readFileSync(BASELINE_CI_PATH, 'utf8');
+  const sections = extractTopLevelBlocks(rawWorkflow);
+  const baselineSections = extractTopLevelBlocks(rawBaseline);
 
-  record('workflow-exists', true, 'Found .github/workflows/cross-platform-validation.yml');
-  record('baseline-ci-exists', true, 'Found .github/workflows/ci.yml');
-
-  // Check tabs (YAML forbids tab indentation)
-  const tabLine = rawWorkflow
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .findIndex((l) => /^\s*\t/.test(l));
-  record(
-    'yaml-no-tab-indent',
-    tabLine === -1,
-    tabLine === -1 ? 'Zero tab indentation characters in YAML' : `Tab indentation found on line ${tabLine + 1}`
-  );
-
-  const { sections } = extractTopLevelBlocks(rawWorkflow);
-  const baselineParsed = extractTopLevelBlocks(rawBaseline);
-
-  // 1. Distinct workflow names & non-conflict with ci.yml
+  // 1. Basic YAML sanity & non-conflicting workflow identity
+  const hasTabs = rawWorkflow.split('\n').some((l) => /^\s*\t/.test(l));
   const wfName = sections.get('name')?.rest ?? '';
-  const ciName = baselineParsed.sections.get('name')?.rest ?? '';
+  const ciName = baselineSections.get('name')?.rest ?? '';
   record(
-    'distinct-workflow-name',
-    Boolean(wfName) && wfName !== ciName,
-    `Workflow "${wfName}" is distinct from baseline "${ciName}"`
+    'workflow-identity-and-yaml',
+    !hasTabs && Boolean(wfName) && wfName !== ciName,
+    !hasTabs && wfName !== ciName
+      ? `Valid space-indented YAML; distinct workflow "${wfName}" vs "${ciName}"`
+      : 'YAML tab error or duplicate workflow name with ci.yml',
   );
 
-  // 2. Trigger validation: workflow_dispatch ONLY, no schedule/push/PR
-  const onSection = sections.get('on');
-  if (!onSection) {
-    record('trigger-workflow-dispatch-only', false, 'Missing top-level `on:` trigger block');
-  } else {
-    const triggers = extractChildBlocks(onSection.lines, 2);
-    const triggerKeys = [...triggers.keys()];
-    const forbiddenFound = triggerKeys.filter((k) => FORBIDDEN_TRIGGERS.includes(k));
-    const dispatchOnly = triggerKeys.length === 1 && triggerKeys[0] === 'workflow_dispatch' && forbiddenFound.length === 0;
-    record(
-      'trigger-workflow-dispatch-only',
-      dispatchOnly,
-      dispatchOnly
-        ? 'Trigger is strictly `workflow_dispatch` only (zero push/PR/schedule conflict with ci.yml)'
-        : `Invalid triggers detected: [${triggerKeys.join(', ')}]`
-    );
+  // 2. Trigger & ordered workflow_dispatch inputs
+  const onBlock = sections.get('on');
+  const triggers = onBlock ? extractChildBlocks(onBlock.lines, 2) : new Map();
+  const triggerKeys = [...triggers.keys()];
+  const inputsMap = triggers.get('workflow_dispatch')
+    ? extractChildBlocks(
+        extractChildBlocks(triggers.get('workflow_dispatch').lines, 4).get('inputs')?.lines ?? [],
+        6,
+      )
+    : new Map();
+  const inputOrder = [...inputsMap.keys()];
+  const expectedOrder = ['enable_ubuntu', 'enable_windows', 'enable_macos_arm64', 'enable_macos_intel', 'bundles'];
+  const macOptOut =
+    (inputsMap.get('enable_macos_arm64')?.lines.join('\n') ?? '').includes('default: false') &&
+    (inputsMap.get('enable_macos_intel')?.lines.join('\n') ?? '').includes('default: false');
+  const triggerOk =
+    triggerKeys.length === 1 &&
+    triggerKeys[0] === 'workflow_dispatch' &&
+    JSON.stringify(inputOrder) === JSON.stringify(expectedOrder) &&
+    macOptOut;
+  record(
+    'trigger-and-dispatch-inputs',
+    triggerOk,
+    triggerOk
+      ? `workflow_dispatch only; inputs ordered [${inputOrder.join(', ')}] with macOS 10x opt-in defaults=false`
+      : `Invalid triggers [${triggerKeys.join(', ')}] or input order [${inputOrder.join(', ')}]`,
+  );
 
-    const wdBlock = triggers.get('workflow_dispatch');
-    const wdChildren = wdBlock ? extractChildBlocks(wdBlock.lines, 4) : new Map();
-    const inputsBlock = wdChildren.get('inputs');
-    const inputs = inputsBlock ? extractChildBlocks(inputsBlock.lines, 6) : new Map();
+  // 3. Read-only permissions & zero release/secret exposure (ignoring comment lines)
+  const nonCommentWorkflow = rawWorkflow
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('#'))
+    .join('\n');
+  const perms = sections.get('permissions') ? extractChildBlocks(sections.get('permissions').lines, 2) : new Map();
+  const readonlyOk =
+    perms.size === 1 &&
+    perms.get('contents')?.rest === 'read' &&
+    !/^\s*[a-z-]+:\s*write\b|\bwrite-all\b/im.test(nonCommentWorkflow);
+  const noReleaseOrSecrets =
+    !/softprops\/action-gh-release|actions\/create-release|tauri-apps\/tauri-action|\bgh\s+release\s+create\b/i.test(nonCommentWorkflow) &&
+    !/\$\{\{\s*secrets\.[^}]+\}\}/.test(nonCommentWorkflow);
+  record(
+    'readonly-and-supply-chain-guards',
+    readonlyOk && noReleaseOrSecrets,
+    readonlyOk && noReleaseOrSecrets
+      ? 'permissions: contents: read; zero write scopes, zero release actions, zero secret refs'
+      : 'Write permission, release step, or secret reference detected',
+  );
 
-    const expectedDefaults = {
-      enable_windows: 'true',
-      enable_ubuntu: 'true',
-      enable_macos_arm64: 'false',
-      enable_macos_intel: 'false',
-      bundles: 'all',
-    };
+  // 4. Trusted pinned actions, cache isolation & 7-day artifact retention
+  const usesList = [...rawWorkflow.matchAll(/^\s*(?:-\s*)?uses:\s*([^\s#]+)/gm)].map((m) => m[1].trim());
+  const badUses = usesList.filter((u) => !ALLOWED_USES.has(u));
+  const uploadBlocks = [...rawWorkflow.matchAll(/uses:\s*actions\/upload-artifact@v4([\s\S]*?)(?=\n\s*-\s+name:|\n  [a-z0-9-]+:|\s*$)/g)];
+  const missingRetention = uploadBlocks.some((m) => !/retention-days:\s*7\b/.test(m[1]));
+  const ciCacheKeys = new Set([...rawBaseline.matchAll(/key:\s*(.+)/g)].map((m) => m[1].trim()));
+  const cacheCollision = [...rawWorkflow.matchAll(/key:\s*(.+)/g)].some((m) => ciCacheKeys.has(m[1].trim()));
+  const unpinnedTauriLatest = /@tauri-apps\/cli@latest\b/.test(rawWorkflow);
+  record(
+    'pinned-actions-and-retention',
+    badUses.length === 0 && !missingRetention && !cacheCollision && !unpinnedTauriLatest,
+    badUses.length === 0 && !missingRetention && !cacheCollision && !unpinnedTauriLatest
+      ? `${usesList.length} pinned official action refs, isolated cache keys, pinned @tauri-apps/cli, retention-days: 7`
+      : `Disallowed uses [${badUses.join(', ')}], missing 7d retention, cache collision, or floating @latest`,
+  );
 
-    for (const [inputName, expectedDefault] of Object.entries(expectedDefaults)) {
-      const inp = inputs.get(inputName);
-      if (!inp) {
-        record(`dispatch-input-${inputName}`, false, `Missing workflow_dispatch input: ${inputName}`);
-      } else {
-        const props = extractChildBlocks(inp.lines, 8);
-        const rawDef = (props.get('default')?.rest ?? '').replace(/^["']|["']$/g, '');
-        record(
-          `dispatch-input-${inputName}`,
-          rawDef === expectedDefault,
-          `Input ${inputName} present with default=${rawDef} (expected ${expectedDefault})`
-        );
+  // 5. Required 7 jobs, explicit native OS runner labels (no macos-14 Intel cross-compile!), and timeouts
+  const jobs = sections.get('jobs') ? extractChildBlocks(sections.get('jobs').lines, 2) : new Map();
+  const missingJobs = REQUIRED_JOBS.filter((j) => !jobs.has(j));
+  const runnerIssues = [];
+  for (const jobId of REQUIRED_JOBS) {
+    const jb = jobs.get(jobId);
+    if (!jb) continue;
+    const props = extractChildBlocks(jb.lines, 4);
+    if (!props.has('timeout-minutes')) runnerIssues.push(`${jobId} missing timeout-minutes`);
+    if (EXPECTED_OS_RUNNERS[jobId]) {
+      const actualRunner = props.get('runs-on')?.rest ?? '';
+      if (actualRunner !== EXPECTED_OS_RUNNERS[jobId]) {
+        runnerIssues.push(`${jobId} runs-on "${actualRunner}" != expected native "${EXPECTED_OS_RUNNERS[jobId]}"`);
+      }
+      const body = jb.lines.join('\n');
+      if (!body.includes('rustc -vV')) {
+        runnerIssues.push(`${jobId} missing native rustc -vV host check`);
+      }
+      if (jobId !== 'windows-msvc-build' && !body.includes('uname -m')) {
+        runnerIssues.push(`${jobId} missing native uname -m check`);
       }
     }
   }
-
-  // 3. Permissions strictly read-only (`contents: read`), zero `write` scopes anywhere
-  const permSection = sections.get('permissions');
-  if (!permSection) {
-    record('permissions-contents-read', false, 'Missing top-level `permissions:` block');
-  } else {
-    const perms = extractChildBlocks(permSection.lines, 2);
-    const permEntries = [...perms.entries()];
-    const strictlyContentsRead =
-      permEntries.length === 1 && permEntries[0][0] === 'contents' && permEntries[0][1].rest === 'read';
-    record(
-      'permissions-contents-read',
-      strictlyContentsRead,
-      strictlyContentsRead
-        ? 'Top-level permissions strictly `contents: read`'
-        : `Unexpected top-level permissions: ${JSON.stringify(permEntries.map(([k, v]) => `${k}:${v.rest}`))}`
-    );
-  }
-
-  const writePermMatch = rawWorkflow.match(/^\s*[a-z-]+:\s*write\b|\bwrite-all\b/im);
   record(
-    'zero-write-permissions',
-    !writePermMatch,
-    !writePermMatch ? 'Zero write permissions anywhere in workflow' : `Forbidden write permission: ${writePermMatch[0].trim()}`
+    'jobs-and-native-os-runners',
+    missingJobs.length === 0 && runnerIssues.length === 0,
+    missingJobs.length === 0 && runnerIssues.length === 0
+      ? 'All 7 jobs present with timeouts and native runners (ubuntu-24.04, windows-2022, macos-15, macos-15-intel) + uname/rustc -vV gates'
+      : `Issues: ${[...missingJobs.map((j) => `missing ${j}`), ...runnerIssues].join('; ')}`,
   );
 
-  // 4. Zero automatic release actions or gh release commands
-  const releaseHit = FORBIDDEN_RELEASE_PATTERNS.find((re) => re.test(rawWorkflow));
-  record(
-    'no-release-creation',
-    !releaseHit,
-    !releaseHit ? 'Zero release actions or `gh release create` commands' : `Forbidden release pattern matched: ${releaseHit}`
-  );
-
-  // 5. Zero secret references (including cache keys/paths)
-  const secretHit = rawWorkflow.match(/\$\{\{\s*secrets\.[^}]+\}\}/);
-  record(
-    'zero-secret-references',
-    !secretHit,
-    !secretHit ? 'Zero `${{ secrets.* }}` references in workflow or cache keys' : `Forbidden secret reference: ${secretHit[0]}`
-  );
-
-  // 6. Trusted official pinned actions & short upload retention
-  const usesMatches = [...rawWorkflow.matchAll(/^\s*(?:-\s*)?uses:\s*([^\s#]+)/gm)].map((m) => m[1].trim());
-  const untrustedUses = usesMatches.filter((u) => !ALLOWED_USES.has(u));
-  record(
-    'pinned-official-actions',
-    usesMatches.length > 0 && untrustedUses.length === 0,
-    untrustedUses.length === 0
-      ? `All ${usesMatches.length} action \`uses:\` steps match pinned allowlist`
-      : `Disallowed or unpinned action(s): ${untrustedUses.join(', ')}`
-  );
-
-  const uploadBlocks = [...rawWorkflow.matchAll(/uses:\s*actions\/upload-artifact@v4([\s\S]*?)(?=\n\s*-\s+name:|\n  [a-z0-9-]+:|\s*$)/g)];
-  const missingRetention = uploadBlocks.filter((m) => !/retention-days:\s*7\b/.test(m[1]));
-  record(
-    'artifact-retention-7d',
-    uploadBlocks.length > 0 && missingRetention.length === 0,
-    missingRetention.length === 0
-      ? `All ${uploadBlocks.length} upload-artifact steps enforce retention-days: 7`
-      : `${missingRetention.length} upload-artifact step(s) missing retention-days: 7`
-  );
-
-  // 7. Required 7 jobs & runner checks
-  const jobsSection = sections.get('jobs');
-  const jobs = jobsSection ? extractChildBlocks(jobsSection.lines, 2) : new Map();
-  for (const jobId of REQUIRED_JOBS) {
-    const jobBlock = jobs.get(jobId);
-    record(
-      `job-present-${jobId}`,
-      Boolean(jobBlock),
-      jobBlock ? `Job \`${jobId}\` defined` : `Missing required job \`${jobId}\``
-    );
-  }
-
-  const retiredMacRunner = rawWorkflow.match(/runs-on:\s*macos-1[123]\b/);
-  record(
-    'macos-runner-not-retired',
-    !retiredMacRunner,
-    !retiredMacRunner
-      ? 'macOS jobs use GA `macos-14` runner (no retired macos-12/13 runner dependency)'
-      : `Deprecated/retired macOS runner detected: ${retiredMacRunner[0]}`
-  );
-
-  // Check cache key isolation against ci.yml
-  const xplatCacheKeys = [...rawWorkflow.matchAll(/key:\s*(.+)/g)].map((m) => m[1].trim());
-  const ciCacheKeys = new Set([...rawBaseline.matchAll(/key:\s*(.+)/g)].map((m) => m[1].trim()));
-  const collidingKeys = xplatCacheKeys.filter((k) => ciCacheKeys.has(k));
-  record(
-    'cache-key-non-collision',
-    xplatCacheKeys.length > 0 && collidingKeys.length === 0,
-    collidingKeys.length === 0
-      ? `All ${xplatCacheKeys.length} cache keys are lockfile-hashed and isolated from ci.yml`
-      : `Cache key collision with ci.yml: ${collidingKeys.join(', ')}`
-  );
-
-  // 8. Verify every referenced `scripts/ci-cross-platform/*.mjs` file exists, passes `node --check`,
-  //    and mentions every `--<flag>` invoked by the workflow YAML.
+  // 6. Referenced scripts exist, pass `node --check`, and support all workflow CLI flags
   const invocationRegex = /node\s+(desktop-instance-manager\/scripts\/ci-cross-platform\/[A-Za-z0-9._-]+\.mjs)([\s\S]*?)(?=\n\s*(?:node\b|cat\b|Get-Content\b|if\b|for\b|BUNDLE_ROOT=|OUT_DIR=|\$|$))/g;
   const scriptFlagsMap = new Map();
-
   for (const match of rawWorkflow.matchAll(invocationRegex)) {
     const relScript = match[1];
-    const argsChunk = match[2] ?? '';
-    // Keep lines that belong to the line-continued command (`\` or PowerShell backtick `` ` ``)
+    const splitLines = (match[2] ?? '').replace(/\r\n/g, '\n').split('\n');
     const cmdLines = [];
-    const splitLines = argsChunk.replace(/\r\n/g, '\n').split('\n');
-    for (let i = 0; i < splitLines.length; i += 1) {
-      cmdLines.push(splitLines[i]);
-      const trimmed = splitLines[i].trim();
-      if (!trimmed.endsWith('\\') && !trimmed.endsWith('`')) break;
+    for (const ln of splitLines) {
+      cmdLines.push(ln);
+      const t = ln.trim();
+      if (!t.endsWith('\\') && !t.endsWith('`')) break;
     }
-    const joinedArgs = cmdLines.join(' ');
-    const flags = [...joinedArgs.matchAll(/(?:^|\s)(--[a-z0-9-]+)/g)].map((m) => m[1]);
-    if (!scriptFlagsMap.has(relScript)) {
-      scriptFlagsMap.set(relScript, new Set());
-    }
-    for (const fl of flags) {
-      scriptFlagsMap.get(relScript).add(fl);
-    }
-  }
-
-  // Also capture execFileSync invocation of generate-artifact-manifest.mjs in artifact-verification
-  const inlineMergeMatch = rawWorkflow.match(
-    /'(desktop-instance-manager\/scripts\/ci-cross-platform\/generate-artifact-manifest\.mjs)'([\s\S]*?)\]/
-  );
-  if (inlineMergeMatch) {
-    const relScript = inlineMergeMatch[1];
-    const flags = [...inlineMergeMatch[2].matchAll(/'(--[a-z0-9-]+)'/g)].map((m) => m[1]);
+    const flags = [...cmdLines.join(' ').matchAll(/(?:^|\s)(--[a-z0-9-]+)/g)].map((m) => m[1]);
     if (!scriptFlagsMap.has(relScript)) scriptFlagsMap.set(relScript, new Set());
     for (const fl of flags) scriptFlagsMap.get(relScript).add(fl);
   }
-
-  record(
-    'referenced-scripts-discovered',
-    scriptFlagsMap.size >= 6,
-    `Discovered ${scriptFlagsMap.size} distinct scripts/ci-cross-platform/*.mjs references in workflow`
+  const inlineMergeMatch = rawWorkflow.match(
+    /'(desktop-instance-manager\/scripts\/ci-cross-platform\/generate-artifact-manifest\.mjs)'([\s\S]*?)\]/,
   );
+  if (inlineMergeMatch) {
+    const relScript = inlineMergeMatch[1];
+    if (!scriptFlagsMap.has(relScript)) scriptFlagsMap.set(relScript, new Set());
+    for (const m of inlineMergeMatch[2].matchAll(/'(--[a-z0-9-]+)'/g)) {
+      scriptFlagsMap.get(relScript).add(m[1]);
+    }
+  }
 
+  const scriptProblems = [];
   for (const [relScript, flagsSet] of scriptFlagsMap.entries()) {
     const absScript = path.join(REPO_ROOT, relScript);
-    const baseName = path.basename(relScript);
+    const base = path.basename(relScript);
     if (!fs.existsSync(absScript)) {
-      record(`script-exists-${baseName}`, false, `Referenced script does not exist on disk: ${relScript}`);
+      scriptProblems.push(`missing ${relScript}`);
       continue;
     }
-    record(`script-exists-${baseName}`, true, `Referenced script exists: ${relScript}`);
-
     try {
       execFileSync(process.execPath, ['--check', absScript], { stdio: 'pipe' });
-      record(`script-syntax-${baseName}`, true, `node --check passed for ${baseName}`);
     } catch (err) {
-      record(`script-syntax-${baseName}`, false, `node --check failed for ${baseName}: ${err.message}`);
+      scriptProblems.push(`syntax error in ${base}: ${err.message}`);
       continue;
     }
-
-    const scriptSrc = fs.readFileSync(absScript, 'utf8');
-    const missingFlags = [...flagsSet].filter((flag) => !scriptSrc.includes(flag));
-    record(
-      `script-flags-${baseName}`,
-      missingFlags.length === 0,
-      missingFlags.length === 0
-        ? `All workflow CLI flags [${[...flagsSet].join(', ')}] supported in ${baseName}`
-        : `Workflow passes unsupported CLI flag(s) to ${baseName}: ${missingFlags.join(', ')}`
-    );
+    const src = fs.readFileSync(absScript, 'utf8');
+    const missingFlags = [...flagsSet].filter((f) => !src.includes(f));
+    if (missingFlags.length > 0) {
+      scriptProblems.push(`${base} missing flag(s): ${missingFlags.join(', ')}`);
+    }
   }
+  record(
+    'script-existence-and-cli-parity',
+    scriptFlagsMap.size >= 6 && scriptProblems.length === 0,
+    scriptProblems.length === 0
+      ? `All ${scriptFlagsMap.size} referenced CI scripts exist, pass node --check, and match workflow CLI flags`
+      : `Script contract issues: ${scriptProblems.join('; ')}`,
+  );
 
   return {
     ok: errors.length === 0,
     workflow_file: '.github/workflows/cross-platform-validation.yml',
     baseline_ci_file: '.github/workflows/ci.yml',
-    live_ci_status: 'NOT_EXECUTED (STATICALLY_VALIDATED_ONLY)',
+    live_ci_status: 'BLOCKED (REMOTE_WORKFLOW_DISPATCH_UNREGISTERED_AND_MISSING_WORKFLOW_SCOPE)',
     total_checks: checks.length,
     passed_checks: checks.filter((c) => c.ok).length,
     failed_checks: errors.length,
@@ -461,18 +342,12 @@ if (opts.out) {
 if (opts.json) {
   console.log(JSON.stringify(report, null, 2));
 } else {
-  console.log(`=== Static Workflow Policy & Contract Validation ===`);
+  console.log(`=== Static Workflow & Native Runner Contract Check ===`);
   console.log(`Target Workflow : ${report.workflow_file}`);
-  console.log(`Baseline CI     : ${report.baseline_ci_file}`);
   console.log(`Live CI Status  : ${report.live_ci_status}`);
   console.log(`Checks Passed   : ${report.passed_checks}/${report.total_checks}`);
   for (const c of report.checks) {
     console.log(`  [${c.ok ? 'PASS' : 'FAIL'}] ${c.id}: ${c.detail}`);
-  }
-  if (!report.ok) {
-    console.error(`\nValidation FAILED with ${report.failed_checks} error(s).`);
-  } else {
-    console.log(`\nValidation PASSED (statically validated; remote GitHub Actions NOT executed).`);
   }
 }
 

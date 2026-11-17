@@ -1,37 +1,43 @@
 name: Multi-Zalo Cross-Platform Build & Packaging Validation
 
-# Manual-only cross-platform build, bundle, and Section 7 provenance validation workflow.
+# Manual-only native cross-platform build, runtime fixture, packaging, and Section 7 provenance workflow.
 # Separated from `.github/workflows/ci.yml` (which handles push/PR source checks):
-# - NO `push`, NO `pull_request`, NO `schedule` cron (protects private-repo Actions minutes).
+# - Trigger: `workflow_dispatch` ONLY (NO `push`, NO `pull_request`, NO `schedule` cron).
+# - Native OS runners ONLY (zero cross-compilation masquerading as native runtime verification):
+#     1. `ubuntu-24.04`   -> native Linux `x86_64` (`x86_64-unknown-linux-gnu`)
+#     2. `windows-2022`   -> native Windows `x86_64` MSVC (`x86_64-pc-windows-msvc`)
+#     3. `macos-15`       -> native Apple Silicon `arm64` (`aarch64-apple-darwin`, opt-in 10x cost guard)
+#     4. `macos-15-intel` -> native Intel Mac `x86_64` (`x86_64-apple-darwin`, opt-in 10x cost guard;
+#                            if unavailable on repo billing plan, job reports BLOCKED — never cross-compiled)
 # - Strictly read-only `permissions: contents: read` (NO repo writes, NO GitHub Release creation).
-# - Zero secret references in cache keys or build steps; produces UNSIGNED_DEVELOPMENT_ARTIFACT outputs only.
-# - Never downloads, embeds, or packages any proprietary VNG Zalo binary.
+# - Zero GitHub Actions secret references; produces `UNSIGNED_DEVELOPMENT_ARTIFACT` outputs only.
+# - Zero VNG Zalo binaries downloaded, embedded, or redistributed.
 
 on:
   workflow_dispatch:
     inputs:
-      enable_windows:
-        description: "Build & validate Windows x86_64 MSVC target (2x private-repo minute multiplier)"
+      enable_ubuntu:
+        description: "1. Ubuntu 24.04 LTS x64 native build, xvfb runtime fixture & .deb/.AppImage validation ($0.006/min, 1x)"
         required: false
         type: boolean
         default: true
-      enable_ubuntu:
-        description: "Build & validate Ubuntu 24.04 x86_64 target (1x private-repo minute multiplier)"
+      enable_windows:
+        description: "2. Windows Server 2022 x64 MSVC native build, runtime fixture & MSI/NSIS validation ($0.010/min, ~2x)"
         required: false
         type: boolean
         default: true
       enable_macos_arm64:
-        description: "Build & validate macOS Apple Silicon aarch64 target (10x private-repo minute multiplier — opt-in)"
+        description: "3. macOS 15 Apple Silicon (arm64) native build, runtime fixture & .app/.dmg validation ($0.062/min, 10x — opt-in)"
         required: false
         type: boolean
         default: false
       enable_macos_intel:
-        description: "Build & validate macOS Intel x86_64 target on macos-14 SDK (10x private-repo minute multiplier — opt-in)"
+        description: "4. macOS 15 Intel (x86_64) native build on macos-15-intel, runtime fixture & .app/.dmg ($0.062/min, 10x — opt-in)"
         required: false
         type: boolean
         default: false
       bundles:
-        description: "Bundle mode for Tauri OS packagers (all = attempt OS bundles; none = compiled Rust binaries only)"
+        description: "Bundle mode for pinned @tauri-apps/cli@2.12.5 (all = build OS bundles via overlay; none = compiled binaries only)"
         required: false
         type: choice
         default: "all"
@@ -44,16 +50,18 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  TAURI_CLI_VERSION: "2.12.5"
 
 jobs:
   rust-workspace-validation:
     name: Rust Workspace & Tauri Source Validation
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Ubuntu 24.04 WebKitGTK & AppIndicator headers for Tauri check
+      - name: Install Ubuntu 24.04 WebKitGTK & Ayatana AppIndicator headers
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -81,33 +89,24 @@ jobs:
             desktop-instance-manager/apps/desktop/src-tauri/target/
           key: ${{ runner.os }}-xplat-check-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
 
-      - name: Check workspace formatting
+      - name: Check formatting (workspace & Tauri crate)
         working-directory: desktop-instance-manager
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
 
-      - name: Check workspace targets
+      - name: Check & Clippy workspace and Tauri crate (--locked, -D warnings)
         working-directory: desktop-instance-manager
-        run: cargo check --workspace --all-targets --locked
-
-      - name: Clippy workspace targets (deny warnings)
-        working-directory: desktop-instance-manager
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
-      - name: Check Tauri desktop crate formatting
-        working-directory: desktop-instance-manager
-        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
-
-      - name: Check Tauri desktop crate
-        working-directory: desktop-instance-manager
-        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
-
-      - name: Clippy Tauri desktop crate (deny warnings)
-        working-directory: desktop-instance-manager
-        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- -D warnings
+        run: |
+          cargo check --workspace --all-targets --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- -D warnings
 
   dependency-audit:
-    name: Dependency, License, MSRV & Zero-VNG Audit
+    name: Supply-Chain, RustSec Advisory, License & Zero-VNG Audit
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -117,15 +116,36 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install Rust stable toolchain for cargo metadata
+      - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run CI tooling self-tests and static workflow policy check
+      - name: Run CI tooling self-tests and static workflow validator
         run: |
           node desktop-instance-manager/scripts/ci-cross-platform/selftest.mjs
           node desktop-instance-manager/scripts/ci-cross-platform/validate-workflow.mjs
 
-      - name: Run cross-platform dependency, lockfile, MSRV & zero-VNG audit
+      - name: Prepare cargo-deny 0.20+ compatible policy config in RUNNER_TEMP
+        run: |
+          sed '/^version[[:space:]]*=[[:space:]]*2[[:space:]]*$/d' \
+            desktop-instance-manager/deny.toml > "${RUNNER_TEMP}/ci-deny.toml"
+
+      - name: Run cargo-deny advisories, bans, licenses & sources (core workspace)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          manifest-path: desktop-instance-manager/Cargo.toml
+          arguments: --config ${{ runner.temp }}/ci-deny.toml --all-features --locked
+          command-arguments: -W wildcard advisories bans licenses sources
+
+      - name: Run cargo-deny advisories, bans, licenses & sources (Tauri desktop crate)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          manifest-path: desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
+          arguments: --config ${{ runner.temp }}/ci-deny.toml --all-features --locked
+          command-arguments: -W wildcard advisories bans licenses sources
+
+      - name: Generate 7-pillar dependency & advisory audit report
         run: |
           mkdir -p "${RUNNER_TEMP}/ci-dependency-audit"
           node desktop-instance-manager/scripts/ci-cross-platform/dependency-audit.mjs \
@@ -133,21 +153,7 @@ jobs:
             --out-md "${RUNNER_TEMP}/ci-dependency-audit/dependency-audit.md"
           cat "${RUNNER_TEMP}/ci-dependency-audit/dependency-audit.md" >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Run cargo-deny check (core workspace)
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
-          manifest-path: desktop-instance-manager/Cargo.toml
-          arguments: --all-features --locked
-
-      - name: Run cargo-deny check (Tauri desktop crate)
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
-          manifest-path: desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
-          arguments: --all-features --locked
-
-      - name: Upload dependency audit reports
+      - name: Upload dependency & advisory audit report
         uses: actions/upload-artifact@v4
         with:
           name: dependency-audit-report
@@ -155,313 +161,12 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  windows-msvc-build:
-    name: Windows MSVC Build & Validation (x86_64-pc-windows-msvc)
-    needs: [rust-workspace-validation, dependency-audit]
-    if: ${{ inputs.enable_windows }}
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install Rust stable toolchain (x86_64-pc-windows-msvc)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache Cargo registry, Tauri CLI, and Windows build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            desktop-instance-manager/target/
-            desktop-instance-manager/apps/desktop/src-tauri/target/
-          key: ${{ runner.os }}-msvc-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
-
-      - name: Install official Tauri CLI v2 from crates.io when bundling is enabled
-        if: ${{ inputs.bundles != 'none' }}
-        shell: pwsh
-        run: |
-          if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
-            cargo install tauri-cli --version "^2.0.0" --locked
-          }
-          cargo tauri --version
-
-      - name: Check Windows MSVC & bundler prerequisites
-        shell: pwsh
-        run: |
-          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
-          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          node desktop-instance-manager/scripts/ci-cross-platform/check-prerequisites.mjs `
-            --target x86_64-pc-windows-msvc `
-            --out "$outDir/prereq.json"
-
-      - name: Build, test, and package Windows x86_64-pc-windows-msvc artifacts
-        shell: pwsh
-        run: |
-          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
-          node desktop-instance-manager/scripts/ci-cross-platform/build-and-package.mjs `
-            --target x86_64-pc-windows-msvc `
-            --bundles ${{ inputs.bundles }} `
-            --out "$outDir/build-summary.json"
-
-      - name: Inspect Windows PE32+ headers, manifest, and Authenticode table
-        shell: pwsh
-        run: |
-          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
-          $desktopExe = "desktop-instance-manager/apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/dim-desktop.exe"
-          $cliExe = "desktop-instance-manager/target/x86_64-pc-windows-msvc/release/dim-cli.exe"
-          node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs `
-            --file $desktopExe `
-            --out "$outDir/inspect-dim-desktop.json"
-          node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs `
-            --file $cliExe `
-            --out "$outDir/inspect-dim-cli.json"
-
-      - name: Generate Windows Section 7 artifact manifest and SHA256SUMS
-        shell: pwsh
-        run: |
-          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
-          $logUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          node desktop-instance-manager/scripts/ci-cross-platform/generate-artifact-manifest.mjs `
-            --scan-default-targets `
-            --target x86_64-pc-windows-msvc `
-            --build-summary "$outDir/build-summary.json" `
-            --os-label windows-latest `
-            --arch x86_64 `
-            --build-log-url $logUrl `
-            --out-manifest "$outDir/artifact-manifest.json" `
-            --out-sha256 "$outDir/SHA256SUMS.txt" `
-            --out-md "$outDir/artifact-summary.md"
-          Get-Content "$outDir/artifact-summary.md" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-
-      - name: Upload Windows dev validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-windows-x86_64
-          path: ${{ runner.temp }}/ci-windows-msvc/*
-          retention-days: 7
-          if-no-files-found: error
-
-  macos-arm64-build:
-    name: macOS Apple Silicon Build & Validation (aarch64-apple-darwin)
-    needs: [rust-workspace-validation, dependency-audit]
-    if: ${{ inputs.enable_macos_arm64 }}
-    runs-on: macos-14
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install Rust stable toolchain (aarch64-apple-darwin)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin
-
-      - name: Cache Cargo registry, Tauri CLI, and macOS arm64 build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            desktop-instance-manager/target/
-            desktop-instance-manager/apps/desktop/src-tauri/target/
-          key: ${{ runner.os }}-aarch64-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
-
-      - name: Install official Tauri CLI v2 from crates.io when bundling is enabled
-        if: ${{ inputs.bundles != 'none' }}
-        run: |
-          if ! cargo tauri --version >/dev/null 2>&1; then
-            cargo install tauri-cli --version "^2.0.0" --locked
-          fi
-          cargo tauri --version
-
-      - name: Check macOS arm64 prerequisites (passive unsigned dev mode)
-        run: |
-          mkdir -p "${RUNNER_TEMP}/ci-macos-arm64"
-          node desktop-instance-manager/scripts/ci-cross-platform/check-prerequisites.mjs \
-            --target aarch64-apple-darwin \
-            --out "${RUNNER_TEMP}/ci-macos-arm64/prereq.json"
-
-      - name: Build, test, and package macOS aarch64-apple-darwin unsigned dev artifacts
-        run: |
-          node desktop-instance-manager/scripts/ci-cross-platform/build-and-package.mjs \
-            --target aarch64-apple-darwin \
-            --bundles "${{ inputs.bundles }}" \
-            --out "${RUNNER_TEMP}/ci-macos-arm64/build-summary.json"
-
-      - name: Verify macOS arm64 Mach-O headers, Info.plist, and DMG structure
-        run: |
-          OUT_DIR="${RUNNER_TEMP}/ci-macos-arm64"
-          BIN_PATH="desktop-instance-manager/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/dim-desktop"
-          file "${BIN_PATH}"
-          ARCHS="$(lipo -archs "${BIN_PATH}")"
-          echo "Detected Mach-O archs: ${ARCHS}"
-          test "${ARCHS}" = "arm64"
-          node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs \
-            --file "${BIN_PATH}" \
-            --out "${OUT_DIR}/inspect-dim-desktop.json"
-          BUNDLE_ROOT="desktop-instance-manager/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle"
-          if [ -d "${BUNDLE_ROOT}/macos" ]; then
-            for APP in "${BUNDLE_ROOT}/macos/"*.app; do
-              [ -e "${APP}" ] || continue
-              plutil -lint "${APP}/Contents/Info.plist"
-            done
-          fi
-          if [ -d "${BUNDLE_ROOT}/dmg" ]; then
-            for DMG in "${BUNDLE_ROOT}/dmg/"*.dmg; do
-              [ -e "${DMG}" ] || continue
-              hdiutil imageinfo "${DMG}" >/dev/null
-            done
-          fi
-
-      - name: Generate macOS arm64 Section 7 artifact manifest and SHA256SUMS
-        run: |
-          OUT_DIR="${RUNNER_TEMP}/ci-macos-arm64"
-          LOG_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          node desktop-instance-manager/scripts/ci-cross-platform/generate-artifact-manifest.mjs \
-            --scan-default-targets \
-            --target aarch64-apple-darwin \
-            --build-summary "${OUT_DIR}/build-summary.json" \
-            --os-label macos-14 \
-            --arch arm64 \
-            --build-log-url "${LOG_URL}" \
-            --out-manifest "${OUT_DIR}/artifact-manifest.json" \
-            --out-sha256 "${OUT_DIR}/SHA256SUMS.txt" \
-            --out-md "${OUT_DIR}/artifact-summary.md"
-          cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Upload macOS arm64 dev validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-macos-arm64
-          path: ${{ runner.temp }}/ci-macos-arm64/*
-          retention-days: 7
-          if-no-files-found: error
-
-  macos-intel-build:
-    name: macOS Intel Build & Validation (x86_64-apple-darwin on macos-14 SDK)
-    needs: [rust-workspace-validation, dependency-audit]
-    if: ${{ inputs.enable_macos_intel }}
-    # Uses GA `macos-14` runner with Xcode universal MacOSX.sdk + `x86_64-apple-darwin` Rust target
-    # rather than deprecated/retired `macos-13` Intel runners; `lipo -archs` verifies x86_64 output.
-    runs-on: macos-14
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install Rust stable toolchain (x86_64-apple-darwin target)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Cache Cargo registry, Tauri CLI, and macOS x86_64 build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            desktop-instance-manager/target/
-            desktop-instance-manager/apps/desktop/src-tauri/target/
-          key: ${{ runner.os }}-x86_64-darwin-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
-
-      - name: Install official Tauri CLI v2 from crates.io when bundling is enabled
-        if: ${{ inputs.bundles != 'none' }}
-        run: |
-          if ! cargo tauri --version >/dev/null 2>&1; then
-            cargo install tauri-cli --version "^2.0.0" --locked
-          fi
-          cargo tauri --version
-
-      - name: Check macOS Intel cross-target prerequisites (passive unsigned dev mode)
-        run: |
-          mkdir -p "${RUNNER_TEMP}/ci-macos-intel"
-          node desktop-instance-manager/scripts/ci-cross-platform/check-prerequisites.mjs \
-            --target x86_64-apple-darwin \
-            --out "${RUNNER_TEMP}/ci-macos-intel/prereq.json"
-
-      - name: Build, check tests, and package macOS x86_64-apple-darwin unsigned dev artifacts
-        run: |
-          node desktop-instance-manager/scripts/ci-cross-platform/build-and-package.mjs \
-            --target x86_64-apple-darwin \
-            --bundles "${{ inputs.bundles }}" \
-            --out "${RUNNER_TEMP}/ci-macos-intel/build-summary.json"
-
-      - name: Verify macOS x86_64 Mach-O headers, Info.plist, and DMG structure
-        run: |
-          OUT_DIR="${RUNNER_TEMP}/ci-macos-intel"
-          BIN_PATH="desktop-instance-manager/apps/desktop/src-tauri/target/x86_64-apple-darwin/release/dim-desktop"
-          file "${BIN_PATH}"
-          ARCHS="$(lipo -archs "${BIN_PATH}")"
-          echo "Detected Mach-O archs: ${ARCHS}"
-          test "${ARCHS}" = "x86_64"
-          node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs \
-            --file "${BIN_PATH}" \
-            --out "${OUT_DIR}/inspect-dim-desktop.json"
-          BUNDLE_ROOT="desktop-instance-manager/apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle"
-          if [ -d "${BUNDLE_ROOT}/macos" ]; then
-            for APP in "${BUNDLE_ROOT}/macos/"*.app; do
-              [ -e "${APP}" ] || continue
-              plutil -lint "${APP}/Contents/Info.plist"
-            done
-          fi
-          if [ -d "${BUNDLE_ROOT}/dmg" ]; then
-            for DMG in "${BUNDLE_ROOT}/dmg/"*.dmg; do
-              [ -e "${DMG}" ] || continue
-              hdiutil imageinfo "${DMG}" >/dev/null
-            done
-          fi
-
-      - name: Generate macOS Intel Section 7 artifact manifest and SHA256SUMS
-        run: |
-          OUT_DIR="${RUNNER_TEMP}/ci-macos-intel"
-          LOG_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          node desktop-instance-manager/scripts/ci-cross-platform/generate-artifact-manifest.mjs \
-            --scan-default-targets \
-            --target x86_64-apple-darwin \
-            --build-summary "${OUT_DIR}/build-summary.json" \
-            --os-label macos-14-x86_64-target \
-            --arch x86_64 \
-            --build-log-url "${LOG_URL}" \
-            --out-manifest "${OUT_DIR}/artifact-manifest.json" \
-            --out-sha256 "${OUT_DIR}/SHA256SUMS.txt" \
-            --out-md "${OUT_DIR}/artifact-summary.md"
-          cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Upload macOS Intel dev validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-macos-x86_64
-          path: ${{ runner.temp }}/ci-macos-intel/*
-          retention-days: 7
-          if-no-files-found: error
-
   ubuntu-2404-build:
-    name: Ubuntu 24.04 LTS Build & Validation (x86_64-unknown-linux-gnu)
+    name: "1. Ubuntu 24.04 LTS x64 Native Build, Runtime Fixture & Bundle"
     needs: [rust-workspace-validation, dependency-audit]
     if: ${{ inputs.enable_ubuntu }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -471,7 +176,7 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install Ubuntu 24.04 LTS Tauri & packaging build dependencies
+      - name: Install Ubuntu 24.04 LTS Tauri, Xvfb & packaging build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -488,18 +193,29 @@ jobs:
             file \
             binutils \
             dpkg-dev \
-            libfuse2t64
+            libfuse2t64 \
+            xvfb
 
-      - name: Install Rust stable toolchain (x86_64-unknown-linux-gnu)
+      - name: Install Rust stable toolchain (native x86_64-unknown-linux-gnu)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu
+          components: clippy
 
-      - name: Cache Cargo registry, Tauri CLI, and Ubuntu 24.04 build cache
+      - name: Verify native Ubuntu 24.04 x86_64 hardware and Rust host triple
+        run: |
+          ARCH="$(uname -m)"
+          echo "Host uname -m: ${ARCH}"
+          test "${ARCH}" = "x86_64"
+          grep -E '^VERSION_ID="24\.04"' /etc/os-release
+          RUSTC_VV="$(rustc -vV)"
+          echo "${RUSTC_VV}"
+          echo "${RUSTC_VV}" | grep -q '^host: x86_64-unknown-linux-gnu$'
+
+      - name: Cache Cargo registry and Ubuntu 24.04 build cache
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
@@ -507,13 +223,11 @@ jobs:
             desktop-instance-manager/apps/desktop/src-tauri/target/
           key: ${{ runner.os }}-ubuntu2404-gnu-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
 
-      - name: Install official Tauri CLI v2 from crates.io when bundling is enabled
+      - name: Install pinned @tauri-apps/cli@2.12.5 when bundling is enabled
         if: ${{ inputs.bundles != 'none' }}
         run: |
-          if ! cargo tauri --version >/dev/null 2>&1; then
-            cargo install tauri-cli --version "^2.0.0" --locked
-          fi
-          cargo tauri --version
+          npm install --global "@tauri-apps/cli@${TAURI_CLI_VERSION}"
+          tauri --version
 
       - name: Check Ubuntu 24.04 LTS & WebKitGTK 4.1 prerequisites
         run: |
@@ -522,7 +236,13 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             --out "${RUNNER_TEMP}/ci-ubuntu-2404/prereq.json"
 
-      - name: Build, test, and package Ubuntu 24.04 artifacts (.deb & AppImage attempt)
+      - name: Run Clippy (-D warnings, --locked) on Ubuntu 24.04 target
+        working-directory: desktop-instance-manager
+        run: |
+          cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu --locked -- -D warnings
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu --locked -- -D warnings
+
+      - name: Compile, test, run runtime fixture & package Ubuntu 24.04 bundles (.deb & .AppImage)
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
@@ -531,16 +251,29 @@ jobs:
             --bundles "${{ inputs.bundles }}" \
             --out "${RUNNER_TEMP}/ci-ubuntu-2404/build-summary.json"
 
-      - name: Verify ELF 64-bit binary, POSIX permissions, ldd libraries, GLIBC floor, and .deb/.AppImage
+      - name: Verify native runtime fixture, Xvfb GUI startup, ELF/ldd/GLIBC & .deb/.AppImage
         run: |
           OUT_DIR="${RUNNER_TEMP}/ci-ubuntu-2404"
           BIN_PATH="desktop-instance-manager/apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/dim-desktop"
+          CLI_PATH="desktop-instance-manager/target/x86_64-unknown-linux-gnu/release/dim-cli"
+          TMP_FIX="$(mktemp -d)"
+          HOME="${TMP_FIX}" XDG_CONFIG_HOME="${TMP_FIX}" node desktop-instance-manager/fixtures/test-desktop-app/fixture-app.mjs --stay-ms=100
+          HOME="${TMP_FIX}" XDG_CONFIG_HOME="${TMP_FIX}" "${CLI_PATH}" --data-dir "${TMP_FIX}/dim-data" status --json
+          rm -rf "${TMP_FIX}"
           file "${BIN_PATH}"
           test -x "${BIN_PATH}"
           LDD_OUT="$(ldd "${BIN_PATH}")"
           echo "${LDD_OUT}"
           if echo "${LDD_OUT}" | grep -q "not found"; then
-            echo "ERROR: Unresolved shared library detected in dim-desktop" >&2
+            echo "ERROR: Unresolved shared library in dim-desktop" >&2
+            exit 1
+          fi
+          set +e
+          timeout 3s xvfb-run -a "${BIN_PATH}" >/dev/null 2>&1
+          XVFB_RC=$?
+          set -e
+          if [ "${XVFB_RC}" -ne 0 ] && [ "${XVFB_RC}" -ne 124 ] && [ "${XVFB_RC}" -ne 143 ]; then
+            echo "ERROR: dim-desktop failed Xvfb headless startup probe with exit code ${XVFB_RC}" >&2
             exit 1
           fi
           objdump -T "${BIN_PATH}" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -V | uniq | tail -n 5 || true
@@ -571,7 +304,7 @@ jobs:
             --out-md "${OUT_DIR}/artifact-summary.md"
           cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Upload Ubuntu 24.04 dev validation manifest and reports (unsigned dev only)
+      - name: Upload Ubuntu 24.04 validation manifest and reports (unsigned dev only)
         uses: actions/upload-artifact@v4
         with:
           name: manifest-ubuntu-2404-x86_64
@@ -579,14 +312,399 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  windows-msvc-build:
+    name: "2. Windows x64 MSVC Native Build, Runtime Fixture & Bundle"
+    needs: [rust-workspace-validation, dependency-audit]
+    if: ${{ inputs.enable_windows }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Rust stable toolchain (native x86_64-pc-windows-msvc)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: clippy
+
+      - name: Verify native Windows x86_64 hardware, MSVC linker, and Rust host triple
+        shell: pwsh
+        run: |
+          Write-Host "PROCESSOR_ARCHITECTURE: $env:PROCESSOR_ARCHITECTURE"
+          if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
+            throw "Expected native AMD64/x86_64 host, got $env:PROCESSOR_ARCHITECTURE"
+          }
+          $rustcVv = (rustc -vV) -join "`n"
+          Write-Host $rustcVv
+          if ($rustcVv -notmatch "(?m)^host:\s*x86_64-pc-windows-msvc$") {
+            throw "Expected native host x86_64-pc-windows-msvc in rustc -vV"
+          }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe not found; MSVC Build Tools missing"
+          }
+          $vcInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vcInstall) {
+            throw "MSVC x86/x64 C++ tools (cl.exe/link.exe) not installed"
+          }
+          Write-Host "Verified MSVC installation: $vcInstall"
+
+      - name: Cache Cargo registry and Windows MSVC build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            desktop-instance-manager/target/
+            desktop-instance-manager/apps/desktop/src-tauri/target/
+          key: ${{ runner.os }}-msvc-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Install pinned @tauri-apps/cli@2.12.5 when bundling is enabled
+        if: ${{ inputs.bundles != 'none' }}
+        shell: pwsh
+        run: |
+          npm.cmd install --global "@tauri-apps/cli@$env:TAURI_CLI_VERSION"
+          tauri.cmd --version
+
+      - name: Check Windows MSVC & WiX/NSIS prerequisites
+        shell: pwsh
+        run: |
+          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          node desktop-instance-manager/scripts/ci-cross-platform/check-prerequisites.mjs `
+            --target x86_64-pc-windows-msvc `
+            --out "$outDir/prereq.json"
+
+      - name: Run Clippy (-D warnings, --locked) on Windows x86_64-pc-windows-msvc
+        working-directory: desktop-instance-manager
+        shell: pwsh
+        run: |
+          cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile, test, run runtime fixture & package Windows bundles (MSI & NSIS)
+        shell: pwsh
+        run: |
+          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
+          node desktop-instance-manager/scripts/ci-cross-platform/build-and-package.mjs `
+            --target x86_64-pc-windows-msvc `
+            --bundles ${{ inputs.bundles }} `
+            --out "$outDir/build-summary.json"
+
+      - name: Verify native Windows runtime fixture, PE32+ headers, XML manifest & Authenticode
+        shell: pwsh
+        run: |
+          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
+          $desktopExe = "desktop-instance-manager/apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/dim-desktop.exe"
+          $cliExe = "desktop-instance-manager/target/x86_64-pc-windows-msvc/release/dim-cli.exe"
+          $tmpFix = Join-Path $env:RUNNER_TEMP "dim-win-fixture-smoke"
+          New-Item -ItemType Directory -Force -Path $tmpFix | Out-Null
+          $env:APPDATA = $tmpFix
+          $env:LOCALAPPDATA = $tmpFix
+          node desktop-instance-manager/fixtures/test-desktop-app/fixture-app.mjs --stay-ms=100
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $cliExe --data-dir "$tmpFix\dim-data" status --json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item -Recurse -Force $tmpFix -ErrorAction SilentlyContinue
+          node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs `
+            --file $desktopExe `
+            --out "$outDir/inspect-dim-desktop.json"
+          node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs `
+            --file $cliExe `
+            --out "$outDir/inspect-dim-cli.json"
+
+      - name: Generate Windows Section 7 artifact manifest and SHA256SUMS
+        shell: pwsh
+        run: |
+          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
+          $logUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          node desktop-instance-manager/scripts/ci-cross-platform/generate-artifact-manifest.mjs `
+            --scan-default-targets `
+            --target x86_64-pc-windows-msvc `
+            --build-summary "$outDir/build-summary.json" `
+            --os-label windows-2022 `
+            --arch x86_64 `
+            --build-log-url $logUrl `
+            --out-manifest "$outDir/artifact-manifest.json" `
+            --out-sha256 "$outDir/SHA256SUMS.txt" `
+            --out-md "$outDir/artifact-summary.md"
+          Get-Content "$outDir/artifact-summary.md" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload Windows validation manifest and reports (unsigned dev only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-windows-x86_64
+          path: ${{ runner.temp }}/ci-windows-msvc/*
+          retention-days: 7
+          if-no-files-found: error
+
+  macos-arm64-build:
+    name: "3. macOS 15 Apple Silicon (arm64) Native Build, Runtime Fixture & Bundle"
+    needs: [rust-workspace-validation, dependency-audit]
+    if: ${{ inputs.enable_macos_arm64 }}
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Rust stable toolchain (native aarch64-apple-darwin)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: clippy
+
+      - name: Verify native Apple Silicon (arm64) hardware and Rust host triple
+        run: |
+          ARCH="$(uname -m)"
+          echo "Host uname -m: ${ARCH}"
+          sw_vers
+          test "${ARCH}" = "arm64"
+          RUSTC_VV="$(rustc -vV)"
+          echo "${RUSTC_VV}"
+          echo "${RUSTC_VV}" | grep -q '^host: aarch64-apple-darwin$'
+
+      - name: Cache Cargo registry and macOS arm64 build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            desktop-instance-manager/target/
+            desktop-instance-manager/apps/desktop/src-tauri/target/
+          key: ${{ runner.os }}-aarch64-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Install pinned @tauri-apps/cli@2.12.5 when bundling is enabled
+        if: ${{ inputs.bundles != 'none' }}
+        run: |
+          npm install --global "@tauri-apps/cli@${TAURI_CLI_VERSION}"
+          tauri --version
+
+      - name: Check macOS arm64 prerequisites (passive unsigned dev mode)
+        run: |
+          mkdir -p "${RUNNER_TEMP}/ci-macos-arm64"
+          node desktop-instance-manager/scripts/ci-cross-platform/check-prerequisites.mjs \
+            --target aarch64-apple-darwin \
+            --out "${RUNNER_TEMP}/ci-macos-arm64/prereq.json"
+
+      - name: Run Clippy (-D warnings, --locked) on macOS aarch64-apple-darwin
+        working-directory: desktop-instance-manager
+        run: |
+          cargo clippy --workspace --all-targets --target aarch64-apple-darwin --locked -- -D warnings
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --target aarch64-apple-darwin --locked -- -D warnings
+
+      - name: Compile, test, run runtime fixture & package macOS arm64 (.app & .dmg)
+        run: |
+          node desktop-instance-manager/scripts/ci-cross-platform/build-and-package.mjs \
+            --target aarch64-apple-darwin \
+            --bundles "${{ inputs.bundles }}" \
+            --out "${RUNNER_TEMP}/ci-macos-arm64/build-summary.json"
+
+      - name: Verify native arm64 runtime fixture, Mach-O headers, Info.plist & DMG
+        run: |
+          OUT_DIR="${RUNNER_TEMP}/ci-macos-arm64"
+          BIN_PATH="desktop-instance-manager/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/dim-desktop"
+          CLI_PATH="desktop-instance-manager/target/aarch64-apple-darwin/release/dim-cli"
+          TMP_FIX="$(mktemp -d)"
+          HOME="${TMP_FIX}" node desktop-instance-manager/fixtures/test-desktop-app/fixture-app.mjs --stay-ms=100
+          HOME="${TMP_FIX}" "${CLI_PATH}" --data-dir "${TMP_FIX}/dim-data" status --json
+          rm -rf "${TMP_FIX}"
+          file "${BIN_PATH}"
+          ARCHS="$(lipo -archs "${BIN_PATH}")"
+          echo "Detected Mach-O archs: ${ARCHS}"
+          test "${ARCHS}" = "arm64"
+          node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs \
+            --file "${BIN_PATH}" \
+            --out "${OUT_DIR}/inspect-dim-desktop.json"
+          BUNDLE_ROOT="desktop-instance-manager/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle"
+          if [ -d "${BUNDLE_ROOT}/macos" ]; then
+            for APP in "${BUNDLE_ROOT}/macos/"*.app; do
+              [ -e "${APP}" ] || continue
+              plutil -lint "${APP}/Contents/Info.plist"
+            done
+          fi
+          if [ -d "${BUNDLE_ROOT}/dmg" ]; then
+            for DMG in "${BUNDLE_ROOT}/dmg/"*.dmg; do
+              [ -e "${DMG}" ] || continue
+              hdiutil imageinfo "${DMG}" >/dev/null
+            done
+          fi
+
+      - name: Generate macOS arm64 Section 7 artifact manifest and SHA256SUMS
+        run: |
+          OUT_DIR="${RUNNER_TEMP}/ci-macos-arm64"
+          LOG_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          node desktop-instance-manager/scripts/ci-cross-platform/generate-artifact-manifest.mjs \
+            --scan-default-targets \
+            --target aarch64-apple-darwin \
+            --build-summary "${OUT_DIR}/build-summary.json" \
+            --os-label macos-15 \
+            --arch arm64 \
+            --build-log-url "${LOG_URL}" \
+            --out-manifest "${OUT_DIR}/artifact-manifest.json" \
+            --out-sha256 "${OUT_DIR}/SHA256SUMS.txt" \
+            --out-md "${OUT_DIR}/artifact-summary.md"
+          cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload macOS arm64 validation manifest and reports (unsigned dev only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-macos-arm64
+          path: ${{ runner.temp }}/ci-macos-arm64/*
+          retention-days: 7
+          if-no-files-found: error
+
+  macos-intel-build:
+    name: "4. macOS 15 Intel (x86_64) Native Build, Runtime Fixture & Bundle"
+    needs: [rust-workspace-validation, dependency-audit]
+    if: ${{ inputs.enable_macos_intel }}
+    # Uses GitHub's explicit Intel x86_64 runner (`macos-15-intel`, 4-core x64; `macos-13` is retired).
+    # NEVER substitutes cross-compilation on an arm64 runner for native Intel runtime testing.
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Rust stable toolchain (native x86_64-apple-darwin)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+          components: clippy
+
+      - name: Verify native Intel (x86_64) hardware and Rust host triple (fail closed on arm64)
+        run: |
+          ARCH="$(uname -m)"
+          echo "Host uname -m: ${ARCH}"
+          sw_vers
+          if [ "${ARCH}" != "x86_64" ]; then
+            echo "BLOCKED: Expected native Intel x86_64 runner (macos-15-intel), got ${ARCH}. Cross-compilation is never accepted as native Intel runtime verification." >&2
+            exit 1
+          fi
+          RUSTC_VV="$(rustc -vV)"
+          echo "${RUSTC_VV}"
+          echo "${RUSTC_VV}" | grep -q '^host: x86_64-apple-darwin$'
+
+      - name: Cache Cargo registry and macOS Intel x86_64 build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            desktop-instance-manager/target/
+            desktop-instance-manager/apps/desktop/src-tauri/target/
+          key: ${{ runner.os }}-intel-x86_64-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Install pinned @tauri-apps/cli@2.12.5 when bundling is enabled
+        if: ${{ inputs.bundles != 'none' }}
+        run: |
+          npm install --global "@tauri-apps/cli@${TAURI_CLI_VERSION}"
+          tauri --version
+
+      - name: Check macOS Intel x86_64 prerequisites (passive unsigned dev mode)
+        run: |
+          mkdir -p "${RUNNER_TEMP}/ci-macos-intel"
+          node desktop-instance-manager/scripts/ci-cross-platform/check-prerequisites.mjs \
+            --target x86_64-apple-darwin \
+            --out "${RUNNER_TEMP}/ci-macos-intel/prereq.json"
+
+      - name: Run Clippy (-D warnings, --locked) on macOS x86_64-apple-darwin
+        working-directory: desktop-instance-manager
+        run: |
+          cargo clippy --workspace --all-targets --target x86_64-apple-darwin --locked -- -D warnings
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-apple-darwin --locked -- -D warnings
+
+      - name: Compile, test, run runtime fixture & package macOS Intel (.app & .dmg)
+        run: |
+          node desktop-instance-manager/scripts/ci-cross-platform/build-and-package.mjs \
+            --target x86_64-apple-darwin \
+            --bundles "${{ inputs.bundles }}" \
+            --out "${RUNNER_TEMP}/ci-macos-intel/build-summary.json"
+
+      - name: Verify native Intel x86_64 runtime fixture, Mach-O headers, Info.plist & DMG
+        run: |
+          OUT_DIR="${RUNNER_TEMP}/ci-macos-intel"
+          BIN_PATH="desktop-instance-manager/apps/desktop/src-tauri/target/x86_64-apple-darwin/release/dim-desktop"
+          CLI_PATH="desktop-instance-manager/target/x86_64-apple-darwin/release/dim-cli"
+          TMP_FIX="$(mktemp -d)"
+          HOME="${TMP_FIX}" node desktop-instance-manager/fixtures/test-desktop-app/fixture-app.mjs --stay-ms=100
+          HOME="${TMP_FIX}" "${CLI_PATH}" --data-dir "${TMP_FIX}/dim-data" status --json
+          rm -rf "${TMP_FIX}"
+          file "${BIN_PATH}"
+          ARCHS="$(lipo -archs "${BIN_PATH}")"
+          echo "Detected Mach-O archs: ${ARCHS}"
+          test "${ARCHS}" = "x86_64"
+          node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs \
+            --file "${BIN_PATH}" \
+            --out "${OUT_DIR}/inspect-dim-desktop.json"
+          BUNDLE_ROOT="desktop-instance-manager/apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle"
+          if [ -d "${BUNDLE_ROOT}/macos" ]; then
+            for APP in "${BUNDLE_ROOT}/macos/"*.app; do
+              [ -e "${APP}" ] || continue
+              plutil -lint "${APP}/Contents/Info.plist"
+            done
+          fi
+          if [ -d "${BUNDLE_ROOT}/dmg" ]; then
+            for DMG in "${BUNDLE_ROOT}/dmg/"*.dmg; do
+              [ -e "${DMG}" ] || continue
+              hdiutil imageinfo "${DMG}" >/dev/null
+            done
+          fi
+
+      - name: Generate macOS Intel Section 7 artifact manifest and SHA256SUMS
+        run: |
+          OUT_DIR="${RUNNER_TEMP}/ci-macos-intel"
+          LOG_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          node desktop-instance-manager/scripts/ci-cross-platform/generate-artifact-manifest.mjs \
+            --scan-default-targets \
+            --target x86_64-apple-darwin \
+            --build-summary "${OUT_DIR}/build-summary.json" \
+            --os-label macos-15-intel \
+            --arch x86_64 \
+            --build-log-url "${LOG_URL}" \
+            --out-manifest "${OUT_DIR}/artifact-manifest.json" \
+            --out-sha256 "${OUT_DIR}/SHA256SUMS.txt" \
+            --out-md "${OUT_DIR}/artifact-summary.md"
+          cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload macOS Intel validation manifest and reports (unsigned dev only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-macos-x86_64
+          path: ${{ runner.temp }}/ci-macos-intel/*
+          retention-days: 7
+          if-no-files-found: error
+
   artifact-verification:
     name: Cross-Platform Artifact Provenance & Policy Gate
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     needs:
+      - ubuntu-2404-build
       - windows-msvc-build
       - macos-arm64-build
       - macos-intel-build
-      - ubuntu-2404-build
     if: always()
     steps:
       - name: Checkout repository
@@ -606,10 +724,10 @@ jobs:
 
       - name: Verify upstream job statuses, SHA-256 format, Section 7 schema, signing honesty & zero-VNG policy
         env:
+          RES_UBUNTU: ${{ needs.ubuntu-2404-build.result }}
           RES_WINDOWS: ${{ needs.windows-msvc-build.result }}
           RES_MACOS_ARM64: ${{ needs.macos-arm64-build.result }}
           RES_MACOS_INTEL: ${{ needs.macos-intel-build.result }}
-          RES_UBUNTU: ${{ needs.ubuntu-2404-build.result }}
         run: |
           mkdir -p "${RUNNER_TEMP}/downloaded-manifests" "${RUNNER_TEMP}/verified-manifests"
           node --input-type=module <<'EOF'
@@ -618,17 +736,15 @@ jobs:
           import { execFileSync } from 'node:child_process';
 
           const results = {
+            'ubuntu-2404-build': process.env.RES_UBUNTU,
             'windows-msvc-build': process.env.RES_WINDOWS,
             'macos-arm64-build': process.env.RES_MACOS_ARM64,
             'macos-intel-build': process.env.RES_MACOS_INTEL,
-            'ubuntu-2404-build': process.env.RES_UBUNTU,
           };
 
-          for (const [job, res] of Object.entries(results)) {
-            if (res === 'failure' || res === 'cancelled') {
-              throw new Error(`Upstream build job ${job} ended with status: ${res}`);
-            }
-          }
+          const failedUpstream = Object.entries(results).filter(
+            ([, res]) => res === 'failure' || res === 'cancelled'
+          );
 
           const dlRoot = path.join(process.env.RUNNER_TEMP, 'downloaded-manifests');
           const outRoot = path.join(process.env.RUNNER_TEMP, 'verified-manifests');
@@ -724,13 +840,19 @@ jobs:
             `- **Verified Artifacts Across Enabled Targets:** \`${totalVerified}\``,
             '- **Signing Status Policy:** `UNSIGNED_DEVELOPMENT_ARTIFACT` (not signed, not a production release)',
             '- **VNG Binary Policy:** `0` proprietary VNG Zalo binaries downloaded or bundled',
-            '- **Runtime Compatibility Disclosure:** Compiling/packaging `dim-desktop` on macOS or Ubuntu 24.04 proves manager build integrity only — it does **not** prove macOS Zalo multi-instance runtime behavior or Linux Zalo client availability.',
+            '- **Runtime Compatibility Disclosure:** Native manager build/fixture checks on macOS or Ubuntu 24.04 do **not** prove VNG Zalo macOS multi-instance runtime isolation or Linux Zalo client availability.',
             '',
             summaryMd,
           ].join('\n');
 
           if (process.env.GITHUB_STEP_SUMMARY) {
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, jobTable + '\n');
+          }
+
+          if (failedUpstream.length > 0) {
+            throw new Error(
+              `Upstream OS build job(s) did not succeed: ${failedUpstream.map(([j, r]) => `${j}=${r}`).join(', ')}`
+            );
           }
           EOF
 

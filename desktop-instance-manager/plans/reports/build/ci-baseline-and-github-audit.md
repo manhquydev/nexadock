@@ -1,189 +1,162 @@
-# CI Baseline & GitHub Repository / Actions Audit Report
+# CI Baseline, Runner Architecture & GitHub Blocker / Billing Audit Report
 
-**Mission:** AGENT MISSION E — Multi-Zalo Cross-Platform Build & Distribution  
+**Mission:** AGENT MISSION E / E2 — Multi-Zalo Cross-Platform Build & Distribution  
 **Worktree:** `C:/Users/manhquy/Downloads/zalo-cross-platform-build` (`build/cross-platform-distribution`)  
-**Baseline Commit:** `a5feb4a520798064c1508c26fe4c4ac17a3a03cf` (`a5feb4a`)  
-**Remote `origin/main` Commit:** `8cf47035f0f06bd97cc99aff80d81fb103af8` (`8cf4703`, local `main` is `ahead 1`)  
-**Audit Date:** `2026-11-17`  
-**Live GitHub Actions Execution Status:** `CI_LIVE_RUN_STATUS: NOT_EXECUTED (STATICALLY_VALIDATED_ONLY)`  
-**Static Workflow Validation Status:** `STATICALLY_VALIDATED_PASS` (`validate-workflow.mjs`)
+**Baseline `main` Commit:** `a5feb4a520798064c1508c26fe4c4ac17a3a03cf` (`a5feb4a`)  
+**Remote `origin/main` Commit:** `8cf47035f0f06bd97cc99aff80d81fb10b103af8` (`8cf4703`, local `main` is `ahead 1`)  
+**Workflow File:** [`.github/workflows/cross-platform-validation.yml`](../../../../.github/workflows/cross-platform-validation.yml)  
+**Workflow URL (once registered on `origin/main`):** `https://github.com/manhquydev/zalo/actions/workflows/cross-platform-validation.yml`  
+**Audit Date:** `2026-11-18`  
+**Live GitHub Actions Execution Status:** `BLOCKED (REMOTE_WORKFLOW_DISPATCH_UNREGISTERED_AND_MISSING_WORKFLOW_SCOPE)` — `CI_LIVE_RUN_STATUS: NOT_EXECUTED (STATICALLY_VALIDATED_ONLY)`  
+**Static Workflow Validation Status:** `PASS` (`6/6` core invariants in `validate-workflow.mjs`, `exit 0`)
 
 > [!IMPORTANT]
-> **Strict Honesty Disclosure:** Live GitHub Actions execution was **NOT** performed (`CI_LIVE_RUN_STATUS: NOT_EXECUTED (STATICALLY_VALIDATED_ONLY)`). Nothing in this repository or report claims `CI PASS` on remote GitHub-hosted runners. Remote execution is intentionally withheld because `manhquydev/zalo` is a **private repository** subject to metered GitHub Actions minute multipliers, baseline commit `a5feb4a` and branch `build/cross-platform-distribution` are unpushed local commits under mission no-push guardrails, and the local GitHub CLI OAuth token lacks `workflow` and `user` scopes.
+> **Strict Honesty Disclosure:** Remote GitHub Actions runs have **NOT** been executed (`0` workflow runs on `manhquydev/zalo`; never claim `CI PASS`). Remote execution is concretely **BLOCKED** by three empirically verified facts: (1) local HTTPS Git pushes use `gh.exe auth git-credential` whose OAuth token scopes (`gist, read:org, repo`) lack `workflow` scope; (2) `origin/main` is at `8cf4703` with `0` registered root workflows, and GitHub requires `workflow_dispatch` YAML files to exist on the default branch (`main`) before manual dispatch works; and (3) `manhquydev/zalo` is a private repository subject to metered per-minute Actions billing where unauthorized pushes/dispatches are prohibited.
 
 ---
 
-## 1. Git Repository, Commit Lineage & Worktree Isolation Audit
+## 1. Verified GitHub-Hosted Runner Labels & P0 macOS Architecture Remediation
 
-Read-only inspection of the primary workspace and isolated build worktree established the following exact Git topology:
+Runner labels and hardware specifications were verified against official GitHub Actions documentation (`docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners`):
 
-| Property | Observed Value | Audit Verdict |
-| :--- | :--- | :--- |
-| **Primary Workspace** | `C:/Users/manhquy/Downloads/zalo` | Untouched on `main` (`git status --porcelain` empty) |
-| **Isolated Build Worktree** | `C:/Users/manhquy/Downloads/zalo-cross-platform-build` | Created cleanly via `git worktree add -b build/cross-platform-distribution` |
-| **Worktree Branch** | `build/cross-platform-distribution` | Base `a5feb4a520798064c1508c26fe4c4ac17a3a03cf` |
-| **Remote URL (`origin`)** | `https://github.com/manhquydev/zalo.git` | Read-only inspected; zero pushes performed |
-| **`origin/main` HEAD** | `8cf47035f0f06bd97cc99aff80d81fb103af8` (`chore: initial commit`) | Remote default branch lags local `main` by 1 commit |
-| **Local `main` HEAD** | `a5feb4a520798064c1508c26fe4c4ac17a3a03cf` (`feat(hardening): build, verify, and harden desktop-instance-manager Rust/Tauri/bridge stack`) | `main...origin/main [ahead 1]` (local-only commit) |
+| Priority | Job ID | Verified GitHub Runner Label | Native Hardware & vCPU / RAM | Expected `uname -m` / Host Arch | Expected `rustc -vV` `host:` Triple | Lifecycle & Plan Availability Notes |
+| :---: | :--- | :--- | :--- | :--- | :--- | :--- |
+| **1** | `ubuntu-2404-build` | `ubuntu-24.04` | 2-core x86_64, 7 GB RAM, 14 GB SSD | `x86_64` | `x86_64-unknown-linux-gnu` | GA standard runner on Free/Pro/Team/Enterprise |
+| **2** | `windows-msvc-build` | `windows-2022` | 4-core x86_64, 16 GB RAM, 14 GB SSD (VS 2022 MSVC, WiX 3.14, NSIS 3.x) | `AMD64` (`x86_64`) | `x86_64-pc-windows-msvc` | GA standard runner on Free/Pro/Team/Enterprise |
+| **3** | `macos-arm64-build` | `macos-15` | 3-core Apple M1 (`arm64`), 7 GB RAM, 14 GB SSD | `arm64` | `aarch64-apple-darwin` | GA standard Apple Silicon runner (`macos-latest` family); opt-in `false` (`$0.062/min`, `10x`) |
+| **4** | `macos-intel-build` | `macos-15-intel` | 4-core Intel (`x86_64`), 14 GB RAM, 14 GB SSD | `x86_64` | `x86_64-apple-darwin` | Official standard Intel x64 runner replacing **retired `macos-13`** (Intel macOS runners sunset Fall 2027); opt-in `false` (`$0.062/min`, `10x`) |
 
-### Why Remote GitHub Actions Shows Zero Registered Workflows Today
-1. In `origin/main` (`8cf4703`), the initial CI file lived at `desktop-instance-manager/.github/workflows/ci.yml` — nested inside a subdirectory where GitHub Actions workflow discovery ignores YAML files (GitHub Actions only indexes root `.github/workflows/*.yml` / `*.yaml`).
-2. Local commit `a5feb4a` relocated that workflow to root `.github/workflows/ci.yml`, added `Cargo.lock` and `apps/desktop/src-tauri/Cargo.lock`, and hardened the Rust/Tauri workspace.
-3. Because `a5feb4a` has not been pushed to `origin/main` (blocked previously by missing OAuth `workflow` scope and held locally during Mission E), GitHub's remote workflow registry for `manhquydev/zalo` currently reports `total_count: 0`.
+### P0 Remediation: Removal of `macos-14` Cross-Compile for Intel macOS
+- **Defect Fixed from E1:** E1 ran `macos-intel-build` on `macos-14` (an Apple Silicon `arm64` runner) and cross-compiled `--target x86_64-apple-darwin`. Cross-compilation on `arm64` cannot execute native Intel x86_64 tests/fixtures without binary translation and must **never** be conflated with native Intel hardware verification.
+- **Mission E2 Fix:** `macos-intel-build` now targets `runs-on: macos-15-intel` exclusively and executes a fail-closed hardware gate (`[ "$(uname -m)" = "x86_64" ]` and `rustc -vV | grep '^host: x86_64-apple-darwin$'`).
+- **Fail-Closed `BLOCKED` Rule:** If `macos-15-intel` is unavailable on the repository owner's account tier or experiences Intel capacity sunset/queue rejection, `macos-intel-build` must be recorded honestly as **`BLOCKED`** — never silently switched back to an `arm64` cross-compile.
+
+### Native 7-Stage Pipeline Enforced Across Every OS Build Job
+Every OS build job (`ubuntu-2404-build`, `windows-msvc-build`, `macos-arm64-build`, `macos-intel-build`) executes all 7 native stages with `--locked` Cargo reproducibility, pinned `@tauri-apps/cli@2.12.5` (verified via `npm.cmd view @tauri-apps/cli version`, never floating `@latest`), and explicit job `timeout-minutes` (`10–30 min`):
+1. **Compile (`--locked`):** Workspace release binaries (`dim-cli`, `dim-test-fixture`) + Tauri desktop shell (`dim-desktop`).
+2. **Test (`--locked`):** Native workspace unit/integration tests + Tauri crate tests on real target CPU.
+3. **Clippy (`--locked -- -D warnings`):** Workspace `--all-targets` + `apps/desktop/src-tauri/Cargo.toml` lint enforcement.
+4. **Native Runtime Fixture:** Executes `node desktop-instance-manager/fixtures/test-desktop-app/fixture-app.mjs --stay-ms=100` + native `dim-cli status --json` smoke test (plus headless `xvfb-run -a` GUI dynamic-linker/WebKitGTK startup verification on `ubuntu-24.04`).
+5. **Tauri Build:** Pinned `@tauri-apps/cli@2.12.5` native build.
+6. **OS Bundle Packaging:** Produces `.deb`/`.AppImage` (Ubuntu 24.04), `.msi`/NSIS `-setup.exe` (Windows MSVC), and `.app`/`.dmg` (macOS arm64 & Intel) using `scripts/ci-cross-platform/tauri-ci-bundle-overlay.json` (`--config`) so shared `tauri.conf.json` remains untouched.
+7. **Artifact Verification & Section 7 Manifest:** Runs `inspect-artifact.mjs` + `generate-artifact-manifest.mjs`, consolidated by downstream `artifact-verification` (`if: always()`).
 
 ---
 
 ## 2. Existing CI Baseline Audit (`.github/workflows/ci.yml`) & Trigger Non-Conflict
 
-Existing root workflow `.github/workflows/ci.yml` (`name: MultiZaloDesktop CI`, 172 lines, untouched in Mission E) was audited line-by-line to guarantee zero trigger duplication, cache key collision, or job overlap with the new `.github/workflows/cross-platform-validation.yml`.
+Existing root workflow [`.github/workflows/ci.yml`](../../../../.github/workflows/ci.yml) (`name: MultiZaloDesktop CI`, untouched) was verified for zero trigger, permission, or cache collision:
 
-### Side-by-Side Workflow Separation Matrix
-
-| Dimension | Existing `.github/workflows/ci.yml` | New `.github/workflows/cross-platform-validation.yml` | Conflict Check |
+| Dimension | Existing `.github/workflows/ci.yml` | `.github/workflows/cross-platform-validation.yml` | Non-Conflict Verdict |
 | :--- | :--- | :--- | :--- |
-| **Workflow Name** | `MultiZaloDesktop CI` | `Multi-Zalo Cross-Platform Build & Packaging Validation` | Distinct |
-| **`push` Trigger** | `branches: [main, master]` | **None** | Zero duplicate push runs |
-| **`pull_request` Trigger** | `branches: [main, master]` | **None** | Zero duplicate PR runs |
-| **`schedule` (Cron)** | **None** | **None** (prohibited for private-repo cost safety) | Compliant |
-| **`workflow_dispatch`** | Bare manual trigger (no inputs) | Parameterized manual trigger (`enable_windows`, `enable_ubuntu`, `enable_macos_arm64`, `enable_macos_intel`, `bundles`) | Operator-controlled only |
-| **Permissions** | Default token permissions | Explicit top-level `permissions: contents: read` (strict read-only) | Hardened |
-| **Primary Purpose** | Fast source/PR check (`cargo fmt`, `check`, `clippy`, `test`, `cargo-deny`, Windows fixture/parity tests) | Release-mode cross-OS binary compilation, OS bundler attempts (`.msi`, NSIS, `.app`, `.dmg`, `.deb`, `.AppImage`), binary header inspection, and Section 7 SHA-256 provenance manifests | Complementary, non-overlapping |
-| **Linux Apt Packages** | Legacy `libappindicator3-dev` on `ubuntu-latest` | Explicit Ubuntu 24.04 LTS (`ubuntu-24.04`) with `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`, `file`, `binutils`, `dpkg-dev`, `libfuse2t64` | Fixes Ubuntu 24.04 Ayatana package requirement |
-| **CargoDeny Coverage** | `desktop-instance-manager/Cargo.toml` + `src-tauri/Cargo.toml` | `dependency-audit.mjs` (dual `Cargo.lock` + MSRV + zero-VNG scan) + `EmbarkStudios/cargo-deny-action@v2` on both manifests | Aligned |
+| **Triggers (`on:`)** | `push` (`main`, `master`), `pull_request` (`main`, `master`), bare `workflow_dispatch` | **`workflow_dispatch` ONLY** (5 explicit inputs; **zero** `push`, `pull_request`, or `schedule`) | Zero duplicate push/PR runs; zero cron drain |
+| **Permissions** | Default repository token | Explicit `permissions: contents: read` (zero `write` scopes, zero releases, zero secrets) | Least-privilege read-only |
+| **Supply-Chain Scan** | `EmbarkStudios/cargo-deny-action@v2` (`check`) | `EmbarkStudios/cargo-deny-action@v2` (`arguments: --config <sanitized-deny.toml> --all-features --locked`, `command-arguments: -W wildcard advisories bans licenses sources` on both lockfiles, empirically verified against `cargo-deny 0.21.0` + `rustsec/advisory-db @ 233155b4`) + 7-pillar `dependency-audit.mjs` | Full RustSec advisory coverage (`0` vulnerabilities across `439` crates) |
+| **Cache Keys** | `${{ runner.os }}-cargo-<hash>` | `${{ runner.os }}-{xplat-check,ubuntu2404-gnu,msvc,aarch64,intel-x86_64}-<dual-lockfile-hash>` | Zero cache key collision |
 
 ---
 
-## 3. Read-Only GitHub CLI, Permissions & Billing Inspection
+## 3. Empirical Proof of GitHub `workflow_dispatch` & OAuth Credential Blockers
 
-All GitHub inspections were executed strictly read-only via `C:\Program Files\GitHub CLI\gh.exe`:
+All checks below were executed strictly read-only on `2026-11-18` (zero pushes, zero force-pushes, zero permission mutations, zero PATs created):
 
-### 3.1 Authentication & OAuth Token Scopes (`gh auth status`)
-- **Account:** `manhquydev` on `github.com` (`Active account: true`, protocol `https`, credential store `keyring`).
-- **Granted Token Scopes:** `'gist'`, `'read:org'`, `'repo'`.
-- **Missing Scopes Identified:**
-  1. **`workflow` scope absent:** GitHub HTTPS push protection rejects creating or updating `.github/workflows/*.yml` from an OAuth token lacking `workflow` scope.
-  2. **`user` / `read:user` scope absent:** GitHub REST billing endpoints (`/users/{username}/settings/billing/actions`) return HTTP `404` without `user` scope (`This API operation needs the "user" scope. To request it, run: gh auth refresh -h github.com -s user`).
-
-### 3.2 Repository Visibility & Access (`gh api repos/manhquydev/zalo`)
-```json
-{
-  "default_branch": "main",
-  "full_name": "manhquydev/zalo",
-  "owner": "manhquydev",
-  "permissions": {
-    "admin": true,
-    "maintain": true,
-    "pull": true,
-    "push": true,
-    "triage": true
-  },
-  "private": true,
-  "visibility": "private"
-}
+### 3.1 Remote Ref State (`git ls-remote origin`)
+```text
+8cf47035f0f06bd97cc99aff80d81fb10b103af8	HEAD
+0f873024f4ee16810b9d35cf206803f793fc55cb	refs/heads/feat/ui-vi-en-quiet-workspace
+8cf47035f0f06bd97cc99aff80d81fb10b103af8	refs/heads/main
 ```
-- **Critical Finding:** `manhquydev/zalo` is a **PRIVATE** repository (`"private": true`, `"visibility": "private"`). Unlike public repositories (where standard GitHub-hosted runners are free), every minute of GitHub Actions execution in a private repository draws down the account's monthly Actions quota or incurs per-minute billing.
+- **Proof:** `origin/main` is still at initial commit `8cf4703` (where `ci.yml` sat inside nested `desktop-instance-manager/.github/workflows/ci.yml`, which GitHub Actions ignores). Local `main` (`a5feb4a`) and local branch `build/cross-platform-distribution` have not been pushed to `origin`.
+- `gh api repos/manhquydev/zalo/actions/workflows` -> `{"total_count": 0, "workflows": []}` (`0` registered workflows, `0` historical runs).
 
-### 3.3 Repository Actions Configuration (`gh api repos/manhquydev/zalo/actions/permissions`)
-```json
-{
-  "enabled": true,
-  "allowed_actions": "all",
-  "sha_pinning_required": false
-}
+### 3.2 Git HTTPS Credential Helper Chain (`git config --show-origin --get-regexp credential`)
+```text
+file:C:/Users/manhquy/AppData/Local/Microsoft/WinGet/Packages/Git.MinGit_Microsoft.Winget.Source_8wekyb3d8bbwe/etc/gitconfig	credential.helper manager
+file:C:/Users/manhquy/.gitconfig	credential.https://github.com.helper 
+file:C:/Users/manhquy/.gitconfig	credential.https://github.com.helper !'C:\Program Files\GitHub CLI\gh.exe' auth git-credential
 ```
-- **Workflows & Historical Runs (`gh api .../actions/workflows` & `gh run list --repo manhquydev/zalo`):**
-  - Registered remote workflows: `0` (`{"total_count": 0, "workflows": []}`)
-  - Historical workflow runs: `0`
+- **Proof:** User-level `~/.gitconfig` resets `credential.https://github.com.helper` and routes all `https://github.com` Git pushes exclusively through `C:\Program Files\GitHub CLI\gh.exe auth git-credential`.
 
-### 3.4 Billing & Quota Telemetry (`gh api users/manhquydev/settings/billing/actions` & `gh api user`)
-- `gh api users/manhquydev/settings/billing/actions` -> `HTTP 404 Not Found` (`This API operation needs the "user" scope`).
-- `gh api user --jq '{login, plan, owned_private_repos, total_private_repos}'` -> `{"login":"manhquydev","owned_private_repos":null,"plan":null,"total_private_repos":null}` (plan fields redacted by GitHub API when `user` scope is absent).
-- Because remaining monthly private-repo minutes cannot be verified programmatically without `user` scope, triggering remote builds without explicit owner approval is treated as an unbudgeted cost risk and strictly avoided.
-
----
-
-## 4. Private-Repository Runner Minute Multipliers & Cost Governance
-
-GitHub Actions applies OS-specific minute multipliers to all jobs executed on standard GitHub-hosted runners inside **private repositories** (GitHub Free includes 2,000 billable minutes/month; GitHub Pro includes 3,000 billable minutes/month):
-
-| Runner OS Label | Underlying Architecture | GitHub Private-Repo Minute Multiplier | Est. Cold/Cached Wall-Clock Time | Est. Billable Quota Consumed per Run | Default Dispatch Input in `cross-platform-validation.yml` |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| `ubuntu-24.04` (`rust-workspace-validation`) | `x86_64` Linux | **1x** | ~6 min | ~6 min | Always runs on manual dispatch |
-| `ubuntu-24.04` (`dependency-audit`) | `x86_64` Linux | **1x** | ~3 min | ~3 min | Always runs on manual dispatch |
-| `ubuntu-24.04` (`ubuntu-2404-build`) | `x86_64` Linux | **1x** | ~10 min | ~10 min | `enable_ubuntu: true` |
-| `windows-latest` (`windows-msvc-build`) | `x86_64` Windows | **2x** | ~12 min | **~24 min** | `enable_windows: true` |
-| `macos-14` (`macos-arm64-build`) | `arm64` Apple Silicon | **10x** | ~14 min | **~140 min** | `enable_macos_arm64: false` *(opt-in)* |
-| `macos-14` (`macos-intel-build`) | `arm64` host -> `x86_64-apple-darwin` | **10x** | ~15 min | **~150 min** | `enable_macos_intel: false` *(opt-in)* |
-| `ubuntu-24.04` (`artifact-verification`) | `x86_64` Linux | **1x** | ~2 min | ~2 min | Always runs (`if: always()`) |
-
-### Cost Protection Controls Implemented
-1. **`workflow_dispatch` Only (Zero Automatic Runs):** Neither `push`, `pull_request`, nor `schedule` triggers exist in `cross-platform-validation.yml`. Every single execution requires intentional human initiation.
-2. **Opt-In macOS Gates (`default: false`):** Enabling both macOS jobs consumes ~290 billable minutes per run due to the **10x** macOS multiplier (~14.5% of an entire GitHub Free monthly allowance in one click). Defaulting `enable_macos_arm64` and `enable_macos_intel` to `false` keeps standard Windows + Ubuntu packaging validation at ~45 billable minutes (~86% reduction) until macOS packaging specifically needs remote verification.
-3. **Deterministic Lockfile Caching (Zero Secrets):** Cargo registry and build caches use `actions/cache@v4` keyed strictly on `hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock')` to cut repeat compile times without ever embedding secrets in cache keys or paths.
-4. **Short Artifact Retention (`retention-days: 7`):** Private repositories also have tight GitHub Actions storage quotas (500 MB on GitHub Free). All uploaded validation manifests and optional dev bundles expire automatically after 7 days.
+### 3.3 Live OAuth Token Scopes (`gh auth status` & `gh api -i user`)
+```http
+HTTP/2.0 200 OK
+X-Oauth-Client-Id: 178c6fc778ccc68e1d6a
+X-Oauth-Scopes: gist, read:org, repo
+```
+- **Repository Metadata (`gh api repos/manhquydev/zalo`):** `{"default_branch":"main","fork":false,"full_name":"manhquydev/zalo","owner_type":"User","permissions":{"admin":true,"maintain":true,"pull":true,"push":true,"triage":true},"private":true,"visibility":"private"}`.
+- **Actions Permissions (`gh api repos/manhquydev/zalo/actions/permissions`):** `{"enabled":true,"allowed_actions":"all","sha_pinning_required":false}`.
+- **Blocker #1 — Missing `workflow` OAuth Scope:** Because `X-Oauth-Scopes` is `gist, read:org, repo` (missing `workflow`), GitHub's remote pre-receive hook rejects any HTTPS push adding or modifying `.github/workflows/*.yml` (`! [remote rejected] ... refusing to allow an OAuth App to create or update workflow ... without workflow scope`).
+- **Blocker #2 — Missing `user` OAuth Scope for Billing Telemetry:** Both `gh api users/manhquydev/settings/billing/usage` and `gh api users/manhquydev/settings/billing/actions` return `HTTP 404 Not Found` (`This API operation needs the "user" scope. To request it, run: gh auth refresh -h github.com -s user`).
+- **Blocker #3 — GitHub `workflow_dispatch` Default-Branch Registration Rule:** Per official GitHub Docs (`Events that trigger workflows -> workflow_dispatch`), GitHub Actions **only discovers and exposes `workflow_dispatch` triggers for workflow files present on the repository's default branch (`main`)**. Pushing `.github/workflows/cross-platform-validation.yml` solely to `build/cross-platform-distribution` will **not** register the workflow or enable `gh workflow run cross-platform-validation.yml --ref build/cross-platform-distribution` until the workflow file is first landed on `origin/main`.
 
 ---
 
-## 5. Architectural Note: Reliable `macos-intel-build` (`x86_64-apple-darwin`) Runner Strategy
+## 4. Grounded GitHub Actions Private-Repository Billing & Quota Calculation
 
-A common failure mode in cross-platform GitHub Actions workflows is pinning Intel macOS jobs to `runs-on: macos-13`:
-- GitHub Actions retired `macos-12` and placed `macos-13` (x86_64 Intel Mac hardware) on its deprecation/retirement schedule, resulting in severe queue delays, brownouts, or job rejection when `macos-13` is unavailable, while `macos-15-intel` / `macos-15-large` labels vary by billing tier and runner pool availability.
-- Meanwhile, `macos-14` (macOS Sonoma on Apple Silicon M1) is GA across standard GitHub plans, ships with Xcode's universal `MacOSX.sdk` (containing complete `x86_64` and `arm64` system frameworks, WebKit, Cocoa, and `clang` cross-linkers), and supports `rustup target add x86_64-apple-darwin` out of the box.
+Pricing and multiplier rules were verified against official GitHub Actions billing documentation (`docs.github.com/en/billing/managing-billing-for-your-products/managing-billing-for-github-actions/about-billing-for-github-actions`):
 
-**Implemented Design in `macos-intel-build`:**
-- Runs on `macos-14` with `dtolnay/rust-toolchain@stable` configured with `targets: x86_64-apple-darwin`.
-- Invokes `build-and-package.mjs --target x86_64-apple-darwin` (which automatically detects cross-architecture compilation `process.arch !== 'x64'` and compiles `--tests` cleanly without failing if Rosetta 2 is absent, while building full release `--target x86_64-apple-darwin` Mach-O executables and Tauri `.app`/`.dmg` bundles).
-- Explicitly verifies the resulting binary with `lipo -archs` (`x86_64`) and `inspect-artifact.mjs` (`CPU_TYPE_X86_64`, Mach-O 64-bit `0xfeedfacf`) so Intel Mac target fidelity is cryptographically and structurally proven.
+- **Repository Billing Class:** `manhquydev/zalo` is `private: true` (`owner_type: User`). Standard GitHub-hosted runners are free only on public repositories; private repositories consume monthly plan inclusions (GitHub Free: `2,000` Linux-equivalent min or `$12.00` monthly compute credit; GitHub Pro: `3,000` min or `$18.00` credit) and bill overages per minute (with **each job rounded up to the next whole minute**).
+- **Verified Standard Runner Rates & Multipliers:**
+  - **Linux 2-core x64 (`ubuntu-24.04`, SKU `actions_linux`):** **`$0.006 / min`** (`1x` minute multiplier)
+  - **Windows x64 (`windows-2022`, SKU `actions_windows`):** **`$0.010 / min`** (`~1.67x` USD rate; `2x` classic minute multiplier)
+  - **macOS 3-core arm64 / 4-core Intel (`macos-15` & `macos-15-intel`, SKU `actions_macos`):** **`$0.062 / min`** (`~10.33x` USD rate; `10x` classic minute multiplier)
+
+### Per-Job Cost & Quota Consumption Estimate (Cached Warm/Semi-Warm Run)
+
+| Job ID | Runner Label | Billing SKU | Est. Wall-Clock Min (Rounded) | Per-Min Rate (USD) | Est. USD Cost / Run | Classic Multiplier Min (`1x/2x/10x`) | Default Dispatch Enabled? |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| `rust-workspace-validation` | `ubuntu-24.04` | `actions_linux` | `6 min` | `$0.006` | `$0.036` | `6 min` (`1x`) | Always |
+| `dependency-audit` | `ubuntu-24.04` | `actions_linux` | `3 min` | `$0.006` | `$0.018` | `3 min` (`1x`) | Always |
+| `ubuntu-2404-build` | `ubuntu-24.04` | `actions_linux` | `10 min` | `$0.006` | `$0.060` | `10 min` (`1x`) | **`true`** |
+| `windows-msvc-build` | `windows-2022` | `actions_windows` | `12 min` | `$0.010` | `$0.120` | `24 min` (`2x`) | **`true`** |
+| `macos-arm64-build` | `macos-15` | `actions_macos` | `14 min` | `$0.062` | `$0.868` | `140 min` (`10x`) | **`false`** *(opt-in)* |
+| `macos-intel-build` | `macos-15-intel` | `actions_macos` | `15 min` | `$0.062` | `$0.930` | `150 min` (`10x`) | **`false`** *(opt-in)* |
+| `artifact-verification` | `ubuntu-24.04` | `actions_linux` | `2 min` | `$0.006` | `$0.012` | `2 min` (`1x`) | Always (`if: always()`) |
+| **Default Run Total (Ubuntu + Windows)** | — | — | **`33 min`** | — | **`$0.246`** | **`45 min`** (`2.25%` of 2,000) | Default |
+| **Full 4-OS Run Total (+ macOS arm64 & Intel)** | — | — | **`62 min`** | — | **`$2.044`** | **`335 min`** (`16.75%` of 2,000) | Explicit opt-in only |
+
+Keeping `enable_macos_arm64=false` and `enable_macos_intel=false` by default reduces routine manual dispatch cost by **88.0%** (`$2.044` -> `$0.246` per run) and prevents accidental exhaustion of private-repo Actions quota.
 
 ---
 
-## 6. Security, Supply-Chain & Honesty Verification Summary
+## 5. Safe 6-Step Default-Branch Rollout & `workflow_dispatch` Execution Plan
 
-| Control | Requirement | Status in `.github/workflows/cross-platform-validation.yml` |
-| :--- | :--- | :--- |
-| **Live CI Status Reporting** | Never claim `CI PASS` when unexecuted | `CI_LIVE_RUN_STATUS: NOT_EXECUTED (STATICALLY_VALIDATED_ONLY)` |
-| **Workflow Token Permissions** | Read-only repository access | Top-level `permissions: contents: read`; zero `write` scopes |
-| **Automatic GitHub Releases** | Strictly forbidden without human gate | Zero release steps (`softprops/action-gh-release`, `gh release`, etc. absent) |
-| **Trusted Pinned Official Actions** | Official actions only; no untrusted binaries | `actions/checkout@v4`, `actions/setup-node@v4`, `dtolnay/rust-toolchain@stable`, `actions/cache@v4`, `EmbarkStudios/cargo-deny-action@v2`, `actions/upload-artifact@v4`, `actions/download-artifact@v4` |
-| **Secret Caching Prevention** | Never cache secrets or signing certs |Zero `${{ secrets.* }}` references anywhere in the workflow |
-| **Zero VNG Binary Policy** | Never download or bundle `Zalo.exe` / `Zalo.app` | Enforced in `dependency-audit.mjs`, `build-and-package.mjs`, and `artifact-verification` |
-| **Signing Status Honesty** | Unsigned builds are never called signed/production | Enforced as `UNSIGNED_DEVELOPMENT_ARTIFACT` across all jobs and manifests |
+Because interactive browser/device OAuth consent is required to add `workflow` scope and human approval is required before pushing to `origin` or spending private-repo Actions budget, execute the following safe rollout sequence (never force-push, never create plaintext PAT scripts):
 
----
-
-## 7. Operator Runbook for Future Authorized Remote Execution
-
-When the repository owner explicitly authorizes pushing to `origin` and spending private-repo Actions minutes:
-
-1. **Grant `workflow` (and optional `user`) OAuth scopes locally:**
+1. **Interactive OAuth Scope Upgrade (Human Terminal Action):**
+   Run GitHub CLI interactive web flow to grant `workflow` (and optional `user` for billing visibility) to the existing keyring token:
    ```powershell
    & "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow,user
+   & "C:\Program Files\GitHub CLI\gh.exe" api -i user | Select-String "X-Oauth-Scopes"
    ```
-2. **Verify remaining monthly private-repo Actions minutes before running:**
+2. **Pre-Flight Private-Repo Quota Check:**
+   Verify available monthly Actions allowance before triggering builds:
    ```powershell
-   & "C:\Program Files\GitHub CLI\gh.exe" api users/manhquydev/settings/billing/actions
+   & "C:\Program Files\GitHub CLI\gh.exe" api users/manhquydev/settings/billing/usage
    ```
-3. **Push branch after human review (never auto-pushed by agents):**
+3. **Sync Verified Baseline `main` (`a5feb4a`) to `origin/main` (Fast-Forward Only):**
+   ```powershell
+   git -C "C:/Users/manhquy/Downloads/zalo" push origin main
+   ```
+4. **Register `cross-platform-validation.yml` on Default Branch (`main`) via Reviewed PR:**
+   Push `build/cross-platform-distribution`, open a reviewed PR into `main` (after applying approved atomic `ir-patches/0001..0007` if desired), and merge cleanly without `--force`:
    ```powershell
    git -C "C:/Users/manhquy/Downloads/zalo-cross-platform-build" push -u origin build/cross-platform-distribution
+   & "C:\Program Files\GitHub CLI\gh.exe" pr create --base main --head build/cross-platform-distribution --title "ci(packaging): add native cross-platform validation workflow and packaging docs"
    ```
-4. **Manually dispatch Windows + Ubuntu validation (low-cost default, macOS off):**
+5. **Confirm Remote Workflow Registration on `main`:**
+   Once merged to `main`, confirm GitHub indexed `cross-platform-validation.yml`:
    ```powershell
-   & "C:\Program Files\GitHub CLI\gh.exe" workflow run cross-platform-validation.yml `
-     --ref build/cross-platform-distribution `
-     -f enable_windows=true `
-     -f enable_ubuntu=true `
-     -f enable_macos_arm64=false `
-     -f enable_macos_intel=false `
-     -f bundles=all
+   & "C:\Program Files\GitHub CLI\gh.exe" workflow list --repo manhquydev/zalo
    ```
-5. **Opt into macOS `arm64` / `x86_64` validation only when 10x minute budget is approved:**
-   ```powershell
-   & "C:\Program Files\GitHub CLI\gh.exe" workflow run cross-platform-validation.yml `
-     --ref build/cross-platform-distribution `
-     -f enable_windows=true `
-     -f enable_ubuntu=true `
-     -f enable_macos_arm64=true `
-     -f enable_macos_intel=true `
-     -f bundles=all
-   ```
+6. **Phased Manual `workflow_dispatch` Execution (Priority 1 -> 4):**
+   - **Phase A (Low-cost Linux + Windows baseline, `$0.246` est.):**
+     ```powershell
+     & "C:\Program Files\GitHub CLI\gh.exe" workflow run cross-platform-validation.yml --repo manhquydev/zalo --ref main `
+       -f enable_ubuntu=true -f enable_windows=true -f enable_macos_arm64=false -f enable_macos_intel=false -f bundles=all
+     ```
+   - **Phase B (Opt-in native macOS `macos-15` arm64 & `macos-15-intel` x86_64 once Phase A is green and `$1.80` macOS compute is approved):**
+     ```powershell
+     & "C:\Program Files\GitHub CLI\gh.exe" workflow run cross-platform-validation.yml --repo manhquydev/zalo --ref main `
+       -f enable_ubuntu=false -f enable_windows=false -f enable_macos_arm64=true -f enable_macos_intel=true -f bundles=all
+     ```
