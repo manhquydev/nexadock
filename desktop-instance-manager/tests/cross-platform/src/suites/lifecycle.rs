@@ -24,70 +24,88 @@ use dim_xf_fixture::{is_os_pid_alive, FixturePersistentState};
 use serde_json::json;
 
 use crate::harness::{
-    force_kill_unprotected_test_pid, make_node_fixture_target, run_case, xf_fixture_bin_path,
-    xf_fixture_mjs_path, CaseSuccess, IsolatedSandbox, TestCaseOutcome,
+    force_kill_unprotected_test_pid, make_node_fixture_target, run_case_if, xf_fixture_bin_path,
+    xf_fixture_mjs_path, BystanderSnapshot, CaseSelectionFilter, CaseSuccess, IsolatedSandbox,
+    TestCaseOutcome,
 };
 
 /// Executes all Process Lifecycle scenarios (`LC-01` .. `LC-09`).
 pub fn run_lifecycle_suite(seed: u64) -> Vec<TestCaseOutcome> {
-    vec![
-        run_case(
+    run_lifecycle_suite_filtered(seed, None)
+}
+
+/// Executes Process Lifecycle scenarios (`LC-01` .. `LC-09`) matching `filter`.
+pub fn run_lifecycle_suite_filtered(
+    seed: u64,
+    filter: Option<&CaseSelectionFilter>,
+) -> Vec<TestCaseOutcome> {
+    [
+        run_case_if(
+            filter,
             "LC-01",
             "lifecycle",
             "Launch 1, 2, 3, and 5 concurrent isolated fixture instances",
             "all",
             || lc_01_scale_1_2_3_5_instances(seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "LC-02",
             "lifecycle",
             "Selective stop of 1 instance while 4 sibling instances stay active",
             "all",
             || lc_02_selective_single_stop(seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "LC-03",
             "lifecycle",
             "Stop all managed instances and verify clean shutdown persistence",
             "all",
             || lc_03_stop_all_managed(seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "LC-04",
             "lifecycle",
             "Protect unmanaged external processes and primary Zalo PIDs from termination",
             "all",
             lc_04_protect_unmanaged_and_primary,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "LC-05",
             "lifecycle",
             "Relaunch and recover state after mid-write simulated crash",
             "all",
             lc_05_relaunch_after_crash,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "LC-06",
             "lifecycle",
             "Duplicate launch of an already-running profile routes to focus without spawning second instance",
             "all",
             lc_06_duplicate_launch_idempotency,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "LC-07",
             "lifecycle",
             "Slow pre-lock startup (`--slow-startup-pre-lock-ms`) visibility and stop safety",
             "all",
             lc_07_slow_startup_stop_visibility,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "LC-08",
             "lifecycle",
-            "Concurrent multi-threaded launch/stop race on the same profile",
+            "Concurrent multi-threaded launch/stop race & multi-store `profiles.json.tmp` write safety",
             "all",
             lc_08_concurrent_launch_stop_race,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "LC-09",
             "lifecycle",
             "Simulated process hang (`--hang-on-quit`) forced cleanup across NodeFixture & CustomExecutable",
@@ -95,6 +113,9 @@ pub fn run_lifecycle_suite(seed: u64) -> Vec<TestCaseOutcome> {
             lc_09_hung_process_forced_cleanup,
         ),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn lc_01_scale_1_2_3_5_instances(seed: u64) -> Result<CaseSuccess, String> {
@@ -604,6 +625,30 @@ fn lc_06_duplicate_launch_idempotency() -> Result<CaseSuccess, String> {
 
 fn lc_07_slow_startup_stop_visibility() -> Result<CaseSuccess, String> {
     let mut sandbox = IsolatedSandbox::new()?;
+    let bystander = BystanderSnapshot::seed(
+        &sandbox,
+        "LC07 Bystander Sibling",
+        "LC07_BYSTANDER_CANARY_V1",
+    )?;
+    let bystander_target = make_node_fixture_target(&["--user-id=970099"]);
+    let bystander_launch = sandbox
+        .coordinator
+        .launch_profile(&bystander.record.id, &bystander_target)
+        .map_err(|e| format!("failed launching LC-07 bystander profile: {e}"))?;
+    let dl = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < dl && !bystander.zalo_data_dir.join("lockfile").exists() {
+        thread::sleep(Duration::from_millis(15));
+    }
+    let bystander_live = sandbox
+        .coordinator
+        .inspect_profile(&bystander.record.id)
+        .map_err(|e| e.to_string())?;
+    let bystander_pid = bystander_live
+        .main_pid
+        .or(bystander_launch.main_pid)
+        .ok_or("LC-07 bystander profile missing running PID")?;
+    sandbox.track_pid(bystander_pid);
+
     let prof = sandbox
         .store
         .create_profile("Slow PreLock Startup", "")
@@ -641,6 +686,25 @@ fn lc_07_slow_startup_stop_visibility() -> Result<CaseSuccess, String> {
         }
     }
 
+    // Verify live sibling bystander process was NOT killed by `stop_profile(&prof.id)`!
+    let bystander_after_stop = sandbox
+        .coordinator
+        .inspect_profile(&bystander.record.id)
+        .map_err(|e| e.to_string())?;
+    if !bystander_after_stop.running
+        || bystander_after_stop.main_pid != Some(bystander_pid)
+        || !is_os_pid_alive(bystander_pid)
+    {
+        return Err(format!(
+            "LC-07 collateral damage: bystander sibling PID {bystander_pid} was disrupted during stop_profile"
+        ));
+    }
+    sandbox
+        .coordinator
+        .stop_profile(&bystander.record.id)
+        .map_err(|e| e.to_string())?;
+    let bystander_ev = bystander.verify_untouched(&sandbox)?;
+
     if !rt_after_launch.running || orphan_still_alive {
         return Ok(CaseSuccess::defect(
             "DEFECT-03",
@@ -656,6 +720,8 @@ fn lc_07_slow_startup_stop_visibility() -> Result<CaseSuccess, String> {
                 "runtime_pid_hint_on_disk": hint_pid,
                 "stop_profile_terminated_count": stop_count,
                 "orphan_process_survived_stop": orphan_still_alive,
+                "bystander_running_preserved_during_stop": true,
+                "bystander_non_regression": bystander_ev,
             }),
         ));
     }
@@ -663,11 +729,18 @@ fn lc_07_slow_startup_stop_visibility() -> Result<CaseSuccess, String> {
     Ok(CaseSuccess::pass(json!({
         "launch_returned_running": rt_after_launch.running,
         "stop_profile_terminated_count": stop_count,
+        "bystander_running_preserved_during_stop": true,
+        "bystander_non_regression": bystander_ev,
     })))
 }
 
 fn lc_08_concurrent_launch_stop_race() -> Result<CaseSuccess, String> {
     let mut sandbox = IsolatedSandbox::new()?;
+    let bystander = BystanderSnapshot::seed(
+        &sandbox,
+        "LC08 Bystander Sibling",
+        "LC08_BYSTANDER_CANARY_V1",
+    )?;
     let prof = sandbox
         .store
         .create_profile("Concurrent Race Target", "")
@@ -678,6 +751,7 @@ fn lc_08_concurrent_launch_stop_race() -> Result<CaseSuccess, String> {
         .map_err(|e| e.to_string())?;
     let zdata = sandbox.zalo_data_dir_for(&pdir);
 
+    // Part A (DEFECT-04a): 4 threads racing `InstanceCoordinator::launch_profile` on the same profile.
     let store = Arc::clone(&sandbox.store);
     let adapter = Arc::clone(&sandbox.adapter);
     let coord = Arc::new(dim_process_manager::InstanceCoordinator::new(
@@ -717,21 +791,89 @@ fn lc_08_concurrent_launch_stop_race() -> Result<CaseSuccess, String> {
 
     let _ = sandbox.coordinator.stop_profile(&prof.id);
     sandbox.reap_all_sandbox_processes();
+    let bystander_ev = bystander.verify_untouched(&sandbox)?;
 
-    // If Coordinator lacked per-profile launch serialization, all 4 threads entered `adapter.launch()`
-    // concurrently and spawned 4 separate OS processes (`rejected_collisions >= 2`).
-    if rejected_collisions >= 2 {
+    // Part B (DEFECT-04b): 4 independent `JsonProfileStore` instances racing on `profiles.json.tmp`
+    // (simulating 4 concurrent `dim-cli` / Tauri processes mutating the same `DIM_DATA_DIR`).
+    let store_race_dir = sandbox.root().join("concurrent-store-race");
+    let seed_store = dim_profile_store::JsonProfileStore::new(store_race_dir.clone())
+        .map_err(|e| e.to_string())?;
+    seed_store.ensure_initialized().map_err(|e| e.to_string())?;
+    let race_bystander = seed_store
+        .create_profile("Store Race Bystander", "bystander")
+        .map_err(|e| e.to_string())?;
+    let race_bystander_dir = seed_store
+        .profile_dir_for(&race_bystander)
+        .map_err(|e| e.to_string())?;
+    let race_canary = race_bystander_dir.join("bystander-canary.dat");
+    fs::write(&race_canary, b"LC08_STORE_RACE_BYSTANDER_V1").map_err(|e| e.to_string())?;
+
+    let store_barrier = Arc::new(Barrier::new(4));
+    let mut store_handles = Vec::with_capacity(4);
+    for t_idx in 0..4usize {
+        let dir_clone = store_race_dir.clone();
+        let sb = Arc::clone(&store_barrier);
+        store_handles.push(thread::spawn(move || -> usize {
+            let Ok(independent_store) = dim_profile_store::JsonProfileStore::new(dir_clone) else {
+                return 5;
+            };
+            let mut errs = 0usize;
+            for round in 0..5usize {
+                sb.wait();
+                if independent_store
+                    .create_profile(&format!("Concurrent Writer T{t_idx} R{round}"), "")
+                    .is_err()
+                {
+                    errs += 1;
+                }
+            }
+            errs
+        }));
+    }
+
+    let mut store_write_errors = 0usize;
+    for sh in store_handles {
+        store_write_errors += sh.join().unwrap_or(5);
+    }
+
+    if fs::read_to_string(&race_canary).ok().as_deref() != Some("LC08_STORE_RACE_BYSTANDER_V1") {
+        return Err("concurrent store race corrupted bystander directory contents".to_owned());
+    }
+
+    let expected_store_profiles = 1 + (4 * 5);
+    let (persisted_store_profiles, store_corrupted_after_race, race_bystander_metadata_present) =
+        match seed_store.list_profiles() {
+            Ok(list) => {
+                let has_bystander = list.iter().any(|p| p.id == race_bystander.id);
+                (list.len(), false, has_bystander)
+            }
+            Err(_) => (0, true, false),
+        };
+    let store_tmp_race_failed = store_write_errors > 0
+        || store_corrupted_after_race
+        || persisted_store_profiles != expected_store_profiles
+        || !race_bystander_metadata_present;
+
+    // If Coordinator lacked per-profile launch serialization (`rejected_collisions >= 2`) OR
+    // `JsonProfileStore` lacked cross-instance locking / unique temp staging (`store_tmp_race_failed`):
+    if rejected_collisions >= 2 || store_tmp_race_failed {
         return Ok(CaseSuccess::defect(
             "DEFECT-04",
             &[
                 "crates/process-manager/src/coordinator.rs:49-104",
                 "crates/profile-store/src/store.rs:169-180",
+                "scripts/dim-host.ps1:401-415",
             ],
-            "Invoke `InstanceCoordinator::launch_profile` concurrently from 4 threads on the same stopped profile (`--slow-startup-pre-lock-ms=220`): all 4 threads bypass `if runtime_before.running` simultaneously and spawn 4 racing OS processes instead of serializing launch per profile.",
+            "Invoke `InstanceCoordinator::launch_profile` concurrently from 4 threads on the same stopped profile (`--slow-startup-pre-lock-ms=220`) and run 4 independent `JsonProfileStore` writers against one `data_dir`: concurrent launches spawn racing OS processes (`DEFECT-04a`), and shared `profiles.json.tmp` / unlocked read-modify-write loses updates or fails `fs::rename` (`DEFECT-04b`).",
             json!({
                 "concurrent_threads": 4,
                 "second_instance_collisions_logged": rejected_collisions,
                 "returned_pids": returned_pids,
+                "concurrent_store_write_errors": store_write_errors,
+                "concurrent_store_expected_profiles": expected_store_profiles,
+                "concurrent_store_persisted_profiles": persisted_store_profiles,
+                "concurrent_store_corrupted": store_corrupted_after_race,
+                "bystander_non_regression": bystander_ev,
             }),
         ));
     }
@@ -739,6 +881,9 @@ fn lc_08_concurrent_launch_stop_race() -> Result<CaseSuccess, String> {
     Ok(CaseSuccess::pass(json!({
         "concurrent_threads": 4,
         "second_instance_collisions_logged": rejected_collisions,
+        "concurrent_store_write_errors": store_write_errors,
+        "concurrent_store_persisted_profiles": persisted_store_profiles,
+        "bystander_non_regression": bystander_ev,
     })))
 }
 

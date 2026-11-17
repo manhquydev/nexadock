@@ -33,36 +33,48 @@ use dim_platform_windows::{
 use serde_json::json;
 
 use crate::harness::{
-    dim_root_dir, make_node_fixture_target, run_case, xf_fixture_bin_path, CaseSuccess,
-    IsolatedSandbox, TestCaseOutcome,
+    dim_root_dir, make_node_fixture_target, run_case_if, xf_fixture_bin_path, CaseSelectionFilter,
+    CaseSuccess, IsolatedSandbox, TestCaseOutcome,
 };
 
 /// Executes all Cross-Platform Difference scenarios (`XP-WIN-*`, `XP-MAC-*`, `XP-LNX-*`).
 pub fn run_cross_platform_suite(seed: u64) -> Vec<TestCaseOutcome> {
-    vec![
+    run_cross_platform_suite_filtered(seed, None)
+}
+
+/// Executes Cross-Platform Difference scenarios (`XP-WIN-*`, `XP-MAC-*`, `XP-LNX-*`) matching `filter`.
+pub fn run_cross_platform_suite_filtered(
+    seed: u64,
+    filter: Option<&CaseSelectionFilter>,
+) -> Vec<TestCaseOutcome> {
+    [
         // Windows-specific checks
-        run_case(
+        run_case_if(
+            filter,
             "XP-WIN-01",
             "cross_platform",
             "Windows: RestartManager (`rstrtmgr.dll`) & `CreateFileW` exclusive kernel lock ownership",
             "windows",
             xp_win_01_restart_manager_and_exclusive_lock,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-WIN-02",
             "cross_platform",
             "Windows: AppData UTF-16 env block, quoting, and Folder Redirection guards",
             "windows",
             || xp_win_02_appdata_env_and_redirection(seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-WIN-03",
             "cross_platform",
             "Windows: `CreateProcessW` `bInheritHandles=FALSE` prevents parent file-handle leakage",
             "windows",
             xp_win_03_no_handle_inheritance,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-WIN-04",
             "cross_platform",
             "Windows: NTFS DACL verification (`GetNamedSecurityInfoW`) detects permissive `Everyone` write ACE",
@@ -70,28 +82,32 @@ pub fn run_cross_platform_suite(seed: u64) -> Vec<TestCaseOutcome> {
             xp_win_04_ntfs_acl_verification,
         ),
         // macOS-specific checks
-        run_case(
+        run_case_if(
+            filter,
             "XP-MAC-01",
             "cross_platform",
             "macOS: `Application Support` path resolution, layout seeds, and `.app` `Info.plist` discovery",
             "macos-contract",
             xp_mac_01_application_support_and_bundle_discovery,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-MAC-02",
             "cross_platform",
             "macOS: Launch Services (`open -n --env CFFIXED_USER_HOME`), Keychains symlinks, and call socket checks",
             "macos-contract",
             xp_mac_02_launch_services_and_sockets,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-MAC-03",
             "cross_platform",
             "macOS: `SingletonLock` dangling symlink detection (`DEFECT-01`) & `NodeFixture` launch parity (`DEFECT-02`)",
             "macos-contract",
             xp_mac_03_singleton_lock_and_launch_parity,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-MAC-04",
             "cross_platform",
             "macOS Runtime Gate: Live `CFFIXED_USER_HOME` process lifetime & POSIX `0700` permissions",
@@ -99,28 +115,32 @@ pub fn run_cross_platform_suite(seed: u64) -> Vec<TestCaseOutcome> {
             xp_mac_04_native_runtime_gate,
         ),
         // Ubuntu / Linux-specific checks
-        run_case(
+        run_case_if(
+            filter,
             "XP-LNX-01",
             "cross_platform",
             "Ubuntu: XDG Base Directory precedence (`XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`) & layout",
             "linux-contract",
             xp_lnx_01_xdg_paths_and_layout,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-LNX-02",
             "cross_platform",
             "Ubuntu: `.AppImage` discovery, `OfficialZalo` refusal, and dangling `SingletonLock` audit (`DEFECT-01`)",
             "linux-contract",
             xp_lnx_02_appimage_and_singleton_lock,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-LNX-03",
             "cross_platform",
             "Ubuntu: Bubblewrap (`bwrap`) user-namespace sandbox argv & Ubuntu 24.04 AppArmor advisory",
             "linux-contract",
             xp_lnx_03_bwrap_user_namespaces_and_apparmor,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "XP-LNX-04",
             "cross_platform",
             "Ubuntu Runtime Gate: Live POSIX signals (`SIGTERM`/`SIGKILL`), symlinks, file ownership & `bwrap` probe",
@@ -128,6 +148,9 @@ pub fn run_cross_platform_suite(seed: u64) -> Vec<TestCaseOutcome> {
             xp_lnx_04_native_runtime_gate,
         ),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn synthetic_profile(id: &str, name: &str) -> ProfileRecord {
@@ -622,42 +645,186 @@ fn xp_mac_03_singleton_lock_and_launch_parity() -> Result<CaseSuccess, String> {
         return Err("read_singleton_or_json_pid failed to read JSON lockfile".to_owned());
     }
 
-    // Audit `crates/platform-macos/src/adapter.rs` for:
-    //  1) DEFECT-01: `singleton_lock.exists()` on Chromium's dangling symlink (`Path::exists()` follows target and returns `false`!)
-    //  2) DEFECT-02: `NodeFixture` launch omits `--user-id` derivation and `inspect_profile` ignores `.runtime-pid`!
-    let mac_adapter_src = fs::read_to_string(
-        dim_root_dir()
-            .join("crates")
-            .join("platform-macos")
-            .join("src")
-            .join("adapter.rs"),
-    )
-    .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        use dim_core::{InstanceLauncher, InstanceMonitor};
 
-    let uses_broken_exists = mac_adapter_src.contains("singleton_lock.exists()");
-    let ignores_runtime_pid_on_read =
-        mac_adapter_src.contains(".runtime-pid") && !mac_adapter_src.contains("read_runtime_pid");
-    let missing_fixture_uid_derivation = !mac_adapter_src.contains("--user-id");
+        let mut mac_sandbox = IsolatedSandbox::new()?;
+        let adapter = MacOsPlatformAdapter::new();
 
-    if uses_broken_exists || ignores_runtime_pid_on_read || missing_fixture_uid_derivation {
-        return Ok(CaseSuccess::defect(
-            "DEFECT-02",
-            &[
-                "crates/platform-macos/src/adapter.rs:192-196,298,305-320",
-                "crates/platform-windows/src/adapter.rs:600-607,620-629",
-            ],
-            "On macOS, launch 2 `NodeFixture` profiles without explicit `--user-id`: `MacOsPlatformAdapter::launch` neither derives a per-profile `--user-id` (both default to `100001`, colliding on `DUPLICATE_ZALO_USER_ID`) nor polls readiness nor reads `.runtime-pid` in `inspect_profile`, and uses `singleton_lock.exists()` which returns `false` on Chromium's dangling `SingletonLock` symlinks.",
-            json!({
-                "singleton_lock_uses_path_exists_bug": uses_broken_exists,
-                "writes_runtime_pid_but_never_reads_it": ignores_runtime_pid_on_read,
-                "missing_deterministic_fixture_user_id": missing_fixture_uid_derivation,
-            }),
-        ));
+        // 1. Public `inspect_profile` behavior on an actual dangling `SingletonLock -> mac-host-<dead_pid>` symlink
+        let lock_prof = mac_sandbox
+            .store
+            .create_profile("macOS Dangling Lock", "")
+            .map_err(|e| e.to_string())?;
+        let lock_pdir = mac_sandbox
+            .store
+            .profile_dir_for(&lock_prof)
+            .map_err(|e| e.to_string())?;
+        adapter
+            .ensure_profile_layout(&lock_prof, &lock_pdir)
+            .map_err(|e| e.to_string())?;
+        let dead_pid = (999_991..=999_999)
+            .find(|&p| !dim_xf_fixture::is_os_pid_alive(p))
+            .unwrap_or(999_999);
+        let lock_zdata = macos_zalo_data_dir(&lock_pdir);
+        std::os::unix::fs::symlink(
+            format!("mac-host-{dead_pid}"),
+            lock_zdata.join("SingletonLock"),
+        )
+        .map_err(|e| e.to_string())?;
+        let st_dangling = adapter
+            .inspect_profile(&lock_prof, &lock_pdir)
+            .map_err(|e| e.to_string())?;
+        let dangling_detected = !st_dangling.running && st_dangling.stale_lock_detected;
+
+        // 2. Public `launch_profile` readiness / `.runtime-pid` visibility & multi-profile `NodeFixture` `--user-id` derivation
+        let p1 = mac_sandbox
+            .store
+            .create_profile("macOS Fixture A", "")
+            .map_err(|e| e.to_string())?;
+        let p2 = mac_sandbox
+            .store
+            .create_profile("macOS Fixture B", "")
+            .map_err(|e| e.to_string())?;
+        let p1_dir = mac_sandbox
+            .store
+            .profile_dir_for(&p1)
+            .map_err(|e| e.to_string())?;
+        let p2_dir = mac_sandbox
+            .store
+            .profile_dir_for(&p2)
+            .map_err(|e| e.to_string())?;
+
+        let rt1 = mac_sandbox
+            .coordinator
+            .launch_profile(
+                &p1.id,
+                &make_node_fixture_target(&["--slow-startup-pre-lock-ms=300"]),
+            )
+            .map_err(|e| e.to_string())?;
+        if let Some(pid) = rt1.main_pid {
+            mac_sandbox.track_pid(pid);
+        }
+        if let Ok(raw) = fs::read_to_string(p1_dir.join(".runtime-pid")) {
+            if let Ok(pid) = raw.trim().parse::<u32>() {
+                mac_sandbox.track_pid(pid);
+            }
+        }
+
+        thread::sleep(Duration::from_millis(380));
+        let rt2_res = mac_sandbox
+            .coordinator
+            .launch_profile(&p2.id, &make_node_fixture_target(&[]));
+        if let Ok(ref rt2) = rt2_res {
+            if let Some(pid) = rt2.main_pid {
+                mac_sandbox.track_pid(pid);
+            }
+        }
+        if let Ok(raw) = fs::read_to_string(p2_dir.join(".runtime-pid")) {
+            if let Ok(pid) = raw.trim().parse::<u32>() {
+                mac_sandbox.track_pid(pid);
+            }
+        }
+
+        thread::sleep(Duration::from_millis(200));
+        let st1 = mac_sandbox
+            .coordinator
+            .inspect_profile(&p1.id)
+            .map_err(|e| e.to_string())?;
+        let st2 = mac_sandbox
+            .coordinator
+            .inspect_profile(&p2.id)
+            .map_err(|e| e.to_string())?;
+        let distinct_uids = st1.detected_zalo_user_id.is_some()
+            && st2.detected_zalo_user_id.is_some()
+            && st1.detected_zalo_user_id != st2.detected_zalo_user_id;
+
+        mac_sandbox.reap_all_sandbox_processes();
+
+        if !dangling_detected || !rt1.running || rt2_res.is_err() || !distinct_uids {
+            return Ok(CaseSuccess::defect(
+                "DEFECT-02",
+                &[
+                    "crates/platform-macos/src/adapter.rs:192-196,298,305-320",
+                    "crates/platform-windows/src/adapter.rs:600-607,620-629",
+                ],
+                "On macOS, create a dangling `SingletonLock` symlink and launch 2 `NodeFixture` profiles without explicit `--user-id`: `MacOsPlatformAdapter` misses dangling `SingletonLock`, returns `running=false` during pre-lock startup, and collides on `DUPLICATE_ZALO_USER_ID`.",
+                json!({
+                    "verification_kind": "NATIVE_OS_RUNTIME",
+                    "host_os": PlatformKind::current().as_str(),
+                    "native_runtime_verified": true,
+                    "dangling_singleton_lock_detected": dangling_detected,
+                    "pre_lock_launch_returned_running": rt1.running,
+                    "second_fixture_launch_ok": rt2_res.is_ok(),
+                    "distinct_fixture_user_ids": distinct_uids,
+                }),
+            ));
+        }
+
+        return Ok(CaseSuccess::pass(json!({
+            "verification_kind": "NATIVE_OS_RUNTIME",
+            "host_os": PlatformKind::current().as_str(),
+            "native_runtime_verified": true,
+            "dangling_singleton_lock_detected": true,
+            "multi_profile_node_fixture_isolated": true,
+        })));
     }
 
-    Ok(CaseSuccess::pass(json!({
-        "singleton_lock_and_launch_parity_ok": true,
-    })))
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Non-host static check on Windows/Linux (`STATIC_CONFIRMED_NON_HOST`) — resilient to internal helper naming:
+        //  1) DEFECT-01: `singleton_lock.exists()` on Chromium's dangling symlink (`Path::exists()` follows target and returns `false`!)
+        //  2) DEFECT-02: `inspect_profile` never reads `.runtime-pid` and `launch` omits per-profile `--user-id` derivation!
+        let mac_src_dir = dim_root_dir()
+            .join("crates")
+            .join("platform-macos")
+            .join("src");
+        let mac_adapter_src =
+            fs::read_to_string(mac_src_dir.join("adapter.rs")).map_err(|e| e.to_string())?;
+        let mac_layout_src = fs::read_to_string(mac_src_dir.join("layout.rs")).unwrap_or_default();
+
+        let uses_broken_exists = mac_adapter_src.contains("singleton_lock.exists()");
+        let inspect_slice = mac_adapter_src
+            .split("fn inspect_profile")
+            .nth(1)
+            .and_then(|s| s.split("impl InstanceLauncher").next())
+            .unwrap_or(&mac_adapter_src)
+            .to_ascii_lowercase();
+        let ignores_runtime_pid_on_read =
+            !inspect_slice.contains("runtime_pid") && !inspect_slice.contains(".runtime-pid");
+        let combined_lower = format!("{mac_adapter_src}\n{mac_layout_src}").to_ascii_lowercase();
+        let missing_fixture_uid_derivation =
+            !combined_lower.contains("--user-id") && !combined_lower.contains("fixture_user_id");
+
+        if uses_broken_exists || ignores_runtime_pid_on_read || missing_fixture_uid_derivation {
+            return Ok(CaseSuccess::defect(
+                "DEFECT-02",
+                &[
+                    "crates/platform-macos/src/adapter.rs:192-196,298,305-320",
+                    "crates/platform-windows/src/adapter.rs:600-607,620-629",
+                ],
+                "On macOS, launch 2 `NodeFixture` profiles without explicit `--user-id`: `MacOsPlatformAdapter::launch` neither derives a per-profile `--user-id` (both default to `100001`, colliding on `DUPLICATE_ZALO_USER_ID`) nor polls readiness nor reads `.runtime-pid` in `inspect_profile`, and uses `singleton_lock.exists()` which returns `false` on Chromium's dangling `SingletonLock` symlinks.",
+                json!({
+                    "verification_kind": "STATIC_CONFIRMED_NON_HOST",
+                    "host_os": PlatformKind::current().as_str(),
+                    "required_native_os": "macos",
+                    "native_runtime_verified": false,
+                    "singleton_lock_uses_path_exists_bug": uses_broken_exists,
+                    "writes_runtime_pid_but_never_reads_it": ignores_runtime_pid_on_read,
+                    "missing_deterministic_fixture_user_id": missing_fixture_uid_derivation,
+                }),
+            ));
+        }
+
+        Ok(CaseSuccess::pass(json!({
+            "verification_kind": "STATIC_CONFIRMED_NON_HOST",
+            "host_os": PlatformKind::current().as_str(),
+            "required_native_os": "macos",
+            "native_runtime_verified": false,
+            "singleton_lock_and_launch_parity_static_ok": true,
+        })))
+    }
 }
 
 fn xp_mac_04_native_runtime_gate() -> Result<CaseSuccess, String> {
@@ -789,38 +956,119 @@ fn xp_lnx_02_appimage_and_singleton_lock() -> Result<CaseSuccess, String> {
         return Err("read_linux_pid failed on JSON lockfile".to_owned());
     }
 
-    // Verify DEFECT-01 in `crates/platform-linux/src/adapter.rs` & `crates/platform-macos/src/adapter.rs`:
-    // Chromium's `SingletonLock` is a dangling symlink (`ubuntu-host-99999` where target file doesn't exist),
-    // so `singleton_lock.exists()` evaluates to `false` instead of checking `fs::symlink_metadata(&singleton_lock).is_ok()`!
-    let lnx_adapter_src = fs::read_to_string(
-        dim_root_dir()
-            .join("crates")
-            .join("platform-linux")
-            .join("src")
-            .join("adapter.rs"),
-    )
-    .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    {
+        use dim_core::{InstanceLauncher, InstanceMonitor, RecoveryManager};
+        use dim_process_manager::StaleLockRecoveryManager;
 
-    if lnx_adapter_src.contains("singleton_lock.exists()") {
-        return Ok(CaseSuccess::defect(
-            "DEFECT-01",
-            &[
-                "crates/platform-linux/src/adapter.rs:190-191",
-                "crates/platform-macos/src/adapter.rs:194-195",
-            ],
-            "Create a Chromium-style dangling symlink `ln -s ubuntu-host-99999 .config/ZaloData/SingletonLock` (without JSON `lockfile`) for a dead PID `99999` and call `inspect_profile`: `singleton_lock.exists()` follows the dangling target and returns `false`, so `stale_lock_detected` is `false` and `StaleLockRecoveryManager` is skipped on relaunch!",
-            json!({
-                "official_linux_status": official.support_status,
-                "appimage_status": exp.support_status,
-                "dangling_singleton_lock_uses_path_exists": true,
-            }),
-        ));
+        let lock_prof = sandbox
+            .store
+            .create_profile("Linux Dangling Lock", "")
+            .map_err(|e| e.to_string())?;
+        let lock_pdir = sandbox
+            .store
+            .profile_dir_for(&lock_prof)
+            .map_err(|e| e.to_string())?;
+        adapter
+            .ensure_profile_layout(&lock_prof, &lock_pdir)
+            .map_err(|e| e.to_string())?;
+        let dead_pid = (999_991..=999_999)
+            .find(|&p| !dim_xf_fixture::is_os_pid_alive(p))
+            .unwrap_or(999_999);
+        let lock_zdata = linux_zalo_data_dir(&lock_pdir);
+        let singleton_lock = lock_zdata.join("SingletonLock");
+        std::os::unix::fs::symlink(format!("ubuntu-host-{dead_pid}"), &singleton_lock)
+            .map_err(|e| e.to_string())?;
+
+        let st = adapter
+            .inspect_profile(&lock_prof, &lock_pdir)
+            .map_err(|e| e.to_string())?;
+        if st.running || !st.stale_lock_detected {
+            return Ok(CaseSuccess::defect(
+                "DEFECT-01",
+                &[
+                    "crates/platform-linux/src/adapter.rs:190-191",
+                    "crates/platform-macos/src/adapter.rs:194-195",
+                ],
+                "Create a Chromium-style dangling symlink `ln -s ubuntu-host-99999 .config/ZaloData/SingletonLock` (without JSON `lockfile`) for a dead PID and call `inspect_profile`: `singleton_lock.exists()` follows the dangling target and returns `false`, so `stale_lock_detected` is `false` and `StaleLockRecoveryManager` is skipped on relaunch!",
+                json!({
+                    "verification_kind": "NATIVE_OS_RUNTIME",
+                    "host_os": PlatformKind::current().as_str(),
+                    "native_runtime_verified": true,
+                    "official_linux_status": official.support_status,
+                    "appimage_status": exp.support_status,
+                    "observed_running": st.running,
+                    "observed_stale_lock_detected": st.stale_lock_detected,
+                }),
+            ));
+        }
+
+        let rec = StaleLockRecoveryManager
+            .recover_stale_state(&lock_prof, &lock_pdir, &st)
+            .map_err(|e| e.to_string())?;
+        if !rec.recovered || fs::symlink_metadata(&singleton_lock).is_ok() {
+            return Err(
+                "StaleLockRecoveryManager failed to unlink dangling SingletonLock".to_owned(),
+            );
+        }
+
+        return Ok(CaseSuccess::pass(json!({
+            "verification_kind": "NATIVE_OS_RUNTIME",
+            "host_os": PlatformKind::current().as_str(),
+            "native_runtime_verified": true,
+            "official_linux_status": official.support_status,
+            "appimage_status": exp.support_status,
+            "dangling_singleton_lock_recovered": true,
+        })));
     }
 
-    Ok(CaseSuccess::pass(json!({
-        "official_linux_status": official.support_status,
-        "appimage_status": exp.support_status,
-    })))
+    #[cfg(not(target_os = "linux"))]
+    {
+        // Non-host static check on Windows/macOS (`STATIC_CONFIRMED_NON_HOST`):
+        // Chromium's `SingletonLock` is a dangling symlink (`ubuntu-host-99999` where target file doesn't exist),
+        // so `singleton_lock.exists()` evaluates to `false` instead of checking `symlink_metadata` / `read_link`!
+        let lnx_src_dir = dim_root_dir()
+            .join("crates")
+            .join("platform-linux")
+            .join("src");
+        let lnx_adapter_src =
+            fs::read_to_string(lnx_src_dir.join("adapter.rs")).map_err(|e| e.to_string())?;
+        let lnx_layout_src = fs::read_to_string(lnx_src_dir.join("layout.rs")).unwrap_or_default();
+        let combined = format!("{lnx_adapter_src}\n{lnx_layout_src}");
+        let uses_broken_exists = lnx_adapter_src.contains("singleton_lock.exists()");
+        let has_non_following_check =
+            combined.contains("symlink_metadata") || combined.contains("read_link");
+
+        if uses_broken_exists || !has_non_following_check {
+            return Ok(CaseSuccess::defect(
+                "DEFECT-01",
+                &[
+                    "crates/platform-linux/src/adapter.rs:190-191",
+                    "crates/platform-macos/src/adapter.rs:194-195",
+                ],
+                "Create a Chromium-style dangling symlink `ln -s ubuntu-host-99999 .config/ZaloData/SingletonLock` (without JSON `lockfile`) for a dead PID `99999` and call `inspect_profile`: `singleton_lock.exists()` follows the dangling target and returns `false`, so `stale_lock_detected` is `false` and `StaleLockRecoveryManager` is skipped on relaunch!",
+                json!({
+                    "verification_kind": "STATIC_CONFIRMED_NON_HOST",
+                    "host_os": PlatformKind::current().as_str(),
+                    "required_native_os": "linux",
+                    "native_runtime_verified": false,
+                    "official_linux_status": official.support_status,
+                    "appimage_status": exp.support_status,
+                    "dangling_singleton_lock_uses_path_exists": uses_broken_exists,
+                }),
+            ));
+        }
+
+        Ok(CaseSuccess::pass(json!({
+            "verification_kind": "STATIC_CONFIRMED_NON_HOST",
+            "host_os": PlatformKind::current().as_str(),
+            "required_native_os": "linux",
+            "native_runtime_verified": false,
+            "official_linux_status": official.support_status,
+            "appimage_status": exp.support_status,
+            "singleton_lock_static_check_ok": true,
+        })))
+    }
 }
 
 fn xp_lnx_03_bwrap_user_namespaces_and_apparmor() -> Result<CaseSuccess, String> {

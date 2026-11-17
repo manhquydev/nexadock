@@ -21,77 +21,94 @@ use dim_profile_store::verify_profile_id_marker;
 use serde_json::{json, Value};
 
 use crate::harness::{
-    dim_cli_bin_path, dim_host_ps1_path, run_case, xf_fixture_bin_path, xf_fixture_mjs_path,
-    CaseSuccess, IsolatedSandbox, TestCaseOutcome,
+    dim_cli_bin_path, dim_host_ps1_path, run_case_if, xf_fixture_bin_path, xf_fixture_mjs_path,
+    BystanderSnapshot, CaseSelectionFilter, CaseSuccess, IsolatedSandbox, TestCaseOutcome,
 };
 
 /// Executes all Adapter & CLI Contract scenarios (`CT-01` .. `CT-10`).
 pub fn run_adapter_contract_suite() -> Vec<TestCaseOutcome> {
-    vec![
-        run_case(
+    run_adapter_contract_suite_filtered(None)
+}
+
+/// Executes Adapter & CLI Contract scenarios (`CT-01` .. `CT-10`) matching `filter`.
+pub fn run_adapter_contract_suite_filtered(
+    filter: Option<&CaseSelectionFilter>,
+) -> Vec<TestCaseOutcome> {
+    [
+        run_case_if(
+            filter,
             "CT-01",
             "contract",
             "PlatformCapabilities contract & honest SupportStatus reporting across Windows, macOS, and Linux adapters",
             "all",
             ct_01_platform_capabilities_contract,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-02",
             "contract",
             "ApplicationLocator input/output schema contract across missing, partial, and valid roots",
             "all",
             ct_02_application_locator_schema_contract,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-03",
             "contract",
             "InstanceLauncher::ensure_profile_layout idempotency & `.zalo-profile-id` marker contract across all 3 adapters",
             "all",
             ct_03_profile_layout_and_marker_contract,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-04",
             "contract",
             "Exhaustive 22-variant `DimError::code()` & `OperationOutcome<T>` JSON envelope contract",
             "all",
             ct_04_error_code_and_envelope_contract,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-05",
             "contract",
             "Unsupported platform operations (`UNSUPPORTED_PLATFORM`) & unsigned custom binary (`UNVERIFIED_BINARY`) safety contract",
             "all",
             ct_05_unsupported_and_unverified_binary_contract,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-06",
             "contract",
             "Primary PID protection contract (`PROTECTED_PRIMARY_PROCESS`) across Windows, macOS, and Linux `stop()`",
             "all",
             ct_06_primary_pid_protection_across_all_adapters,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-07",
             "contract",
             "CLI public JSON output schema contract (`status`, `discover`, `diagnostics`, `verify-isolation`, `backups`)",
             "all",
             ct_07_cli_output_schema_contract,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-08",
             "contract",
             "Differential CLI contract: 33..40 char profile slug parity (`dim-cli` vs `scripts/dim-host.ps1`)",
             "windows+ps-parity",
             ct_08_differential_slug_length_contract,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-09",
             "contract",
             "Differential CLI contract: Restore duplicate-name & 64-char name cap (`dim-cli` vs `scripts/dim-host.ps1`)",
             "windows+ps-parity",
             ct_09_differential_restore_naming_contract,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "CT-10",
             "contract",
             "Differential CLI contract: Empty/corrupt `profiles.json` fail-closed & missing-arg error codes (`dim-cli` vs `scripts/dim-host.ps1`)",
@@ -99,6 +116,9 @@ pub fn run_adapter_contract_suite() -> Vec<TestCaseOutcome> {
             ct_10_differential_corrupt_store_and_arg_codes,
         ),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn verify_generic_capabilities<A: PlatformCapabilities>(
@@ -739,11 +759,41 @@ fn ct_10_differential_corrupt_store_and_arg_codes() -> Result<CaseSuccess, Strin
     }
     #[cfg(target_os = "windows")]
     {
+        use dim_xf_fixture::sha256_file;
+
         let sandbox = IsolatedSandbox::new()?;
+        let bystander = BystanderSnapshot::seed(
+            &sandbox,
+            "CT10 Bystander Sibling",
+            "CT10_SANDBOX_BYSTANDER_CANARY_V1",
+        )?;
         let rust_dir = sandbox.root().join("rust-corrupt");
         let ps_dir = sandbox.root().join("ps-corrupt");
         fs::create_dir_all(&rust_dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(&ps_dir).map_err(|e| e.to_string())?;
+
+        // Seed existing bystander profile directories inside `rust_dir` and `ps_dir` BEFORE corrupting
+        // `profiles.json` so we prove fail-closed corrupt-store handling never wipes existing `Profiles/` data!
+        let (_, r_by) = run_dim_cli_json(&rust_dir, &["create", "Bystander Preserve"])?;
+        let (_, p_by) = run_dim_host_ps1_json(&ps_dir, &["create", "Bystander Preserve"])?;
+        let r_by_dname = r_by["data"]["directory_name"]
+            .as_str()
+            .ok_or("missing rust bystander directory_name")?;
+        let p_by_dname = p_by["data"]["directory_name"]
+            .as_str()
+            .ok_or("missing ps bystander directory_name")?;
+        let r_canary = rust_dir
+            .join("Profiles")
+            .join(r_by_dname)
+            .join("bystander-canary.dat");
+        let p_canary = ps_dir
+            .join("Profiles")
+            .join(p_by_dname)
+            .join("bystander-canary.dat");
+        fs::write(&r_canary, b"CT10_RUST_CLI_BYSTANDER_V1").map_err(|e| e.to_string())?;
+        fs::write(&p_canary, b"CT10_PS_CLI_BYSTANDER_V1").map_err(|e| e.to_string())?;
+        let r_canary_sha = sha256_file(&r_canary).map_err(|e| e.to_string())?;
+        let p_canary_sha = sha256_file(&p_canary).map_err(|e| e.to_string())?;
 
         // 1. Missing `create` name argument error code
         let (_, r_miss) = run_dim_cli_json(&rust_dir, &["create"])?;
@@ -760,6 +810,17 @@ fn ct_10_differential_corrupt_store_and_arg_codes() -> Result<CaseSuccess, Strin
         fs::write(ps_dir.join("profiles.json"), b"{corrupt").map_err(|e| e.to_string())?;
         let (_, r_bad_json) = run_dim_cli_json(&rust_dir, &["status"])?;
         let (_, p_bad_json) = run_dim_host_ps1_json(&ps_dir, &["status"])?;
+
+        // Verify existing bystander profile directories & canary files survived untouched!
+        if sha256_file(&r_canary).map_err(|e| e.to_string())? != r_canary_sha
+            || sha256_file(&p_canary).map_err(|e| e.to_string())? != p_canary_sha
+        {
+            return Err(
+                "corrupt profiles.json probe altered existing bystander profile directory on disk"
+                    .to_owned(),
+            );
+        }
+        let bystander_ev = bystander.verify_untouched(&sandbox)?;
 
         let diverged = r_miss["error_code"] != p_miss["error_code"]
             || r_empty["ok"] != p_empty["ok"]
@@ -788,12 +849,16 @@ fn ct_10_differential_corrupt_store_and_arg_codes() -> Result<CaseSuccess, Strin
                         "rust": r_bad_json["error_code"],
                         "powershell": p_bad_json["error_code"],
                     },
+                    "cli_bystander_dirs_intact": true,
+                    "bystander_non_regression": bystander_ev,
                 }),
             ));
         }
 
         Ok(CaseSuccess::pass(json!({
             "corrupt_and_arg_codes_aligned": true,
+            "cli_bystander_dirs_intact": true,
+            "bystander_non_regression": bystander_ev,
         })))
     }
 }
