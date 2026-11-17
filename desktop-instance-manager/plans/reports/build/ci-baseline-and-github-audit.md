@@ -85,9 +85,9 @@ X-Oauth-Scopes: gist, read:org, repo
 ```
 - **Repository Metadata (`gh api repos/manhquydev/zalo`):** `{"default_branch":"main","fork":false,"full_name":"manhquydev/zalo","owner_type":"User","permissions":{"admin":true,"maintain":true,"pull":true,"push":true,"triage":true},"private":true,"visibility":"private"}`.
 - **Actions Permissions (`gh api repos/manhquydev/zalo/actions/permissions`):** `{"enabled":true,"allowed_actions":"all","sha_pinning_required":false}`.
-- **Blocker #1 — Missing `workflow` OAuth Scope:** Because `X-Oauth-Scopes` is `gist, read:org, repo` (missing `workflow`), GitHub's remote pre-receive hook rejects any HTTPS push adding or modifying `.github/workflows/*.yml` (`! [remote rejected] ... refusing to allow an OAuth App to create or update workflow ... without workflow scope`).
-- **Blocker #2 — Missing `user` OAuth Scope for Billing Telemetry:** Both `gh api users/manhquydev/settings/billing/usage` and `gh api users/manhquydev/settings/billing/actions` return `HTTP 404 Not Found` (`This API operation needs the "user" scope. To request it, run: gh auth refresh -h github.com -s user`).
-- **Blocker #3 — GitHub `workflow_dispatch` Default-Branch Registration Rule:** Per official GitHub Docs (`Events that trigger workflows -> workflow_dispatch`), GitHub Actions **only discovers and exposes `workflow_dispatch` triggers for workflow files present on the repository's default branch (`main`)**. Pushing `.github/workflows/cross-platform-validation.yml` solely to `build/cross-platform-distribution` will **not** register the workflow or enable `gh workflow run cross-platform-validation.yml --ref build/cross-platform-distribution` until the workflow file is first landed on `origin/main`.
+- **Blocker #1 — Missing `workflow` OAuth Scope (`AWAITING_USER_AUTHORIZATION`):** Because `X-Oauth-Scopes` is `gist, read:org, repo` (missing `workflow`), GitHub's remote pre-receive hook rejects any HTTPS push adding or modifying `.github/workflows/*.yml` (`! [remote rejected] ... refusing to allow an OAuth App to create or update workflow ... without workflow scope`).
+- **Blocker #2 — Private-Repository Billing API Visibility:** Billing REST endpoints are restricted under current token scopes (`HTTP 404 Not Found`); verify remaining monthly Actions compute credit directly in the GitHub Web UI (`Settings -> Billing & licensing`) rather than expanding CLI OAuth scopes beyond `workflow`.
+- **Blocker #3 — GitHub `workflow_dispatch` Default-Branch Registration Rule (`NOT_REGISTERED_ON_DEFAULT_BRANCH`):** Per official GitHub Docs (`Events that trigger workflows -> workflow_dispatch`), GitHub Actions **only discovers and exposes `workflow_dispatch` triggers for workflow files present on the repository's default branch (`main`)**. Pushing `.github/workflows/cross-platform-validation.yml` solely to `build/cross-platform-distribution` will **not** register the workflow or enable `gh workflow run cross-platform-validation.yml --ref build/cross-platform-distribution` until the workflow file is first landed on `origin/main`.
 
 ---
 
@@ -101,19 +101,20 @@ Pricing and multiplier rules were verified against official GitHub Actions billi
   - **Windows x64 (`windows-2022`, SKU `actions_windows`):** **`$0.010 / min`** (`~1.67x` USD rate; `2x` classic minute multiplier)
   - **macOS 3-core arm64 / 4-core Intel (`macos-15` & `macos-15-intel`, SKU `actions_macos`):** **`$0.062 / min`** (`~10.33x` USD rate; `10x` classic minute multiplier)
 
-### Per-Job Cost & Quota Consumption Estimate (Cached Warm/Semi-Warm Run)
+### Per-Job Cost & Compute Credit Estimate (`ESTIMATED_PRE_RUN` — Actual Remote Spend: `$0.00 USD / NOT_MEASURED_YET`)
 
-| Job ID | Runner Label | Billing SKU | Est. Wall-Clock Min (Rounded) | Per-Min Rate (USD) | Est. USD Cost / Run | Classic Multiplier Min (`1x/2x/10x`) | Default Dispatch Enabled? |
+| Job ID | Runner Label | Billing SKU | Est. Rounded Min (`ESTIMATED_PRE_RUN`) | Per-Min Rate (USD) | Est. USD / Run (`ESTIMATED_PRE_RUN`) | Share of `$12.00` Free Credit | Default Dispatch Enabled? |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| `rust-workspace-validation` | `ubuntu-24.04` | `actions_linux` | `6 min` | `$0.006` | `$0.036` | `6 min` (`1x`) | Always |
-| `dependency-audit` | `ubuntu-24.04` | `actions_linux` | `3 min` | `$0.006` | `$0.018` | `3 min` (`1x`) | Always |
-| `ubuntu-2404-build` | `ubuntu-24.04` | `actions_linux` | `10 min` | `$0.006` | `$0.060` | `10 min` (`1x`) | **`true`** |
-| `windows-msvc-build` | `windows-2022` | `actions_windows` | `12 min` | `$0.010` | `$0.120` | `24 min` (`2x`) | **`true`** |
-| `macos-arm64-build` | `macos-15` | `actions_macos` | `14 min` | `$0.062` | `$0.868` | `140 min` (`10x`) | **`false`** *(opt-in)* |
-| `macos-intel-build` | `macos-15-intel` | `actions_macos` | `15 min` | `$0.062` | `$0.930` | `150 min` (`10x`) | **`false`** *(opt-in)* |
-| `artifact-verification` | `ubuntu-24.04` | `actions_linux` | `2 min` | `$0.006` | `$0.012` | `2 min` (`1x`) | Always (`if: always()`) |
-| **Default Run Total (Ubuntu + Windows)** | — | — | **`33 min`** | — | **`$0.246`** | **`ESTIMATED_PRE_RUN`** | Default |
-| **Full 4-OS Run Total (+ macOS arm64 & Intel)** | — | — | **`62 min`** | — | **`$2.044`** | **`ESTIMATED_PRE_RUN`** | Explicit opt-in only |
+| `rust-workspace-validation` | `ubuntu-24.04` | `actions_linux` | `6 min` | `$0.006` | `$0.036` | `0.30%` | Always |
+| `dependency-audit` | `ubuntu-24.04` | `actions_linux` | `3 min` | `$0.006` | `$0.018` | `0.15%` | Always |
+| `ubuntu-2404-build` | `ubuntu-24.04` | `actions_linux` | `10 min` | `$0.006` | `$0.060` | `0.50%` | **`true`** |
+| `windows-msvc-build` | `windows-2022` | `actions_windows` | `12 min` | `$0.010` | `$0.120` | `1.00%` | **`true`** |
+| `macos-arm64-build` | `macos-15` | `actions_macos` | `14 min` | `$0.062` | `$0.868` | `7.23%` | **`false`** *(opt-in)* |
+| `macos-intel-build` | `macos-15-intel` | `actions_macos` | `15 min` | `$0.062` | `$0.930` | `7.75%` | **`false`** *(opt-in)* |
+| `artifact-verification` | `ubuntu-24.04` | `actions_linux` | `2 min` | `$0.006` | `$0.012` | `0.10%` | Always (`if: always()`) |
+| **Default Run Total (Ubuntu + Windows)** | — | — | **`33 min`** | — | **`$0.246`** | **`2.05%` of `$12.00`** | Default |
+| **Full 4-OS Run Total (+ macOS arm64 & Intel)** | — | — | **`62 min`** | — | **`$2.044`** | **`17.03%` of `$12.00`** | Explicit opt-in only |
+| **Actual Remote Consumption To Date** | — | — | **`0 min`** | — | **`$0.00`** | **`NOT_MEASURED_YET` (`0` runs)** | — |
 
 Keeping `enable_macos_arm64=false` and `enable_macos_intel=false` by default reduces routine manual dispatch cost by **88.0%** (`$2.044` -> `$0.246` per run) and prevents accidental exhaustion of private-repo Actions quota.
 
@@ -129,11 +130,8 @@ Because interactive browser/device OAuth consent is required to add `workflow` s
    & "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow
    & "C:\Program Files\GitHub CLI\gh.exe" api -i user | Select-String "X-Oauth-Scopes"
    ```
-2. **Pre-Flight Private-Repo Quota Check:**
-   Verify available monthly Actions allowance before triggering builds:
-   ```powershell
-   & "C:\Program Files\GitHub CLI\gh.exe" api users/manhquydev/settings/billing/usage
-   ```
+2. **Pre-Flight Private-Repo Compute Budget Check:**
+   Verify remaining monthly GitHub Free `$12.00 USD/month` Actions compute credit in the GitHub Web UI (`Settings -> Billing & licensing`) before triggering builds.
 3. **Sync Verified Baseline `main` (`a5feb4a`) to `origin/main` (Fast-Forward Only):**
    ```powershell
    git -C "C:/Users/manhquy/Downloads/zalo" push origin main

@@ -55,7 +55,7 @@ Every enabled OS job executes all **7 native stages** sequentially:
      ```powershell
      & "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow
      ```
-  2. **Pre-Flight Private-Repo Quota Check:** `gh api users/manhquydev/settings/billing/usage`
+  2. **Pre-Flight Private-Repo Compute Budget Check:** Check remaining monthly GitHub Free `$12.00 USD/month` Actions credit in GitHub Web UI (`Settings -> Billing & licensing`).
   3. **Fast-Forward Sync `main` (`a5feb4a`) to `origin/main`:** `git -C C:/Users/manhquy/Downloads/zalo push origin main`
   4. **Push Feature Branch & Merge Reviewed PR to `main`:** Push `build/cross-platform-distribution` (optionally after `git am` of approved `ir-patches/0001..0007`) and merge cleanly into `main`.
   5. **Verify Workflow Registration:** `gh workflow list --repo manhquydev/zalo`
@@ -70,7 +70,7 @@ Every enabled OS job executes all **7 native stages** sequentially:
   1. `git ls-remote origin` -> `origin/main` is at `8cf47035f0f06bd97cc99aff80d81fb10b103af8` (initial commit where `ci.yml` lived under nested `desktop-instance-manager/.github/workflows/`, ignored by GitHub). Local `main` (`a5feb4a`) is `ahead 1` unpushed.
   2. `gh api repos/manhquydev/zalo/actions/workflows` -> `{"total_count": 0, "workflows": []}`; `gh run list --repo manhquydev/zalo` -> `0` runs.
   3. `git config --show-origin --get-regexp credential` -> `C:/Users/manhquy/.gitconfig` binds `credential.https://github.com.helper` to `!'C:\Program Files\GitHub CLI\gh.exe' auth git-credential`.
-  4. `gh api -i user` -> `X-Oauth-Scopes: gist, read:org, repo` (**missing `'workflow'`** -> GitHub rejects pushing `.github/workflows/*.yml`; **missing `'user'`** -> `/users/manhquydev/settings/billing/usage` returns `HTTP 404`).
+  4. `gh auth status` & `gh api -i user` -> `X-Oauth-Scopes: gist, read:org, repo` (**missing `'workflow'`** -> status `AWAITING_USER_AUTHORIZATION`; GitHub rejects pushing `.github/workflows/*.yml` until `gh auth refresh -h github.com -s workflow` is authorized).
 
 ---
 
@@ -80,7 +80,7 @@ Every enabled OS job executes all **7 native stages** sequentially:
 | :--- | :--- | :--- | :--- |
 | `rust-workspace-validation` (Remote CI) | `ubuntu-24.04` | **`BLOCKED` (`NOT_EXECUTED`)** | Workflow unregistered on `origin/main` + missing `workflow` OAuth scope; YAML `6/6` statically validated |
 | `dependency-audit` (Remote CI) | `ubuntu-24.04` | **`BLOCKED` (`NOT_EXECUTED`)** | Same remote blocker; equivalent `cargo-deny 0.21.0` + `dependency-audit.mjs` **executed locally (`PASS`)** |
-| `1. ubuntu-2404-build` (Remote CI) | `ubuntu-24.04` | **`BLOCKED` (`NOT_EXECUTED`)** | Same remote blocker; `deb.depends` + `xvfb-run` + `APPIMAGE_EXTRACT_AND_RUN=1` configured via CI overlay |
+| `1. ubuntu-2404-build` (Remote CI) | `ubuntu-24.04` | **`BLOCKED` (`NOT_EXECUTED`)** | Same remote blocker; zero-array CI overlay (`deb.section`/`deb.priority`) + `xvfb-run` + `APPIMAGE_EXTRACT_AND_RUN=1` configured |
 | `2. windows-msvc-build` (Remote CI) | `windows-2022` | **`BLOCKED` (`NOT_EXECUTED`)** | Same remote blocker; local host lacks VS C++ MSVC Build Tools (`E0463`) & WiX/NSIS |
 | `3. macos-arm64-build` (Remote CI) | `macos-15` | **`BLOCKED` (`NOT_EXECUTED`)** | Same remote blocker + opt-in `false` (`10x` cost guard); valid `icon.icns` overlay ready |
 | `4. macos-intel-build` (Remote CI) | `macos-15-intel` | **`BLOCKED` (`NOT_EXECUTED`)** | Same remote blocker + opt-in `false` (`10x` cost guard; fails closed as `BLOCKED` if Intel pool unavailable) |
@@ -137,8 +137,8 @@ Inventory, checksums, advisories, provenance, signatures, and installer packagin
 ## 9. Per-OS Packaging Validation & Remaining Blockers
 
 - **Windows (`x86_64`):** Local `x86_64-pc-windows-gnu` binaries, `asInvoker` PE manifest, `WebView2Loader.dll` import, and native runtime fixture verified (`PASS`). Blockers: (a) live `windows-2022` `x86_64-pc-windows-msvc` `.msi`/NSIS CI run (`BLOCKED` on OAuth/default-branch registration); (b) **Gate G3** OV/EV Authenticode / Azure Trusted Signing + RFC 3161 timestamping for Windows 11 Smart App Control (`SAC=1` hosts must use ADR-002 Signed-Host Bridge until signed — never disable SAC); (c) human two-phone QR `L3` checklist; (d) VNG `L4` global call-pipe/AUMID limits.
-- **macOS (`arm64` & Intel `x86_64`):** Missing `icon.icns` (`1,142` B) and `128x128@2x.png` (`716` B) mitigated for CI via `tauri-ci-bundle-overlay.json` and patched upstream in `0002-IR-002`. Blockers: (a) live `macos-15` and `macos-15-intel` CI execution (`BLOCKED` on OAuth/default-branch + `10x` opt-in budget); (b) **Gate G4** Apple Developer ID Application signing + Hardened Runtime + `notarytool` notarization + `stapler`; (c) physical Mac `Zalo.app` runtime verification (`NOT_TESTED` — manager build != Zalo macOS multi-instance proof).
-- **Ubuntu 24.04 LTS (`x86_64`):** `deb.depends` (`libwebkit2gtk-4.1-0`, `libgtk-3-0t64 | libgtk-3-0`, `libayatana-appindicator3-1 | libappindicator3-1`) supplied via `tauri-ci-bundle-overlay.json` + `xvfb-run -a` probe in CI. Blockers: (a) live `ubuntu-24.04` `.deb`/`.AppImage` CI run (`BLOCKED` on OAuth/default-branch); (b) **Gate G5** detached GPG/minisign signing & `GLIBC >= 2.38/2.39` floor disclosure (incompatible with Ubuntu 22.04 `glibc 2.35`); (c) **Official VNG Zalo Linux is `UNSUPPORTED`** (no VNG Linux build exists; zero Zalo binaries bundled).
+- **macOS (`arm64` & Intel `x86_64`):** `icon.icns` (`1,142` B) and `128x128@2x.png` (`716` B) applied directly to `tauri.conf.json` via `IR-002` (with zero array keys remaining in `tauri-ci-bundle-overlay.json`). Blockers: (a) live `macos-15` and `macos-15-intel` CI execution (`BLOCKED` on OAuth/default-branch + `10x` opt-in budget); (b) **Gate G4** Apple Developer ID Application signing + Hardened Runtime + `notarytool` notarization + `stapler`; (c) physical Mac `Zalo.app` runtime verification (`NOT_TESTED` — manager build != Zalo macOS multi-instance proof).
+- **Ubuntu 24.04 LTS (`x86_64`):** Scalar `deb.section`/`deb.priority` supplied via zero-array `tauri-ci-bundle-overlay.json` (Tauri auto-resolves `.deb` `shlibs` via `ldd`/`dpkg -S` until deferred `IR-003` lands) + `xvfb-run -a` probe in CI. Blockers: (a) live `ubuntu-24.04` `.deb`/`.AppImage` CI run (`BLOCKED` on OAuth/default-branch); (b) **Gate G5** detached GPG/minisign signing & `GLIBC >= 2.38/2.39` floor disclosure (incompatible with Ubuntu 22.04 `glibc 2.35`); (c) **Official VNG Zalo Linux is `UNSUPPORTED`** (no VNG Linux build exists; zero Zalo binaries bundled).
 
 ---
 
@@ -146,17 +146,18 @@ Inventory, checksums, advisories, provenance, signatures, and installer packagin
 
 Verified from official GitHub Actions billing docs (`docs.github.com/.../about-billing-for-github-actions`) for `private: true` (`owner_type: User`, jobs rounded up to whole minutes; Free includes **`$12.00 USD/month`** compute credit, Pro includes `$18.00/month` credit):
 
-| Job ID | Runner | Verified Rate (USD/min) | Classic Multiplier | Est. Rounded Min | Est. USD / Run | Multiplier Min | Default Enabled? |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| `rust-workspace-validation` | `ubuntu-24.04` | `$0.006` | `1x` | `6m` | `$0.036` | `6m` | Always |
-| `dependency-audit` | `ubuntu-24.04` | `$0.006` | `1x` | `3m` | `$0.018` | `3m` | Always |
-| `1. ubuntu-2404-build` | `ubuntu-24.04` | `$0.006` | `1x` | `10m` | `$0.060` | `10m` | **`true`** |
-| `2. windows-msvc-build` | `windows-2022` | `$0.010` | `2x` (`~1.67x` $) | `12m` | `$0.120` | `24m` | **`true`** |
-| `3. macos-arm64-build` | `macos-15` | `$0.062` | `10x` (`~10.33x` $) | `14m` | `$0.868` | `140m` | **`false`** *(opt-in)* |
-| `4. macos-intel-build` | `macos-15-intel` | `$0.062` | `10x` (`~10.33x` $) | `15m` | `$0.930` | `150m` | **`false`** *(opt-in)* |
-| `artifact-verification` | `ubuntu-24.04` | `$0.006` | `1x` | `2m` | `$0.012` | `2m` | Always |
-| **Default Dispatch (Ubuntu + Windows)** | — | — | — | **`33m`** | **`$0.246`** | **`ESTIMATED_PRE_RUN`** | Routine validation |
-| **Full 4-OS Dispatch (+ 2x macOS)** | — | — | — | **`62m`** | **`$2.044`** | **`ESTIMATED_PRE_RUN`** | **88.0%** saved when off |
+| Job ID | Runner | Verified Rate (USD/min) | Est. Rounded Min (`ESTIMATED_PRE_RUN`) | Est. USD / Run (`ESTIMATED_PRE_RUN`) | Share of `$12.00` Free Credit | Default Enabled? |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| `rust-workspace-validation` | `ubuntu-24.04` | `$0.006` | `6m` | `$0.036` | `0.30%` | Always |
+| `dependency-audit` | `ubuntu-24.04` | `$0.006` | `3m` | `$0.018` | `0.15%` | Always |
+| `1. ubuntu-2404-build` | `ubuntu-24.04` | `$0.006` | `10m` | `$0.060` | `0.50%` | **`true`** |
+| `2. windows-msvc-build` | `windows-2022` | `$0.010` | `12m` | `$0.120` | `1.00%` | **`true`** |
+| `3. macos-arm64-build` | `macos-15` | `$0.062` | `14m` | `$0.868` | `7.23%` | **`false`** *(opt-in)* |
+| `4. macos-intel-build` | `macos-15-intel` | `$0.062` | `15m` | `$0.930` | `7.75%` | **`false`** *(opt-in)* |
+| `artifact-verification` | `ubuntu-24.04` | `$0.006` | `2m` | `$0.012` | `0.10%` | Always |
+| **Default Dispatch (Ubuntu + Windows)** | — | — | **`33m`** | **`$0.246`** | **`2.05%` (`ESTIMATED_PRE_RUN`)** | Routine validation |
+| **Full 4-OS Dispatch (+ 2x macOS)** | — | — | **`62m`** | **`$2.044`** | **`17.03%` (`ESTIMATED_PRE_RUN`)** | **88.0%** saved when off |
+| **Actual Remote Spend To Date** | — | — | **`0m`** | **`$0.00`** | **`NOT_MEASURED_YET` (`0` remote runs)** | — |
 
 ---
 

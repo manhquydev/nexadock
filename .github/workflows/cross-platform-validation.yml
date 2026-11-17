@@ -124,17 +124,12 @@ jobs:
           node desktop-instance-manager/scripts/ci-cross-platform/selftest.mjs
           node desktop-instance-manager/scripts/ci-cross-platform/validate-workflow.mjs
 
-      - name: Prepare cargo-deny 0.20+ compatible policy config in RUNNER_TEMP
-        run: |
-          sed '/^version[[:space:]]*=[[:space:]]*2[[:space:]]*$/d' \
-            desktop-instance-manager/deny.toml > "${RUNNER_TEMP}/ci-deny.toml"
-
       - name: Run cargo-deny advisories, bans, licenses & sources (core workspace)
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
           manifest-path: desktop-instance-manager/Cargo.toml
-          arguments: --config ${{ runner.temp }}/ci-deny.toml --all-features --locked
+          arguments: --config desktop-instance-manager/deny.toml --all-features --locked
           command-arguments: -W wildcard advisories bans licenses sources
 
       - name: Run cargo-deny advisories, bans, licenses & sources (Tauri desktop crate)
@@ -142,7 +137,15 @@ jobs:
         with:
           command: check
           manifest-path: desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
-          arguments: --config ${{ runner.temp }}/ci-deny.toml --all-features --locked
+          arguments: --config desktop-instance-manager/deny.toml --all-features --locked
+          command-arguments: -W wildcard advisories bans licenses sources
+
+      - name: Run cargo-deny advisories, bans, licenses & sources (C2 reliability suite)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          manifest-path: desktop-instance-manager/tests/cross-platform/Cargo.toml
+          arguments: --config desktop-instance-manager/deny.toml --all-features --locked
           command-arguments: -W wildcard advisories bans licenses sources
 
       - name: Generate 7-pillar dependency & advisory audit report
@@ -276,7 +279,7 @@ jobs:
             echo "ERROR: dim-desktop failed Xvfb headless startup probe with exit code ${XVFB_RC}" >&2
             exit 1
           fi
-          objdump -T "${BIN_PATH}" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -V | uniq | tail -n 5 || true
+          objdump -T "${BIN_PATH}" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -V | uniq | tail -n 5
           node desktop-instance-manager/scripts/ci-cross-platform/inspect-artifact.mjs \
             --file "${BIN_PATH}" \
             --out "${OUT_DIR}/inspect-dim-desktop.json"
@@ -291,14 +294,31 @@ jobs:
       - name: Run C2 Cross-Platform Reliability Harness (Ubuntu)
         working-directory: desktop-instance-manager
         run: |
-          if [ -f tests/cross-platform/Cargo.toml ]; then
-            echo "::group::C2 reliability suite on x86_64-unknown-linux-gnu"
+          test -f fixtures/cross-platform/Cargo.toml
+          test -f tests/cross-platform/Cargo.toml
+          OUT_DIR="${RUNNER_TEMP}/ci-ubuntu-2404"
+          mkdir -p "${OUT_DIR}"
+          export CARGO_HOME="${CARGO_HOME:-${HOME}/.cargo}"
+          export RUSTUP_HOME="${RUSTUP_HOME:-${HOME}/.rustup}"
+          C2_TMP="$(mktemp -d)"
+          mkdir -p "${C2_TMP}/home" "${C2_TMP}/xdg-config"
+          echo "::group::Build C2 prerequisite fixtures and run Ubuntu reliability harness"
+          cargo build --manifest-path fixtures/cross-platform/Cargo.toml --release --locked
+          cargo build -p dim-test-fixture --bin dim-cli --release --locked
+          HOME="${C2_TMP}/home" XDG_CONFIG_HOME="${C2_TMP}/xdg-config" \
             cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
-            echo "::endgroup::"
-          else
-            echo "::error::tests/cross-platform/Cargo.toml not found — C2 reliability suite missing"
-            exit 1
-          fi
+          HOME="${C2_TMP}/home" XDG_CONFIG_HOME="${C2_TMP}/xdg-config" \
+            node tests/cross-platform/scripts/run-all.mjs \
+              --cycles 10 \
+              --metrics-runs 3 \
+              --report-out "${OUT_DIR}/c2-reliability-report.json"
+          HOME="${C2_TMP}/home" XDG_CONFIG_HOME="${C2_TMP}/xdg-config" \
+            ./tests/cross-platform/target/release/xf-test-runner \
+              --case XP-LNX-01,XP-LNX-02,XP-LNX-03,XP-LNX-04 \
+              --skip-metrics \
+              --require-native-os
+          rm -rf "${C2_TMP}"
+          echo "::endgroup::"
 
       - name: Generate Ubuntu 24.04 Section 7 artifact manifest and SHA256SUMS
         run: |
@@ -435,17 +455,45 @@ jobs:
             --out "$outDir/inspect-dim-cli.json"
 
       - name: Run C2 Cross-Platform Reliability Harness (Windows)
+        working-directory: desktop-instance-manager
         shell: pwsh
         run: |
-          if (Test-Path "desktop-instance-manager/tests/cross-platform/Cargo.toml") {
-            Write-Host "::group::C2 reliability suite on x86_64-pc-windows-msvc"
-            cargo test --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml --locked
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            Write-Host "::endgroup::"
-          } else {
-            Write-Host "::error::tests/cross-platform/Cargo.toml not found — C2 reliability suite missing"
+          if (-not (Test-Path "fixtures/cross-platform/Cargo.toml") -or -not (Test-Path "tests/cross-platform/Cargo.toml")) {
+            Write-Host "::error::C2 cross-platform fixture or test manifest missing"
             exit 1
           }
+          $outDir = Join-Path $env:RUNNER_TEMP "ci-windows-msvc"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $c2Tmp = Join-Path $env:RUNNER_TEMP "c2-win-sandbox"
+          $prevAppData = $env:APPDATA
+          $prevLocalAppData = $env:LOCALAPPDATA
+          New-Item -ItemType Directory -Force -Path "$c2Tmp\appdata", "$c2Tmp\localappdata" | Out-Null
+          Write-Host "::group::Build C2 prerequisite fixtures and run Windows reliability harness"
+          try {
+            cargo build --manifest-path fixtures/cross-platform/Cargo.toml --release --locked
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            cargo build -p dim-test-fixture --bin dim-cli --release --locked
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $env:APPDATA = "$c2Tmp\appdata"
+            $env:LOCALAPPDATA = "$c2Tmp\localappdata"
+            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node tests/cross-platform/scripts/run-all.mjs `
+              --cycles 10 `
+              --metrics-runs 3 `
+              --report-out "$outDir/c2-reliability-report.json"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & "tests/cross-platform/target/release/xf-test-runner.exe" `
+              --case "XP-WIN-01,XP-WIN-02,XP-WIN-03,XP-WIN-04" `
+              --skip-metrics `
+              --require-native-os
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            $env:APPDATA = $prevAppData
+            $env:LOCALAPPDATA = $prevLocalAppData
+            Remove-Item -Recurse -Force $c2Tmp -ErrorAction SilentlyContinue
+          }
+          Write-Host "::endgroup::"
 
       - name: Generate Windows Section 7 artifact manifest and SHA256SUMS
         shell: pwsh
@@ -573,14 +621,31 @@ jobs:
       - name: Run C2 Cross-Platform Reliability Harness (macOS arm64)
         working-directory: desktop-instance-manager
         run: |
-          if [ -f tests/cross-platform/Cargo.toml ]; then
-            echo "::group::C2 reliability suite on aarch64-apple-darwin"
+          test -f fixtures/cross-platform/Cargo.toml
+          test -f tests/cross-platform/Cargo.toml
+          OUT_DIR="${RUNNER_TEMP}/ci-macos-arm64"
+          mkdir -p "${OUT_DIR}"
+          export CARGO_HOME="${CARGO_HOME:-${HOME}/.cargo}"
+          export RUSTUP_HOME="${RUSTUP_HOME:-${HOME}/.rustup}"
+          C2_TMP="$(mktemp -d)"
+          mkdir -p "${C2_TMP}/home"
+          echo "::group::Build C2 prerequisite fixtures and run macOS arm64 reliability harness"
+          cargo build --manifest-path fixtures/cross-platform/Cargo.toml --release --locked
+          cargo build -p dim-test-fixture --bin dim-cli --release --locked
+          HOME="${C2_TMP}/home" \
             cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
-            echo "::endgroup::"
-          else
-            echo "::error::tests/cross-platform/Cargo.toml not found — C2 reliability suite missing"
-            exit 1
-          fi
+          HOME="${C2_TMP}/home" \
+            node tests/cross-platform/scripts/run-all.mjs \
+              --cycles 10 \
+              --metrics-runs 3 \
+              --report-out "${OUT_DIR}/c2-reliability-report.json"
+          HOME="${C2_TMP}/home" \
+            ./tests/cross-platform/target/release/xf-test-runner \
+              --case XP-MAC-01,XP-MAC-02,XP-MAC-03,XP-MAC-04 \
+              --skip-metrics \
+              --require-native-os
+          rm -rf "${C2_TMP}"
+          echo "::endgroup::"
 
       - name: Generate macOS arm64 Section 7 artifact manifest and SHA256SUMS
         run: |
@@ -712,14 +777,31 @@ jobs:
       - name: Run C2 Cross-Platform Reliability Harness (macOS Intel)
         working-directory: desktop-instance-manager
         run: |
-          if [ -f tests/cross-platform/Cargo.toml ]; then
-            echo "::group::C2 reliability suite on x86_64-apple-darwin"
+          test -f fixtures/cross-platform/Cargo.toml
+          test -f tests/cross-platform/Cargo.toml
+          OUT_DIR="${RUNNER_TEMP}/ci-macos-intel"
+          mkdir -p "${OUT_DIR}"
+          export CARGO_HOME="${CARGO_HOME:-${HOME}/.cargo}"
+          export RUSTUP_HOME="${RUSTUP_HOME:-${HOME}/.rustup}"
+          C2_TMP="$(mktemp -d)"
+          mkdir -p "${C2_TMP}/home"
+          echo "::group::Build C2 prerequisite fixtures and run macOS Intel reliability harness"
+          cargo build --manifest-path fixtures/cross-platform/Cargo.toml --release --locked
+          cargo build -p dim-test-fixture --bin dim-cli --release --locked
+          HOME="${C2_TMP}/home" \
             cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
-            echo "::endgroup::"
-          else
-            echo "::error::tests/cross-platform/Cargo.toml not found — C2 reliability suite missing"
-            exit 1
-          fi
+          HOME="${C2_TMP}/home" \
+            node tests/cross-platform/scripts/run-all.mjs \
+              --cycles 10 \
+              --metrics-runs 3 \
+              --report-out "${OUT_DIR}/c2-reliability-report.json"
+          HOME="${C2_TMP}/home" \
+            ./tests/cross-platform/target/release/xf-test-runner \
+              --case XP-MAC-01,XP-MAC-02,XP-MAC-03,XP-MAC-04 \
+              --skip-metrics \
+              --require-native-os
+          rm -rf "${C2_TMP}"
+          echo "::endgroup::"
 
       - name: Generate macOS Intel Section 7 artifact manifest and SHA256SUMS
         run: |

@@ -222,10 +222,27 @@ function main() {
     const overlay = JSON.parse(fs.readFileSync(overlayPath, 'utf8'));
     assert.equal(overlay.bundle.windows.webviewInstallMode.type, 'downloadBootstrapper');
     assert.equal(overlay.bundle.macOS.minimumSystemVersion, '11.0');
-    assert.ok(Array.isArray(overlay.bundle.linux.deb.depends));
-    assert.ok(overlay.bundle.linux.deb.depends.includes('libwebkit2gtk-4.1-0'));
-    // IR-002 fix: overlay MUST NOT contain icon/resources/externalBin arrays (RFC 7396 clobber risk)
-    assert.equal(overlay.bundle.icon, undefined, 'Overlay must not contain bundle.icon array (JSON Merge Patch clobber risk)');
+    assert.equal(overlay.bundle.linux.deb.section, 'utils');
+    assert.equal(overlay.bundle.linux.deb.priority, 'optional');
+    // RFC 7396 JSON Merge Patch safety: overlay MUST contain ZERO array values recursively anywhere!
+    const arrayPaths = [];
+    const collectArrayPaths = (node, jsonPath = '$') => {
+      if (Array.isArray(node)) {
+        arrayPaths.push(jsonPath);
+        return;
+      }
+      if (node && typeof node === 'object') {
+        for (const [k, v] of Object.entries(node)) {
+          collectArrayPaths(v, `${jsonPath}.${k}`);
+        }
+      }
+    };
+    collectArrayPaths(overlay);
+    assert.deepEqual(
+      arrayPaths,
+      [],
+      `tauri-ci-bundle-overlay.json must have ZERO array values (RFC 7396 clobber risk); found: ${arrayPaths.join(', ')}`,
+    );
 
     // Verify icons from tauri.conf.json instead (source of truth for bundle.icon)
     const tauriConf = JSON.parse(fs.readFileSync(path.join(WORKSPACE_ROOT, 'apps', 'desktop', 'src-tauri', 'tauri.conf.json'), 'utf8'));

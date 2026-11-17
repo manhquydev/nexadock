@@ -27,7 +27,7 @@
 ### Toolchain & Runner Architecture Notes
 - **Canonical `x86_64-pc-windows-msvc` vs. Local `x86_64-pc-windows-gnu`:** [`deny.toml`](../../deny.toml) audits both Windows triples. `windows-2022` builds canonical `x86_64-pc-windows-msvc` (clean `rc.exe`/`mt.exe` manifest embedding, `GUARD_CF` support, preinstalled WiX 3.14 & NSIS 3.x), whereas local developer validation on Windows 11 Pro (`10.0.26300` x64) executed natively on `x86_64-pc-windows-gnu` (WinLibs UCRT64 `gcc 16.2.0`) because VS C++ Build Tools are not installed locally.
 - **Explicit Native `macos-15` (`arm64`) vs. `macos-15-intel` (`x86_64`):** Per GitHub's current runner catalog, `macos-13` is retired, `macos-15` is 3-core Apple Silicon (`arm64`), and `macos-15-intel` is 4-core Intel (`x86_64`, scheduled to sunset in Fall 2027). Both jobs assert `uname -m` and `rustc -vV` at startup; `macos-intel-build` **never** cross-compiles on an `arm64` host.
-- **Non-Destructive CI Bundle Overlay (`tauri-ci-bundle-overlay.json`):** [`scripts/ci-cross-platform/tauri-ci-bundle-overlay.json`](../../scripts/ci-cross-platform/tauri-ci-bundle-overlay.json) injects valid generated `assets/icon.icns` (`1,142` B) and `assets/128x128@2x.png` (`716` B), Windows `downloadBootstrapper`, macOS `minimumSystemVersion: "11.0"`, and Ubuntu 24.04 `deb.depends` via `tauri build --config` without mutating shared `tauri.conf.json` (permanent upstream patches reside in [`plans/reports/build/ir-patches/`](../../plans/reports/build/ir-patches/)).
+- **Zero-Array CI Bundle Overlay (`tauri-ci-bundle-overlay.json`):** Following `IR-002` (`icons/icon.icns` + `icons/128x128@2x.png` integrated into `tauri.conf.json`), [`scripts/ci-cross-platform/tauri-ci-bundle-overlay.json`](../../scripts/ci-cross-platform/tauri-ci-bundle-overlay.json) contains **zero JSON array fields** (RFC 7396 JSON Merge Patch safe: scalar/object keys only for Windows `downloadBootstrapper`, macOS `minimumSystemVersion: "11.0"`, and Linux `deb.section`/`deb.priority`, while Tauri auto-resolves `.deb` `shlibs` until deferred `IR-003` is runner-verified).
 
 ---
 
@@ -85,17 +85,18 @@ flowchart TD
 
 Verified via `gh api repos/manhquydev/zalo` (`private: true`, `owner_type: User`) and current GitHub Actions pricing (`docs.github.com/.../about-billing-for-github-actions`, per-job minute rounding; Free tier includes **`$12.00 USD/month`** compute credit, Pro includes `$18.00/month` credit):
 
-| Job ID | Runner Label | Billing SKU & Verified Rate | Classic Multiplier | Est. Rounded Min | Est. USD / Run | Multiplier Min | Default Input |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| `rust-workspace-validation` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | **1x** | `6m` | `$0.036` | `6m` | Always |
-| `dependency-audit` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | **1x** | `3m` | `$0.018` | `3m` | Always |
-| `ubuntu-2404-build` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | **1x** | `10m` | `$0.060` | `10m` | `enable_ubuntu: true` |
-| `windows-msvc-build` | `windows-2022` | `actions_windows` (`$0.010/min`) | **2x** (`~1.67x` $) | `12m` | `$0.120` | `24m` | `enable_windows: true` |
-| `macos-arm64-build` | `macos-15` | `actions_macos` (`$0.062/min`) | **10x** (`~10.33x` $) | `14m` | **`$0.868`** | **`140m`** | **`enable_macos_arm64: false`** |
-| `macos-intel-build` | `macos-15-intel` | `actions_macos` (`$0.062/min`) | **10x** (`~10.33x` $) | `15m` | **`$0.930`** | **`150m`** | **`enable_macos_intel: false`** |
-| `artifact-verification` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | **1x** | `2m` | `$0.012` | `2m` | Always (`if: always()`) |
-| **Default Dispatch (Ubuntu + Win)** | — | — | — | **`33m`** | **`$0.246`** | **`ESTIMATED_PRE_RUN`** | Safe routine validation |
-| **Full 4-OS Dispatch (+ 2x macOS)** | — | — | — | **`62m`** | **`$2.044`** | **`ESTIMATED_PRE_RUN`** | Explicit opt-in (**88.0% saved** when off) |
+| Job ID | Runner Label | Billing SKU & Verified Rate | Est. Rounded Min (`ESTIMATED_PRE_RUN`) | Est. USD / Run (`ESTIMATED_PRE_RUN`) | Share of `$12.00` Free Credit | Default Input |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `rust-workspace-validation` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | `6m` | `$0.036` | `0.30%` | Always |
+| `dependency-audit` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | `3m` | `$0.018` | `0.15%` | Always |
+| `ubuntu-2404-build` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | `10m` | `$0.060` | `0.50%` | `enable_ubuntu: true` |
+| `windows-msvc-build` | `windows-2022` | `actions_windows` (`$0.010/min`) | `12m` | `$0.120` | `1.00%` | `enable_windows: true` |
+| `macos-arm64-build` | `macos-15` | `actions_macos` (`$0.062/min`) | `14m` | **`$0.868`** | `7.23%` | **`enable_macos_arm64: false`** |
+| `macos-intel-build` | `macos-15-intel` | `actions_macos` (`$0.062/min`) | `15m` | **`$0.930`** | `7.75%` | **`enable_macos_intel: false`** |
+| `artifact-verification` | `ubuntu-24.04` | `actions_linux` (`$0.006/min`) | `2m` | `$0.012` | `0.10%` | Always (`if: always()`) |
+| **Default Dispatch (Ubuntu + Win)** | — | — | **`33m`** | **`$0.246`** | **`2.05%` (`ESTIMATED_PRE_RUN`)** | Safe routine validation |
+| **Full 4-OS Dispatch (+ 2x macOS)** | — | — | **`62m`** | **`$2.044`** | **`17.03%` (`ESTIMATED_PRE_RUN`)** | Explicit opt-in (**88.0% saved** when off) |
+| **Actual Remote Spend To Date** | — | — | **`0m`** | **`$0.00`** | **`NOT_MEASURED_YET` (`0` remote runs)** | — |
 
 **Mandatory Cost Controls:** (1) `schedule` crons are strictly banned; (2) both `$0.062/min` (`10x`) macOS jobs default to `false`; (3) every job declares bounded `timeout-minutes` (`10–30m`); (4) all artifact uploads set `retention-days: 7`.
 
