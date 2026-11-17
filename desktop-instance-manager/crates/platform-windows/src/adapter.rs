@@ -352,7 +352,8 @@ impl PlatformCapabilities for WindowsPlatformAdapter {
         };
 
         #[cfg(windows)]
-        let (call_recv_present, call_send_present) = crate::win32_ffi::passive_zcall_pipes_present();
+        let (call_recv_present, call_send_present) =
+            crate::win32_ffi::passive_zcall_pipes_present();
         #[cfg(not(windows))]
         let (call_recv_present, call_send_present) = (false, false);
 
@@ -592,22 +593,17 @@ impl InstanceMonitor for WindowsPlatformAdapter {
                 }
             }
 
-            let (process_ids, working_set, window_handle, window_title) =
-                if let Some(pid) = main_pid {
-                    let snap =
-                        cached_snap.unwrap_or_else(crate::win32_ffi::ProcessSnapshot::capture);
-                    let tree = snap.collect_tree(pid);
-                    let ws = crate::win32_ffi::sum_working_set_bytes(&tree);
-                    let win = crate::win32_ffi::find_main_window_for_profile(pid, &tree);
-                    (
-                        tree,
-                        ws,
-                        win.as_ref().map(|(h, _)| *h),
-                        win.map(|(_, t)| t),
-                    )
-                } else {
-                    (Vec::new(), 0, None, None)
-                };
+            let (process_ids, working_set, window_handle, window_title) = if let Some(pid) =
+                main_pid
+            {
+                let snap = cached_snap.unwrap_or_else(crate::win32_ffi::ProcessSnapshot::capture);
+                let tree = snap.collect_tree(pid);
+                let ws = crate::win32_ffi::sum_working_set_bytes(&tree);
+                let win = crate::win32_ffi::find_main_window_for_profile(pid, &tree);
+                (tree, ws, win.as_ref().map(|(h, _)| *h), win.map(|(_, t)| t))
+            } else {
+                (Vec::new(), 0, None, None)
+            };
 
             let running = lifecycle_state.is_active();
             let has_stale_artifacts = lockfile.exists()
@@ -715,7 +711,9 @@ impl InstanceLauncher for WindowsPlatformAdapter {
                     }
                     let _ = remove_runtime_lease(profile_dir);
                     if lockfile.exists()
-                        && fs::metadata(&lockfile).map(|m| m.len() == 0).unwrap_or(false)
+                        && fs::metadata(&lockfile)
+                            .map(|m| m.len() == 0)
+                            .unwrap_or(false)
                         && !crate::win32_ffi::is_file_exclusively_locked(&lockfile)
                     {
                         let _ = fs::remove_file(&lockfile);

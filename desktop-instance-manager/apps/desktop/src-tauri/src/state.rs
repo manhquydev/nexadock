@@ -88,7 +88,8 @@ impl AppState {
 
         let profile = self.store.get_profile(id)?;
         let rt = self.adapter.inspect_profile(&profile, &dir)?;
-        let is_active_or_unclean = rt.running || rt.lifecycle_state() != ProfileLifecycleState::Stopped;
+        let is_active_or_unclean =
+            rt.running || rt.lifecycle_state() != ProfileLifecycleState::Stopped;
         self.backups.backup_profile_with_options(
             &profile,
             &dir,
@@ -132,7 +133,11 @@ mod tests {
     #[test]
     fn async_same_profile_concurrent_launches_coalesce_to_single_pid() {
         let script = fixture_script_path();
-        assert!(script.exists(), "missing xf-fixture.mjs at {}", script.display());
+        assert!(
+            script.exists(),
+            "missing xf-fixture.mjs at {}",
+            script.display()
+        );
 
         let data_dir = temp_sandbox_dir("same-prof");
         let state = AppState::from_data_dir(Some(&data_dir)).expect("init AppState");
@@ -201,7 +206,11 @@ mod tests {
     #[test]
     fn async_distinct_profiles_launch_in_parallel_without_global_lock() {
         let script = fixture_script_path();
-        assert!(script.exists(), "missing xf-fixture.mjs at {}", script.display());
+        assert!(
+            script.exists(),
+            "missing xf-fixture.mjs at {}",
+            script.display()
+        );
 
         let data_dir = temp_sandbox_dir("distinct-prof");
         let state = AppState::from_data_dir(Some(&data_dir)).expect("init AppState");

@@ -213,7 +213,10 @@ pub async fn delete_profile(
 ) -> Result<ApiEnvelope<serde_json::Value>, String> {
     let app = state.inner().clone();
     Ok(tauri::async_runtime::spawn_blocking(move || {
-        match app.coordinator.delete_profile(&id, confirm.unwrap_or(false)) {
+        match app
+            .coordinator
+            .delete_profile(&id, confirm.unwrap_or(false))
+        {
             Ok(()) => ApiEnvelope::ok(
                 "Deleted profile.",
                 serde_json::json!({ "deleted_profile_id": id }),
@@ -269,14 +272,14 @@ pub async fn stop_profile(
     id: String,
 ) -> Result<ApiEnvelope<u32>, String> {
     let app = state.inner().clone();
-    Ok(tauri::async_runtime::spawn_blocking(move || {
-        match app.coordinator.stop_profile(&id) {
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || match app.coordinator.stop_profile(&id) {
             Ok(count) => ApiEnvelope::ok("Stopped profile.", count),
             Err(err) => ApiEnvelope::err(&err),
-        }
-    })
-    .await
-    .unwrap_or_else(join_err_envelope))
+        })
+        .await
+        .unwrap_or_else(join_err_envelope),
+    )
 }
 
 #[tauri::command]
@@ -527,9 +530,7 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, 
 }
 
 #[tauri::command]
-pub async fn verify_isolation(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+pub async fn verify_isolation(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let app = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let report = app

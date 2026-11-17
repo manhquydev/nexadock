@@ -10,7 +10,12 @@
 //! `hwnd_main`, never send `WM_CLOSE` to `hwnd_popup`, and return `None`/`0` when `hwnd_main` hides to Tray.
 
 #![cfg(windows)]
-#![allow(clippy::unwrap_used, clippy::expect_used, non_snake_case)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::upper_case_acronyms,
+    non_snake_case
+)]
 
 use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
@@ -21,9 +26,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use dim_platform_windows::win32_ffi::post_wm_close;
-use dim_platform_windows::{
-    classify_window_for_pid, find_main_window_for_pids, ZaloWindowRole,
-};
+use dim_platform_windows::{classify_window_for_pid, find_main_window_for_pids, ZaloWindowRole};
 
 const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
 const WS_POPUP: u32 = 0x8000_0000;
@@ -188,7 +191,13 @@ fn query_powershell_main_hwnd(pid: u32) -> u64 {
         cs_file.display().to_string().replace('\'', "''")
     );
     let out = Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
         .output()
         .expect("invoke powershell FindMainWindowForProfile");
     assert!(
@@ -356,8 +365,14 @@ fn tc_h2_part_2a_enum_windows_excludes_notiwin_popup_owned_and_empty_title() {
     unsafe {
         let _ = EnumWindows(collect_z_order_cb, (&mut z_order as *mut Vec<u64>) as isize);
     }
-    let idx_popup = z_order.iter().position(|&h| h == hwnd_popup).expect("popup in Z-order");
-    let idx_main = z_order.iter().position(|&h| h == hwnd_main).expect("main in Z-order");
+    let idx_popup = z_order
+        .iter()
+        .position(|&h| h == hwnd_popup)
+        .expect("popup in Z-order");
+    let idx_main = z_order
+        .iter()
+        .position(|&h| h == hwnd_main)
+        .expect("main in Z-order");
     assert!(
         idx_popup < idx_main,
         "expected topmost 352x82 notiWin popup ({idx_popup}) ahead of main window ({idx_main}) in Z-order"
@@ -388,7 +403,10 @@ fn tc_h2_part_2a_enum_windows_excludes_notiwin_popup_owned_and_empty_title() {
     assert_eq!(rust_selected.1, "Zalo - Account Alpha");
 
     let ps_selected = query_powershell_main_hwnd(self_pid);
-    assert_eq!(ps_selected, hwnd_main, "PowerShell parity mismatch on TC-H2");
+    assert_eq!(
+        ps_selected, hwnd_main,
+        "PowerShell parity mismatch on TC-H2"
+    );
 
     // (c) `post_wm_close` hits ONLY `hwnd_main` (`popup_wm_close_count == 0`):
     post_wm_close(rust_selected.0);

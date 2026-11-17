@@ -219,7 +219,8 @@ fn is_meta_symlink_or_reparse(meta: &fs::Metadata) -> bool {
     {
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
-        meta.file_type().is_symlink() || (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+        meta.file_type().is_symlink()
+            || (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0
     }
     #[cfg(not(windows))]
     {
@@ -313,10 +314,7 @@ pub fn is_path_truly_contained_in_profile(profile_dir: &Path, candidate: &Path) 
     if prof_keys.is_empty() || cand_keys.len() < prof_keys.len() {
         return false;
     }
-    prof_keys
-        .iter()
-        .zip(cand_keys.iter())
-        .all(|(p, c)| p == c)
+    prof_keys.iter().zip(cand_keys.iter()).all(|(p, c)| p == c)
 }
 
 /// Returns `true` when two already-resolved storage paths are identical or one is an ancestor of the other.

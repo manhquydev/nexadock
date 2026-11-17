@@ -167,7 +167,9 @@ impl FileBackupManager {
             .map(|p| p.display().to_string())
             .collect();
         let manifest_tmp = partial_dir.join("backup.json");
-        if let Err(err) = write_manifest_synced_with_omissions(&manifest_tmp, &manifest, &omitted_strs) {
+        if let Err(err) =
+            write_manifest_synced_with_omissions(&manifest_tmp, &manifest, &omitted_strs)
+        {
             let _ = fs::remove_dir_all(&partial_dir);
             return Err(err);
         }

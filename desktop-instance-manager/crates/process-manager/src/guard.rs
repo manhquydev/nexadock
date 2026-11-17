@@ -106,7 +106,8 @@ impl ExternalStorageGuard {
         protected_primary_zalo_dirs: &[PathBuf],
     ) -> Result<(), DimError> {
         let target_ext = external_paths_outside_profile(target_profile_dir, target_zalo_data_dir);
-        let resolved_target_profile = resolve_effective_path(target_profile_dir, target_profile_dir);
+        let resolved_target_profile =
+            resolve_effective_path(target_profile_dir, target_profile_dir);
 
         // 1. Check against all currently running secondary profiles.
         for other in running_others {
@@ -149,10 +150,11 @@ impl ExternalStorageGuard {
                 let resolved_prim = resolve_effective_path(prim_zalo_dir, prim_zalo_dir);
                 let prim_cfg = read_configured_external_paths(prim_zalo_dir);
                 let mut prim_paths = vec![resolved_prim];
-                for raw_opt in [prim_cfg.db_location, prim_cfg.resource_location] {
-                    if let Some(raw_p) = raw_opt {
-                        prim_paths.push(resolve_effective_path(prim_zalo_dir, &raw_p));
-                    }
+                for raw_p in [prim_cfg.db_location, prim_cfg.resource_location]
+                    .into_iter()
+                    .flatten()
+                {
+                    prim_paths.push(resolve_effective_path(prim_zalo_dir, &raw_p));
                 }
 
                 for t_path in &target_ext {

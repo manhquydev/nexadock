@@ -242,7 +242,9 @@ fn tc_h6_tray_wake_foreground_lock_fallback_and_zero_forbidden_win32_apis() {
     ] {
         let src = fs::read_to_string(root.join(rel)).unwrap();
         assert!(
-            !src.contains(&forbidden_a) && !src.contains(&forbidden_b) && !src.contains(&forbidden_c),
+            !src.contains(&forbidden_a)
+                && !src.contains(&forbidden_b)
+                && !src.contains(&forbidden_c),
             "forbidden Win32 focus hack API found in {rel}"
         );
     }
@@ -280,8 +282,14 @@ fn tc_h6_tray_wake_foreground_lock_fallback_and_zero_forbidden_win32_apis() {
     let blocker_dir = tmp.path().join("blocker");
     let gui_blocker = PsGuiHelper::spawn(&blocker_dir, "ffffffff", "Blocker Foreground Window");
 
-    assert_eq!(find_main_window_for_pids(&[gui_a.pid]).map(|(h, _)| h), Some(gui_a.hwnd));
-    assert_eq!(find_main_window_for_pids(&[gui_b.pid]).map(|(h, _)| h), Some(gui_b.hwnd));
+    assert_eq!(
+        find_main_window_for_pids(&[gui_a.pid]).map(|(h, _)| h),
+        Some(gui_a.hwnd)
+    );
+    assert_eq!(
+        find_main_window_for_pids(&[gui_b.pid]).map(|(h, _)| h),
+        Some(gui_b.hwnd)
+    );
 
     // 3. Five consecutive cycles testing Case 1 (Hidden in System Tray) + Case 2 (Foreground Lock fallback):
     for cycle in 1..=5_u64 {
@@ -316,7 +324,10 @@ fn tc_h6_tray_wake_foreground_lock_fallback_and_zero_forbidden_win32_apis() {
             latency_ms < 2000,
             "cycle {cycle} Tray restore exceeded 2000ms ({latency_ms}ms)"
         );
-        assert!(gui_a.is_visible(), "cycle {cycle}: Profile A failed to wake from Tray");
+        assert!(
+            gui_a.is_visible(),
+            "cycle {cycle}: Profile A failed to wake from Tray"
+        );
         assert!(
             !gui_b.is_visible(),
             "cycle {cycle}: sibling Profile B must remain undisturbed in Tray!"

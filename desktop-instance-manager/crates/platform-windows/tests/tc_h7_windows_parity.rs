@@ -9,9 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dim_core::ProfileRecord;
-use dim_platform_windows::{
-    configure_windows_host_folder_links, ensure_windows_profile_layout,
-};
+use dim_platform_windows::{configure_windows_host_folder_links, ensure_windows_profile_layout};
 use dim_profile_store::{is_symlink_or_reparse, unlink_reparse_points_safe};
 use serde_json::Value;
 
@@ -194,7 +192,8 @@ fn tc_h7_windows_layout_junction_links_and_powershell_parity() {
     fs::create_dir_all(&prim_ext).unwrap();
     fs::write(
         synth_prim.join("config.json"),
-        serde_json::json!({ "db_path": { "location": prim_ext.display().to_string() } }).to_string(),
+        serde_json::json!({ "db_path": { "location": prim_ext.display().to_string() } })
+            .to_string(),
     )
     .unwrap();
     let cp = run_dim_host_ps1(&ps_data, &synth_prim, &["create", "PS Prim Collide"]);
@@ -208,7 +207,8 @@ fn tc_h7_windows_layout_junction_links_and_powershell_parity() {
             .join("Roaming")
             .join("ZaloData")
             .join("config.json"),
-        serde_json::json!({ "db_path": { "location": prim_ext.display().to_string() } }).to_string(),
+        serde_json::json!({ "db_path": { "location": prim_ext.display().to_string() } })
+            .to_string(),
     )
     .unwrap();
     let l_p = run_dim_host_ps1(

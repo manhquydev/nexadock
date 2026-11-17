@@ -73,12 +73,7 @@ impl InstanceMonitor for SyntheticRuntime {
         profile_dir: &Path,
     ) -> Result<ProfileRuntimeState, DimError> {
         let zalo_data_dir = profile_dir.join("AppData").join("Roaming").join("ZaloData");
-        let pid = self
-            .running_pids
-            .lock()
-            .unwrap()
-            .get(&profile.id)
-            .copied();
+        let pid = self.running_pids.lock().unwrap().get(&profile.id).copied();
         Ok(ProfileRuntimeState {
             profile_id: profile.id.clone(),
             profile_name: profile.name.clone(),
@@ -226,7 +221,10 @@ fn tc_h7_abc_path_containment_catches_absolute_traversal_and_junction_escape() {
     // Internal path stays contained:
     let internal_db = zdata.join("Database");
     fs::create_dir_all(&internal_db).unwrap();
-    assert!(is_path_truly_contained_in_profile(&profile_dir, &internal_db));
+    assert!(is_path_truly_contained_in_profile(
+        &profile_dir,
+        &internal_db
+    ));
 
     // (a) External absolute `db_path.location`:
     write_zalo_config(&zdata, Some(&escape_json_path(&external_abs)), None);
@@ -296,7 +294,11 @@ fn tc_h7_de_shared_external_db_launch_guard_and_backup_fail_closed() {
     fs::write(&ext_sentinel, sentinel_bytes).unwrap();
 
     // Seed synthetic primary ZaloData (stopped!) owning `primary_ext_db`:
-    write_zalo_config(&synth_primary, Some(&escape_json_path(&primary_ext_db)), None);
+    write_zalo_config(
+        &synth_primary,
+        Some(&escape_json_path(&primary_ext_db)),
+        None,
+    );
 
     let store = Arc::new(JsonProfileStore::new(data_dir).unwrap());
     store.ensure_initialized().unwrap();

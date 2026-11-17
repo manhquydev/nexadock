@@ -28,10 +28,23 @@ use crate::recovery::StaleLockRecoveryManager;
 enum CoalescedLaunchError {
     NotFound(String),
     ProfileRunning(String),
-    MarkerMismatch { expected: String, actual: String },
-    DuplicateUid { user_id: String, running_profile: String },
-    SharedExternalDb { path: String, owner: String },
-    InsufficientDisk { path: String, available: u64, required: u64 },
+    MarkerMismatch {
+        expected: String,
+        actual: String,
+    },
+    DuplicateUid {
+        user_id: String,
+        running_profile: String,
+    },
+    SharedExternalDb {
+        path: String,
+        owner: String,
+    },
+    InsufficientDisk {
+        path: String,
+        available: u64,
+        required: u64,
+    },
     FolderRedirection(String),
     InstallNotFound(String),
     UnverifiedBinary(String),
@@ -211,7 +224,10 @@ where
         self
     }
 
-    fn sync_entry_for(&self, canonical_profile_id: &str) -> Result<Arc<ProfileSyncEntry>, DimError> {
+    fn sync_entry_for(
+        &self,
+        canonical_profile_id: &str,
+    ) -> Result<Arc<ProfileSyncEntry>, DimError> {
         let key = canonical_profile_id.to_ascii_lowercase();
         let mut map = self
             .profile_sync
@@ -362,15 +378,17 @@ where
                 )));
             }
             ProfileLifecycleState::RecoveryRequired => {
-                let _ = self
-                    .recovery
-                    .recover_stale_state(&profile, &profile_dir, &runtime_before)?;
+                let _ =
+                    self.recovery
+                        .recover_stale_state(&profile, &profile_dir, &runtime_before)?;
             }
             ProfileLifecycleState::Stopped => {
                 if runtime_before.stale_lock_detected {
-                    let _ = self
-                        .recovery
-                        .recover_stale_state(&profile, &profile_dir, &runtime_before)?;
+                    let _ = self.recovery.recover_stale_state(
+                        &profile,
+                        &profile_dir,
+                        &runtime_before,
+                    )?;
                 }
             }
         }

@@ -548,7 +548,9 @@ mod os_probe {
         if rc != 0 {
             let err = io::Error::last_os_error();
             if err.kind() == io::ErrorKind::PermissionDenied {
-                return ProcessIdentityProbe::Indeterminate(format!("kill({pid}, 0) returned EPERM"));
+                return ProcessIdentityProbe::Indeterminate(format!(
+                    "kill({pid}, 0) returned EPERM"
+                ));
             }
             return ProcessIdentityProbe::Dead;
         }
@@ -637,7 +639,9 @@ mod os_probe {
         if rc != 0 {
             let err = io::Error::last_os_error();
             if err.kind() == io::ErrorKind::PermissionDenied {
-                return ProcessIdentityProbe::Indeterminate(format!("kill({pid}, 0) returned EPERM"));
+                return ProcessIdentityProbe::Indeterminate(format!(
+                    "kill({pid}, 0) returned EPERM"
+                ));
             }
             return ProcessIdentityProbe::Dead;
         }

@@ -298,7 +298,8 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
             let profile = store.get_profile(id)?;
             let dir = store.profile_dir_for(&profile)?;
             let rt = adapter.inspect_profile(&profile, &dir)?;
-            let external_omitted = !dim_core::external_paths_for_profile_all_layouts(&dir).is_empty();
+            let external_omitted =
+                !dim_core::external_paths_for_profile_all_layouts(&dir).is_empty();
             let bk = backups.backup_profile_with_options(
                 &profile,
                 &dir,
