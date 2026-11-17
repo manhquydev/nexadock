@@ -1,0 +1,199 @@
+{
+  "captured_at_utc": "2026-11-17T17:07:34Z",
+  "defect_count": 9,
+  "defects": [
+    {
+      "affected_files": [
+        "crates/platform-linux/src/adapter.rs:190-191",
+        "crates/platform-macos/src/adapter.rs:194-195"
+      ],
+      "defect_id": "DEFECT-01",
+      "minimal_reproduction": "Create a Chromium-style dangling symlink `ln -s ubuntu-host-99999 .config/ZaloData/SingletonLock` (without JSON `lockfile`) for a dead PID `99999` and call `inspect_profile`: `singleton_lock.exists()` follows the dangling target and returns `false`, so `stale_lock_detected` is `false` and `StaleLockRecoveryManager` is skipped on relaunch!",
+      "observed_evidence": {
+        "appimage_status": "experimental",
+        "dangling_singleton_lock_uses_path_exists": true,
+        "official_linux_status": "unsupported"
+      },
+      "severity": "HIGH",
+      "summary": "macOS and Linux adapters check `singleton_lock.exists()` instead of `fs::symlink_metadata()`, failing to detect Chromium's dangling `SingletonLock` (`<hostname>-<pid>`) symlinks after a crash.",
+      "test_case_ids": [
+        "XP-LNX-02"
+      ]
+    },
+    {
+      "affected_files": [
+        "crates/platform-macos/src/adapter.rs:192-196,298,305-320",
+        "crates/platform-windows/src/adapter.rs:600-607,620-629"
+      ],
+      "defect_id": "DEFECT-02",
+      "minimal_reproduction": "On macOS, launch 2 `NodeFixture` profiles without explicit `--user-id`: `MacOsPlatformAdapter::launch` neither derives a per-profile `--user-id` (both default to `100001`, colliding on `DUPLICATE_ZALO_USER_ID`) nor polls readiness nor reads `.runtime-pid` in `inspect_profile`, and uses `singleton_lock.exists()` which returns `false` on Chromium's dangling `SingletonLock` symlinks.",
+      "observed_evidence": {
+        "missing_deterministic_fixture_user_id": true,
+        "singleton_lock_uses_path_exists_bug": true,
+        "writes_runtime_pid_but_never_reads_it": true
+      },
+      "severity": "HIGH",
+      "summary": "macOS and Linux adapters neither read `.runtime-pid` nor inject deterministic fixture `--user-id` nor poll readiness on launch, causing false `running=false` right after spawn and `DUPLICATE_ZALO_USER_ID` collisions on multi-profile `NodeFixture` launches.",
+      "test_case_ids": [
+        "XP-MAC-03"
+      ]
+    },
+    {
+      "affected_files": [
+        "crates/platform-windows/src/adapter.rs:512-522,620-631",
+        "crates/platform-macos/src/adapter.rs:192-193,298,317",
+        "crates/platform-linux/src/adapter.rs:189,298-299"
+      ],
+      "defect_id": "DEFECT-03",
+      "minimal_reproduction": "Launch a profile with `--slow-startup-pre-lock-ms=3100`, then immediately call `stop_profile`: `launch_profile` returns `running=false, main_pid=null` while `.runtime-pid` process is alive, and `stop_profile` returns `0` leaving the starting process orphaned in the background.",
+      "observed_evidence": {
+        "launch_returned_main_pid": null,
+        "launch_returned_running": false,
+        "orphan_process_survived_stop": true,
+        "runtime_pid_hint_on_disk": 20012,
+        "stop_profile_terminated_count": 0
+      },
+      "severity": "HIGH",
+      "summary": "Slow-starting processes (`--slow-startup-pre-lock-ms`) are invisible to `inspect_profile` before `lockfile` creation because `.runtime-pid` is ignored unless `lockfile` is already exclusively locked, leaving orphan background processes when `stop_profile` is called during startup.",
+      "test_case_ids": [
+        "LC-07"
+      ]
+    },
+    {
+      "affected_files": [
+        "crates/process-manager/src/coordinator.rs:49-104",
+        "crates/profile-store/src/store.rs:169-180"
+      ],
+      "defect_id": "DEFECT-04",
+      "minimal_reproduction": "Invoke `InstanceCoordinator::launch_profile` concurrently from 4 threads on the same stopped profile (`--slow-startup-pre-lock-ms=220`): all 4 threads bypass `if runtime_before.running` simultaneously and spawn 4 racing OS processes instead of serializing launch per profile.",
+      "observed_evidence": {
+        "concurrent_threads": 4,
+        "returned_pids": [
+          5232,
+          5232,
+          5232,
+          5232
+        ],
+        "second_instance_collisions_logged": 2
+      },
+      "severity": "HIGH",
+      "summary": "Missing cross-thread/cross-process synchronization in `InstanceCoordinator::launch_profile` and shared `profiles.json.tmp` path in `JsonProfileStore` / `dim-host.ps1` allows concurrent launches to spawn racing processes and concurrent CLI writes to clobber `profiles.json.tmp`.",
+      "test_case_ids": [
+        "LC-08"
+      ]
+    },
+    {
+      "affected_files": [
+        "crates/platform-windows/src/adapter.rs:492-498,771-785",
+        "scripts/dim-host.ps1:1032-1036,1117-1119,2295-2298",
+        "crates/platform-macos/src/adapter.rs:386-404"
+      ],
+      "defect_id": "DEFECT-06",
+      "minimal_reproduction": "Start `xf-desktop-fixture.exe --lock-mode=exclusive --hang-on-quit` on a profile: `WindowsPlatformAdapter::inspect_profile` detects `running=true, main_pid=<pid>` via `rstrtmgr.dll`, but `stop_profile()` skips `TerminateProcess` because `allowed_exe` hardcodes `zalo*`/`zocr*`/`node.exe`/`dim-test-fixture*`, returning `Ok(0)` while the hung process keeps holding `lockfile`.",
+      "observed_evidence": {
+        "custom_exe_detected_running_via_rstrtmgr": true,
+        "custom_exe_pid": 9024,
+        "custom_exe_survived_stop": true,
+        "node_hang_escalated_cleanly": true,
+        "stop_returned_count": 0
+      },
+      "severity": "HIGH",
+      "summary": "`WindowsPlatformAdapter::stop` and `inspect_profile` hardcode an executable name allowlist (`zalo*`, `zocr*`, `node.exe`, `dim-test-fixture*`), refusing to terminate hung `CustomExecutable` processes or non-matching helper children even when `RestartManager` proves they hold the profile's `lockfile`; `MacOsPlatformAdapter::stop` lacks `SIGKILL` escalation and child-tree cleanup altogether.",
+      "test_case_ids": [
+        "LC-09"
+      ]
+    },
+    {
+      "affected_files": [
+        "crates/profile-store/src/backup.rs:143,339-345,455-460"
+      ],
+      "defect_id": "DEFECT-07",
+      "minimal_reproduction": "Create a macOS (`Library/Application Support/ZaloData/Database/_production/849777666`) or Linux (`.config/ZaloData/Database/_production/849888999`) profile where QR login happened after launch (`profile.zalo_user_id == None`), then run `backup_profile` + `restore_backup_as_new_profile`: `restore_backup_as_new_profile` hardcodes Windows `AppData/Roaming/ZaloData` and returns `zalo_user_id: None` on macOS/Linux!",
+      "observed_evidence": {
+        "expected_linux_uid": "849888999",
+        "expected_mac_uid": "849777666",
+        "linux_manifest_uid": null,
+        "linux_restored_uid": null,
+        "mac_manifest_uid": null,
+        "mac_restored_uid": null
+      },
+      "severity": "MEDIUM",
+      "summary": "`FileBackupManager::backup_profile` does not scan `ZaloData` for post-launch `zalo_user_id` logins, and `restore_backup_as_new_profile` hardcodes Windows `AppData/Roaming/ZaloData` when detecting `zalo_user_id` and writing fallback `.zalo-profile-id`, losing account IDs on macOS/Linux restores.",
+      "test_case_ids": [
+        "DS-08"
+      ]
+    },
+    {
+      "affected_files": [
+        "crates/core/src/slug.rs:14,70",
+        "scripts/dim-host.ps1:582",
+        "crates/profile-store/src/backup.rs:399-437",
+        "scripts/dim-host.ps1:2595-2608",
+        "fixtures/test-desktop-app/src/bin/dim-cli.rs:171-175",
+        "crates/profile-store/src/store.rs:157-167",
+        "scripts/dim-host.ps1:380-399,3005-3055"
+      ],
+      "defect_id": "DEFECT-08",
+      "minimal_reproduction": "Run `create \"Tai Khoan Kinh Doanh Khu Vuc Mien Nam So 1\"` on both `dim-cli.exe` and `scripts/dim-host.ps1`: Rust caps `MAX_SLUG_LEN` at `40` chars whereas PowerShell `SlugifyName` breaks at `32` chars, producing mismatched directory naming conventions.",
+      "observed_evidence": {
+        "input_name": "Tai Khoan Kinh Doanh Khu Vuc Mien Nam So 1",
+        "powershell_slug_len": 32,
+        "powershell_slug_prefix": "tai-khoan-kinh-doanh-khu-vuc-mie",
+        "rust_slug_len": 40,
+        "rust_slug_prefix": "tai-khoan-kinh-doanh-khu-vuc-mien-nam-so"
+      },
+      "severity": "MEDIUM",
+      "summary": "Contract divergences between Rust (`dim-cli`/`dim-core`) and PowerShell (`scripts/dim-host.ps1`): slug length cap (`40` vs `32`), restore duplicate-name handling (`DUPLICATE_NAME` vs silent `#2` rename that can exceed 64 chars), missing-arg error codes, and empty/corrupt `profiles.json` handling (`JSON_ERROR` fail-closed vs silent empty reset).",
+      "test_case_ids": [
+        "CT-08",
+        "CT-09",
+        "CT-10"
+      ]
+    },
+    {
+      "affected_files": [
+        "crates/profile-store/src/store.rs:271-273"
+      ],
+      "defect_id": "DEFECT-09",
+      "minimal_reproduction": "Launch a profile, then call `ProfileStore::delete_profile(&store, &id, true)`: `JsonProfileStore` hardcodes `is_running = false` in its trait implementation, deleting `profiles.json` metadata and unlinking files out from under a live running instance!",
+      "observed_evidence": {
+        "atomic_tmp_block_error_code": "IO_ERROR",
+        "coordinator_delete_guard": "PROFILE_RUNNING",
+        "profiles_json_preserved_on_write_error": true,
+        "trait_delete_profile_bypassed_running_guard": true
+      },
+      "severity": "MEDIUM",
+      "summary": "`JsonProfileStore::delete_profile` (trait implementation) hardcodes `is_running = false`, bypassing the running-instance guard if called directly instead of through `InstanceCoordinator::delete_profile`.",
+      "test_case_ids": [
+        "PM-08"
+      ]
+    },
+    {
+      "affected_files": [
+        "crates/profile-store/src/store.rs:100,216,260,439",
+        "scripts/dim-host.ps1:1777"
+      ],
+      "defect_id": "DEFECT-10",
+      "minimal_reproduction": "Create profile `'Đức Công Việc'`, then create `'đức công việc'`: `JsonProfileStore` uses `str::eq_ignore_ascii_case` which leaves non-ASCII `Đ`/`đ` and accented vowels unfolded, allowing duplicate Vietnamese profile names that `dim-host.ps1` (`OrdinalIgnoreCase`) rejects with `DUPLICATE_NAME`.",
+      "observed_evidence": {
+        "first_profile": {
+          "dir": "duc-cong-viec_b54cbf73",
+          "id": "b54cbf73",
+          "name": "Đức Công Việc"
+        },
+        "second_profile_unexpectedly_allowed": {
+          "dir": "duc-cong-viec_de052468",
+          "id": "de052468",
+          "name": "đức công việc"
+        }
+      },
+      "severity": "MEDIUM",
+      "summary": "`JsonProfileStore` duplicate-name and lookup checks use `str::eq_ignore_ascii_case`, failing to fold non-ASCII Vietnamese uppercase/lowercase pairs (`Đức` vs `đức`, `Ánh` vs `ánh`), diverging from PowerShell `StringComparison.OrdinalIgnoreCase`.",
+      "test_case_ids": [
+        "PM-04"
+      ]
+    }
+  ],
+  "host_platform": "windows",
+  "seed": "0x20261117"
+}
