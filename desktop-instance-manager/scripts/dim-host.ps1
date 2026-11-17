@@ -962,10 +962,54 @@ namespace DesktopInstanceManager.Host
                     clean.Append('-');
                     prevDash = true;
                 }
-                if (clean.Length >= 32) break;
+                if (clean.Length >= 40) break;
             }
             string slug = clean.ToString().Trim('-');
             return string.IsNullOrEmpty(slug) ? "profile" : slug;
+        }
+
+        private static bool ProfileNamesEqualCaseInsensitive(string a, string b)
+        {
+            string fa = (a ?? string.Empty).Trim().Replace('\u0110', '\u0111').ToLowerInvariant();
+            string fb = (b ?? string.Empty).Trim().Replace('\u0110', '\u0111').ToLowerInvariant();
+            return string.Equals(fa, fb, StringComparison.Ordinal);
+        }
+
+        private static int CountUnicodeScalars(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return 0;
+            int count = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+                {
+                    i++;
+                }
+                count++;
+            }
+            return count;
+        }
+
+        private static string ClampUnicodeScalars(string s, int maxScalars)
+        {
+            if (string.IsNullOrEmpty(s) || maxScalars <= 0) return string.Empty;
+            StringBuilder sb = new StringBuilder();
+            int count = 0;
+            for (int i = 0; i < s.Length && count < maxScalars; i++)
+            {
+                if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+                {
+                    sb.Append(s[i]);
+                    sb.Append(s[i + 1]);
+                    i++;
+                }
+                else
+                {
+                    sb.Append(s[i]);
+                }
+                count++;
+            }
+            return sb.ToString();
         }
 
         private string GetProfilePath(ProfileRecord record)
@@ -990,7 +1034,7 @@ namespace DesktopInstanceManager.Host
             }
             for (int i = 0; i < store.profiles.Count; i++)
             {
-                if (string.Equals(store.profiles[i].name, needle, StringComparison.OrdinalIgnoreCase))
+                if (ProfileNamesEqualCaseInsensitive(store.profiles[i].name, needle))
                 {
                     return store.profiles[i];
                 }
@@ -2475,7 +2519,8 @@ namespace DesktopInstanceManager.Host
         {
             validated = (rawName ?? string.Empty).Trim();
             errorMsg = null;
-            if (validated.Length == 0 || validated.Length > 64)
+            int scalarLen = CountUnicodeScalars(validated);
+            if (scalarLen == 0 || scalarLen > 64)
             {
                 errorMsg = "Profile name must be 1..64 characters.";
                 return false;
@@ -2535,7 +2580,7 @@ namespace DesktopInstanceManager.Host
                 ProfileStoreFile store = LoadStore();
                 for (int i = 0; i < store.profiles.Count; i++)
                 {
-                    if (string.Equals(store.profiles[i].name, name, StringComparison.OrdinalIgnoreCase))
+                    if (ProfileNamesEqualCaseInsensitive(store.profiles[i].name, name))
                     {
                         return Fail("DUPLICATE_NAME", "Profile '" + name + "' already exists.");
                     }
@@ -2582,7 +2627,7 @@ namespace DesktopInstanceManager.Host
                 for (int i = 0; i < store.profiles.Count; i++)
                 {
                     if (!string.Equals(store.profiles[i].id, target.id, StringComparison.OrdinalIgnoreCase) &&
-                        string.Equals(store.profiles[i].name, newName, StringComparison.OrdinalIgnoreCase))
+                        ProfileNamesEqualCaseInsensitive(store.profiles[i].name, newName))
                     {
                         return Fail("DUPLICATE_NAME", "Another profile already has that name.");
                     }
@@ -3370,7 +3415,7 @@ namespace DesktopInstanceManager.Host
                 manifest["source_profile_id"] = target.id;
                 manifest["source_profile_name"] = target.name;
                 manifest["source_directory_name"] = target.directory_name;
-                manifest["zalo_user_id"] = runtime["zalo_user_id"];
+                manifest["zalo_user_id"] = DetectZaloUserIdAllLayouts(profilePath) ?? runtime["zalo_user_id"];
                 manifest["file_count"] = manifestFiles.Count;
                 manifest["total_bytes"] = totalBytes;
                 manifest["files"] = manifestFiles;
@@ -3549,7 +3594,7 @@ namespace DesktopInstanceManager.Host
                 ? manifest["zalo_user_id"].ToString()
                 : null;
 
-            string baseName;
+            string explicitRequestedName = null;
             if (!string.IsNullOrWhiteSpace(requestedName))
             {
                 string validName;
@@ -3558,25 +3603,54 @@ namespace DesktopInstanceManager.Host
                 {
                     return Fail("INVALID_NAME", nameErr);
                 }
-                baseName = validName;
-            }
-            else
-            {
-                baseName = origName + " (Restored)";
+                explicitRequestedName = validName;
             }
 
             using (AcquireStoreLockScope())
             {
                 ProfileStoreFile store = LoadStore();
-                string finalName = baseName;
-                int suffix = 2;
-                while (FindProfileByExactName(store, finalName) != null)
+                string finalName = null;
+                if (explicitRequestedName != null)
                 {
-                    finalName = baseName + " #" + suffix;
-                    suffix++;
+                    if (FindProfileByExactName(store, explicitRequestedName) != null)
+                    {
+                        return Fail("DUPLICATE_NAME", "Profile '" + explicitRequestedName + "' already exists.");
+                    }
+                    finalName = explicitRequestedName;
+                }
+                else
+                {
+                    string baseCandidate = ClampUnicodeScalars(origName + " (Restored)", 64);
+                    if (FindProfileByExactName(store, baseCandidate) == null)
+                    {
+                        finalName = baseCandidate;
+                    }
+                    else
+                    {
+                        for (int suffix = 2; suffix <= 999; suffix++)
+                        {
+                            string suffixText = " (Restored #" + suffix.ToString(CultureInfo.InvariantCulture) + ")";
+                            int maxPrefix = Math.Max(0, 64 - suffixText.Length);
+                            string prefix = ClampUnicodeScalars(origName, maxPrefix);
+                            string candidate = prefix + suffixText;
+                            if (FindProfileByExactName(store, candidate) == null)
+                            {
+                                finalName = candidate;
+                                break;
+                            }
+                        }
+                        if (finalName == null)
+                        {
+                            return Fail("RESTORE_ERROR", "Could not allocate unique restored profile name.");
+                        }
+                    }
                 }
 
                 string newId = Guid.NewGuid().ToString("N").Substring(0, 8);
+                while (FindProfile(store, newId) != null)
+                {
+                    newId = Guid.NewGuid().ToString("N").Substring(0, 8);
+                }
                 string dirName = SlugifyName(finalName) + "_" + newId;
                 string newProfilePath = ResolveSafeChild(_profilesRoot, dirName);
                 string stamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture);
@@ -3584,7 +3658,12 @@ namespace DesktopInstanceManager.Host
 
                 try
                 {
-                    if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, true);
+                    if (Directory.Exists(stagingDir))
+                    {
+                        UnlinkJunctionsRecursively(stagingDir);
+                        VerifyZeroReparsePointsRemaining(stagingDir);
+                        Directory.Delete(stagingDir, true);
+                    }
                     Directory.CreateDirectory(stagingDir);
                     for (int i = 0; i < filesList.Count; i++)
                     {
@@ -3606,6 +3685,7 @@ namespace DesktopInstanceManager.Host
                         if (Directory.Exists(stagingDir))
                         {
                             UnlinkJunctionsRecursively(stagingDir);
+                            VerifyZeroReparsePointsRemaining(stagingDir);
                             Directory.Delete(stagingDir, true);
                         }
                     }
@@ -3621,7 +3701,7 @@ namespace DesktopInstanceManager.Host
                 rec.directory_name = dirName;
                 rec.created_at = NowRfc3339();
                 rec.last_launched_at = null;
-                rec.zalo_user_id = DetectZaloUserId(Path.Combine(newProfilePath, "AppData", "Roaming", "ZaloData")) ?? origUid;
+                rec.zalo_user_id = DetectZaloUserIdAllLayouts(newProfilePath) ?? origUid;
                 rec.notes = "Restored from backup";
 
                 store.profiles.Add(rec);
@@ -3632,11 +3712,28 @@ namespace DesktopInstanceManager.Host
             }
         }
 
+        private static string DetectZaloUserIdAllLayouts(string profilePath)
+        {
+            if (string.IsNullOrEmpty(profilePath)) return null;
+            string[] candidates = new string[]
+            {
+                Path.Combine(profilePath, "AppData", "Roaming", "ZaloData"),
+                Path.Combine(profilePath, "Library", "Application Support", "ZaloData"),
+                Path.Combine(profilePath, ".config", "ZaloData")
+            };
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string uid = DetectZaloUserId(candidates[i]);
+                if (!string.IsNullOrEmpty(uid)) return uid;
+            }
+            return null;
+        }
+
         private static ProfileRecord FindProfileByExactName(ProfileStoreFile store, string name)
         {
             for (int i = 0; i < store.profiles.Count; i++)
             {
-                if (string.Equals(store.profiles[i].name, name, StringComparison.OrdinalIgnoreCase)) return store.profiles[i];
+                if (ProfileNamesEqualCaseInsensitive(store.profiles[i].name, name)) return store.profiles[i];
             }
             return null;
         }
@@ -3738,7 +3835,7 @@ namespace DesktopInstanceManager.Host
             matrix.Add(MakePlatformRow("Windows 10/11", "PARTIALLY_SUPPORTED", "Per-process CreateProcessW + USERPROFILE/APPDATA/TEMP isolation + signed PowerShell host", "Core isolation/login/chat/backup SUPPORTED_AND_TESTED; concurrent calls BLOCKED (PipeZCallRecv/PipeZCallSend); shared AUMID com.vng.zalo."));
             matrix.Add(MakePlatformRow("macOS (Apple Silicon & Intel)", "NOT_TESTED", "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>", "Requires physical Mac verification; /tmp/socketzalorecv2021 call socket conflict."));
             matrix.Add(MakePlatformRow("Ubuntu LTS (Official Zalo)", "UNSUPPORTED", "No official VNG Linux desktop build exists", "Official VNG Linux package does not exist."));
-            matrix.Add(MakePlatformRow("Ubuntu LTS (Fixture / Local AppImage)", "EXPERIMENTAL", "XDG_CONFIG_HOME / HOME / optional bwrap", "Community/AppImage may need --no-sandbox on Ubuntu 24.04 AppArmor; never bundle proprietary VNG app.asar."));
+            matrix.Add(MakePlatformRow("Ubuntu LTS (Fixture / Local AppImage)", "EXPERIMENTAL", "XDG_CONFIG_HOME / HOME / optional bwrap", "On Ubuntu 24.04+, configure an AppArmor userns profile in /etc/apparmor.d/ for local AppImages (never disable Chromium sandboxing); never bundle proprietary VNG app.asar."));
 
             Dictionary<string, object> res = new Dictionary<string, object>();
             res["ok"] = true;

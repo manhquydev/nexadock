@@ -146,6 +146,9 @@ impl FileBackupManager {
             }
         };
 
+        let detected_uid =
+            detect_zalo_user_id_all_layouts(profile_dir).or_else(|| profile.zalo_user_id.clone());
+
         let manifest = BackupManifest {
             schema_version: BACKUP_SCHEMA_VERSION,
             backup_id,
@@ -153,7 +156,7 @@ impl FileBackupManager {
             source_profile_id: profile.id.clone(),
             source_profile_name: profile.name.clone(),
             source_directory_name: profile.directory_name.clone(),
-            zalo_user_id: profile.zalo_user_id.clone(),
+            zalo_user_id: detected_uid,
             file_count: files.len() as u64,
             total_bytes,
             files,
@@ -365,13 +368,8 @@ impl BackupManager for FileBackupManager {
             return Err(DimError::Io(err));
         }
 
-        let detected_uid = detect_zalo_user_id(
-            &dest_profile_dir
-                .join("AppData")
-                .join("Roaming")
-                .join("ZaloData"),
-        )
-        .or(manifest.zalo_user_id);
+        let detected_uid =
+            detect_zalo_user_id_all_layouts(&dest_profile_dir).or(manifest.zalo_user_id);
 
         let record = ProfileRecord {
             id: new_id,
@@ -433,7 +431,10 @@ fn choose_unique_restored_name(
 ) -> Result<String, DimError> {
     if let Some(name) = requested {
         let valid = validate_profile_name(name)?;
-        if existing.iter().any(|p| p.name.eq_ignore_ascii_case(&valid)) {
+        if existing
+            .iter()
+            .any(|p| crate::store::profile_names_eq_case_insensitive(&p.name, &valid))
+        {
             return Err(DimError::DuplicateProfileName(valid));
         }
         return Ok(valid);
@@ -443,7 +444,7 @@ fn choose_unique_restored_name(
     let base_trimmed: String = base.chars().take(dim_core::MAX_PROFILE_NAME_LEN).collect();
     if !existing
         .iter()
-        .any(|p| p.name.eq_ignore_ascii_case(&base_trimmed))
+        .any(|p| crate::store::profile_names_eq_case_insensitive(&p.name, &base_trimmed))
     {
         return Ok(base_trimmed);
     }
@@ -455,7 +456,7 @@ fn choose_unique_restored_name(
         let candidate = format!("{prefix}{suffix}");
         if !existing
             .iter()
-            .any(|p| p.name.eq_ignore_ascii_case(&candidate))
+            .any(|p| crate::store::profile_names_eq_case_insensitive(&p.name, &candidate))
         {
             return Ok(candidate);
         }
@@ -464,6 +465,23 @@ fn choose_unique_restored_name(
     Err(DimError::RestoreError(
         "could not allocate unique restored profile name".to_owned(),
     ))
+}
+
+fn detect_zalo_user_id_all_layouts(profile_dir: &Path) -> Option<String> {
+    let candidates = [
+        profile_dir.join("AppData").join("Roaming").join("ZaloData"),
+        profile_dir
+            .join("Library")
+            .join("Application Support")
+            .join("ZaloData"),
+        profile_dir.join(".config").join("ZaloData"),
+    ];
+    for dir in &candidates {
+        if let Some(uid) = detect_zalo_user_id(dir) {
+            return Some(uid);
+        }
+    }
+    None
 }
 
 fn rewrite_profile_identity_markers(profile_dir: &Path, new_id: &str) -> Result<(), DimError> {
@@ -483,10 +501,16 @@ fn rewrite_profile_identity_markers(profile_dir: &Path, new_id: &str) -> Result<
         }
     }
     if !updated_any {
-        write_profile_id_marker(
-            &profile_dir.join("AppData").join("Roaming").join("ZaloData"),
-            new_id,
-        )?;
+        #[cfg(target_os = "macos")]
+        let default_zdir = profile_dir
+            .join("Library")
+            .join("Application Support")
+            .join("ZaloData");
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        let default_zdir = profile_dir.join(".config").join("ZaloData");
+        #[cfg(target_os = "windows")]
+        let default_zdir = profile_dir.join("AppData").join("Roaming").join("ZaloData");
+        write_profile_id_marker(&default_zdir, new_id)?;
     }
     Ok(())
 }

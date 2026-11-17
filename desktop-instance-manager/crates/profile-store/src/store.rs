@@ -141,7 +141,7 @@ impl JsonProfileStore {
             if doc
                 .profiles
                 .iter()
-                .any(|p| p.name.eq_ignore_ascii_case(&record.name))
+                .any(|p| profile_names_eq_case_insensitive(&p.name, &record.name))
             {
                 return Err(DimError::DuplicateProfileName(record.name));
             }
@@ -416,7 +416,7 @@ impl ProfileStore for JsonProfileStore {
             if doc
                 .profiles
                 .iter()
-                .any(|p| p.name.eq_ignore_ascii_case(&clean_name))
+                .any(|p| profile_names_eq_case_insensitive(&p.name, &clean_name))
             {
                 return Err(DimError::DuplicateProfileName(clean_name));
             }
@@ -464,7 +464,7 @@ impl ProfileStore for JsonProfileStore {
                 .profiles
                 .iter()
                 .enumerate()
-                .any(|(i, p)| i != idx && p.name.eq_ignore_ascii_case(&clean_name))
+                .any(|(i, p)| i != idx && profile_names_eq_case_insensitive(&p.name, &clean_name))
             {
                 return Err(DimError::DuplicateProfileName(clean_name));
             }
@@ -735,6 +735,13 @@ fn remove_dir_without_following_links(dir: &Path) -> Result<(), DimError> {
     Ok(())
 }
 
+pub(crate) fn profile_names_eq_case_insensitive(a: &str, b: &str) -> bool {
+    a.trim()
+        .chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.trim().chars().flat_map(char::to_lowercase))
+}
+
 fn find_profile_index(profiles: &[ProfileRecord], needle: &str) -> Option<usize> {
     let trimmed = needle.trim();
     if trimmed.is_empty() {
@@ -746,6 +753,6 @@ fn find_profile_index(profiles: &[ProfileRecord], needle: &str) -> Option<usize>
         .or_else(|| {
             profiles
                 .iter()
-                .position(|p| p.name.eq_ignore_ascii_case(trimmed))
+                .position(|p| profile_names_eq_case_insensitive(&p.name, trimmed))
         })
 }

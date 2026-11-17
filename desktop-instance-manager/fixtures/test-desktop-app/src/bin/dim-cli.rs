@@ -595,6 +595,53 @@ fn cmd_diagnostics(store: &JsonProfileStore, adapter: &ActiveAdapter) -> Result<
         .as_deref()
         .map(|s| redact_sensitive_text(s, user_home.as_deref()));
 
+    let live_limits = caps.limitations.join("; ");
+    let win_row = if caps.platform == PlatformKind::Windows {
+        json!({
+            "platform": "Windows 10/11",
+            "status": format_support_status(caps.overall_status),
+            "strategy": "Native Rust core + CreateProcessW USERPROFILE/APPDATA/TEMP isolation",
+            "limits": live_limits,
+        })
+    } else {
+        json!({
+            "platform": "Windows 10/11",
+            "status": "PARTIALLY_SUPPORTED",
+            "strategy": "Native Rust core + CreateProcessW USERPROFILE/APPDATA/TEMP isolation",
+            "limits": "Concurrent calls limited by PipeZCallRecv/PipeZCallSend; prefer in-app notiWin over shared com.vng.zalo Action Center toast.",
+        })
+    };
+    let mac_row = if caps.platform == PlatformKind::MacOs {
+        json!({
+            "platform": "macOS (Apple Silicon & Intel)",
+            "status": format_support_status(caps.overall_status),
+            "strategy": "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>",
+            "limits": live_limits,
+        })
+    } else {
+        json!({
+            "platform": "macOS (Apple Silicon & Intel)",
+            "status": "NOT_TESTED",
+            "strategy": "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>",
+            "limits": "Requires physical Mac verification; /tmp/socketzalorecv2021 call socket conflict.",
+        })
+    };
+    let linux_appimage_row = if caps.platform == PlatformKind::Linux {
+        json!({
+            "platform": "Ubuntu LTS (Fixture / Local AppImage)",
+            "status": format_support_status(caps.appimage_status.unwrap_or(caps.overall_status)),
+            "strategy": "XDG_CONFIG_HOME / HOME / optional bwrap",
+            "limits": live_limits,
+        })
+    } else {
+        json!({
+            "platform": "Ubuntu LTS (Fixture / Local AppImage)",
+            "status": "EXPERIMENTAL",
+            "strategy": "XDG_CONFIG_HOME / HOME / optional bwrap",
+            "limits": "On Ubuntu 24.04+, configure an AppArmor userns profile in /etc/apparmor.d/ for local AppImages (never disable Chromium sandboxing); never bundle proprietary VNG app.asar.",
+        })
+    };
+
     Ok(json!({
         "ok": true,
         "timestamp_utc": now_rfc3339_utc(),
@@ -608,16 +655,15 @@ fn cmd_diagnostics(store: &JsonProfileStore, adapter: &ActiveAdapter) -> Result<
         "disk_free_ok": free >= MIN_FREE_DISK_BYTES,
         "profiles_acl_safe": adapter.check_profiles_acl_safe(store.profiles_dir()),
         "platform_support_matrix": [
+            win_row,
+            mac_row,
             {
-                "platform": match caps.platform {
-                    PlatformKind::Windows => "Windows 10/11",
-                    PlatformKind::MacOs => "macOS (Apple Silicon & Intel)",
-                    PlatformKind::Linux => "Ubuntu / Linux",
-                },
-                "status": format_support_status(caps.overall_status),
-                "strategy": "Native Rust core + OS process isolation",
-                "limits": caps.limitations.join("; "),
-            }
+                "platform": "Ubuntu LTS (Official Zalo)",
+                "status": "UNSUPPORTED",
+                "strategy": "No official VNG Linux desktop build exists",
+                "limits": "Official VNG Linux package does not exist.",
+            },
+            linux_appimage_row,
         ],
         "sanitized_logs": sanitized_logs,
     }))
