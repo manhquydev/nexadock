@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "manifest_kind": "cross-platform-artifact-manifest",
+  "generated_at_utc": "2026-11-17T16:50:28.356Z",
+  "os_label": "Windows 11 Pro (10.0.26300 x64)",
+  "target_triple": "x86_64-pc-windows-gnu",
+  "build_commit_sha": "a5feb4a520798064c1508c26fe4c4ac17a3a03cf",
+  "rust_version": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "tauri_version": "2.12.6",
+  "test_status": "PASS (29/29 workspace unit tests + src-tauri test target passed --locked)",
+  "bundle_status": null,
+  "bundle_diagnostic_reason": null,
+  "signing_policy": "UNSIGNED_DEVELOPMENT_ARTIFACT (never production or signed release)",
+  "zero_vng_binary_policy_passed": true,
+  "artifacts_count": 3,
+  "artifacts": [
+    {
+      "name": "dim-desktop.exe",
+      "relative_path": "apps/desktop/src-tauri/target/x86_64-pc-windows-gnu/release/dim-desktop.exe",
+      "artifact_kind": "compiled-executable",
+      "is_installer": false,
+      "os": "windows",
+      "os_runner_label": "Windows 11 Pro (10.0.26300 x64)",
+      "cpu_architecture": "x86_64",
+      "rust_target_triple": "x86_64-pc-windows-gnu",
+      "build_commit_sha": "a5feb4a520798064c1508c26fe4c4ac17a3a03cf",
+      "rust_version": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "tauri_version": "2.12.6",
+      "file_size_bytes": 21586008,
+      "sha256": "eb1a024ef4a5b0ff6bb75596484658650ad348cd176bc3a611e8dc1b315fe4eb",
+      "signing_status": "UNSIGNED_DEVELOPMENT_ARTIFACT",
+      "notarization_status": "NOT_APPLICABLE (non-macOS artifact; unsigned development build)",
+      "test_status": "PASS (29/29 workspace unit tests + src-tauri test target passed --locked)",
+      "zalo_runtime_compat_status": "DIM_MANAGER_BUILD_ONLY — Windows L1/L2 multi-instance runtime verified separately against user-installed official VNG Zalo; zero VNG binaries embedded in this artifact",
+      "vng_binary_embedded": false,
+      "build_log_url": "LOCAL_WORKTREE_BUILD:plans/reports/build/windows-local-build-report.md",
+      "inspection": {
+        "pe": {
+          "valid_pe": true,
+          "pe_format": "PE32+ (64-bit)",
+          "coff_machine_hex": "0x8664",
+          "cpu_architecture": "x86_64",
+          "sections_count": 11,
+          "subsystem": "WINDOWS_GUI",
+          "is_dll": false,
+          "authenticode": {
+            "certificate_table_offset": 0,
+            "certificate_table_size": 0,
+            "has_certificate_table": false,
+            "signing_status": "UNSIGNED_DEVELOPMENT_ARTIFACT"
+          },
+          "embedded_manifest": {
+            "present": true,
+            "blocks_count": 2,
+            "requested_execution_level": "asInvoker",
+            "ui_access": "false",
+            "long_path_aware": "true",
+            "common_controls_v6": true,
+            "dpi_aware": null,
+            "dpi_awareness": null,
+            "supported_os_guids": []
+          },
+          "imports_webview2_loader": true,
+          "sidecar_webview2_loader": {
+            "present": true,
+            "path": "WebView2Loader.dll",
+            "size_bytes": 160880
+          }
+        }
+      }
+    },
+    {
+      "name": "dim-cli.exe",
+      "relative_path": "target/x86_64-pc-windows-gnu/release/dim-cli.exe",
+      "artifact_kind": "compiled-executable",
+      "is_installer": false,
+      "os": "windows",
+      "os_runner_label": "Windows 11 Pro (10.0.26300 x64)",
+      "cpu_architecture": "x86_64",
+      "rust_target_triple": "x86_64-pc-windows-gnu",
+      "build_commit_sha": "a5feb4a520798064c1508c26fe4c4ac17a3a03cf",
+      "rust_version": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "tauri_version": "2.12.6",
+      "file_size_bytes": 2209966,
+      "sha256": "24132f61429179962f216e200cea04cc52a36a7f675f6408c460764c67c07c98",
+      "signing_status": "UNSIGNED_DEVELOPMENT_ARTIFACT",
+      "notarization_status": "NOT_APPLICABLE (non-macOS artifact; unsigned development build)",
+      "test_status": "PASS (29/29 workspace unit tests + src-tauri test target passed --locked)",
+      "zalo_runtime_compat_status": "DIM_MANAGER_BUILD_ONLY — Windows L1/L2 multi-instance runtime verified separately against user-installed official VNG Zalo; zero VNG binaries embedded in this artifact",
+      "vng_binary_embedded": false,
+      "build_log_url": "LOCAL_WORKTREE_BUILD:plans/reports/build/windows-local-build-report.md",
+      "inspection": {
+        "pe": {
+          "valid_pe": true,
+          "pe_format": "PE32+ (64-bit)",
+          "coff_machine_hex": "0x8664",
+          "cpu_architecture": "x86_64",
+          "sections_count": 11,
+          "subsystem": "WINDOWS_CUI",
+          "is_dll": false,
+          "authenticode": {
+            "certificate_table_offset": 0,
+            "certificate_table_size": 0,
+            "has_certificate_table": false,
+            "signing_status": "UNSIGNED_DEVELOPMENT_ARTIFACT"
+          },
+          "embedded_manifest": {
+            "present": true,
+            "blocks_count": 1,
+            "requested_execution_level": "asInvoker",
+            "ui_access": "false",
+            "long_path_aware": "true",
+            "common_controls_v6": false,
+            "dpi_aware": null,
+            "dpi_awareness": null,
+            "supported_os_guids": []
+          },
+          "imports_webview2_loader": false,
+          "sidecar_webview2_loader": {
+            "present": false,
+            "path": null,
+            "size_bytes": null
+          }
+        }
+      }
+    },
+    {
+      "name": "dim-test-fixture.exe",
+      "relative_path": "target/x86_64-pc-windows-gnu/release/dim-test-fixture.exe",
+      "artifact_kind": "compiled-executable",
+      "is_installer": false,
+      "os": "windows",
+      "os_runner_label": "Windows 11 Pro (10.0.26300 x64)",
+      "cpu_architecture": "x86_64",
+      "rust_target_triple": "x86_64-pc-windows-gnu",
+      "build_commit_sha": "a5feb4a520798064c1508c26fe4c4ac17a3a03cf",
+      "rust_version": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "tauri_version": "2.12.6",
+      "file_size_bytes": 1616671,
+      "sha256": "4ea0f248b17d087a6a630d9ac58c2f1e862ea9d86784a18164075289ff1bba7c",
+      "signing_status": "UNSIGNED_DEVELOPMENT_ARTIFACT",
+      "notarization_status": "NOT_APPLICABLE (non-macOS artifact; unsigned development build)",
+      "test_status": "PASS (29/29 workspace unit tests + src-tauri test target passed --locked)",
+      "zalo_runtime_compat_status": "DIM_MANAGER_BUILD_ONLY — Windows L1/L2 multi-instance runtime verified separately against user-installed official VNG Zalo; zero VNG binaries embedded in this artifact",
+      "vng_binary_embedded": false,
+      "build_log_url": "LOCAL_WORKTREE_BUILD:plans/reports/build/windows-local-build-report.md",
+      "inspection": {
+        "pe": {
+          "valid_pe": true,
+          "pe_format": "PE32+ (64-bit)",
+          "coff_machine_hex": "0x8664",
+          "cpu_architecture": "x86_64",
+          "sections_count": 11,
+          "subsystem": "WINDOWS_CUI",
+          "is_dll": false,
+          "authenticode": {
+            "certificate_table_offset": 0,
+            "certificate_table_size": 0,
+            "has_certificate_table": false,
+            "signing_status": "UNSIGNED_DEVELOPMENT_ARTIFACT"
+          },
+          "embedded_manifest": {
+            "present": true,
+            "blocks_count": 1,
+            "requested_execution_level": "asInvoker",
+            "ui_access": "false",
+            "long_path_aware": "true",
+            "common_controls_v6": false,
+            "dpi_aware": null,
+            "dpi_awareness": null,
+            "supported_os_guids": []
+          },
+          "imports_webview2_loader": false,
+          "sidecar_webview2_loader": {
+            "present": false,
+            "path": null,
+            "size_bytes": null
+          }
+        }
+      }
+    }
+  ]
+}

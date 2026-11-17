@@ -1,0 +1,443 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-11-17T16:44:08.076Z",
+  "policy_source": "desktop-instance-manager/deny.toml",
+  "policy_summary": {
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "x86_64-pc-windows-gnu",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin"
+    ],
+    "allowed_licenses": [
+      "MIT",
+      "Apache-2.0",
+      "Apache-2.0 WITH LLVM-exception",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "Unicode-3.0",
+      "Zlib",
+      "MPL-2.0"
+    ],
+    "banned_crates": [
+      "openssl",
+      "openssl-sys"
+    ],
+    "allowed_registries": [
+      "https://github.com/rust-lang/crates.io-index"
+    ],
+    "allowed_git": [],
+    "unknown_registry_policy": "deny",
+    "unknown_git_policy": "deny"
+  },
+  "lockfiles": {
+    "workspace": {
+      "path": "desktop-instance-manager/Cargo.lock",
+      "format_version": 4,
+      "sha256": "deeb58a04271c4146491f8d0385618838ef64f1cab1194b6f88888e3071040d2",
+      "packages_count": 41
+    },
+    "tauri_desktop": {
+      "path": "desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock",
+      "format_version": 4,
+      "sha256": "0bcb1b65cc7e53d142c148d306f6e6dfe24a4fce323e18f99c9f6dae5213e1fc",
+      "packages_count": 434,
+      "tauri_version": "2.12.6",
+      "tauri_build_version": "2.7.5"
+    },
+    "unique_locked_packages_count": 439,
+    "registry_packages_count": 431
+  },
+  "checks": {
+    "banned_crates_passed": true,
+    "banned_crates_found": [],
+    "allowed_registries_passed": true,
+    "disallowed_sources": [],
+    "checksums_passed": true,
+    "verified_sha256_checksums_count": 431,
+    "missing_or_invalid_checksums": [],
+    "licenses_passed": true,
+    "license_audit": {
+      "mode": "CARGO_METADATA_LOCKED",
+      "cargo_binary": "C:\\Users\\manhquy\\.cargo\\bin\\cargo.exe",
+      "evaluated_packages_count": 439,
+      "license_violations": [],
+      "license_distribution": {
+        "MIT OR Apache-2.0": 205,
+        "MIT": 104,
+        "Apache-2.0 OR MIT": 34,
+        "Unicode-3.0": 18,
+        "Zlib OR Apache-2.0 OR MIT": 17,
+        "MIT/Apache-2.0": 12,
+        "Unlicense OR MIT": 9,
+        "MPL-2.0": 7,
+        "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT": 5,
+        "Apache-2.0/MIT": 3,
+        "Apache-2.0": 2,
+        "BSD-3-Clause": 2,
+        "BSD-3-Clause OR MIT OR Apache-2.0": 2,
+        "MIT OR Apache-2.0 OR LGPL-2.1-or-later": 2,
+        "MIT OR Apache-2.0 OR Zlib": 2,
+        "MIT OR Zlib OR Apache-2.0": 2,
+        "Unlicense/MIT": 2,
+        "Zlib": 2,
+        "(MIT OR Apache-2.0) AND Unicode-3.0": 1,
+        "0BSD OR MIT OR Apache-2.0": 1,
+        "Apache-2.0 / MIT": 1,
+        "Apache-2.0 AND MIT": 1,
+        "Apache-2.0 WITH LLVM-exception": 1,
+        "BSD-3-Clause AND MIT": 1,
+        "BSD-3-Clause/MIT": 1,
+        "CC0-1.0 OR MIT-0 OR Apache-2.0": 1,
+        "ISC": 1
+      },
+      "max_dependency_msrv": {
+        "crate": "dim-desktop@0.1.0",
+        "rust_version": "1.90"
+      }
+    },
+    "msrv_alignment": {
+      "workspace_manifest": "desktop-instance-manager/Cargo.toml",
+      "workspace_rust_version": "1.85",
+      "tauri_manifest": "desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml",
+      "tauri_rust_version": "1.90",
+      "effective_packaging_msrv": "1.90",
+      "member_manifests": [
+        {
+          "manifest": "crates/core/Cargo.toml",
+          "rust_version": "workspace-inherited"
+        },
+        {
+          "manifest": "crates/profile-store/Cargo.toml",
+          "rust_version": "workspace-inherited"
+        },
+        {
+          "manifest": "crates/process-manager/Cargo.toml",
+          "rust_version": "workspace-inherited"
+        },
+        {
+          "manifest": "crates/platform-windows/Cargo.toml",
+          "rust_version": "workspace-inherited"
+        },
+        {
+          "manifest": "crates/platform-macos/Cargo.toml",
+          "rust_version": "workspace-inherited"
+        },
+        {
+          "manifest": "crates/platform-linux/Cargo.toml",
+          "rust_version": "workspace-inherited"
+        },
+        {
+          "manifest": "fixtures/test-desktop-app/Cargo.toml",
+          "rust_version": "workspace-inherited"
+        }
+      ],
+      "mismatch_detected": true,
+      "warning": "IR-001 WARNING: MSRV mismatch detected — workspace Cargo.toml specifies rust-version = \"1.85\" whereas apps/desktop/src-tauri/Cargo.toml specifies rust-version = \"1.90\". Cross-platform desktop builds require Rust >= 1.90."
+    },
+    "zero_vng_binary_policy_passed": true,
+    "vng_proprietary_binaries_found": []
+  },
+  "duplicate_crate_versions_count": 41,
+  "duplicate_crate_versions": [
+    {
+      "name": "base64",
+      "versions": [
+        "0.21.7",
+        "0.23.1"
+      ]
+    },
+    {
+      "name": "bit-set",
+      "versions": [
+        "0.11.1",
+        "0.8.0"
+      ]
+    },
+    {
+      "name": "bit-vec",
+      "versions": [
+        "0.10.2",
+        "0.8.0"
+      ]
+    },
+    {
+      "name": "bitflags",
+      "versions": [
+        "1.3.2",
+        "2.13.2"
+      ]
+    },
+    {
+      "name": "block-buffer",
+      "versions": [
+        "0.10.4",
+        "0.12.1"
+      ]
+    },
+    {
+      "name": "cpufeatures",
+      "versions": [
+        "0.2.17",
+        "0.3.1"
+      ]
+    },
+    {
+      "name": "crypto-common",
+      "versions": [
+        "0.1.7",
+        "0.2.2"
+      ]
+    },
+    {
+      "name": "cssparser",
+      "versions": [
+        "0.37.0",
+        "0.38.0"
+      ]
+    },
+    {
+      "name": "digest",
+      "versions": [
+        "0.10.7",
+        "0.11.3"
+      ]
+    },
+    {
+      "name": "dom_query",
+      "versions": [
+        "0.28.0",
+        "0.29.0"
+      ]
+    },
+    {
+      "name": "getrandom",
+      "versions": [
+        "0.3.4",
+        "0.4.3"
+      ]
+    },
+    {
+      "name": "hashbrown",
+      "versions": [
+        "0.12.3",
+        "0.17.1"
+      ]
+    },
+    {
+      "name": "heck",
+      "versions": [
+        "0.4.1",
+        "0.5.0"
+      ]
+    },
+    {
+      "name": "html5ever",
+      "versions": [
+        "0.39.0",
+        "0.40.1"
+      ]
+    },
+    {
+      "name": "indexmap",
+      "versions": [
+        "1.9.3",
+        "2.14.2"
+      ]
+    },
+    {
+      "name": "jni-sys",
+      "versions": [
+        "0.3.1",
+        "0.4.1"
+      ]
+    },
+    {
+      "name": "markup5ever",
+      "versions": [
+        "0.39.0",
+        "0.40.0"
+      ]
+    },
+    {
+      "name": "miniz_oxide",
+      "versions": [
+        "0.8.9",
+        "0.9.1"
+      ]
+    },
+    {
+      "name": "phf",
+      "versions": [
+        "0.13.1",
+        "0.14.0"
+      ]
+    },
+    {
+      "name": "phf_codegen",
+      "versions": [
+        "0.13.1",
+        "0.14.0"
+      ]
+    },
+    {
+      "name": "phf_generator",
+      "versions": [
+        "0.13.1",
+        "0.14.0"
+      ]
+    },
+    {
+      "name": "phf_macros",
+      "versions": [
+        "0.13.1",
+        "0.14.0"
+      ]
+    },
+    {
+      "name": "phf_shared",
+      "versions": [
+        "0.13.1",
+        "0.14.0"
+      ]
+    },
+    {
+      "name": "proc-macro-crate",
+      "versions": [
+        "1.3.1",
+        "2.0.2",
+        "3.5.0"
+      ]
+    },
+    {
+      "name": "r-efi",
+      "versions": [
+        "5.3.0",
+        "6.0.0"
+      ]
+    },
+    {
+      "name": "schemars",
+      "versions": [
+        "0.8.22",
+        "0.9.0",
+        "1.2.3"
+      ]
+    },
+    {
+      "name": "selectors",
+      "versions": [
+        "0.38.0",
+        "0.41.0"
+      ]
+    },
+    {
+      "name": "serde_spanned",
+      "versions": [
+        "0.6.9",
+        "1.1.3"
+      ]
+    },
+    {
+      "name": "servo_arc",
+      "versions": [
+        "0.4.3",
+        "0.5.0"
+      ]
+    },
+    {
+      "name": "sha2",
+      "versions": [
+        "0.10.9",
+        "0.11.1"
+      ]
+    },
+    {
+      "name": "string_cache",
+      "versions": [
+        "0.11.0",
+        "0.9.0"
+      ]
+    },
+    {
+      "name": "string_cache_codegen",
+      "versions": [
+        "0.11.2",
+        "0.6.1"
+      ]
+    },
+    {
+      "name": "syn",
+      "versions": [
+        "1.0.109",
+        "2.0.119",
+        "3.0.10"
+      ]
+    },
+    {
+      "name": "thiserror",
+      "versions": [
+        "1.0.69",
+        "2.0.21"
+      ]
+    },
+    {
+      "name": "thiserror-impl",
+      "versions": [
+        "1.0.69",
+        "2.0.21"
+      ]
+    },
+    {
+      "name": "toml",
+      "versions": [
+        "0.8.2",
+        "1.2.1+spec-1.1.0"
+      ]
+    },
+    {
+      "name": "toml_datetime",
+      "versions": [
+        "0.6.3",
+        "1.1.3+spec-1.1.0"
+      ]
+    },
+    {
+      "name": "toml_edit",
+      "versions": [
+        "0.19.15",
+        "0.20.2",
+        "0.25.19+spec-1.1.0"
+      ]
+    },
+    {
+      "name": "web_atoms",
+      "versions": [
+        "0.2.6",
+        "0.3.0"
+      ]
+    },
+    {
+      "name": "windows-sys",
+      "versions": [
+        "0.45.0",
+        "0.61.2"
+      ]
+    },
+    {
+      "name": "winnow",
+      "versions": [
+        "0.5.40",
+        "1.0.5"
+      ]
+    }
+  ],
+  "warnings": [
+    "IR-001 WARNING: MSRV mismatch detected — workspace Cargo.toml specifies rust-version = \"1.85\" whereas apps/desktop/src-tauri/Cargo.toml specifies rust-version = \"1.90\". Cross-platform desktop builds require Rust >= 1.90.",
+    "IR-004 INFO: Repository maintains two separate Cargo lockfiles (desktop-instance-manager/Cargo.lock and apps/desktop/src-tauri/Cargo.lock) because src-tauri declares an independent [workspace]. Both lockfiles were audited.",
+    "Transitive multi-version crates present (41 crate families across lockfiles; matches deny.toml multiple-versions = \"warn\")."
+  ],
+  "policy_check_passed": true
+}
