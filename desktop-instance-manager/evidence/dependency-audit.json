@@ -1,0 +1,10 @@
+{
+  "generated_at_utc": "2026-11-17T15:38:14.971Z",
+  "cargo_lock_packages_count": 41,
+  "tauri_lock_packages_count": 434,
+  "unique_resolved_packages_count": 439,
+  "banned_crates_found": [],
+  "disallowed_sources": [],
+  "license_review_items": [],
+  "policy_check_passed": true
+}

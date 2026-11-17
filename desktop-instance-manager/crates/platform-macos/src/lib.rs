@@ -38,7 +38,9 @@ mod tests {
     fn open_command_builder_sets_cffixed_user_home() {
         let args = build_open_args(
             Path::new("/Applications/Zalo.app"),
-            Path::new("/Users/alice/Library/Application Support/MultiZaloDesktop/Profiles/work_11223344"),
+            Path::new(
+                "/Users/alice/Library/Application Support/MultiZaloDesktop/Profiles/work_11223344",
+            ),
             &[],
         );
         assert_eq!(args[0], "-n");
@@ -74,7 +76,10 @@ mod tests {
         assert_eq!(ver.as_deref(), Some("26.10.20"));
 
         let adapter = MacOsPlatformAdapter::new();
-        assert_eq!(adapter.capabilities().official_zalo_status, SupportStatus::NotTested);
+        assert_eq!(
+            adapter.capabilities().official_zalo_status,
+            SupportStatus::NotTested
+        );
         let missing = adapter
             .discover_installation(Some(&tmp.path().join("MissingZalo.app")))
             .unwrap();

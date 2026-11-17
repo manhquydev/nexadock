@@ -127,11 +127,17 @@ fn run_fixture(opts: &CliOptions) -> std::io::Result<u8> {
 
     if !acquire_lock(&lockfile)? {
         if opts.force_quit {
-            fs::write(&quit_signal, format!("{{\"requested_at\":\"{}\"}}\n", now_rfc3339_utc()))?;
+            fs::write(
+                &quit_signal,
+                format!("{{\"requested_at\":\"{}\"}}\n", now_rfc3339_utc()),
+            )?;
             return Ok(0);
         }
         append_log(&startup_log, "SECOND_INSTANCE_REJECTED");
-        let _ = fs::write(&focus_signal, format!("{{\"focused_at\":\"{}\"}}\n", now_rfc3339_utc()));
+        let _ = fs::write(
+            &focus_signal,
+            format!("{{\"focused_at\":\"{}\"}}\n", now_rfc3339_utc()),
+        );
         return Ok(2);
     }
 
@@ -175,7 +181,10 @@ fn run_fixture(opts: &CliOptions) -> std::io::Result<u8> {
     write_json_atomic(&launch_state_path, &state)?;
     append_log(
         &startup_log,
-        &format!("PRIMARY_STARTED pid={} launch_count={}", state.last_pid, state.launch_count),
+        &format!(
+            "PRIMARY_STARTED pid={} launch_count={}",
+            state.last_pid, state.launch_count
+        ),
     );
 
     if opts.crash {
@@ -218,7 +227,11 @@ fn run_fixture(opts: &CliOptions) -> std::io::Result<u8> {
 }
 
 fn acquire_lock(lockfile: &Path) -> std::io::Result<bool> {
-    match OpenOptions::new().write(true).create_new(true).open(lockfile) {
+    match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(lockfile)
+    {
         Ok(mut f) => {
             let payload = LockPayload {
                 pid: std::process::id(),

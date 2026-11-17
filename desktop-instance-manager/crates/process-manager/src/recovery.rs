@@ -48,7 +48,10 @@ impl RecoveryManager for StaleLockRecoveryManager {
                 profile.name
             )
         } else {
-            format!("No stale lock artifacts found for profile '{}'", profile.name)
+            format!(
+                "No stale lock artifacts found for profile '{}'",
+                profile.name
+            )
         };
 
         Ok(RecoveryReport {

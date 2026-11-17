@@ -3,6 +3,7 @@ rea/
 
 # Rust / Cargo build artifacts
 target/
+desktop-instance-manager/apps/desktop/src-tauri/gen/
 **/*.rs.bk
 
 # Node.js / Frontend

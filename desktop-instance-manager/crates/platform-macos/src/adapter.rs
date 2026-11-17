@@ -87,8 +87,7 @@ impl ApplicationLocator for MacOsPlatformAdapter {
             notes: vec![
                 "Isolated launch uses `open -n -a ... --env CFFIXED_USER_HOME=<profile_home>`."
                     .to_owned(),
-                "Concurrent calls conflict on global /tmp/socketzalorecv2021."
-                    .to_owned(),
+                "Concurrent calls conflict on global /tmp/socketzalorecv2021.".to_owned(),
             ],
             error: None,
         })
@@ -158,15 +157,16 @@ impl InstanceMonitor for MacOsPlatformAdapter {
             let lock_path = zalo_data.join("SingletonLock");
             let pid = read_singleton_or_json_pid(&zalo_data);
             let alive = pid.filter(|&p| is_unix_pid_alive(p));
+            let detected_uid = detect_zalo_user_id(&zalo_data);
             Ok(PrimaryInstanceStatus {
                 zalo_data_dir: zalo_data,
                 lockfile_path: lock_path,
                 running: alive.is_some(),
                 protected_pids: alive.into_iter().collect(),
                 process_count: usize::from(alive.is_some()),
-                notes: vec![
-                    "Primary macOS Zalo PID is protected against termination.".to_owned(),
-                ],
+                working_set_bytes: 0,
+                detected_zalo_user_id: detected_uid,
+                notes: vec!["Primary macOS Zalo PID is protected against termination.".to_owned()],
             })
         }
         #[cfg(not(target_os = "macos"))]
@@ -302,9 +302,7 @@ impl InstanceLauncher for MacOsPlatformAdapter {
                     script_path,
                     extra_args,
                 } => {
-                    let node = node_path
-                        .as_deref()
-                        .unwrap_or_else(|| Path::new("node"));
+                    let node = node_path.as_deref().unwrap_or_else(|| Path::new("node"));
                     let child = Command::new(node)
                         .arg(script_path)
                         .args(extra_args)
@@ -395,8 +393,7 @@ impl InstanceLauncher for MacOsPlatformAdapter {
                 }
             }
 
-            let deadline = std::time::Instant::now()
-                + std::time::Duration::from_millis(timeout_ms);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
             while std::time::Instant::now() < deadline {
                 if !is_unix_pid_alive(pid) {
                     return Ok(1);

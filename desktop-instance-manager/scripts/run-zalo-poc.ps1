@@ -103,6 +103,13 @@ function Wait-ForWindowReady {
 
 Write-Host "=== Multi-Zalo Desktop Live Zalo PoC ==="
 
+$primaryZaloDirGuard = [System.IO.Path]::GetFullPath((Join-Path $env:APPDATA "ZaloData")).TrimEnd('\')
+$resolvedPoCDataDir = [System.IO.Path]::GetFullPath($DataDir).TrimEnd('\')
+if ($resolvedPoCDataDir.Equals($primaryZaloDirGuard, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $resolvedPoCDataDir.StartsWith($primaryZaloDirGuard + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "PROTECTED_PRIMARY_PATH: Refusing to delete or write DataDir inside primary ZaloData ($DataDir)"
+}
+
 if (Test-Path $DataDir) {
     if (Test-Path (Join-Path $DataDir "profiles.json")) {
         $pre = Invoke-Host @("status")
@@ -313,6 +320,16 @@ try {
             primary_process_preserved = $primaryProcessPreserved
             official_binary_sha256_unchanged = ($exeShaBefore -eq $exeShaAfter -and $asarShaBefore -eq $asarShaAfter)
         }
+        verification_taxonomy_l1_to_l5 = [ordered]@{
+            L1_process_and_storage_isolation = if ($threeConcurrentOk -and $primaryUnchanged -and $primaryProcessPreserved) { "PASS" } else { "FAIL" }
+            L2_lifecycle_and_integrity = if ($focusRes.ok -and $renameWhileRunningOk -and $selectiveStopOk -and $wBRelaunch.Profile.running -and $crashRecoveryOk -and ($exeShaBefore -eq $exeShaAfter) -and ($asarShaBefore -eq $asarShaAfter)) { "PASS" } else { "FAIL" }
+            L3_authenticated_multi_account = "NOT_TESTED"
+            L3_reason = "Unauthenticated automated PoC cannot claim multi-account chat/file/sync parity; use scripts/run-interactive-l3-checklist.ps1 with manual QR logins."
+            L4_notifications_and_os_integration = "BLOCKED"
+            L4_reason = "Window focus verified in L2, but Windows toast AUMID routing and call audio/video routing require live signed-in sessions."
+            L5_installer_and_upgrade_resilience = "PARTIAL"
+            L5_reason = "Official Zalo.exe/app.asar SHA-256 invariance and crash-recovery marker verified; signed installer/uninstaller and live Zalo auto-update preservation remain NOT_TESTED."
+        }
     }
 }
 finally {
@@ -327,7 +344,15 @@ finally {
         }
     }
     if (-not $KeepData -and (Test-Path $DataDir)) {
-        Remove-Item $DataDir -Recurse -Force -ErrorAction SilentlyContinue
+        for ($attempt = 0; $attempt -lt 5; $attempt++) {
+            try {
+                Remove-Item $DataDir -Recurse -Force -ErrorAction Stop
+                break
+            }
+            catch {
+                Start-Sleep -Milliseconds 300
+            }
+        }
     }
 }
 

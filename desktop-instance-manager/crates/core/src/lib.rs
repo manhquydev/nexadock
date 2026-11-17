@@ -12,12 +12,16 @@ pub mod zalo_identity;
 pub use error::{DimError, OperationOutcome};
 pub use models::{
     resolve_data_dir, resolve_data_dir_for_platform, ApplicationInstallation, BackupFileEntry,
-    BackupManifest, BackupResult, LaunchTarget, PlatformCapabilityReport, PlatformKind,
-    PrimaryInstanceStatus, ProfileRecord, ProfileRuntimeState, ProfilesDocument, RecoveryReport,
-    SupportStatus, APP_DIR_NAME, BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, MIN_FREE_DISK_BYTES,
-    PROFILES_SCHEMA_VERSION, ZALO_PROFILE_ID_FILE,
+    BackupManifest, BackupResult, IsolationCheckItem, IsolationVerificationReport, LaunchTarget,
+    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileRecord,
+    ProfileRuntimeState, ProfilesDocument, RecoveryReport, SupportStatus, APP_DIR_NAME,
+    BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, MIN_FREE_DISK_BYTES, PROFILES_SCHEMA_VERSION,
+    ZALO_PROFILE_ID_FILE,
 };
-pub use path_guard::{check_disk_space_bytes, ensure_min_free_disk_space, resolve_safe_child};
+pub use path_guard::{
+    check_disk_space_bytes, ensure_min_free_disk_space, ensure_not_primary_zalo_path,
+    resolve_primary_zalo_data_dir, resolve_safe_child, validate_directory_input,
+};
 pub use sanitize::redact_sensitive_text;
 pub use slug::{
     build_directory_name, generate_profile_id, is_valid_profile_id, slugify_profile_name,
@@ -31,8 +35,7 @@ pub use traits::{
     ProfileStore, RecoveryManager,
 };
 pub use zalo_identity::{
-    check_duplicate_zalo_user_id, detect_zalo_user_id, is_valid_zalo_user_id,
-    MIN_ZALO_USER_ID_LEN,
+    check_duplicate_zalo_user_id, detect_zalo_user_id, is_valid_zalo_user_id, MIN_ZALO_USER_ID_LEN,
 };
 
 #[cfg(test)]
@@ -48,9 +51,15 @@ mod tests {
     #[test]
     fn vietnamese_slug_normalizes_diacritics_and_d_stroke() {
         assert_eq!(slugify_profile_name("Đức - Công việc"), "duc-cong-viec");
-        assert_eq!(slugify_profile_name("Tài Khoản Cá Nhân #2"), "tai-khoan-ca-nhan-2");
+        assert_eq!(
+            slugify_profile_name("Tài Khoản Cá Nhân #2"),
+            "tai-khoan-ca-nhan-2"
+        );
         assert_eq!(slugify_profile_name("   !!!   "), "profile");
-        assert_eq!(slugify_profile_name("Đặng Thị Ánh Tuyết"), "dang-thi-anh-tuyet");
+        assert_eq!(
+            slugify_profile_name("Đặng Thị Ánh Tuyết"),
+            "dang-thi-anh-tuyet"
+        );
     }
 
     #[test]
@@ -87,7 +96,10 @@ mod tests {
         let lookup = |k: &str| env.get(k).map(|v| (*v).to_owned());
 
         let win = resolve_data_dir_for_platform(PlatformKind::Windows, None, &lookup).unwrap();
-        assert_eq!(win, Path::new("C:\\Users\\demo\\AppData\\Local").join("MultiZaloDesktop"));
+        assert_eq!(
+            win,
+            Path::new("C:\\Users\\demo\\AppData\\Local").join("MultiZaloDesktop")
+        );
 
         let mac = resolve_data_dir_for_platform(PlatformKind::MacOs, None, &lookup).unwrap();
         assert_eq!(
@@ -102,19 +114,28 @@ mod tests {
         assert_eq!(linux, Path::new("/home/demo/.xdg").join("MultiZaloDesktop"));
 
         env.insert("DIM_DATA_DIR", "D:\\CustomDimData");
-        let env_over = resolve_data_dir_for_platform(PlatformKind::Windows, None, &lookup).unwrap();
+        let lookup_over = |k: &str| env.get(k).map(|v| (*v).to_owned());
+        let env_over =
+            resolve_data_dir_for_platform(PlatformKind::Windows, None, &lookup_over).unwrap();
         assert_eq!(env_over, Path::new("D:\\CustomDimData"));
 
-        let explicit =
-            resolve_data_dir_for_platform(PlatformKind::Windows, Some(Path::new("E:\\Explicit")), &lookup)
-                .unwrap();
+        let explicit = resolve_data_dir_for_platform(
+            PlatformKind::Windows,
+            Some(Path::new("E:\\Explicit")),
+            &lookup_over,
+        )
+        .unwrap();
         assert_eq!(explicit, Path::new("E:\\Explicit"));
     }
 
     #[test]
     fn duplicate_zalo_user_id_guard_detects_running_collision() {
         let tmp = tempfile::tempdir().unwrap();
-        let prod_dir = tmp.path().join("Database").join("_production").join("849123456");
+        let prod_dir = tmp
+            .path()
+            .join("Database")
+            .join("_production")
+            .join("849123456");
         std::fs::create_dir_all(&prod_dir).unwrap();
 
         let detected = detect_zalo_user_id(tmp.path());
@@ -160,7 +181,10 @@ mod tests {
     #[test]
     fn timestamps_format_correctly() {
         assert_eq!(format_unix_seconds_rfc3339(0), "1970-01-01T00:00:00Z");
-        assert_eq!(format_unix_seconds_rfc3339(951_827_696), "2000-02-29T12:34:56Z");
+        assert_eq!(
+            format_unix_seconds_rfc3339(951_827_696),
+            "2000-02-29T12:34:56Z"
+        );
         assert_eq!(format_unix_seconds_compact(951_827_696), "20000229T123456Z");
     }
 
@@ -190,7 +214,13 @@ mod tests {
         let zalo_data = tmp.path().join("ZaloData");
         let external_db = tmp.path().join("ExternalDb");
         fs::create_dir_all(&zalo_data).unwrap();
-        fs::create_dir_all(external_db.join("Database").join("_production").join("777888999")).unwrap();
+        fs::create_dir_all(
+            external_db
+                .join("Database")
+                .join("_production")
+                .join("777888999"),
+        )
+        .unwrap();
         fs::write(
             zalo_data.join("config.json"),
             serde_json::json!({

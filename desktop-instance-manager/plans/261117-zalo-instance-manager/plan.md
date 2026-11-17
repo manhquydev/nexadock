@@ -3,7 +3,7 @@ title: "MultiZaloDesktop (desktop-instance-manager) Architecture & Delivery Plan
 slug: 261117-zalo-instance-manager
 date: 2026-11-17
 status: active
-target_workspace: c:\Users\manhquy\Downloads\zalo\desktop-instance-manager
+target_workspace: desktop-instance-manager/
 gates: [A, B, C, D, E, F]
 ---
 
@@ -69,7 +69,7 @@ Weights: Binary Integrity (`20%`), Primary Data Safety (`20%`), Least Privilege 
 - **Status:** Completed.
 
 ### Phase 2: Rust Core Workspace, Synthetic Fixture & CI (`rust-workspace`)
-- **Owned Paths:** `Cargo.toml`, `deny.toml`, `crates/core/`, `crates/profile-store/`, `crates/process-manager/`, `crates/platform-windows/`, `crates/platform-macos/`, `crates/platform-linux/`, `fixtures/test-desktop-app/`, `.github/workflows/ci.yml`.
+- **Owned Paths:** `Cargo.toml`, `deny.toml`, `crates/core/`, `crates/profile-store/`, `crates/process-manager/`, `crates/platform-windows/`, `crates/platform-macos/`, `crates/platform-linux/`, `fixtures/test-desktop-app/`, `../.github/workflows/ci.yml`.
 - **Key Contracts:**
   - Workspace lints (`unsafe_op_in_unsafe_fn = "deny"`) + `deny.toml` (`rustls` required, `openssl` banned, OSS license allowlist).
   - `dim-core` traits (`ApplicationLocator`, `ProfileStore`, `InstanceLauncher`, `InstanceMonitor`, `PlatformCapabilities`, `BackupManager`, `RecoveryManager`), Vietnamese `đ` -> `d` slugify, `resolve_safe_child`, `5 GiB` disk threshold, `Database/_production/<6+ digits>` account ID scan.

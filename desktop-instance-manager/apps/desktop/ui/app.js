@@ -21,7 +21,7 @@ function selectTab(selectedTab, { focus = false } = {}) {
     const isSelected = tab === selectedTab;
     tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
     tab.toggleAttribute('focusgroupstart', isSelected);
-    if (!Object.hasOwn(HTMLElement.prototype, 'focusGroup')) {
+    if (!('focusGroup' in HTMLElement.prototype)) {
       tab.tabIndex = isSelected ? 0 : -1;
     }
   }
@@ -62,7 +62,7 @@ tabsContainer.addEventListener('beforematch', (event) => {
 });
 
 // Progressive enhancement fallback when native focusgroup is unsupported
-if (!Object.hasOwn(HTMLElement.prototype, 'focusGroup')) {
+if (!('focusGroup' in HTMLElement.prototype)) {
   for (const tab of tabs) {
     tab.tabIndex = tab.getAttribute('aria-selected') === 'true' ? 0 : -1;
   }
@@ -154,6 +154,21 @@ function getTauriInvoke() {
   return null;
 }
 
+function getSessionToken() {
+  return document.querySelector('meta[name="dim-session-token"]')?.content || '';
+}
+
+function setBusy(isBusy, statusText = null) {
+  state.busy = isBusy;
+  const controls = document.querySelectorAll('#btn-refresh, #btn-refresh-backups, #btn-run-isolation, .row-actions button, .header-actions button, .toolbar-controls button');
+  for (const btn of controls) {
+    btn.disabled = isBusy;
+  }
+  if (isBusy && statusText) {
+    showBanner(statusText, 'info');
+  }
+}
+
 async function apiCall(route, method = 'GET', body = null, tauriCmd = null, tauriArgs = {}) {
   const invoke = getTauriInvoke();
   if (invoke && tauriCmd) {
@@ -161,13 +176,15 @@ async function apiCall(route, method = 'GET', body = null, tauriCmd = null, taur
     return await invoke(tauriCmd, tauriArgs);
   }
 
-  document.getElementById('host-mode-badge').textContent = 'Signed Host Bridge (127.0.0.1)';
-  const init = {
-    method,
-    headers: { 'Accept': 'application/json' }
-  };
+  document.getElementById('host-mode-badge').textContent = 'Authenticated Local Bridge (127.0.0.1)';
+  const headers = { 'Accept': 'application/json' };
+  const token = getSessionToken();
+  if (token) {
+    headers['X-DIM-Session-Token'] = token;
+  }
+  const init = { method, headers };
   if (body !== null) {
-    init.headers['Content-Type'] = 'application/json';
+    headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
   const resp = await fetch(route, init);
@@ -214,8 +231,12 @@ function renderSummary() {
   document.getElementById('stat-data-dir').textContent = st.data_dir || 'Default data dir';
 
   if (diag) {
-    const elevatedText = diag.is_elevated ? 'Elevated' : 'Standard User (asInvoker)';
-    const sacText = diag.smart_app_control_state === 1 ? 'SAC Enforced' : `SAC=${diag.smart_app_control_state ?? 'Unknown'}`;
+    const elevatedText = diag.is_elevated === true
+      ? 'Elevated'
+      : (diag.is_elevated === false ? 'Standard User (asInvoker)' : 'Elevation Unknown');
+    const sacText = diag.smart_app_control_state === 1
+      ? 'SAC Enforced'
+      : (diag.smart_app_control_state === 0 ? 'SAC=0 (Off)' : `SAC=${diag.smart_app_control_state ?? 'Unknown'}`);
     document.getElementById('stat-security').textContent = elevatedText;
     document.getElementById('stat-security-meta').textContent = `${sacText} · Disk free ${formatBytes(diag.disk_free_bytes)}`;
   }
@@ -369,8 +390,12 @@ function renderDiagnostics() {
     th.textContent = chk.check_name;
     tr.appendChild(th);
 
+    const status = chk.status || (chk.passed ? 'PASS' : 'FAIL');
+    const badgeClass = status === 'PASS' ? 'badge-pass'
+      : (status === 'BLOCKED' ? 'badge-warn'
+        : (status === 'NOT_TESTED' ? 'badge-neutral' : 'badge-fail'));
     const resTd = document.createElement('td');
-    resTd.appendChild(makeBadge(chk.passed ? 'PASS' : 'FAIL', chk.passed ? 'badge-pass' : 'badge-fail'));
+    resTd.appendChild(makeBadge(status, badgeClass));
     tr.appendChild(resTd);
 
     const detTd = document.createElement('td');
@@ -416,7 +441,7 @@ function renderReadiness() {
   }
 }
 
-async function refreshAll() {
+async function refreshAll({ quiet = false } = {}) {
   try {
     const withSize = document.getElementById('toggle-sizes').checked;
     const [statusData, backupsData, diagData, isoData] = await Promise.all([
@@ -425,6 +450,10 @@ async function refreshAll() {
       apiCall('/api/diagnostics', 'GET', null, 'get_diagnostics', {}),
       apiCall('/api/verify-isolation', 'GET', null, 'verify_isolation', {})
     ]);
+    if (statusData?.ok === false) {
+      showBanner(`${statusData.error_code || 'ERROR'}: ${statusData.message}`, 'error');
+      return;
+    }
     state.status = statusData;
     state.backups = backupsData?.backups || [];
     state.diagnostics = diagData;
@@ -435,13 +464,18 @@ async function refreshAll() {
     renderBackups();
     renderDiagnostics();
     renderReadiness();
+    if (!quiet) {
+      // Preserve explicit action feedback when invoked after a mutation
+    }
   } catch (err) {
     showBanner(`Host communication failed: ${err.message}`, 'error');
   }
 }
 
 async function runProfileAction(action, prof) {
+  if (state.busy) return;
   clearBanner();
+  setBusy(true, `Running ${action} for "${prof.name}"...`);
   try {
     let res;
     if (action === 'launch') {
@@ -453,14 +487,16 @@ async function runProfileAction(action, prof) {
     } else if (action === 'backup') {
       res = await apiCall(`/api/profiles/${encodeURIComponent(prof.id)}/backup`, 'POST', {}, 'backup_profile', { id: prof.id });
     }
+    await refreshAll({ quiet: true });
     if (res && res.ok === false) {
       showBanner(`${res.error_code || 'ERROR'}: ${res.message}`, 'error');
     } else if (res?.message) {
       showBanner(res.message, 'success');
     }
-    await refreshAll();
   } catch (err) {
     showBanner(err.message, 'error');
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -469,7 +505,7 @@ const createDialog = document.getElementById('create-profile-dialog');
 createDialog.addEventListener('close', async () => {
   const action = createDialog.returnValue;
   createDialog.returnValue = '';
-  if (action !== 'create') return;
+  if (action !== 'create' || state.busy) return;
 
   const nameInput = document.getElementById('create-profile-name');
   const notesInput = document.getElementById('create-profile-notes');
@@ -479,9 +515,16 @@ createDialog.addEventListener('close', async () => {
   notesInput.value = '';
   if (!name) return;
 
-  const res = await apiCall('/api/profiles', 'POST', { name, notes }, 'create_profile', { name, notes });
-  showBanner(res.message || 'Profile created', res.ok ? 'success' : 'error');
-  await refreshAll();
+  setBusy(true, `Creating profile "${name}"...`);
+  try {
+    const res = await apiCall('/api/profiles', 'POST', { name, notes }, 'create_profile', { name, notes });
+    await refreshAll({ quiet: true });
+    showBanner(res.message || 'Profile created', res.ok ? 'success' : 'error');
+  } catch (err) {
+    showBanner(err.message, 'error');
+  } finally {
+    setBusy(false);
+  }
 });
 
 const renameDialog = document.getElementById('rename-profile-dialog');
@@ -496,14 +539,21 @@ renameDialog.addEventListener('close', async () => {
   renameDialog.returnValue = '';
   const targetId = state.activeRenameId;
   state.activeRenameId = null;
-  if (action !== 'rename' || !targetId) return;
+  if (action !== 'rename' || !targetId || state.busy) return;
 
   const newName = document.getElementById('rename-profile-name').value.trim();
   if (!newName) return;
 
-  const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}/rename`, 'POST', { newName }, 'rename_profile', { id: targetId, newName });
-  showBanner(res.message || 'Renamed profile', res.ok ? 'success' : 'error');
-  await refreshAll();
+  setBusy(true, `Renaming profile to "${newName}"...`);
+  try {
+    const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}/rename`, 'POST', { newName }, 'rename_profile', { id: targetId, newName });
+    await refreshAll({ quiet: true });
+    showBanner(res.message || 'Renamed profile', res.ok ? 'success' : 'error');
+  } catch (err) {
+    showBanner(err.message, 'error');
+  } finally {
+    setBusy(false);
+  }
 });
 
 const deleteDialog = document.getElementById('delete-profile-dialog');
@@ -518,11 +568,18 @@ deleteDialog.addEventListener('close', async () => {
   deleteDialog.returnValue = '';
   const targetId = state.activeDeleteId;
   state.activeDeleteId = null;
-  if (action !== 'delete' || !targetId) return;
+  if (action !== 'delete' || !targetId || state.busy) return;
 
-  const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}`, 'DELETE', { confirm: true }, 'delete_profile', { id: targetId });
-  showBanner(res.message || 'Deleted profile', res.ok ? 'success' : 'error');
-  await refreshAll();
+  setBusy(true, 'Deleting isolated profile...');
+  try {
+    const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}`, 'DELETE', { confirm: true }, 'delete_profile', { id: targetId, confirm: true });
+    await refreshAll({ quiet: true });
+    showBanner(res.message || 'Deleted profile', res.ok ? 'success' : 'error');
+  } catch (err) {
+    showBanner(err.message, 'error');
+  } finally {
+    setBusy(false);
+  }
 });
 
 const restoreDialog = document.getElementById('restore-backup-dialog');
@@ -538,18 +595,41 @@ restoreDialog.addEventListener('close', async () => {
   restoreDialog.returnValue = '';
   const backupDir = state.activeRestoreBackupDir;
   state.activeRestoreBackupDir = null;
-  if (action !== 'restore' || !backupDir) return;
+  if (action !== 'restore' || !backupDir || state.busy) return;
 
   const name = document.getElementById('restore-profile-name').value.trim();
-  const res = await apiCall('/api/backups/restore', 'POST', { backupDir, name }, 'restore_backup', { backupDir, name });
-  showBanner(res.message || 'Backup restored', res.ok ? 'success' : 'error');
-  await refreshAll();
+  setBusy(true, 'Verifying SHA-256 manifest and restoring backup...');
+  try {
+    const res = await apiCall('/api/backups/restore', 'POST', { backupDir, name }, 'restore_backup', { backupDir, name });
+    await refreshAll({ quiet: true });
+    showBanner(res.message || 'Backup restored', res.ok ? 'success' : 'error');
+  } catch (err) {
+    showBanner(err.message, 'error');
+  } finally {
+    setBusy(false);
+  }
 });
 
 const safetyDialog = document.getElementById('safety-dialog');
 safetyDialog.addEventListener('close', () => {
   const _action = safetyDialog.returnValue;
   safetyDialog.returnValue = '';
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.isComposing || state.busy || document.querySelector('dialog[open]')) return;
+  const tag = event.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    const key = event.key.toLowerCase();
+    if (key === 'n') {
+      event.preventDefault();
+      createDialog.showModal();
+    } else if (key === 'r') {
+      event.preventDefault();
+      refreshAll();
+    }
+  }
 });
 
 document.getElementById('btn-refresh').addEventListener('click', () => refreshAll());

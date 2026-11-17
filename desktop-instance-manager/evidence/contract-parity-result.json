@@ -1,0 +1,83 @@
+{
+  "ok": true,
+  "executed_at_utc": "2026-11-17T15:30:53.306Z",
+  "platform": "win32",
+  "rust_cli_bin": "target/release/dim-cli.exe",
+  "powershell_parity_tested": true,
+  "rust": {
+    "discover": {
+      "fixture_valid": true,
+      "tampered_valid": false,
+      "tampered_status": "Unverified (WinVerifyTrust=0xC000A000)"
+    },
+    "create": {
+      "dir_prefix": "duc-cong-viec",
+      "invalid_name_code": "INVALID_NAME"
+    },
+    "rename": {
+      "preserved_dir": true
+    },
+    "focus_stopped_code": "NOT_RUNNING",
+    "verify_isolation_checks": [
+      "ApplicationDiscovery:PASS",
+      "PrimaryZaloDataSeparation:PASS",
+      "DistinctProfilePathsAndMarkers:PASS",
+      "DistinctProcessOwnership:PASS",
+      "DistinctZaloUserIds:PASS",
+      "RestrictiveNtfsAcls:PASS",
+      "FolderRedirectionCheck:PASS"
+    ],
+    "diagnostics": {
+      "is_elevated": false,
+      "sac": 0,
+      "acl": true
+    },
+    "guards": {
+      "running_backup": "PROFILE_RUNNING",
+      "running_delete": "PROFILE_RUNNING",
+      "dup_uid": "DUPLICATE_ZALO_USER_ID",
+      "tampered_restore": "BACKUP_ERROR",
+      "confirm_required": "CONFIRM_REQUIRED",
+      "traversal": "PATH_TRAVERSAL",
+      "primary_path": "PROTECTED_PRIMARY_PATH"
+    }
+  },
+  "powershell": {
+    "discover": {
+      "fixture_valid": true,
+      "tampered_valid": false,
+      "tampered_status": "Unverified (WinVerifyTrust=0xC000A000)"
+    },
+    "create": {
+      "dir_prefix": "duc-cong-viec",
+      "invalid_name_code": "INVALID_NAME"
+    },
+    "rename": {
+      "preserved_dir": true
+    },
+    "focus_stopped_code": "NOT_RUNNING",
+    "verify_isolation_checks": [
+      "ApplicationDiscovery:PASS",
+      "PrimaryZaloDataSeparation:PASS",
+      "DistinctProfilePathsAndMarkers:PASS",
+      "DistinctProcessOwnership:PASS",
+      "DistinctZaloUserIds:PASS",
+      "RestrictiveNtfsAcls:PASS",
+      "FolderRedirectionCheck:PASS"
+    ],
+    "diagnostics": {
+      "is_elevated": false,
+      "sac": 0,
+      "acl": true
+    },
+    "guards": {
+      "running_backup": "PROFILE_RUNNING",
+      "running_delete": "PROFILE_RUNNING",
+      "dup_uid": "DUPLICATE_ZALO_USER_ID",
+      "tampered_restore": "BACKUP_ERROR",
+      "confirm_required": "CONFIRM_REQUIRED",
+      "traversal": "PATH_TRAVERSAL",
+      "primary_path": "PROTECTED_PRIMARY_PATH"
+    }
+  }
+}

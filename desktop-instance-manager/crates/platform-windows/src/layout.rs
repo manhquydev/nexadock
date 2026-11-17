@@ -20,10 +20,12 @@ pub fn ensure_windows_profile_layout(
     let media_dir = zalo_data.join("media");
     let local_temp = profile_dir.join("AppData").join("Local").join("Temp");
     let documents = profile_dir.join("Documents").join("Zalo Received Files");
+    let desktop = profile_dir.join("Desktop");
 
     fs::create_dir_all(&media_dir)?;
     fs::create_dir_all(&local_temp)?;
     fs::create_dir_all(&documents)?;
+    fs::create_dir_all(&desktop)?;
 
     let zmeta = roaming.join("zmeta.json");
     if !zmeta.exists() {
@@ -46,10 +48,7 @@ pub fn ensure_windows_profile_layout(
 /// Returns the isolated `ZaloData` path for a Windows profile directory.
 #[must_use]
 pub fn windows_zalo_data_dir(profile_dir: &Path) -> PathBuf {
-    profile_dir
-        .join("AppData")
-        .join("Roaming")
-        .join("ZaloData")
+    profile_dir.join("AppData").join("Roaming").join("ZaloData")
 }
 
 /// Checks whether a raw `REG_EXPAND_SZ` `User Shell Folders\AppData` value has been redirected
@@ -127,7 +126,11 @@ pub fn encode_windows_env_block_utf16(env: &BTreeMap<String, (String, String)>) 
 /// Quotes a single Windows command-line argument according to `CommandLineToArgvW` rules.
 #[must_use]
 pub fn quote_windows_arg(arg: &str) -> String {
-    if !arg.is_empty() && !arg.chars().any(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '"')) {
+    if !arg.is_empty()
+        && !arg
+            .chars()
+            .any(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '"'))
+    {
         return arg.to_owned();
     }
 

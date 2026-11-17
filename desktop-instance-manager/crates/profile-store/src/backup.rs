@@ -8,10 +8,11 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use dim_core::{
-    build_directory_name, ensure_min_free_disk_space, generate_profile_id, now_compact_utc,
-    now_rfc3339_utc, resolve_safe_child, slugify_profile_name, BackupFileEntry, BackupManager,
-    BackupManifest, BackupResult, DimError, ProfileRecord, ProfileStore, BACKUP_SCHEMA_VERSION,
-    ZALO_PROFILE_ID_FILE,
+    build_directory_name, detect_zalo_user_id, ensure_min_free_disk_space,
+    ensure_not_primary_zalo_path, generate_profile_id, now_compact_utc, now_rfc3339_utc,
+    resolve_safe_child, slugify_profile_name, validate_directory_input, validate_profile_name,
+    BackupFileEntry, BackupManager, BackupManifest, BackupResult, DimError, ProfileRecord,
+    ProfileStore, BACKUP_SCHEMA_VERSION, ZALO_PROFILE_ID_FILE,
 };
 use sha2::{Digest, Sha256};
 
@@ -87,6 +88,17 @@ impl BackupManager for FileBackupManager {
             )));
         }
 
+        if let Some(custom_dest) = dest_dir {
+            validate_directory_input(custom_dest)?;
+            ensure_not_primary_zalo_path(custom_dest)?;
+            if let Ok(meta) = fs::symlink_metadata(custom_dest) {
+                if is_symlink_or_reparse(&meta) {
+                    return Err(DimError::BackupError(
+                        "backup destination cannot be a symlink or reparse point".to_owned(),
+                    ));
+                }
+            }
+        }
         let backups_root = dest_dir.unwrap_or_else(|| self.store.backups_dir());
         fs::create_dir_all(backups_root)?;
         let _ = sweep_abandoned_staging_dirs(backups_root, STAGING_MAX_AGE);
@@ -153,6 +165,20 @@ impl BackupManager for FileBackupManager {
     }
 
     fn verify_backup(&self, backup_dir: &Path) -> Result<BackupManifest, DimError> {
+        validate_directory_input(backup_dir)?;
+        ensure_not_primary_zalo_path(backup_dir)?;
+        let dir_meta = fs::symlink_metadata(backup_dir).map_err(|_| {
+            DimError::BackupError(format!(
+                "backup directory missing: {}",
+                backup_dir.display()
+            ))
+        })?;
+        if is_symlink_or_reparse(&dir_meta) || !dir_meta.is_dir() {
+            return Err(DimError::BackupError(format!(
+                "backup directory is not a regular directory: {}",
+                backup_dir.display()
+            )));
+        }
         let manifest_path = backup_dir.join("backup.json");
         if !manifest_path.exists() {
             return Err(DimError::BackupError(format!(
@@ -236,11 +262,8 @@ impl BackupManager for FileBackupManager {
         self.check_free_space(self.store.profiles_dir(), manifest.total_bytes)?;
 
         let existing = self.store.list_profiles()?;
-        let desired_name = choose_unique_restored_name(
-            new_name,
-            &manifest.source_profile_name,
-            &existing,
-        )?;
+        let desired_name =
+            choose_unique_restored_name(new_name, &manifest.source_profile_name, &existing)?;
 
         let mut new_id = generate_profile_id();
         while existing.iter().any(|p| p.id == new_id) {
@@ -313,13 +336,21 @@ impl BackupManager for FileBackupManager {
             return Err(DimError::Io(err));
         }
 
+        let detected_uid = detect_zalo_user_id(
+            &dest_profile_dir
+                .join("AppData")
+                .join("Roaming")
+                .join("ZaloData"),
+        )
+        .or(manifest.zalo_user_id);
+
         let record = ProfileRecord {
             id: new_id,
             name: desired_name,
             directory_name: dir_name,
             created_at: now_rfc3339_utc(),
             last_launched_at: None,
-            zalo_user_id: manifest.zalo_user_id,
+            zalo_user_id: detected_uid,
             notes: format!("Restored from backup {}", manifest.backup_id),
         };
 
@@ -371,11 +402,8 @@ fn choose_unique_restored_name(
     existing: &[ProfileRecord],
 ) -> Result<String, DimError> {
     if let Some(name) = requested {
-        let valid = dim_core::validate_profile_name(name)?;
-        if existing
-            .iter()
-            .any(|p| p.name.eq_ignore_ascii_case(&valid))
-        {
+        let valid = validate_profile_name(name)?;
+        if existing.iter().any(|p| p.name.eq_ignore_ascii_case(&valid)) {
             return Err(DimError::DuplicateProfileName(valid));
         }
         return Ok(valid);
@@ -533,10 +561,7 @@ fn copy_profile_payload_and_hash(
 
 fn should_skip_backup_rel(rel: &Path) -> bool {
     let norm = normalize_rel_path(rel);
-    let file_name = rel
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or_default();
+    let file_name = rel.file_name().and_then(|s| s.to_str()).unwrap_or_default();
     matches!(
         file_name,
         "lockfile" | "SingletonLock" | ".quit-signal" | ".focus-signal" | ".runtime-pid"

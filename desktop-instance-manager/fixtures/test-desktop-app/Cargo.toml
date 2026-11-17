@@ -4,15 +4,26 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Rust desktop-app test fixture implementing Zalo Desktop single-instance lockfile semantics for CI verification"
+description = "Rust desktop-app test fixture and native CLI parity runner (dim-cli) for MultiZaloDesktop"
 
 [lints]
 workspace = true
 
 [dependencies]
 dim-core = { workspace = true }
+dim-profile-store = { workspace = true }
+dim-process-manager = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+dim-platform-windows = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+dim-platform-macos = { workspace = true }
+
+[target.'cfg(all(not(target_os = "windows"), not(target_os = "macos")))'.dependencies]
+dim-platform-linux = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

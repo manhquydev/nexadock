@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-11-17T15:38:14.965Z",
+  "git_head": "8cf47035f0f06bd97cc99aff80d81fb10b103af8",
+  "platform": "win32-x64",
+  "rustc_version": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "cargo_version": "cargo 1.100.0 (3acc79c0c 2026-11-05)",
+  "cargo_lock_sha256": "97d5d01eb7eea2f82d2d272c97738d582570474c636514df9c7084ddb3ccc9cf",
+  "tauri_lock_sha256": "fcf6f145ee4a1218f03ebdbdedef1d91cbd15a31bf2fd5ef4d71b7ce2446da05",
+  "signing_status": "UNSIGNED_LOCAL_OR_CI_TEST_BUILD (Gate F requires Authenticode cert before public distribution)",
+  "artifacts": [
+    {
+      "relative_path": "target/release/dim-cli.exe",
+      "size_bytes": 2210406,
+      "sha256": "046e0f699ebf511ce50735706d7b14cc9fbf287a039773d4fa104f39294c2b23"
+    },
+    {
+      "relative_path": "target/release/dim-test-fixture.exe",
+      "size_bytes": 1616934,
+      "sha256": "e97cd442511cb385dff56d09439dca397f8b3352cff6a2bdc3709c477e2aed88"
+    },
+    {
+      "relative_path": "apps/desktop/src-tauri/target/release/dim-desktop.exe",
+      "size_bytes": 21577450,
+      "sha256": "56fe670d0d4f4cc99e931e3564c741489a51d91f6868dae56462ea55dc4978b6"
+    }
+  ]
+}

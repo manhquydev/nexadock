@@ -3,7 +3,9 @@
 pub mod backup;
 pub mod store;
 
-pub use backup::{sweep_abandoned_staging_dirs, DiskSpaceProbe, FileBackupManager, STAGING_MAX_AGE};
+pub use backup::{
+    sweep_abandoned_staging_dirs, DiskSpaceProbe, FileBackupManager, STAGING_MAX_AGE,
+};
 pub use store::{
     is_symlink_or_reparse, unlink_reparse_points_safe, verify_profile_id_marker,
     write_profile_id_marker, JsonProfileStore,
@@ -25,7 +27,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = JsonProfileStore::new(tmp.path().to_path_buf()).unwrap();
 
-        let created = store.create_profile("Đức - Công việc", "Work account").unwrap();
+        let created = store
+            .create_profile("Đức - Công việc", "Work account")
+            .unwrap();
         assert!(created.directory_name.starts_with("duc-cong-viec_"));
         assert!(tmp.path().join("profiles.json").exists());
         assert!(!tmp.path().join("profiles.json.tmp").exists());
@@ -49,12 +53,12 @@ mod tests {
             verify_profile_id_marker(&zalo_data, "deadbeef", true)
                 .unwrap_err()
                 .code(),
-            "PROFILE_IDENTITY_MISMATCH"
+            "PROFILE_MARKER_MISMATCH"
         );
 
         assert_eq!(
             store.delete_profile(&renamed.id, false).unwrap_err().code(),
-            "CONFIRMATION_REQUIRED"
+            "CONFIRM_REQUIRED"
         );
         store.delete_profile(&renamed.id, true).unwrap();
         assert!(store.list_profiles().unwrap().is_empty());
@@ -72,9 +76,8 @@ mod tests {
         fs::write(zalo_data.join("config.json"), b"{\"theme\":\"dark\"}").unwrap();
         fs::write(zalo_data.join("lockfile"), b"stale").unwrap();
 
-        let backup_mgr = FileBackupManager::new(Arc::clone(&store)).with_disk_space_probe(Arc::new(
-            |_| Ok(MIN_FREE_DISK_BYTES + 10_000_000),
-        ));
+        let backup_mgr = FileBackupManager::new(Arc::clone(&store))
+            .with_disk_space_probe(Arc::new(|_| Ok(MIN_FREE_DISK_BYTES + 10_000_000)));
 
         // Running profile must be rejected
         let running_err = backup_mgr
@@ -86,10 +89,7 @@ mod tests {
             .backup_profile(&profile, &profile_dir, None, false)
             .unwrap();
         assert!(backup.manifest_path.exists());
-        assert!(!backup
-            .backup_dir
-            .to_string_lossy()
-            .ends_with(".partial"));
+        assert!(!backup.backup_dir.to_string_lossy().ends_with(".partial"));
         // lockfile is excluded from backup payload
         assert!(backup
             .manifest
@@ -180,5 +180,45 @@ mod tests {
             .backup_profile(&profile, &profile_dir, None, false)
             .unwrap_err();
         assert_eq!(err.code(), "INSUFFICIENT_DISK_SPACE");
+    }
+
+    #[test]
+    fn delete_profile_unlinks_junctions_or_symlinks_without_touching_external_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = JsonProfileStore::new(tmp.path().join("dim-data")).unwrap();
+        let profile = store.create_profile("LinkTest", "").unwrap();
+        let profile_dir = store.profile_dir_for(&profile).unwrap();
+
+        let outside_dir = tmp.path().join("outside-target");
+        fs::create_dir_all(&outside_dir).unwrap();
+        let sentinel = outside_dir.join("preserve.txt");
+        fs::write(&sentinel, "DO_NOT_DELETE").unwrap();
+
+        let link_parent = profile_dir.join("Desktop");
+        fs::create_dir_all(&link_parent).unwrap();
+        let link_path = link_parent.join("ExtLink");
+
+        #[cfg(windows)]
+        {
+            let status = std::process::Command::new("cmd.exe")
+                .args([
+                    "/c",
+                    "mklink",
+                    "/J",
+                    &link_path.to_string_lossy(),
+                    &outside_dir.to_string_lossy(),
+                ])
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside_dir, &link_path).unwrap();
+        }
+
+        store.delete_profile(&profile.id, true).unwrap();
+        assert!(!profile_dir.exists());
+        assert_eq!(fs::read_to_string(&sentinel).unwrap(), "DO_NOT_DELETE");
     }
 }

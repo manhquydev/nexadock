@@ -223,8 +223,40 @@ pub struct PrimaryInstanceStatus {
     pub protected_pids: Vec<u32>,
     /// Process tree count of primary Zalo if running.
     pub process_count: usize,
+    /// Aggregate working-set memory in bytes across active primary processes.
+    #[serde(default)]
+    pub working_set_bytes: u64,
+    /// Detected numeric Zalo user ID in primary `ZaloData`, if present.
+    #[serde(default)]
+    pub detected_zalo_user_id: Option<String>,
     /// Diagnostic observations.
     pub notes: Vec<String>,
+}
+
+/// Single verifiable isolation check outcome (`PASS`, `FAIL`, `NOT_TESTED`, or `BLOCKED`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IsolationCheckItem {
+    /// Machine-readable check identifier.
+    pub check_name: String,
+    /// Explicit verification status: `"PASS"`, `"FAIL"`, `"NOT_TESTED"`, or `"BLOCKED"`.
+    pub status: String,
+    /// Boolean compatibility field (`true` only when `status == "PASS"`).
+    pub passed: bool,
+    /// Human-readable verification evidence or failure reason.
+    pub detail: String,
+}
+
+/// Complete runtime isolation verification report returned by `InstanceCoordinator::verify_isolation`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IsolationVerificationReport {
+    /// Overall pass indicator (`true` only when every check status is `"PASS"`).
+    pub ok: bool,
+    /// Explicit alias indicating zero checks failed, skipped, or were blocked.
+    pub all_passed: bool,
+    /// Report generation timestamp in RFC 3339 UTC.
+    pub timestamp_utc: String,
+    /// Individual isolation checks.
+    pub checks: Vec<IsolationCheckItem>,
 }
 
 /// Platform capability and limitation report.

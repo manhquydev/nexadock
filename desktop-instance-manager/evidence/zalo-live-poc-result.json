@@ -106,36 +106,43 @@
                                                   {
                                                       "check_name":  "ApplicationDiscovery",
                                                       "passed":  true,
+                                                      "status":  "PASS",
                                                       "detail":  "Mode=official-zalo, Auth=Signed (VNG)"
                                                   },
                                                   {
                                                       "check_name":  "PrimaryZaloDataSeparation",
                                                       "passed":  true,
+                                                      "status":  "PASS",
                                                       "detail":  "All profiles isolated outside primary APPDATA\\ZaloData"
                                                   },
                                                   {
                                                       "check_name":  "DistinctProfilePathsAndMarkers",
                                                       "passed":  true,
+                                                      "status":  "PASS",
                                                       "detail":  "Checked 3 profile(s), markers_valid=True"
                                                   },
                                                   {
                                                       "check_name":  "DistinctProcessOwnership",
                                                       "passed":  true,
+                                                      "status":  "PASS",
                                                       "detail":  "Active isolated PIDs=3, Primary PIDs=11"
                                                   },
                                                   {
                                                       "check_name":  "DistinctZaloUserIds",
                                                       "passed":  true,
+                                                      "status":  "PASS",
                                                       "detail":  "No duplicate logged-in zalo_user_id among running instances"
                                                   },
                                                   {
                                                       "check_name":  "RestrictiveNtfsAcls",
                                                       "passed":  true,
+                                                      "status":  "PASS",
                                                       "detail":  "No Everyone or BUILTIN\\Users write access on Profiles directory"
                                                   },
                                                   {
                                                       "check_name":  "FolderRedirectionCheck",
                                                       "passed":  true,
+                                                      "status":  "PASS",
                                                       "detail":  "AppData resolves locally under USERPROFILE"
                                                   }
                                               ]
@@ -161,5 +168,15 @@
                                      "primary_files_sha256_identical":  true,
                                      "primary_process_preserved":  true,
                                      "official_binary_sha256_unchanged":  true
-                                 }
+                                 },
+    "verification_taxonomy_l1_to_l5":  {
+                                           "L1_process_and_storage_isolation":  "PASS",
+                                           "L2_lifecycle_and_integrity":  "PASS",
+                                           "L3_authenticated_multi_account":  "NOT_TESTED",
+                                           "L3_reason":  "Unauthenticated automated PoC cannot claim multi-account chat/file/sync parity; use scripts/run-interactive-l3-checklist.ps1 with manual QR logins.",
+                                           "L4_notifications_and_os_integration":  "BLOCKED",
+                                           "L4_reason":  "Window focus verified in L2, but Windows toast AUMID routing and call audio/video routing require live signed-in sessions.",
+                                           "L5_installer_and_upgrade_resilience":  "PARTIAL",
+                                           "L5_reason":  "Official Zalo.exe/app.asar SHA-256 invariance and crash-recovery marker verified; signed installer/uninstaller and live Zalo auto-update preservation remain NOT_TESTED."
+                                       }
 }

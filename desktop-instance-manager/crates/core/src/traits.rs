@@ -33,11 +33,7 @@ pub trait ProfileStore {
     fn create_profile(&self, name: &str, notes: &str) -> Result<ProfileRecord, DimError>;
 
     /// Renames a profile's display label without breaking running directory isolation.
-    fn rename_profile(
-        &self,
-        id_or_name: &str,
-        new_name: &str,
-    ) -> Result<ProfileRecord, DimError>;
+    fn rename_profile(&self, id_or_name: &str, new_name: &str) -> Result<ProfileRecord, DimError>;
 
     /// Deletes a profile after explicit confirmation and safe junction/symlink unlinking.
     fn delete_profile(&self, id_or_name: &str, confirm: bool) -> Result<(), DimError>;
@@ -112,6 +108,21 @@ pub trait PlatformCapabilities {
 
     /// Unlinks any OS directory junctions or symlinks inside `profile_dir` without touching targets.
     fn unlink_profile_junctions(&self, profile_dir: &Path) -> Result<usize, DimError>;
+
+    /// Queries whether the current process is running with elevated OS privileges, or `None` if unknown.
+    fn is_elevated(&self) -> Option<bool> {
+        None
+    }
+
+    /// Queries Windows Smart App Control policy state (`VerifiedAndReputablePolicyState`), if applicable.
+    fn smart_app_control_state(&self) -> Option<u32> {
+        None
+    }
+
+    /// Checks whether `profiles_dir` has restrictive ACLs/permissions preventing unprivileged multi-user writes, or `None` if unsupported.
+    fn check_profiles_acl_safe(&self, _profiles_dir: &Path) -> Option<bool> {
+        None
+    }
 }
 
 /// Creates atomic verified offline backups and restores them strictly as new profiles.

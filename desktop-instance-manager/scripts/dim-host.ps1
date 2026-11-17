@@ -304,9 +304,11 @@ namespace DesktopInstanceManager.Host
 
             _dataDir = Path.GetFullPath(resolvedData);
             string primaryZaloData = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZaloData")).TrimEnd('\\');
-            if (string.Equals(_dataDir.TrimEnd('\\'), primaryZaloData, StringComparison.OrdinalIgnoreCase))
+            string trimmedDataDir = _dataDir.TrimEnd('\\');
+            if (string.Equals(trimmedDataDir, primaryZaloData, StringComparison.OrdinalIgnoreCase)
+                || trimmedDataDir.StartsWith(primaryZaloData + "\\", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException("PROTECTED_PRIMARY_PATH: Data directory cannot point to primary ZaloData.");
+                throw new InvalidOperationException("PROTECTED_PRIMARY_PATH: Data directory cannot point to or reside inside primary ZaloData.");
             }
 
             _profilesRoot = Path.Combine(_dataDir, "Profiles");
@@ -719,9 +721,13 @@ namespace DesktopInstanceManager.Host
                 info["executable"] = nodeExe;
                 info["script_path"] = fullScript;
                 info["version"] = valid ? GetNodeVersion(nodeExe) : null;
-                info["authenticode_status"] = !string.IsNullOrEmpty(nodeExe) ? InspectAuthenticode(nodeExe, false) : "Missing";
+                string nodeAuth = !string.IsNullOrEmpty(nodeExe) ? InspectAuthenticode(nodeExe, false) : "Missing";
+                info["authenticode_status"] = nodeAuth;
+                info["valid"] = valid && nodeAuth.StartsWith("Signed", StringComparison.Ordinal);
                 info["executable_sha256"] = !string.IsNullOrEmpty(nodeExe) && File.Exists(nodeExe) ? ComputeSha256(nodeExe) : null;
-                info["error"] = valid ? null : "Fixture script or node.exe not found.";
+                info["error"] = (bool)info["valid"]
+                    ? null
+                    : (!valid ? "Fixture script or node.exe not found." : "node.exe Authenticode verification failed: " + nodeAuth);
                 return info;
             }
 
@@ -736,13 +742,17 @@ namespace DesktopInstanceManager.Host
                 }
                 string fullExe = Path.GetFullPath(appPath);
                 bool exists = File.Exists(fullExe);
+                string customAuth = exists ? InspectAuthenticode(fullExe, true) : "Missing";
+                bool customValid = exists && customAuth.StartsWith("Signed", StringComparison.Ordinal);
                 info["ok"] = true;
-                info["valid"] = exists;
+                info["valid"] = customValid;
                 info["mode"] = "custom-exe";
                 info["executable"] = fullExe;
-                info["authenticode_status"] = exists ? InspectAuthenticode(fullExe, true) : "Missing";
+                info["authenticode_status"] = customAuth;
                 info["executable_sha256"] = exists ? ComputeSha256(fullExe) : null;
-                info["error"] = exists ? null : "Executable not found: " + SanitizeText(fullExe);
+                info["error"] = !exists
+                    ? ("Executable not found: " + SanitizeText(fullExe))
+                    : (customValid ? null : ("Executable Authenticode validation failed: " + customAuth));
                 return info;
             }
 
@@ -796,8 +806,9 @@ namespace DesktopInstanceManager.Host
             string appAsar = Path.Combine(bestDir, "resources", "app.asar");
             string signerSubject;
             string authStatus = InspectAuthenticodeWithSubject(electronExe, out signerSubject);
+            bool zaloValid = string.Equals(authStatus, "Signed (VNG)", StringComparison.Ordinal);
 
-            info["valid"] = true;
+            info["valid"] = zaloValid;
             info["version_dir"] = Path.GetFileName(bestDir);
             info["version"] = bestVerStr;
             info["executable"] = electronExe;
@@ -806,7 +817,7 @@ namespace DesktopInstanceManager.Host
             info["app_asar_sha256"] = ComputeSha256(appAsar);
             info["authenticode_status"] = authStatus;
             info["signer_subject"] = signerSubject;
-            info["error"] = null;
+            info["error"] = zaloValid ? null : ("Official Zalo Authenticode validation failed: " + authStatus);
             return info;
         }
 
@@ -919,7 +930,7 @@ namespace DesktopInstanceManager.Host
                 System.Security.Cryptography.X509Certificates.X509Certificate cert =
                     System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(filePath);
                 subject = cert.Subject ?? string.Empty;
-                if (checkVng && subject.IndexOf("VNG", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (checkVng && Regex.IsMatch(subject, @"(?:^|[,;\s])(?:CN|O)\s*=\s*""?VNG GROUP JSC""?(?:$|[,;])", RegexOptions.IgnoreCase))
                 {
                     return "Signed (VNG)";
                 }
@@ -1188,30 +1199,67 @@ namespace DesktopInstanceManager.Host
 
         private static string DetectZaloUserId(string zaloDataPath)
         {
-            string prodDir = Path.Combine(zaloDataPath, "Database", "_production");
-            if (!Directory.Exists(prodDir)) return null;
             try
             {
-                string[] dirs = Directory.GetDirectories(prodDir);
-                List<string> matches = new List<string>();
-                for (int i = 0; i < dirs.Length; i++)
+                string cfgPath = Path.Combine(zaloDataPath, "config.json");
+                if (File.Exists(cfgPath))
                 {
-                    string name = Path.GetFileName(dirs[i]);
-                    if (!string.IsNullOrEmpty(name) && Regex.IsMatch(name, @"^\d{6,}$"))
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    Dictionary<string, object> cfg = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(cfgPath, Encoding.UTF8));
+                    if (cfg != null && cfg.ContainsKey("db_path") && cfg["db_path"] is Dictionary<string, object>)
                     {
-                        matches.Add(name);
+                        Dictionary<string, object> dbPath = (Dictionary<string, object>)cfg["db_path"];
+                        string loc = dbPath.ContainsKey("location") && dbPath["location"] != null ? dbPath["location"].ToString() : null;
+                        if (!string.IsNullOrWhiteSpace(loc) && Directory.Exists(loc))
+                        {
+                            string fromCfg = PickNewestUidDir(loc, @"^zalo_(\d{6,})$");
+                            if (!string.IsNullOrEmpty(fromCfg)) return fromCfg;
+                            string nestedProd = Path.Combine(loc, "Database", "_production");
+                            if (Directory.Exists(nestedProd))
+                            {
+                                string fromNested = PickNewestUidDir(nestedProd, @"^(\d{6,})$");
+                                if (!string.IsNullOrEmpty(fromNested)) return fromNested;
+                            }
+                        }
                     }
-                }
-                if (matches.Count > 0)
-                {
-                    matches.Sort(StringComparer.Ordinal);
-                    return matches[0];
                 }
             }
             catch
             {
             }
-            return null;
+
+            string prodDir = Path.Combine(zaloDataPath, "Database", "_production");
+            if (!Directory.Exists(prodDir)) return null;
+            return PickNewestUidDir(prodDir, @"^(\d{6,})$");
+        }
+
+        private static string PickNewestUidDir(string parentDir, string regexPattern)
+        {
+            try
+            {
+                string[] dirs = Directory.GetDirectories(parentDir);
+                DateTime bestTime = DateTime.MinValue;
+                string bestUid = null;
+                for (int i = 0; i < dirs.Length; i++)
+                {
+                    string name = Path.GetFileName(dirs[i]);
+                    if (string.IsNullOrEmpty(name)) continue;
+                    Match m = Regex.Match(name, regexPattern, RegexOptions.IgnoreCase);
+                    if (!m.Success) continue;
+                    string uid = m.Groups[1].Value;
+                    DateTime mtime = Directory.GetLastWriteTimeUtc(dirs[i]);
+                    if (bestUid == null || mtime > bestTime || (mtime == bestTime && string.CompareOrdinal(uid, bestUid) > 0))
+                    {
+                        bestTime = mtime;
+                        bestUid = uid;
+                    }
+                }
+                return bestUid;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public Dictionary<string, object> InspectPrimaryZalo(ProcessTreeSnapshot snap)
@@ -1481,6 +1529,24 @@ namespace DesktopInstanceManager.Host
                         Directory.Delete(candidate, false);
                         unlinked++;
                     }
+                }
+            }
+
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(dirPath);
+            }
+            catch
+            {
+                files = new string[0];
+            }
+            for (int i = 0; i < files.Length; i++)
+            {
+                if (IsReparsePoint(files[i]))
+                {
+                    File.Delete(files[i]);
+                    unlinked++;
                 }
             }
 
@@ -1792,8 +1858,19 @@ namespace DesktopInstanceManager.Host
                 int unlinked = 0;
                 if (Directory.Exists(profilePath))
                 {
-                    unlinked = UnlinkJunctionsRecursively(profilePath);
-                    Directory.Delete(profilePath, true);
+                    if (IsReparsePoint(profilePath))
+                    {
+                        if (!NativeWin32.RemoveDirectoryW(profilePath))
+                        {
+                            Directory.Delete(profilePath, false);
+                        }
+                        unlinked = 1;
+                    }
+                    else
+                    {
+                        unlinked = UnlinkJunctionsRecursively(profilePath);
+                        Directory.Delete(profilePath, true);
+                    }
                 }
 
                 store.profiles.Remove(target);
@@ -1826,26 +1903,36 @@ namespace DesktopInstanceManager.Host
             if (target == null) return Fail("NOT_FOUND", "Profile not found.");
 
             Dictionary<string, object> install = DiscoverApp(appPath, nodeFixture);
+            string discoveredMode = install.ContainsKey("mode") && install["mode"] != null ? install["mode"].ToString() : string.Empty;
+            string authStatus = install.ContainsKey("authenticode_status") && install["authenticode_status"] != null
+                ? install["authenticode_status"].ToString()
+                : string.Empty;
+            string discoveredExe = install.ContainsKey("executable") && install["executable"] != null ? install["executable"].ToString() : null;
+
+            if (!string.IsNullOrEmpty(discoveredExe) && File.Exists(discoveredExe))
+            {
+                if (discoveredMode == "official-zalo" && !string.Equals(authStatus, "Signed (VNG)", StringComparison.Ordinal))
+                {
+                    return Fail("UNVERIFIED_BINARY", "Official Zalo Authenticode validation failed: " + authStatus);
+                }
+                if (discoveredMode != "official-zalo" && !authStatus.StartsWith("Signed", StringComparison.Ordinal))
+                {
+                    return Fail("UNVERIFIED_BINARY", "Executable Authenticode validation failed: " + authStatus);
+                }
+            }
+
             if (!install.ContainsKey("valid") || !(bool)install["valid"])
             {
                 string err = install.ContainsKey("error") && install["error"] != null ? install["error"].ToString() : "App executable not found.";
                 return Fail("INSTALL_NOT_FOUND", err);
             }
 
-            string discoveredMode = install["mode"].ToString();
             if (discoveredMode == "official-zalo")
             {
                 Dictionary<string, object> folderRedir = CheckFolderRedirection();
                 if ((bool)folderRedir["redirected"])
                 {
                     return Fail("FOLDER_REDIRECTION_DETECTED", folderRedir["warning"] as string ?? "AppData Folder Redirection detected.");
-                }
-                string authStatus = install.ContainsKey("authenticode_status") && install["authenticode_status"] != null
-                    ? install["authenticode_status"].ToString()
-                    : string.Empty;
-                if (!string.Equals(authStatus, "Signed (VNG)", StringComparison.Ordinal))
-                {
-                    return Fail("UNVERIFIED_BINARY", "Official Zalo Authenticode validation failed: " + authStatus);
                 }
             }
 
@@ -2275,7 +2362,9 @@ namespace DesktopInstanceManager.Host
                 }
                 destRoot = Path.GetFullPath(customDest);
                 string primaryZaloData = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZaloData")).TrimEnd('\\');
-                if (destRoot.TrimEnd('\\').StartsWith(primaryZaloData, StringComparison.OrdinalIgnoreCase))
+                string trimmedDest = destRoot.TrimEnd('\\');
+                if (string.Equals(trimmedDest, primaryZaloData, StringComparison.OrdinalIgnoreCase)
+                    || trimmedDest.StartsWith(primaryZaloData + "\\", StringComparison.OrdinalIgnoreCase))
                 {
                     return Fail("PROTECTED_PRIMARY_PATH", "Backup destination cannot reside inside primary ZaloData.");
                 }
@@ -2403,7 +2492,9 @@ namespace DesktopInstanceManager.Host
                 : ResolveSafeChild(_backupsRoot, backupDirInput);
 
             string primaryZaloData = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZaloData")).TrimEnd('\\');
-            if (backupDir.TrimEnd('\\').StartsWith(primaryZaloData, StringComparison.OrdinalIgnoreCase))
+            string trimmedBackupDir = backupDir.TrimEnd('\\');
+            if (string.Equals(trimmedBackupDir, primaryZaloData, StringComparison.OrdinalIgnoreCase)
+                || trimmedBackupDir.StartsWith(primaryZaloData + "\\", StringComparison.OrdinalIgnoreCase))
             {
                 return Fail("PROTECTED_PRIMARY_PATH", "Backup directory cannot reside inside primary ZaloData.");
             }
@@ -2415,6 +2506,12 @@ namespace DesktopInstanceManager.Host
             }
 
             Dictionary<string, object> manifest = _json.Deserialize<Dictionary<string, object>>(File.ReadAllText(manifestPath, Encoding.UTF8));
+            int manifestSchema = manifest != null && manifest.ContainsKey("schema_version") && manifest["schema_version"] != null
+                ? Convert.ToInt32(manifest["schema_version"], CultureInfo.InvariantCulture) : 0;
+            if (manifestSchema != 1)
+            {
+                return Fail("BACKUP_ERROR", "Unsupported backup manifest schema_version.");
+            }
             ArrayList filesList = manifest.ContainsKey("files") ? manifest["files"] as ArrayList : null;
             if (filesList == null)
             {
@@ -2482,10 +2579,25 @@ namespace DesktopInstanceManager.Host
                 ? manifest["zalo_user_id"].ToString()
                 : null;
 
+            string baseName;
+            if (!string.IsNullOrWhiteSpace(requestedName))
+            {
+                string validName;
+                string nameErr;
+                if (!TryValidateProfileName(requestedName, out validName, out nameErr))
+                {
+                    return Fail("INVALID_NAME", nameErr);
+                }
+                baseName = validName;
+            }
+            else
+            {
+                baseName = origName + " (Restored)";
+            }
+
             lock (_storeLock)
             {
                 ProfileStoreFile store = LoadStore();
-                string baseName = !string.IsNullOrWhiteSpace(requestedName) ? requestedName.Trim() : (origName + " (Restored)");
                 string finalName = baseName;
                 int suffix = 2;
                 while (FindProfileByExactName(store, finalName) != null)
@@ -2770,9 +2882,13 @@ namespace DesktopInstanceManager.Host
                 string.Format(CultureInfo.InvariantCulture, "Active isolated PIDs={0}, Primary PIDs={1}", seenPids.Count, primaryPids.Count)));
             checks.Add(MakeCheck("DistinctZaloUserIds", !uidOverlap,
                 !uidOverlap ? "No duplicate logged-in zalo_user_id among running instances" : "Duplicate zalo_user_id detected"));
-            checks.Add(MakeCheck("RestrictiveNtfsAcls", CheckProfilesAclSafe(), "No Everyone or BUILTIN\\Users write access on Profiles directory"));
-            checks.Add(MakeCheck("FolderRedirectionCheck", !(bool)folderRedir["is_unc"],
-                (bool)folderRedir["redirected"] ? "Warning: AppData Folder Redirection detected" : "AppData resolves locally under USERPROFILE"));
+            bool aclSafe = CheckProfilesAclSafe();
+            checks.Add(MakeCheck("RestrictiveNtfsAcls", aclSafe,
+                aclSafe ? "No Everyone or BUILTIN\\Users write access on Profiles directory" : "Profiles directory permits Everyone or BUILTIN\\Users write access"));
+            bool isRedirected = (bool)folderRedir["redirected"];
+            string redirStatus = isRedirected ? "BLOCKED" : "PASS";
+            checks.Add(MakeCheckWithStatus("FolderRedirectionCheck", redirStatus,
+                isRedirected ? "Blocked: AppData Folder Redirection detected" : "AppData resolves locally under USERPROFILE"));
 
             bool allPassed = true;
             for (int i = 0; i < checks.Count; i++)
@@ -2794,9 +2910,15 @@ namespace DesktopInstanceManager.Host
 
         private static Dictionary<string, object> MakeCheck(string name, bool passed, string detail)
         {
+            return MakeCheckWithStatus(name, passed ? "PASS" : "FAIL", detail);
+        }
+
+        private static Dictionary<string, object> MakeCheckWithStatus(string name, string status, string detail)
+        {
             Dictionary<string, object> d = new Dictionary<string, object>();
             d["check_name"] = name;
-            d["passed"] = passed;
+            d["status"] = status;
+            d["passed"] = string.Equals(status, "PASS", StringComparison.Ordinal);
             d["detail"] = SanitizeText(detail);
             return d;
         }

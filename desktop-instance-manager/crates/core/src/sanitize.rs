@@ -23,6 +23,26 @@ const SENSITIVE_JSON_KEYS: &[&str] = &[
     "\"session_key\"",
 ];
 
+fn replace_ascii_case_insensitive(haystack: &str, needle: &str, replacement: &str) -> String {
+    if needle.is_empty() {
+        return haystack.to_owned();
+    }
+    let hay_lower = haystack.to_ascii_lowercase();
+    let needle_lower = needle.to_ascii_lowercase();
+    if hay_lower.len() != haystack.len() {
+        return haystack.replace(needle, replacement);
+    }
+    let mut out = String::with_capacity(haystack.len());
+    let mut last = 0usize;
+    for (idx, _) in hay_lower.match_indices(&needle_lower) {
+        out.push_str(&haystack[last..idx]);
+        out.push_str(replacement);
+        last = idx + needle.len();
+    }
+    out.push_str(&haystack[last..]);
+    out
+}
+
 /// Redacts OS user home prefixes and secret-looking key/value or JSON tokens from diagnostic strings.
 #[must_use]
 pub fn redact_sensitive_text(input: &str, user_home: Option<&Path>) -> String {
@@ -31,10 +51,15 @@ pub fn redact_sensitive_text(input: &str, user_home: Option<&Path>) -> String {
     if let Some(home) = user_home {
         let home_str = home.to_string_lossy();
         if !home_str.is_empty() {
-            output = output.replace(home_str.as_ref(), "<USER_HOME>");
+            output = replace_ascii_case_insensitive(&output, home_str.as_ref(), "<USER_HOME>");
             let forward = home_str.replace('\\', "/");
             if forward != home_str.as_ref() {
-                output = output.replace(&forward, "<USER_HOME>");
+                output = replace_ascii_case_insensitive(&output, &forward, "<USER_HOME>");
+            }
+            if let Some(username) = home.file_name().and_then(|s| s.to_str()) {
+                if username.len() >= 3 && !username.eq_ignore_ascii_case("users") {
+                    output = replace_ascii_case_insensitive(&output, username, "<USER>");
+                }
             }
         }
     }

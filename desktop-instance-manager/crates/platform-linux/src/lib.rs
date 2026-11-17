@@ -5,8 +5,8 @@ pub mod layout;
 
 pub use adapter::{read_linux_pid, LinuxPlatformAdapter};
 pub use layout::{
-    build_bwrap_args, build_linux_isolated_env, ensure_linux_profile_layout,
-    linux_zalo_data_dir, looks_like_appimage, APPARMOR_NO_SANDBOX_NOTE,
+    build_bwrap_args, build_linux_isolated_env, ensure_linux_profile_layout, linux_zalo_data_dir,
+    looks_like_appimage, APPARMOR_NO_SANDBOX_NOTE,
 };
 
 #[cfg(test)]
@@ -76,10 +76,17 @@ mod tests {
         assert!(pdir.join("tmp").is_dir());
 
         let env = build_linux_isolated_env(&profile, &pdir);
-        assert_eq!(env.get("HOME").unwrap(), &pdir.to_string_lossy().into_owned());
+        assert_eq!(
+            env.get("HOME").unwrap(),
+            &pdir.to_string_lossy().into_owned()
+        );
         assert!(env.get("XDG_CONFIG_HOME").unwrap().ends_with(".config"));
 
-        let bwrap = build_bwrap_args(&pdir, Path::new("/tmp/fixture.AppImage"), &["--no-sandbox".to_owned()]);
+        let bwrap = build_bwrap_args(
+            &pdir,
+            Path::new("/tmp/fixture.AppImage"),
+            &["--no-sandbox".to_owned()],
+        );
         assert!(bwrap.contains(&"--die-with-parent".to_owned()));
         assert!(bwrap.contains(&"--no-sandbox".to_owned()));
     }

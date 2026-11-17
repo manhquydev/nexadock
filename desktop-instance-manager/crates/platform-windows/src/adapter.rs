@@ -10,25 +10,35 @@ use dim_core::{
 };
 use dim_profile_store::unlink_reparse_points_safe;
 
+#[cfg(not(windows))]
+use crate::layout::has_pe_authenticode_table;
 use crate::layout::{
     build_isolated_env_map, build_windows_command_line, compare_versions,
-    encode_windows_env_block_utf16, ensure_windows_profile_layout, has_pe_authenticode_table,
-    is_appdata_redirected, parse_version_parts, windows_zalo_data_dir,
+    encode_windows_env_block_utf16, ensure_windows_profile_layout, is_appdata_redirected,
+    parse_version_parts, windows_zalo_data_dir,
 };
 
 /// Windows 10/11 platform adapter using per-process `CreateProcessW` environment redirection
 /// and Restart Manager (`rstrtmgr.dll`) lockfile inspection.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct WindowsPlatformAdapter {
     allow_user_data_dir_fallback: bool,
+    require_authenticode_trust: bool,
+}
+
+impl Default for WindowsPlatformAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WindowsPlatformAdapter {
-    /// Creates a new Windows platform adapter.
+    /// Creates a new Windows platform adapter with strict Authenticode trust verification enabled.
     #[must_use]
     pub fn new() -> Self {
         Self {
             allow_user_data_dir_fallback: true,
+            require_authenticode_trust: true,
         }
     }
 
@@ -36,6 +46,17 @@ impl WindowsPlatformAdapter {
     #[must_use]
     pub fn with_user_data_dir_fallback(mut self, enabled: bool) -> Self {
         self.allow_user_data_dir_fallback = enabled;
+        self
+    }
+
+    /// Configures whether `discover_installation` and launch reject unsigned or untrusted executables.
+    ///
+    /// Production instances must keep the default (`true`); `false` is reserved for synthetic
+    /// directory-layout unit tests using placeholder files.
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_signature_enforcement(mut self, enforce: bool) -> Self {
+        self.require_authenticode_trust = enforce;
         self
     }
 
@@ -52,11 +73,15 @@ impl WindowsPlatformAdapter {
             } => {
                 let install = self.discover_installation(custom_install_root.as_deref())?;
                 if !install.is_valid {
-                    return Err(DimError::InstallNotFound(
-                        install
-                            .error
-                            .unwrap_or_else(|| "Zalo installation invalid".to_owned()),
-                    ));
+                    let msg = install
+                        .error
+                        .unwrap_or_else(|| "Zalo installation invalid".to_owned());
+                    if install.signature_status != "NotFound"
+                        && install.signature_status != "MissingVersionedBinary"
+                    {
+                        return Err(DimError::UnverifiedBinary(msg));
+                    }
+                    return Err(DimError::InstallNotFound(msg));
                 }
                 let exe = install.executable_path.ok_or_else(|| {
                     DimError::InstallNotFound("missing Zalo-<ver>\\Zalo.exe".to_owned())
@@ -76,15 +101,16 @@ impl WindowsPlatformAdapter {
                         path.display()
                     )));
                 }
+                if self.require_authenticode_trust {
+                    verify_windows_binary_or_err(path, None)?;
+                }
                 let work_dir = path
                     .parent()
                     .map(Path::to_path_buf)
                     .unwrap_or_else(|| zalo_data_dir.to_path_buf());
                 let mut full_args = args.clone();
                 if self.allow_user_data_dir_fallback
-                    && !full_args
-                        .iter()
-                        .any(|a| a.starts_with("--user-data-dir"))
+                    && !full_args.iter().any(|a| a.starts_with("--user-data-dir"))
                 {
                     full_args.push(format!("--user-data-dir={}", zalo_data_dir.display()));
                 }
@@ -103,6 +129,9 @@ impl WindowsPlatformAdapter {
                     )));
                 }
                 let node_exe = resolve_node_executable(node_path.as_deref())?;
+                if self.require_authenticode_trust {
+                    verify_windows_binary_or_err(&node_exe, None)?;
+                }
                 let work_dir = script_path
                     .parent()
                     .map(Path::to_path_buf)
@@ -205,15 +234,81 @@ impl ApplicationLocator for WindowsPlatformAdapter {
             });
         };
 
-        let has_sig = has_pe_authenticode_table(&exe_path);
-        let signature_status = if has_sig {
-            "EmbeddedAuthenticodePresent".to_owned()
-        } else {
-            "Unsigned".to_owned()
+        #[cfg(windows)]
+        let (is_valid, signature_status, signer_subject, error) = {
+            use crate::win32_ffi::{verify_authenticode_signature, AuthenticodeTrustOutcome};
+            match verify_authenticode_signature(&exe_path, Some("VNG")) {
+                AuthenticodeTrustOutcome::Trusted {
+                    subject,
+                    status_label,
+                } => (true, status_label, subject, None),
+                AuthenticodeTrustOutcome::Missing => (
+                    !self.require_authenticode_trust,
+                    "Missing".to_owned(),
+                    None,
+                    self.require_authenticode_trust
+                        .then(|| "Official Zalo executable missing".to_owned()),
+                ),
+                AuthenticodeTrustOutcome::Unsigned => (
+                    !self.require_authenticode_trust,
+                    "Unsigned".to_owned(),
+                    None,
+                    self.require_authenticode_trust.then(|| {
+                        "Official Zalo Authenticode validation failed: Unsigned".to_owned()
+                    }),
+                ),
+                AuthenticodeTrustOutcome::UntrustedOrTampered {
+                    subject,
+                    status_label,
+                    ..
+                } => (
+                    !self.require_authenticode_trust,
+                    status_label.clone(),
+                    subject,
+                    self.require_authenticode_trust.then(|| {
+                        format!("Official Zalo Authenticode validation failed: {status_label}")
+                    }),
+                ),
+                AuthenticodeTrustOutcome::WrongPublisher {
+                    subject,
+                    status_label,
+                } => (
+                    !self.require_authenticode_trust,
+                    status_label.clone(),
+                    Some(subject),
+                    self.require_authenticode_trust.then(|| {
+                        format!("Official Zalo publisher verification failed: {status_label}")
+                    }),
+                ),
+                AuthenticodeTrustOutcome::VerificationError { detail } => (
+                    !self.require_authenticode_trust,
+                    format!("Unverified ({detail})"),
+                    None,
+                    self.require_authenticode_trust
+                        .then(|| format!("Authenticode verification failed: {detail}")),
+                ),
+            }
+        };
+
+        #[cfg(not(windows))]
+        let (is_valid, signature_status, signer_subject, error) = {
+            let has_sig = has_pe_authenticode_table(&exe_path);
+            let status = if has_sig {
+                "EmbeddedAuthenticodePresent (WinVerifyTrustRequiresWindows)".to_owned()
+            } else {
+                "Unsigned".to_owned()
+            };
+            let valid = !self.require_authenticode_trust;
+            let err = if valid {
+                None
+            } else {
+                Some("WinVerifyTrust signature verification requires Windows".to_owned())
+            };
+            (valid, status, None, err)
         };
 
         Ok(ApplicationInstallation {
-            is_valid: true,
+            is_valid,
             platform: PlatformKind::Windows,
             install_root: root,
             launcher_path,
@@ -221,13 +316,13 @@ impl ApplicationLocator for WindowsPlatformAdapter {
             app_asar_path: Some(asar_path),
             version: Some(version),
             signature_status,
-            signer_subject: None,
+            signer_subject,
             support_status: SupportStatus::PartiallySupported,
             notes: vec![
-                "Bypassing stub Zalo.exe avoids short-lived ZaloStubExecutable mutex; verify Authenticode trust via WinVerifyTrust/PowerShell before launch."
+                "Bypassing stub Zalo.exe avoids short-lived ZaloStubExecutable mutex; WinVerifyTrust + VNG subject verified prior to launch."
                     .to_owned(),
             ],
-            error: None,
+            error,
         })
     }
 }
@@ -292,6 +387,40 @@ impl PlatformCapabilities for WindowsPlatformAdapter {
     fn unlink_profile_junctions(&self, profile_dir: &Path) -> Result<usize, DimError> {
         unlink_reparse_points_safe(profile_dir)
     }
+
+    fn is_elevated(&self) -> Option<bool> {
+        #[cfg(windows)]
+        {
+            crate::win32_ffi::is_current_process_elevated()
+        }
+        #[cfg(not(windows))]
+        {
+            None
+        }
+    }
+
+    fn smart_app_control_state(&self) -> Option<u32> {
+        #[cfg(windows)]
+        {
+            crate::win32_ffi::read_smart_app_control_state()
+        }
+        #[cfg(not(windows))]
+        {
+            None
+        }
+    }
+
+    fn check_profiles_acl_safe(&self, profiles_dir: &Path) -> Option<bool> {
+        #[cfg(windows)]
+        {
+            crate::win32_ffi::check_directory_acl_safe(profiles_dir)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = profiles_dir;
+            None
+        }
+    }
 }
 
 impl InstanceMonitor for WindowsPlatformAdapter {
@@ -319,8 +448,10 @@ impl InstanceMonitor for WindowsPlatformAdapter {
                 }
             }
 
-            let running = !protected.is_empty()
-                || crate::win32_ffi::is_file_exclusively_locked(&lockfile);
+            let working_set_bytes = crate::win32_ffi::sum_working_set_bytes(&protected);
+            let detected_zalo_user_id = detect_zalo_user_id(&zalo_data);
+            let running =
+                !protected.is_empty() || crate::win32_ffi::is_file_exclusively_locked(&lockfile);
 
             Ok(PrimaryInstanceStatus {
                 zalo_data_dir: zalo_data,
@@ -328,6 +459,8 @@ impl InstanceMonitor for WindowsPlatformAdapter {
                 running,
                 protected_pids: protected.clone(),
                 process_count: protected.len(),
+                working_set_bytes,
+                detected_zalo_user_id,
                 notes: vec![
                     "Primary Zalo PIDs are permanently protected against stop/kill.".to_owned(),
                 ],
@@ -354,11 +487,24 @@ impl InstanceMonitor for WindowsPlatformAdapter {
         {
             let locking_pids = crate::win32_ffi::get_locking_pids(&lockfile);
             let mut main_pid = locking_pids.first().copied();
+            let mut cached_snap: Option<crate::win32_ffi::ProcessSnapshot> = None;
+
+            let is_expected_exe = |snap: &crate::win32_ffi::ProcessSnapshot, pid: u32| -> bool {
+                snap.exe_name(pid).is_some_and(|exe| {
+                    exe.eq_ignore_ascii_case("zalo.exe")
+                        || exe.eq_ignore_ascii_case("node.exe")
+                        || exe.eq_ignore_ascii_case("dim-test-fixture.exe")
+                })
+            };
 
             if main_pid.is_none() {
                 if let Some(fixture_pid) = read_lockfile_json_pid(&lockfile) {
                     if crate::win32_ffi::is_pid_alive(fixture_pid) {
-                        main_pid = Some(fixture_pid);
+                        let snap = cached_snap
+                            .get_or_insert_with(crate::win32_ffi::ProcessSnapshot::capture);
+                        if is_expected_exe(snap, fixture_pid) {
+                            main_pid = Some(fixture_pid);
+                        }
                     }
                 }
             }
@@ -366,14 +512,19 @@ impl InstanceMonitor for WindowsPlatformAdapter {
             if main_pid.is_none() && crate::win32_ffi::is_file_exclusively_locked(&lockfile) {
                 if let Some(hint_pid) = read_runtime_pid_hint(profile_dir) {
                     if crate::win32_ffi::is_pid_alive(hint_pid) {
-                        main_pid = Some(hint_pid);
+                        let snap = cached_snap
+                            .get_or_insert_with(crate::win32_ffi::ProcessSnapshot::capture);
+                        if is_expected_exe(snap, hint_pid) {
+                            main_pid = Some(hint_pid);
+                        }
                     }
                 }
             }
 
             let (running, process_ids, working_set, window_handle, window_title) =
                 if let Some(pid) = main_pid {
-                    let snap = crate::win32_ffi::ProcessSnapshot::capture();
+                    let snap =
+                        cached_snap.unwrap_or_else(crate::win32_ffi::ProcessSnapshot::capture);
                     let tree = snap.collect_tree(pid);
                     let ws = crate::win32_ffi::sum_working_set_bytes(&tree);
                     let win = crate::win32_ffi::find_main_window_for_pids(&tree);
@@ -445,7 +596,18 @@ impl InstanceLauncher for WindowsPlatformAdapter {
         #[cfg(windows)]
         {
             let zalo_data = windows_zalo_data_dir(profile_dir);
-            let (exe, args, work_dir) = self.resolve_target_command(target, &zalo_data, &[])?;
+            let mut extra_override = Vec::new();
+            if matches!(target, LaunchTarget::NodeFixture { extra_args, .. } if !extra_args.iter().any(|a| a == "--user-id" || a.starts_with("--user-id=")))
+            {
+                let resolved_uid = detect_zalo_user_id(&zalo_data)
+                    .or_else(|| profile.zalo_user_id.clone())
+                    .unwrap_or_else(|| derive_deterministic_fixture_user_id(&profile.id));
+                extra_override.push("--user-id".to_owned());
+                extra_override.push(resolved_uid);
+            }
+
+            let (exe, args, work_dir) =
+                self.resolve_target_command(target, &zalo_data, &extra_override)?;
             let base_env: Vec<(String, String)> = std::env::vars().collect();
             let env_map = build_isolated_env_map(&base_env, profile, profile_dir);
             let env_block = encode_windows_env_block_utf16(&env_map);
@@ -454,6 +616,17 @@ impl InstanceLauncher for WindowsPlatformAdapter {
             let pid =
                 crate::win32_ffi::spawn_process_isolated(&exe, &cmd_line, &work_dir, &env_block)?;
             let _ = fs::write(profile_dir.join(".runtime-pid"), pid.to_string());
+
+            if matches!(target, LaunchTarget::NodeFixture { .. }) {
+                let lockfile = zalo_data.join("lockfile");
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2_500);
+                while std::time::Instant::now() < deadline {
+                    if lockfile.exists() || !crate::win32_ffi::is_pid_alive(pid) {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+            }
 
             self.inspect_profile(profile, profile_dir)
         }
@@ -522,18 +695,57 @@ impl InstanceLauncher for WindowsPlatformAdapter {
 
         #[cfg(windows)]
         {
-            // Step 1: Signal graceful shutdown (.quit-signal for fixtures, WM_CLOSE for GUI windows).
+            let pre_snap = crate::win32_ffi::ProcessSnapshot::capture();
+            let is_zalo_exe = pre_snap
+                .exe_name(main_pid)
+                .map(|n| n.eq_ignore_ascii_case("zalo.exe"))
+                .unwrap_or(false);
+
+            // Step 1: Signal graceful shutdown (.quit-signal for fixtures, --z-update-force-quit & WM_CLOSE for Zalo).
             if state.zalo_data_dir.exists() {
                 let _ = fs::write(
                     state.zalo_data_dir.join(".quit-signal"),
                     format!("{{\"requested_at\":\"{}\"}}\n", dim_core::now_rfc3339_utc()),
                 );
             }
+            if is_zalo_exe {
+                if let Ok(install) = self.discover_installation(None) {
+                    if install.is_valid {
+                        if let Some(exe) = install.executable_path {
+                            let base_env: Vec<(String, String)> = std::env::vars().collect();
+                            let synth_profile = ProfileRecord {
+                                id: state.profile_id.clone(),
+                                name: state.profile_name.clone(),
+                                directory_name: String::new(),
+                                created_at: String::new(),
+                                last_launched_at: None,
+                                zalo_user_id: None,
+                                notes: String::new(),
+                            };
+                            let env_map = build_isolated_env_map(
+                                &base_env,
+                                &synth_profile,
+                                &state.profile_dir,
+                            );
+                            let env_block = encode_windows_env_block_utf16(&env_map);
+                            let cmd_line = build_windows_command_line(
+                                &exe,
+                                &["--z-update-force-quit".to_owned()],
+                            );
+                            let work_dir = exe.parent().unwrap_or(state.profile_dir.as_path());
+                            let _ = crate::win32_ffi::spawn_process_isolated(
+                                &exe, &cmd_line, work_dir, &env_block,
+                            );
+                        }
+                    }
+                }
+            }
             if let Some(hwnd) = state.window_handle {
                 crate::win32_ffi::post_wm_close(hwnd);
             }
 
             if crate::win32_ffi::wait_for_exit(main_pid, timeout_ms) {
+                wait_for_lock_release(&state.lockfile_path);
                 let _ = fs::remove_file(state.profile_dir.join(".runtime-pid"));
                 return Ok(1);
             }
@@ -546,11 +758,10 @@ impl InstanceLauncher for WindowsPlatformAdapter {
                     candidates.push(*pid);
                 }
             }
-            let safe_pids =
-                dim_process_manager::PrimaryProtectionGuard::filter_protected_pids(
-                    &candidates,
-                    protected_primary_pids,
-                );
+            let safe_pids = dim_process_manager::PrimaryProtectionGuard::filter_protected_pids(
+                &candidates,
+                protected_primary_pids,
+            );
 
             let mut stopped_count = 0u32;
             for pid in safe_pids {
@@ -568,10 +779,12 @@ impl InstanceLauncher for WindowsPlatformAdapter {
                     })
                     .unwrap_or(false);
                 if allowed_exe && crate::win32_ffi::terminate_pid(pid) {
+                    let _ = crate::win32_ffi::wait_for_exit(pid, 1_500);
                     stopped_count += 1;
                 }
             }
 
+            wait_for_lock_release(&state.lockfile_path);
             let _ = fs::remove_file(state.profile_dir.join(".runtime-pid"));
             Ok(stopped_count)
         }
@@ -582,6 +795,64 @@ impl InstanceLauncher for WindowsPlatformAdapter {
                 "Windows stop requires Windows".to_owned(),
             ))
         }
+    }
+}
+
+#[cfg(windows)]
+fn verify_windows_binary_or_err(
+    path: &Path,
+    required_publisher_substr: Option<&str>,
+) -> Result<(), DimError> {
+    use crate::win32_ffi::{verify_authenticode_signature, AuthenticodeTrustOutcome};
+    match verify_authenticode_signature(path, required_publisher_substr) {
+        AuthenticodeTrustOutcome::Trusted { .. } => Ok(()),
+        AuthenticodeTrustOutcome::Missing => Err(DimError::InstallNotFound(format!(
+            "executable not found: {}",
+            path.display()
+        ))),
+        AuthenticodeTrustOutcome::Unsigned => Err(DimError::UnverifiedBinary(format!(
+            "executable is unsigned: {}",
+            path.display()
+        ))),
+        AuthenticodeTrustOutcome::UntrustedOrTampered { status_label, .. } => {
+            Err(DimError::UnverifiedBinary(format!(
+                "Authenticode verification failed for {}: {status_label}",
+                path.display()
+            )))
+        }
+        AuthenticodeTrustOutcome::WrongPublisher { status_label, .. } => {
+            Err(DimError::UnverifiedBinary(format!(
+                "Publisher verification failed for {}: {status_label}",
+                path.display()
+            )))
+        }
+        AuthenticodeTrustOutcome::VerificationError { detail } => {
+            Err(DimError::UnverifiedBinary(format!(
+                "Authenticode verification error for {}: {detail}",
+                path.display()
+            )))
+        }
+    }
+}
+
+#[cfg(windows)]
+fn derive_deterministic_fixture_user_id(profile_id: &str) -> String {
+    let mut hash: u32 = 2_166_136_261;
+    for b in profile_id.as_bytes() {
+        hash ^= u32::from(*b);
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    let num = 1_000_000 + (hash % 8_999_999);
+    num.to_string()
+}
+
+#[cfg(windows)]
+fn wait_for_lock_release(lockfile: &Path) {
+    for _ in 0..20 {
+        if !crate::win32_ffi::is_file_exclusively_locked(lockfile) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
 

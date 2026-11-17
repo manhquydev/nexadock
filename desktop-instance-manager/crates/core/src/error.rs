@@ -35,10 +35,14 @@ pub enum DimError {
     #[error("refused to terminate protected primary Zalo process: {0}")]
     ProtectedPrimaryProcess(String),
 
+    /// Refused to point storage, backup, or restore paths inside the primary Zalo data directory.
+    #[error("refused to access protected primary Zalo path: {0}")]
+    ProtectedPrimaryPath(String),
+
     /// Another running profile is already using the same logged-in Zalo account ID.
     #[error("zalo_user_id '{user_id}' is already active in running profile '{running_profile}'")]
     DuplicateZaloUserId {
-        /// Numeric Zalo account ID (`Database/_production/<digits>`).
+        /// Numeric Zalo account ID (`Database/_production/<6+ digits>`).
         user_id: String,
         /// Name or ID of the profile currently running with this account.
         running_profile: String,
@@ -66,6 +70,14 @@ pub enum DimError {
     /// Official Zalo Desktop executable could not be discovered.
     #[error("Zalo installation not found: {0}")]
     InstallNotFound(String),
+
+    /// Target executable failed cryptographic trust or publisher verification.
+    #[error("executable signature verification failed: {0}")]
+    UnverifiedBinary(String),
+
+    /// Operation requires the profile instance to be running.
+    #[error("profile '{0}' is not currently running")]
+    NotRunning(String),
 
     /// Operation or target is unsupported on the current platform.
     #[error("unsupported platform operation: {0}")]
@@ -109,19 +121,22 @@ impl DimError {
             Self::DuplicateProfileName(_) => "DUPLICATE_NAME",
             Self::ProfileNotFound(_) => "NOT_FOUND",
             Self::ProfileRunning(_) => "PROFILE_RUNNING",
-            Self::ProfileIdentityMismatch { .. } => "PROFILE_IDENTITY_MISMATCH",
+            Self::ProfileIdentityMismatch { .. } => "PROFILE_MARKER_MISMATCH",
             Self::ProtectedPrimaryProcess(_) => "PROTECTED_PRIMARY_PROCESS",
+            Self::ProtectedPrimaryPath(_) => "PROTECTED_PRIMARY_PATH",
             Self::DuplicateZaloUserId { .. } => "DUPLICATE_ZALO_USER_ID",
             Self::InsufficientDiskSpace { .. } => "INSUFFICIENT_DISK_SPACE",
             Self::PathTraversal(_) => "PATH_TRAVERSAL",
             Self::FolderRedirectionBlocked(_) => "FOLDER_REDIRECTION_DETECTED",
             Self::InstallNotFound(_) => "INSTALL_NOT_FOUND",
+            Self::UnverifiedBinary(_) => "UNVERIFIED_BINARY",
+            Self::NotRunning(_) => "NOT_RUNNING",
             Self::UnsupportedPlatform(_) => "UNSUPPORTED_PLATFORM",
             Self::BackupError(_) => "BACKUP_ERROR",
             Self::RestoreError(_) => "RESTORE_ERROR",
             Self::ProcessError(_) => "PROCESS_ERROR",
             Self::SchemaError(_) => "SCHEMA_ERROR",
-            Self::ConfirmationRequired(_) => "CONFIRMATION_REQUIRED",
+            Self::ConfirmationRequired(_) => "CONFIRM_REQUIRED",
             Self::Io(_) => "IO_ERROR",
             Self::Json(_) => "JSON_ERROR",
         }

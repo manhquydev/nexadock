@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use dim_core::{
-    build_directory_name, generate_profile_id, now_rfc3339_utc, resolve_data_dir,
-    resolve_safe_child, validate_profile_name, DimError, ProfileRecord, ProfileStore,
-    ProfilesDocument, PROFILES_SCHEMA_VERSION, ZALO_PROFILE_ID_FILE,
+    build_directory_name, ensure_not_primary_zalo_path, generate_profile_id, now_rfc3339_utc,
+    resolve_data_dir, resolve_safe_child, validate_directory_input, validate_profile_name,
+    DimError, ProfileRecord, ProfileStore, ProfilesDocument, PROFILES_SCHEMA_VERSION,
+    ZALO_PROFILE_ID_FILE,
 };
 
 /// File-backed `profiles.json` store using atomic temp-file replacement.
@@ -24,11 +25,8 @@ pub struct JsonProfileStore {
 impl JsonProfileStore {
     /// Creates a store rooted at `data_dir`.
     pub fn new(data_dir: PathBuf) -> Result<Self, DimError> {
-        if data_dir.as_os_str().is_empty() {
-            return Err(DimError::PathTraversal(
-                "data_dir cannot be empty".to_owned(),
-            ));
-        }
+        validate_directory_input(&data_dir)?;
+        ensure_not_primary_zalo_path(&data_dir)?;
         let profiles_dir = data_dir.join("Profiles");
         let backups_dir = data_dir.join("Backups");
         let metadata_path = data_dir.join("profiles.json");
@@ -86,7 +84,10 @@ impl JsonProfileStore {
     }
 
     /// Inserts an already-constructed profile record (used by restore-to-new-profile).
-    pub fn insert_restored_profile(&self, record: ProfileRecord) -> Result<ProfileRecord, DimError> {
+    pub fn insert_restored_profile(
+        &self,
+        record: ProfileRecord,
+    ) -> Result<ProfileRecord, DimError> {
         let _guard = self
             .lock
             .lock()
@@ -133,7 +134,7 @@ impl JsonProfileStore {
         let removed = doc.profiles.remove(idx);
 
         let profile_dir = self.profile_dir_for(&removed)?;
-        if profile_dir.exists() {
+        if fs::symlink_metadata(&profile_dir).is_ok() {
             let _ = unlink_junctions(&profile_dir)?;
             remove_dir_without_following_links(&profile_dir)?;
         }
@@ -240,11 +241,7 @@ impl ProfileStore for JsonProfileStore {
         Ok(record)
     }
 
-    fn rename_profile(
-        &self,
-        id_or_name: &str,
-        new_name: &str,
-    ) -> Result<ProfileRecord, DimError> {
+    fn rename_profile(&self, id_or_name: &str, new_name: &str) -> Result<ProfileRecord, DimError> {
         let clean_name = validate_profile_name(new_name)?;
         let _guard = self
             .lock
@@ -351,6 +348,31 @@ pub fn is_symlink_or_reparse(meta: &fs::Metadata) -> bool {
     false
 }
 
+fn is_windows_dir_reparse(meta: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+        if meta.is_dir() || (meta.file_attributes() & FILE_ATTRIBUTE_DIRECTORY) != 0 {
+            return true;
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = meta;
+    }
+    false
+}
+
+fn remove_reparse_or_symlink(path: &Path, meta: &fs::Metadata) -> Result<(), DimError> {
+    if is_windows_dir_reparse(meta) || meta.is_dir() {
+        fs::remove_dir(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
 /// Unlinks any symlinks or directory junctions inside `root` without deleting target contents.
 pub fn unlink_reparse_points_safe(root: &Path) -> Result<usize, DimError> {
     if !root.exists() {
@@ -369,11 +391,7 @@ pub fn unlink_reparse_points_safe(root: &Path) -> Result<usize, DimError> {
             let path = entry.path();
             let meta = fs::symlink_metadata(&path)?;
             if is_symlink_or_reparse(&meta) {
-                if meta.is_dir() {
-                    fs::remove_dir(&path)?;
-                } else {
-                    fs::remove_file(&path)?;
-                }
+                remove_reparse_or_symlink(&path, &meta)?;
                 unlinked += 1;
             } else if meta.is_dir() {
                 stack.push(path);
@@ -389,7 +407,7 @@ fn remove_dir_without_following_links(dir: &Path) -> Result<(), DimError> {
     }
     let root_meta = fs::symlink_metadata(dir)?;
     if is_symlink_or_reparse(&root_meta) {
-        fs::remove_dir(dir)?;
+        remove_reparse_or_symlink(dir, &root_meta)?;
         return Ok(());
     }
     for entry_res in fs::read_dir(dir)? {
@@ -397,11 +415,7 @@ fn remove_dir_without_following_links(dir: &Path) -> Result<(), DimError> {
         let path = entry.path();
         let meta = fs::symlink_metadata(&path)?;
         if is_symlink_or_reparse(&meta) {
-            if meta.is_dir() {
-                fs::remove_dir(&path)?;
-            } else {
-                fs::remove_file(&path)?;
-            }
+            remove_reparse_or_symlink(&path, &meta)?;
         } else if meta.is_dir() {
             remove_dir_without_following_links(&path)?;
         } else {

@@ -138,6 +138,7 @@ async function runSuite() {
 
       const iso = runHost(dataDir, ['verify-isolation']).json;
       assert.equal(iso.all_passed, true, `verify-isolation failed: ${JSON.stringify(iso)}`);
+      assert.ok(Array.isArray(iso.checks) && iso.checks.every((c) => c.status === 'PASS'), 'Every verify-isolation check must have explicit status=PASS');
 
       runHost(dataDir, ['focus', p1.id]);
       await sleep(180);
@@ -337,6 +338,8 @@ async function runSuite() {
       }
       const primPathGuard = runHost(path.join(process.env.APPDATA, 'ZaloData'), ['status'], { expectOk: false });
       assert.equal(primPathGuard.json.error_code, 'PROTECTED_PRIMARY_PATH');
+      const primDescGuard = runHost(path.join(process.env.APPDATA, 'ZaloData', 'nested'), ['status'], { expectOk: false });
+      assert.equal(primDescGuard.json.error_code, 'PROTECTED_PRIMARY_PATH');
 
       // Argument-injection safety (`--` sentinel + invalid name characters)
       const argInjCli = runHost(dataDir, ['--', 'create', '--node-fixture']);
@@ -359,6 +362,7 @@ async function runSuite() {
         '--cli', '--json', '--data-dir', dataDir, '--app-path', tamperedExe, '--', 'discover'
       ], { encoding: 'utf8', windowsHide: true });
       const tamperedJson = JSON.parse(tamperedDisc.stdout.trim());
+      assert.equal(tamperedJson.valid, false, 'Tampered executable must report valid=false');
       assert.match(tamperedJson.authenticode_status, /^Unverified/, 'Tampered executable must fail WinVerifyTrust');
 
       // Sanitized diagnostic logs
@@ -403,8 +407,8 @@ async function runSuite() {
       assert.equal(/transition[^;]*scrollbar-color/i.test(css), false, 'Must never transition scrollbar-color');
 
       // tabs
-      assert.match(html, /<div\s+focusgroup="tablist nomemory"/);
-      assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*focusgroupstart/);
+      assert.match(html, /<div\s+role="tablist"\s+focusgroup="tablist nomemory"/);
+      assert.match(html, /role="tab"[^>]*aria-controls="panel-profiles"[^>]*aria-selected="true"[^>]*focusgroupstart/);
       assert.match(html, /role="tabpanel"[^>]*hidden="until-found"/);
       assert.match(js, /addEventListener\('beforematch'/);
       assert.match(js, /scrollIntoView\(\{\s*block:\s*'nearest',\s*inline:\s*'nearest',\s*container:\s*'nearest'\s*\}\)/);
@@ -421,25 +425,64 @@ async function runSuite() {
       const baseUrl = uiServerHandle.url.replace(/\/$/, '');
       const indexResp = await fetch(`${baseUrl}/`);
       assert.equal(indexResp.status, 200);
-      assert.match(await indexResp.text(), /Multi-Zalo Desktop/);
+      const indexHtml = await indexResp.text();
+      assert.match(indexHtml, /Multi-Zalo Desktop/);
+      const tokenMatch = indexHtml.match(/<meta\s+name="dim-session-token"\s+content="([0-9a-f]{64})">/);
+      assert.ok(tokenMatch, 'Expected injected meta[name="dim-session-token"] on index page');
+      const sessionToken = tokenMatch[1];
 
       const healthResp = await (await fetch(`${baseUrl}/api/health`)).json();
       assert.equal(healthResp.ok, true);
+      assert.equal(healthResp.auth_required, true);
+      assert.equal(healthResp.host_script, undefined, 'Health endpoint must not disclose local script paths');
 
-      const statusResp = await (await fetch(`${baseUrl}/api/status`)).json();
+      // Auth check: reject missing or forged X-DIM-Session-Token on protected API routes
+      const unauthStatusResp = await fetch(`${baseUrl}/api/status`);
+      assert.equal(unauthStatusResp.status, 401);
+      assert.equal((await unauthStatusResp.json()).error_code, 'UNAUTHORIZED');
+
+      const unauthCreateResp = await fetch(`${baseUrl}/api/profiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Unauthenticated' }),
+      });
+      assert.equal(unauthCreateResp.status, 401);
+      assert.equal((await unauthCreateResp.json()).error_code, 'UNAUTHORIZED');
+
+      const badTokenResp = await fetch(`${baseUrl}/api/profiles`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-DIM-Session-Token': '0'.repeat(64),
+        },
+        body: JSON.stringify({ name: 'Forged Token' }),
+      });
+      assert.equal(badTokenResp.status, 401);
+      assert.equal((await badTokenResp.json()).error_code, 'UNAUTHORIZED');
+
+      const authHeaders = { 'X-DIM-Session-Token': sessionToken };
+      const statusResp = await (await fetch(`${baseUrl}/api/status`, { headers: authHeaders })).json();
       assert.equal(statusResp.ok, true);
 
       const apiCreate = await (await fetch(`${baseUrl}/api/profiles`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ name: '--node-fixture', notes: 'arg-inj-smoke' }),
       })).json();
       assert.equal(apiCreate.ok, true);
       assert.equal(apiCreate.data.name, '--node-fixture');
 
+      const customDestBlocked = await fetch(`${baseUrl}/api/profiles/${apiCreate.data.id}/backup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ dest: path.join(tempRoot, 'arbitrary-dest') }),
+      });
+      assert.equal(customDestBlocked.status, 403);
+      assert.equal((await customDestBlocked.json()).error_code, 'FORBIDDEN_DEST');
+
       const apiDelete = await (await fetch(`${baseUrl}/api/profiles/${apiCreate.data.id}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ confirm: true }),
       })).json();
       assert.equal(apiDelete.ok, true);
@@ -450,6 +493,7 @@ async function runSuite() {
         headers: {
           'Content-Type': 'application/json',
           'Origin': 'https://evil.example',
+          ...authHeaders,
         },
         body: JSON.stringify({ name: 'Should Be Blocked' }),
       });
@@ -459,7 +503,7 @@ async function runSuite() {
       // CSRF: reject non-JSON Content-Type (preflightless text/plain attack)
       const csrfCtResp = await fetch(`${baseUrl}/api/profiles`, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: { 'Content-Type': 'text/plain', ...authHeaders },
         body: '{"name":"Should Be Blocked"}',
       });
       assert.equal(csrfCtResp.status, 415);

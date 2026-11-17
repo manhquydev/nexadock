@@ -1,5 +1,7 @@
+import crypto from 'node:crypto';
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -17,6 +19,38 @@ const MIME_TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml'
 };
+
+const SECURITY_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
+};
+
+function sanitizeHostError(rawText) {
+  let out = String(rawText || '');
+  for (const envName of ['APPDATA', 'LOCALAPPDATA', 'USERPROFILE']) {
+    const val = process.env[envName];
+    if (val) {
+      out = out.split(val).join(`<${envName}>`);
+    }
+  }
+  try {
+    const user = os.userInfo().username;
+    if (user && user.length >= 2) {
+      const escaped = user.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '<USER>');
+    }
+  } catch {
+    // Ignore userInfo error
+  }
+  out = out.replace(/(token|cookie|password|secret|authorization|session_key)\s*[:=]\s*[^\s,;\"']+/gi, '$1=[REDACTED]');
+  return out.trim() || 'Host command failed';
+}
 
 function runHostCli(positionalArgs, options = {}, extraFlags = []) {
   return new Promise((resolve) => {
@@ -41,11 +75,28 @@ function runHostCli(positionalArgs, options = {}, extraFlags = []) {
     }
     args.push('--', ...positionalArgs);
 
+    const timeoutMs = Number.isFinite(options.commandTimeoutMs) ? options.commandTimeoutMs : 30_000;
+
     execFile('powershell.exe', args, {
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
+      timeout: timeoutMs,
+      killSignal: 'SIGTERM',
       windowsHide: true
     }, (error, stdout, stderr) => {
+      if (error && (error.killed || error.signal === 'SIGTERM' || error.code === 'ETIMEDOUT')) {
+        resolve({
+          statusCode: 504,
+          payload: {
+            ok: false,
+            error_code: 'HOST_TIMEOUT',
+            message: `Host command timed out after ${timeoutMs}ms`,
+            data: null
+          }
+        });
+        return;
+      }
+
       const trimmed = (stdout || '').trim();
       try {
         const parsed = trimmed ? JSON.parse(trimmed) : null;
@@ -54,14 +105,14 @@ function runHostCli(positionalArgs, options = {}, extraFlags = []) {
           return;
         }
       } catch {
-        // Fall through to error payload
+        // Fall through to sanitized error payload
       }
       resolve({
         statusCode: 500,
         payload: {
           ok: false,
           error_code: 'HOST_EXEC_FAILED',
-          message: (stderr || error?.message || 'Host command failed').trim(),
+          message: sanitizeHostError(stderr || error?.message || 'Host command failed'),
           data: null
         }
       });
@@ -102,13 +153,12 @@ function sendJson(res, statusCode, obj) {
   const body = JSON.stringify(obj);
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
+    ...SECURITY_HEADERS
   });
   res.end(body);
 }
 
-function serveStaticFile(reqPath, res) {
+function serveStaticFile(reqPath, res, sessionToken) {
   let decoded;
   try {
     decoded = decodeURIComponent(reqPath);
@@ -133,13 +183,31 @@ function serveStaticFile(reqPath, res) {
   }
   const ext = path.extname(resolved).toLowerCase();
   const mime = MIME_TYPES[ext] || 'application/octet-stream';
-  res.writeHead(200, {
+  const headers = {
     'Content-Type': mime,
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
-  });
+    ...SECURITY_HEADERS,
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+  };
+  if (rel === 'index.html') {
+    const html = fs.readFileSync(resolved, 'utf8');
+    const tokenMeta = `<meta name="dim-session-token" content="${sessionToken}">`;
+    const withToken = html.includes('</head>')
+      ? html.replace('</head>', `  ${tokenMeta}\n</head>`)
+      : `${tokenMeta}\n${html}`;
+    res.writeHead(200, headers);
+    res.end(withToken, 'utf8');
+    return;
+  }
+  res.writeHead(200, headers);
   fs.createReadStream(resolved).pipe(res);
+}
+
+function timingSafeTokenMatches(provided, expected) {
+  if (typeof provided !== 'string' || provided.length === 0) return false;
+  const a = Buffer.from(provided, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 function isAllowedLoopbackHost(hostHeader, boundPort) {
@@ -165,10 +233,23 @@ function isSafeProfileIdParam(id) {
 }
 
 export function createUiServer(options = {}) {
+  const sessionToken = options.authToken || crypto.randomBytes(32).toString('hex');
+  const maxRequestsPerMinute = Number.isFinite(options.maxRequestsPerMinute) ? options.maxRequestsPerMinute : 300;
+  const allowCustomBackupDest = Boolean(options.allowCustomBackupDest);
   const hostOptions = {
     dataDir: options.dataDir || process.env.DIM_DATA_DIR || null,
     nodeFixture: Boolean(options.nodeFixture),
-    appPath: options.appPath || null
+    appPath: options.appPath || null,
+    commandTimeoutMs: options.commandTimeoutMs
+  };
+
+  let rateWindowStart = Date.now();
+  let rateCount = 0;
+  let mutationChain = Promise.resolve();
+  const enqueueMutation = (task) => {
+    const run = mutationChain.then(task, task);
+    mutationChain = run.catch(() => {});
+    return run;
   };
 
   const server = http.createServer(async (req, res) => {
@@ -190,6 +271,17 @@ export function createUiServer(options = {}) {
         return;
       }
 
+      const now = Date.now();
+      if (now - rateWindowStart >= 60_000) {
+        rateWindowStart = now;
+        rateCount = 0;
+      }
+      rateCount += 1;
+      if (rateCount > maxRequestsPerMinute) {
+        sendJson(res, 429, { ok: false, error_code: 'RATE_LIMITED', message: 'Too many requests' });
+        return;
+      }
+
       const rawUrlPath = (req.url || '/').split('?')[0];
       if (rawUrlPath.includes('\0') || /(?:%00|\.\.|%2e%2e|%5c\.\.)/i.test(rawUrlPath)) {
         sendJson(res, 403, { ok: false, error_code: 'PATH_TRAVERSAL_REJECTED', message: 'Forbidden traversal path' });
@@ -205,7 +297,22 @@ export function createUiServer(options = {}) {
           sendJson(res, 405, { ok: false, error_code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' });
           return;
         }
-        serveStaticFile(pathname, res);
+        serveStaticFile(pathname, res, sessionToken);
+        return;
+      }
+
+      if (pathname === '/api/health' && method === 'GET') {
+        sendJson(res, 200, { ok: true, bind: '127.0.0.1', auth_required: true });
+        return;
+      }
+
+      const providedToken = req.headers['x-dim-session-token'];
+      if (!timingSafeTokenMatches(providedToken, sessionToken)) {
+        sendJson(res, 401, {
+          ok: false,
+          error_code: 'UNAUTHORIZED',
+          message: 'Missing or invalid local session token'
+        });
         return;
       }
 
@@ -220,11 +327,6 @@ export function createUiServer(options = {}) {
           });
           return;
         }
-      }
-
-      if (pathname === '/api/health' && method === 'GET') {
-        sendJson(res, 200, { ok: true, bind: '127.0.0.1', host_script: HOST_SCRIPT });
-        return;
       }
 
       if (pathname === '/api/status' && method === 'GET') {
@@ -261,7 +363,7 @@ export function createUiServer(options = {}) {
       if (pathname === '/api/profiles' && method === 'POST') {
         const body = await readJsonBody(req);
         const flags = body.notes ? ['--notes', String(body.notes)] : [];
-        const out = await runHostCli(['create', String(body.name || '')], hostOptions, flags);
+        const out = await enqueueMutation(() => runHostCli(['create', String(body.name || '')], hostOptions, flags));
         sendJson(res, out.statusCode, out.payload);
         return;
       }
@@ -269,7 +371,7 @@ export function createUiServer(options = {}) {
       if (pathname === '/api/backups/restore' && method === 'POST') {
         const body = await readJsonBody(req);
         const flags = body.name ? ['--name', String(body.name)] : [];
-        const out = await runHostCli(['restore', String(body.backupDir || '')], hostOptions, flags);
+        const out = await enqueueMutation(() => runHostCli(['restore', String(body.backupDir || '')], hostOptions, flags));
         sendJson(res, out.statusCode, out.payload);
         return;
       }
@@ -286,28 +388,36 @@ export function createUiServer(options = {}) {
         if (!action && method === 'DELETE') {
           const body = await readJsonBody(req);
           const flags = body.confirm === true ? ['--confirm'] : [];
-          const out = await runHostCli(['delete', id], hostOptions, flags);
+          const out = await enqueueMutation(() => runHostCli(['delete', id], hostOptions, flags));
           sendJson(res, out.statusCode, out.payload);
           return;
         }
 
         if (action === 'rename' && method === 'POST') {
           const body = await readJsonBody(req);
-          const out = await runHostCli(['rename', id, String(body.newName || '')], hostOptions);
+          const out = await enqueueMutation(() => runHostCli(['rename', id, String(body.newName || '')], hostOptions));
           sendJson(res, out.statusCode, out.payload);
           return;
         }
 
         if (action === 'backup' && method === 'POST') {
           const body = await readJsonBody(req);
+          if (body.dest && !allowCustomBackupDest) {
+            sendJson(res, 403, {
+              ok: false,
+              error_code: 'FORBIDDEN_DEST',
+              message: 'Custom external backup destinations are disabled via HTTP API'
+            });
+            return;
+          }
           const flags = body.dest ? ['--dest', String(body.dest)] : [];
-          const out = await runHostCli(['backup', id], hostOptions, flags);
+          const out = await enqueueMutation(() => runHostCli(['backup', id], hostOptions, flags));
           sendJson(res, out.statusCode, out.payload);
           return;
         }
 
         if ((action === 'launch' || action === 'focus' || action === 'stop') && method === 'POST') {
-          const out = await runHostCli([action, id], hostOptions);
+          const out = await enqueueMutation(() => runHostCli([action, id], hostOptions));
           sendJson(res, out.statusCode, out.payload);
           return;
         }
@@ -315,10 +425,11 @@ export function createUiServer(options = {}) {
 
       sendJson(res, 404, { ok: false, error_code: 'ROUTE_NOT_FOUND', message: `Unknown route ${method} ${pathname}` });
     } catch (err) {
-      sendJson(res, 400, { ok: false, error_code: 'BAD_REQUEST', message: err.message });
+      sendJson(res, 400, { ok: false, error_code: 'BAD_REQUEST', message: sanitizeHostError(err.message) });
     }
   });
 
+  server.__dimSessionToken = sessionToken;
   return server;
 }
 
@@ -332,7 +443,8 @@ export function startUiServer(options = {}) {
       resolve({
         server,
         port: addr.port,
-        url: `http://127.0.0.1:${addr.port}/`
+        url: `http://127.0.0.1:${addr.port}/`,
+        sessionToken: server.__dimSessionToken
       });
     });
   });
@@ -348,8 +460,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     else if (argv[i] === '--node-fixture') opts.nodeFixture = true;
   }
 
-  startUiServer(opts).then(({ url }) => {
+  startUiServer(opts).then(({ server, url }) => {
     console.log(JSON.stringify({ ok: true, url, bind: '127.0.0.1', data_dir: opts.dataDir || null }));
+    const shutdown = () => {
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 2000).unref();
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
   }).catch((err) => {
     console.error(JSON.stringify({ ok: false, error: err.message }));
     process.exit(1);

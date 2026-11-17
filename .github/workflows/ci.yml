@@ -10,9 +10,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+defaults:
+  run:
+    working-directory: desktop-instance-manager
+
 jobs:
   rust-workspace:
-    name: Rust fmt, clippy, and unit tests (${{ matrix.os }})
+    name: Rust fmt, check, clippy, and unit tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -35,11 +39,14 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+            desktop-instance-manager/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock') }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+      - name: Type-check workspace
+        run: cargo check --workspace --all-targets
 
       - name: Run Clippy with warnings denied
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -54,15 +61,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run cargo-deny check
+      - name: Run cargo-deny check (workspace)
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
-          manifest-path: Cargo.toml
-          arguments: --all-features
+          manifest-path: desktop-instance-manager/Cargo.toml
+          arguments: --all-features --locked
 
-  node-fixture-integration:
-    name: Node.js fixture & host integration tests (${{ matrix.os }})
+      - name: Run cargo-deny check (Tauri desktop crate)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          manifest-path: desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
+          arguments: --all-features --locked
+
+  node-and-windows-integration:
+    name: Node.js, PowerShell & Rust parity tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -77,8 +91,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Verify fixture-app.mjs syntax
-        run: node --check fixtures/test-desktop-app/fixture-app.mjs
+      - name: Verify Node script syntax
+        run: |
+          node --check fixtures/test-desktop-app/fixture-app.mjs
+          node --check apps/desktop/ui-server.mjs
+          node --check apps/desktop/ui/app.js
+          node --check tests/run-fixture-tests.mjs
+          node --check tests/run-contract-parity-tests.mjs
+          node --check scripts/generate-build-provenance.mjs
 
       - name: Run cross-platform fixture smoke check
         shell: bash
@@ -97,9 +117,25 @@ jobs:
           fs.rmSync(tmp, { recursive: true, force: true });
           EOF
 
-      - name: Run full Windows PowerShell + UI integration suite
-        if: runner.os == 'Windows' && hashFiles('tests/run-fixture-tests.mjs') != ''
+      - name: Install Rust for Windows parity tests
+        if: runner.os == 'Windows'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build native dim-cli for contract parity tests
+        if: runner.os == 'Windows'
+        run: cargo build -p dim-test-fixture --bin dim-cli --release
+
+      - name: Run Windows PowerShell + UI integration suite
+        if: runner.os == 'Windows'
         run: node tests/run-fixture-tests.mjs
+
+      - name: Run PowerShell vs Rust contract parity suite
+        if: runner.os == 'Windows'
+        run: node tests/run-contract-parity-tests.mjs
+
+      - name: Generate reproducible build provenance manifest & SBOM
+        if: runner.os == 'Windows'
+        run: node scripts/generate-build-provenance.mjs
 
   tauri-desktop-check:
     name: Tauri desktop crate check (${{ matrix.os }})
@@ -114,6 +150,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Install Linux GTK/WebKitGTK dependencies
         if: runner.os == 'Linux'
@@ -121,11 +159,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Check Tauri desktop crate if present
-        shell: bash
-        run: |
-          if [ -f "apps/desktop/src-tauri/Cargo.toml" ]; then
-            cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
-          else
-            echo "apps/desktop/src-tauri/Cargo.toml not present; skipping."
-          fi
+      - name: Format-check Tauri desktop crate
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+
+      - name: Check Tauri desktop crate
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Clippy Tauri desktop crate
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
+
+      - name: Test Tauri desktop crate
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml

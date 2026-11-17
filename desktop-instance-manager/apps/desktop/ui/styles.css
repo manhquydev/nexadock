@@ -227,6 +227,11 @@ body {
   cursor: not-allowed;
 }
 
+:where(button, input, [tabindex="0"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);

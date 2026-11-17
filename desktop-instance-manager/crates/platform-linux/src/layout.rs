@@ -48,7 +48,10 @@ pub fn build_linux_isolated_env(
     profile_dir: &Path,
 ) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
-    env.insert("HOME".to_owned(), profile_dir.to_string_lossy().into_owned());
+    env.insert(
+        "HOME".to_owned(),
+        profile_dir.to_string_lossy().into_owned(),
+    );
     env.insert(
         "XDG_CONFIG_HOME".to_owned(),
         profile_dir.join(".config").to_string_lossy().into_owned(),
@@ -76,11 +79,7 @@ pub fn build_linux_isolated_env(
 
 /// Builds an optional Bubblewrap (`bwrap`) sandbox argument vector binding `profile_dir` as `$HOME`.
 #[must_use]
-pub fn build_bwrap_args(
-    profile_dir: &Path,
-    executable: &Path,
-    app_args: &[String],
-) -> Vec<String> {
+pub fn build_bwrap_args(profile_dir: &Path, executable: &Path, app_args: &[String]) -> Vec<String> {
     let mut args = vec![
         "--die-with-parent".to_owned(),
         "--ro-bind".to_owned(),

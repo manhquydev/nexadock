@@ -48,11 +48,11 @@
     <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
 
     <main class="tabs" id="main-tabs">
-      <div focusgroup="tablist nomemory" aria-label="Workspace Views" class="tablist">
-        <button type="button" role="tab" id="tab-profiles" aria-selected="true" focusgroupstart>Profiles</button>
-        <button type="button" role="tab" id="tab-backups" aria-selected="false">Backups</button>
-        <button type="button" role="tab" id="tab-diagnostics" aria-selected="false">Diagnostics</button>
-        <button type="button" role="tab" id="tab-os-readiness" aria-selected="false">OS Readiness</button>
+      <div role="tablist" focusgroup="tablist nomemory" aria-label="Workspace Views" class="tablist">
+        <button type="button" role="tab" id="tab-profiles" aria-controls="panel-profiles" aria-selected="true" focusgroupstart>Profiles</button>
+        <button type="button" role="tab" id="tab-backups" aria-controls="panel-backups" aria-selected="false">Backups</button>
+        <button type="button" role="tab" id="tab-diagnostics" aria-controls="panel-diagnostics" aria-selected="false">Diagnostics</button>
+        <button type="button" role="tab" id="tab-os-readiness" aria-controls="panel-os-readiness" aria-selected="false">OS Readiness</button>
       </div>
 
       <div role="tabpanel" id="panel-profiles" aria-labelledby="tab-profiles" tabindex="0">

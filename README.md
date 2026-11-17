@@ -4,16 +4,23 @@ Workspace nghiên cứu dịch ngược ứng dụng **Zalo Desktop** chính th�
 
 ## Primary Workspace — `desktop-instance-manager/`
 
-Kiến trúc Rust workspace + Tauri desktop bridge + Windows Signed-Host Bridge (`PowerShell` + loopback Web UI chuẩn `modern-web-guidance`), hỗ trợ chạy đồng thời nhiều phiên Zalo Desktop cô lập hoàn toàn khỏi `%APPDATA%\ZaloData`:
+Kiến trúc Rust workspace + Tauri 2 desktop shell (`dim-desktop.exe`) + native CLI (`dim-cli.exe`) + Windows Signed-Host Bridge (`PowerShell` + loopback Web UI chuẩn `modern-web-guidance`), hỗ trợ chạy đồng thời nhiều phiên Zalo Desktop cô lập hoàn toàn khỏi `%APPDATA%\ZaloData`:
 
-- **Bắt đầu nhanh & Hướng dẫn sử dụng:** [`desktop-instance-manager/README.md`](desktop-instance-manager/README.md)
+- **Bắt đầu nhanh & README Workspace:** [`desktop-instance-manager/README.md`](desktop-instance-manager/README.md)
+- **Hướng dẫn sử dụng Windows MVP:** [`desktop-instance-manager/docs/user-guide/windows-mvp-guide.md`](desktop-instance-manager/docs/user-guide/windows-mvp-guide.md)
+- **Báo cáo Hardening & Xác minh sau kiểm toán:** [`desktop-instance-manager/docs/reviews/post-swarm-hardening-report.md`](desktop-instance-manager/docs/reviews/post-swarm-hardening-report.md)
+- **CI Workflow (Repo Root):** [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 - **Kiến trúc & Quyết định thiết kế (ADR 001–004):**
   - [`desktop-instance-manager/docs/architecture/adr-001-hybrid-isolation-architecture.md`](desktop-instance-manager/docs/architecture/adr-001-hybrid-isolation-architecture.md)
   - [`desktop-instance-manager/docs/architecture/adr-002-rust-tauri-and-sac-host-bridge.md`](desktop-instance-manager/docs/architecture/adr-002-rust-tauri-and-sac-host-bridge.md)
 - **Đánh giá Bảo mật (STRIDE + OWASP + 11 Threat Categories):** [`desktop-instance-manager/docs/security/threat-model-and-audit.md`](desktop-instance-manager/docs/security/threat-model-and-audit.md)
 - **Báo cáo Kiểm thử & Live Zalo 26.10.20 PoC (Gate A–F):** [`desktop-instance-manager/docs/testing/poc-and-test-report.md`](desktop-instance-manager/docs/testing/poc-and-test-report.md)
 - **Ma trận Hỗ trợ Nền tảng (Windows / macOS / Ubuntu):** [`desktop-instance-manager/docs/compatibility/os-readiness.md`](desktop-instance-manager/docs/compatibility/os-readiness.md)
-- **Bằng chứng JSON đã xác minh:** [`desktop-instance-manager/evidence/fixture-test-result.json`](desktop-instance-manager/evidence/fixture-test-result.json), [`desktop-instance-manager/evidence/zalo-live-poc-result.json`](desktop-instance-manager/evidence/zalo-live-poc-result.json)
+- **Bằng chứng JSON & Provenance đã xác minh:**
+  - [`desktop-instance-manager/evidence/fixture-test-result.json`](desktop-instance-manager/evidence/fixture-test-result.json)
+  - [`desktop-instance-manager/evidence/contract-parity-result.json`](desktop-instance-manager/evidence/contract-parity-result.json)
+  - [`desktop-instance-manager/evidence/zalo-live-poc-result.json`](desktop-instance-manager/evidence/zalo-live-poc-result.json)
+  - [`desktop-instance-manager/evidence/artifact-manifest.json`](desktop-instance-manager/evidence/artifact-manifest.json) | [`sbom-cyclonedx.json`](desktop-instance-manager/evidence/sbom-cyclonedx.json) | [`dependency-audit.json`](desktop-instance-manager/evidence/dependency-audit.json)
 
 ---
 

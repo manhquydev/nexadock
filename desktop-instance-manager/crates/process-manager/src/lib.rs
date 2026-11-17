@@ -41,6 +41,8 @@ mod tests {
                     running: true,
                     protected_pids: vec![primary_pid],
                     process_count: 1,
+                    working_set_bytes: 0,
+                    detected_zalo_user_id: None,
                     notes: Vec::new(),
                 },
                 running_pids: Mutex::new(HashMap::new()),
@@ -181,6 +183,8 @@ mod tests {
             running: true,
             protected_pids: vec![4242, 4243],
             process_count: 2,
+            working_set_bytes: 0,
+            detected_zalo_user_id: None,
             notes: Vec::new(),
         };
         let state = ProfileRuntimeState {
@@ -228,8 +232,20 @@ mod tests {
             .join("AppData")
             .join("Roaming")
             .join("ZaloData");
-        fs::create_dir_all(p1_zalo.join("Database").join("_production").join("849999001")).unwrap();
-        fs::create_dir_all(p2_zalo.join("Database").join("_production").join("849999001")).unwrap();
+        fs::create_dir_all(
+            p1_zalo
+                .join("Database")
+                .join("_production")
+                .join("849999001"),
+        )
+        .unwrap();
+        fs::create_dir_all(
+            p2_zalo
+                .join("Database")
+                .join("_production")
+                .join("849999001"),
+        )
+        .unwrap();
 
         // Simulate stale lockfile from crash on p1
         fs::write(p1_zalo.join("lockfile"), b"dead").unwrap();

@@ -111,6 +111,124 @@ pub fn resolve_safe_child(root: &Path, relative: &str) -> Result<PathBuf, DimErr
     Ok(resolved)
 }
 
+/// Validates a directory path provided via CLI/IPC/env against empty values, NUL bytes,
+/// control characters, and `..` traversal components.
+pub fn validate_directory_input(path: &Path) -> Result<(), DimError> {
+    if path.as_os_str().is_empty() {
+        return Err(DimError::PathTraversal(
+            "directory path cannot be empty".to_owned(),
+        ));
+    }
+    let raw = path.to_string_lossy();
+    if raw.contains('\0') || raw.chars().any(char::is_control) {
+        return Err(DimError::PathTraversal(
+            "directory path contains NUL or control characters".to_owned(),
+        ));
+    }
+    if raw.split(['/', '\\']).any(|seg| seg == "..")
+        || path.components().any(|c| matches!(c, Component::ParentDir))
+    {
+        return Err(DimError::PathTraversal(
+            "directory path contains '..' traversal segment".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Resolves the OS default primary user `ZaloData` directory, if environment variables are set.
+#[must_use]
+pub fn resolve_primary_zalo_data_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "windows") {
+        let roaming = std::env::var_os("APPDATA")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("USERPROFILE")
+                    .filter(|v| !v.is_empty())
+                    .map(|h| PathBuf::from(h).join("AppData").join("Roaming"))
+            })?;
+        return Some(roaming.join("ZaloData"));
+    }
+    if cfg!(target_os = "macos") {
+        let home = std::env::var_os("HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)?;
+        return Some(
+            home.join("Library")
+                .join("Application Support")
+                .join("ZaloData"),
+        );
+    }
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|v| !v.is_empty())
+                .map(|h| PathBuf::from(h).join(".config"))
+        })?;
+    Some(config.join("ZaloData"))
+}
+
+/// Rejects any path pointing at or inside the user's primary `ZaloData` directory.
+pub fn ensure_not_primary_zalo_path(path: &Path) -> Result<(), DimError> {
+    let Some(primary) = resolve_primary_zalo_data_dir() else {
+        return Ok(());
+    };
+    if paths_overlap_or_descend(path, &primary) {
+        return Err(DimError::ProtectedPrimaryPath(
+            "path cannot point to or reside inside primary ZaloData".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn canonicalize_best_effort(path: &Path) -> Option<PathBuf> {
+    if let Ok(canon) = std::fs::canonicalize(path) {
+        return Some(canon);
+    }
+    let mut existing = path.to_path_buf();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    while !existing.exists() {
+        let name = existing.file_name()?;
+        tail.push(name.to_os_string());
+        if !existing.pop() {
+            return None;
+        }
+    }
+    let mut resolved = std::fs::canonicalize(&existing).ok()?;
+    for seg in tail.into_iter().rev() {
+        resolved.push(seg);
+    }
+    Some(resolved)
+}
+
+fn paths_overlap_or_descend(candidate: &Path, primary: &Path) -> bool {
+    if let (Some(canon_cand), Some(canon_prim)) = (
+        canonicalize_best_effort(candidate),
+        canonicalize_best_effort(primary),
+    ) {
+        if canon_cand == canon_prim || canon_cand.starts_with(&canon_prim) {
+            return true;
+        }
+    }
+    let norm = |p: &Path| -> String {
+        let s = p.to_string_lossy().replace('/', "\\");
+        let trimmed = s.trim_end_matches(['\\', '/']);
+        if cfg!(windows) {
+            trimmed.to_ascii_lowercase()
+        } else {
+            trimmed.to_owned()
+        }
+    };
+    let c = norm(candidate);
+    let p = norm(primary);
+    if c.is_empty() || p.is_empty() {
+        return false;
+    }
+    c == p || c.starts_with(&format!("{p}\\")) || c.starts_with(&format!("{p}/"))
+}
+
 /// Verifies available disk space meets at least `required_bytes`.
 pub fn check_disk_space_bytes(
     target_path: &Path,

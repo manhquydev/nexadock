@@ -15,8 +15,7 @@ use dim_core::{
 use dim_profile_store::unlink_reparse_points_safe;
 
 use crate::layout::{
-    ensure_linux_profile_layout, linux_zalo_data_dir, looks_like_appimage,
-    APPARMOR_NO_SANDBOX_NOTE,
+    ensure_linux_profile_layout, linux_zalo_data_dir, looks_like_appimage, APPARMOR_NO_SANDBOX_NOTE,
 };
 
 #[cfg(target_os = "linux")]
@@ -155,12 +154,15 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             let zalo_data = config_base.join("ZaloData");
             let lock_path = zalo_data.join("SingletonLock");
             let pid = read_linux_pid(&zalo_data).filter(|&p| is_unix_pid_alive(p));
+            let detected_uid = detect_zalo_user_id(&zalo_data);
             Ok(PrimaryInstanceStatus {
                 zalo_data_dir: zalo_data,
                 lockfile_path: lock_path,
                 running: pid.is_some(),
                 protected_pids: pid.into_iter().collect(),
                 process_count: usize::from(pid.is_some()),
+                working_set_bytes: 0,
+                detected_zalo_user_id: detected_uid,
                 notes: vec!["Primary Linux config dir PIDs are protected.".to_owned()],
             })
         }
