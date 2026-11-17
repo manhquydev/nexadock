@@ -5,6 +5,10 @@ edition = "2021"
 rust-version = "1.90"
 license = "MIT OR Apache-2.0"
 description = "Tauri 2 desktop shell for MultiZaloDesktop isolated instance manager"
+publish = false
+
+[package.metadata.packaging]
+tauri-cli = "2.12.5"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

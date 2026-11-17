@@ -1,5 +1,5 @@
-# cargo-deny v2 policy for MultiZaloDesktop (desktop-instance-manager)
-version = 2
+# cargo-deny policy for MultiZaloDesktop (desktop-instance-manager)
+# Note: 'version = 2' removed for cargo-deny >= 0.20 compatibility (unexpected-keys error)
 
 [graph]
 targets = [
