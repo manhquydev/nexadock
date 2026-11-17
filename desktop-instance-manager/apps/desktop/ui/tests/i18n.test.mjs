@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  initI18n,
   DEFAULT_LOCALE,
   DICTIONARIES,
   getLocale,
@@ -15,7 +16,7 @@ import {
   interpolate,
   normalizeSupportStatus,
   translateSupportStatus,
-  translateErrorCode,
+  resolveErrorInfo,
   formatBytes,
   formatDateTime,
   formatNumber
@@ -23,6 +24,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = path.resolve(__dirname, '..');
+
+await initI18n();
 
 function flattenKeys(obj, prefix = '') {
   const out = [];
@@ -37,12 +40,16 @@ function flattenKeys(obj, prefix = '') {
   return out.sort();
 }
 
+function extractPlaceholders(str) {
+  return Array.from(str.matchAll(/\{([a-zA-Z0-9_]+)\}/g), (m) => m[1]).sort();
+}
+
 test('default locale is vi-VN', () => {
   assert.equal(DEFAULT_LOCALE, 'vi-VN');
   assert.equal(getLocale(), 'vi-VN');
 });
 
-test('vi-VN and en-US dictionaries have 100% key parity and non-empty values', () => {
+test('vi-VN and en-US dictionaries have 100% key parity, placeholder parity, and non-empty values', () => {
   const viKeys = flattenKeys(DICTIONARIES['vi-VN']);
   const enKeys = flattenKeys(DICTIONARIES['en-US']);
 
@@ -55,9 +62,19 @@ test('vi-VN and en-US dictionaries have 100% key parity and non-empty values', (
 
   for (const k of viKeys) {
     setLocale('vi-VN');
-    assert.ok(t(k).trim().length > 0, `Empty vi-VN value for ${k}`);
+    const viVal = t(k);
+    assert.ok(viVal.trim().length > 0, `Empty vi-VN value for ${k}`);
     setLocale('en-US');
-    assert.ok(t(k).trim().length > 0, `Empty en-US value for ${k}`);
+    const enVal = t(k);
+    assert.ok(enVal.trim().length > 0, `Empty en-US value for ${k}`);
+
+    const viRaw = k.split('.').reduce((acc, part) => acc[part], DICTIONARIES['vi-VN']);
+    const enRaw = k.split('.').reduce((acc, part) => acc[part], DICTIONARIES['en-US']);
+    assert.deepEqual(
+      extractPlaceholders(viRaw),
+      extractPlaceholders(enRaw),
+      `Placeholder mismatch for key ${k}`
+    );
   }
   setLocale('vi-VN');
 });
@@ -124,12 +141,13 @@ test('support status normalization handles both PascalCase and SCREAMING_SNAKE_C
   setLocale('vi-VN');
 });
 
-test('translateErrorCode preserves raw error code alongside localized message', () => {
+test('resolveErrorInfo separates localized userMessage from rawCode and rawDetail', () => {
   setLocale('vi-VN');
-  const msg = translateErrorCode('PROTECTED_PRIMARY_PROCESS', 'pid 1234');
-  assert.match(msg, /PROTECTED_PRIMARY_PROCESS/);
-  assert.match(msg, /pid 1234/);
-  assert.match(msg, /Zalo chính/);
+  const info = resolveErrorInfo('PROTECTED_PRIMARY_PROCESS', 'Target PID 4120 is primary Zalo');
+  assert.doesNotMatch(info.userMessage, /Target PID 4120/);
+  assert.match(info.userMessage, /Zalo chính/);
+  assert.equal(info.rawCode, 'PROTECTED_PRIMARY_PROCESS');
+  assert.equal(info.rawDetail, 'Target PID 4120 is primary Zalo');
 });
 
 test('Intl formatters format bytes, numbers, and dates cleanly', () => {

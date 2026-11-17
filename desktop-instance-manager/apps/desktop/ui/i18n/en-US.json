@@ -19,6 +19,7 @@
   },
   "statusBar": {
     "checking": "Checking Zalo Desktop status...",
+    "loading": "Loading data...",
     "detectedRunning": "Zalo Desktop detected · {count} profile(s) running",
     "detectedIdle": "Zalo Desktop detected · No profiles running",
     "notFound": "Zalo Desktop not found · Check Diagnostics",
@@ -281,7 +282,10 @@
     "UNSUPPORTED_MEDIA_TYPE": "Unsupported request media type.",
     "INVALID_ID": "Invalid profile ID.",
     "ROUTE_NOT_FOUND": "API route not found.",
-    "UNKNOWN": "An unknown error occurred."
+    "UNKNOWN": "An unknown error occurred.",
+    "technicalDetails": "Technical details",
+    "rawCodeLabel": "Error code:",
+    "rawMessageLabel": "Raw message:"
   },
   "messages": {
     "profileCreated": "Profile created.",

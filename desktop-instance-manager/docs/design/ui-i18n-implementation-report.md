@@ -58,15 +58,7 @@ Result: **14 passed, 0 failed, 0 skipped** (`duration_ms 98.2587`):
 - `i18n.test.mjs` (9/9 passed): default `vi-VN`, 100% `vi-VN`/`en-US` key parity, Vietnamese diacritics check, static key coverage in `index.html` & `app.js`, safe interpolation, missing-key detection, `SupportStatus` normalization, `error_code` preservation, `Intl` formatters.
 - `ui-contracts.test.mjs` (5/5 passed): HTML/CSS Modern Web Guidance & CSP compliance, Quiet Workspace rules (no gradients/glassmorphism/remote URLs), Tauri/HTTP contract & no-`innerHTML` checks, `resolveIsolationCheckResult` honesty (`NOT_TESTED`/`BLOCKED`/`UNKNOWN` never mapped to `PASS`), locale persistence.
 
-### Headless Edge CDP Responsive & Theme Matrix (`visual-cdp.mjs`)
-Command:
-```sh
-node apps/desktop/ui/tests/visual-cdp.mjs
-```
-Result: **`PASS (16 matrix combinations verified, 0 overflow, 0 runtime errors)`**
-- Tested against local mock HTTP bridge with CSP enabled across:
-  - Locales: `vi-VN`, `en-US`
-  - Themes: `light`, `dark`
-  - Viewports: `1160x780`, `900x650`, `768x650`, `420x540`
-- Verified `document.documentElement.scrollWidth <= window.innerWidth`, profile rendering, `document.documentElement.lang`, `<meta name="color-scheme">`, and zero runtime exceptions.
-- Note: Playwright package is not installed in this environment; headless Microsoft Edge via CDP was used for browser verification. Live Tauri WebView2 / Rust backend integration was not executed in this UI-only worktree.
+- **Headless Edge CDP E2E & Visual Matrix** (`node apps/desktop/ui/tests/visual-cdp.mjs`):
+  - Result: **`PASS (16 matrix combinations, WAI-ARIA menu, native radios, async pending, error banner, dialogs, 200% zoom, 0 runtime errors)`**
+  - Screenshots captured under `docs/design/screenshots/` across viewports (`1160x780`, `900x650`, `768x650`, `420x540`), `vi-VN`/`en-US`, `light`/`dark`, 200% zoom, dialogs, and error states.
+  - See [ui-independent-review-and-remediation.md](./ui-independent-review-and-remediation.md) for the full hardening audit and WebView compatibility matrix.

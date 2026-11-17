@@ -1,16 +1,14 @@
-import viVN from './vi-VN.json' with { type: 'json' };
-import enUS from './en-US.json' with { type: 'json' };
-
 export const DEFAULT_LOCALE = 'vi-VN';
 export const SUPPORTED_LOCALES = Object.freeze(['vi-VN', 'en-US']);
 export const LOCALE_STORAGE_KEY = 'multi-zalo.locale';
 
-export const DICTIONARIES = Object.freeze({
-  'vi-VN': viVN,
-  'en-US': enUS
-});
+export const DICTIONARIES = {
+  'vi-VN': {},
+  'en-US': {}
+};
 
 let currentLocale = loadInitialLocale();
+let initialized = false;
 const listeners = new Set();
 const missingKeys = new Set();
 
@@ -26,6 +24,39 @@ function loadInitialLocale() {
     // Ignore storage access errors
   }
   return DEFAULT_LOCALE;
+}
+
+async function loadDictionary(locale) {
+  const url = new URL(`./${locale}.json`, import.meta.url);
+  if (typeof process !== 'undefined' && process.versions?.node && url.protocol === 'file:') {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const filePath = fileURLToPath(url);
+    return JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
+  }
+  const resp = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!resp.ok) {
+    throw new Error(`Failed to load i18n dictionary for ${locale}: HTTP ${resp.status}`);
+  }
+  return await resp.json();
+}
+
+export async function initI18n() {
+  if (initialized) return;
+  try {
+    const [vi, en] = await Promise.all([
+      loadDictionary('vi-VN'),
+      loadDictionary('en-US')
+    ]);
+    DICTIONARIES['vi-VN'] = vi;
+    DICTIONARIES['en-US'] = en;
+    initialized = true;
+  } catch (err) {
+    if (typeof console !== 'undefined' && console.error) {
+      console.error('i18n initialization failed:', err);
+    }
+  }
 }
 
 function resolvePath(dict, key) {
@@ -117,12 +148,10 @@ export function normalizeSupportStatus(rawStatus) {
   if (trimmed === trimmed.toUpperCase() && trimmed.includes('_')) {
     return trimmed;
   }
-  // Convert Rust Debug PascalCase (e.g. PartiallySupported -> PARTIALLY_SUPPORTED)
-  const snake = trimmed
+  return trimmed
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/[\s-]+/g, '_')
     .toUpperCase();
-  return snake;
 }
 
 export function translateSupportStatus(rawStatus) {
@@ -136,18 +165,24 @@ export function translateSupportStatus(rawStatus) {
   };
 }
 
-export function translateErrorCode(errorCode, fallbackMessage = '') {
-  if (!errorCode || typeof errorCode !== 'string') {
-    return fallbackMessage || t('errors.UNKNOWN');
-  }
-  const normalized = errorCode.trim().toUpperCase();
+export function resolveErrorInfo(errorCode, rawMessage = '') {
+  const normalized = typeof errorCode === 'string' && errorCode.trim()
+    ? errorCode.trim().toUpperCase()
+    : 'UNKNOWN';
   const key = `errors.${normalized}`;
   const hasKey = resolvePath(DICTIONARIES[currentLocale], key) !== undefined
     || resolvePath(DICTIONARIES['en-US'], key) !== undefined;
-  const localized = hasKey ? t(key) : (fallbackMessage || t('errors.UNKNOWN'));
-  return fallbackMessage && fallbackMessage !== localized
-    ? `${localized} (${normalized}: ${fallbackMessage})`
-    : `${localized} (${normalized})`;
+
+  const userMessage = hasKey ? t(key) : t('errors.UNKNOWN');
+  return {
+    userMessage,
+    rawCode: normalized,
+    rawDetail: rawMessage ? String(rawMessage) : ''
+  };
+}
+
+export function translateErrorCode(errorCode, rawMessage = '') {
+  return resolveErrorInfo(errorCode, rawMessage).userMessage;
 }
 
 export function formatNumber(value, locale = currentLocale) {

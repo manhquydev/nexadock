@@ -72,7 +72,13 @@
     </aside>
 
     <main id="main-workspace" class="workspace" tabindex="-1">
-      <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
+      <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden>
+        <div id="status-banner-text" class="status-banner-text"></div>
+        <details id="status-banner-details" class="banner-details" hidden>
+          <summary data-i18n="errors.technicalDetails">Chi tiết kỹ thuật</summary>
+          <div id="status-banner-raw" class="banner-raw"></div>
+        </details>
+      </div>
 
       <!-- View 1: Profiles (default) -->
       <section id="view-profiles" class="view-section" aria-labelledby="profiles-heading">
@@ -225,28 +231,39 @@
         </header>
 
         <div class="settings-sections">
-          <section class="settings-group">
-            <div class="settings-group-header">
-              <h2 data-i18n="settings.language.title">Ngôn ngữ hiển thị</h2>
-              <p class="settings-desc" data-i18n="settings.language.description">Chuyển đổi tức thì không cần tải lại ứng dụng. Tên hồ sơ, đường dẫn, PID và nhật ký gốc được giữ nguyên.</p>
+          <fieldset class="settings-group segmented-fieldset">
+            <legend class="settings-legend" data-i18n="settings.language.title">Ngôn ngữ hiển thị</legend>
+            <p class="settings-desc" data-i18n="settings.language.description">Chuyển đổi tức thì không cần tải lại ứng dụng. Tên hồ sơ, đường dẫn, PID và nhật ký gốc được giữ nguyên.</p>
+            <div class="segmented-control">
+              <label class="seg-option">
+                <input type="radio" name="ui-locale" value="vi-VN" checked>
+                <span data-i18n="settings.language.viVN">Tiếng Việt (vi-VN)</span>
+              </label>
+              <label class="seg-option">
+                <input type="radio" name="ui-locale" value="en-US">
+                <span data-i18n="settings.language.enUS">English (en-US)</span>
+              </label>
             </div>
-            <div class="segmented-control" role="radiogroup" data-i18n-aria-label="settings.language.title" aria-label="Ngôn ngữ hiển thị">
-              <button type="button" class="seg-btn" data-locale="vi-VN" role="radio" aria-checked="true" data-i18n="settings.language.viVN">Tiếng Việt (vi-VN)</button>
-              <button type="button" class="seg-btn" data-locale="en-US" role="radio" aria-checked="false" data-i18n="settings.language.enUS">English (en-US)</button>
-            </div>
-          </section>
+          </fieldset>
 
-          <section class="settings-group">
-            <div class="settings-group-header">
-              <h2 data-i18n="settings.appearance.title">Giao diện</h2>
-              <p class="settings-desc" data-i18n="settings.appearance.description">Chọn chế độ sáng/tối hoặc tự động theo hệ điều hành.</p>
+          <fieldset class="settings-group segmented-fieldset">
+            <legend class="settings-legend" data-i18n="settings.appearance.title">Giao diện</legend>
+            <p class="settings-desc" data-i18n="settings.appearance.description">Chọn chế độ sáng/tối hoặc tự động theo hệ điều hành.</p>
+            <div class="segmented-control">
+              <label class="seg-option">
+                <input type="radio" name="ui-theme" value="system" checked>
+                <span id="theme-label-system">Theo hệ thống</span>
+              </label>
+              <label class="seg-option">
+                <input type="radio" name="ui-theme" value="light">
+                <span data-i18n="settings.appearance.light">Sáng</span>
+              </label>
+              <label class="seg-option">
+                <input type="radio" name="ui-theme" value="dark">
+                <span data-i18n="settings.appearance.dark">Tối</span>
+              </label>
             </div>
-            <div class="segmented-control" role="radiogroup" data-i18n-aria-label="settings.appearance.title" aria-label="Giao diện">
-              <button type="button" class="seg-btn" data-theme-choice="system" role="radio" aria-checked="true" id="theme-btn-system">Theo hệ thống</button>
-              <button type="button" class="seg-btn" data-theme-choice="light" role="radio" aria-checked="false" data-i18n="settings.appearance.light">Sáng</button>
-              <button type="button" class="seg-btn" data-theme-choice="dark" role="radio" aria-checked="false" data-i18n="settings.appearance.dark">Tối</button>
-            </div>
-          </section>
+          </fieldset>
 
           <section class="settings-group">
             <div class="settings-group-header">

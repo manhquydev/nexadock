@@ -1,10 +1,11 @@
 import {
+  initI18n,
   t,
   getLocale,
   setLocale,
   onLocaleChange,
   applyDomTranslations,
-  translateErrorCode,
+  resolveErrorInfo,
   translateSupportStatus,
   formatBytes,
   formatDateTime,
@@ -25,7 +26,11 @@ const state = {
   connectionOk: false,
   activeRenameId: null,
   activeDeleteId: null,
-  activeRestoreBackupDir: null
+  activeRestoreBackupDir: null,
+  openDialogContext: null, // { type: 'rename' | 'delete' | 'restore' | 'details', prof?, bk? }
+  banner: null, // { kind, messageKey?, messageParams?, rawText?, errorCode?, rawDetail? }
+  pendingProfileActions: new Map(), // Map<profileId, action>
+  pendingGlobalActions: new Set() // Set<'create' | 'restore' | 'refresh' | 'verify'>
 };
 
 export function getTauriInvoke() {
@@ -35,17 +40,21 @@ export function getTauriInvoke() {
   return null;
 }
 
-function updateConnectionBadge(mode, ok = true) {
+function updateConnectionBadge(mode = state.connectionMode, ok = state.connectionOk) {
   state.connectionMode = mode;
   state.connectionOk = ok;
   const badge = document.getElementById('host-mode-badge');
   const dot = document.getElementById('connection-dot');
   if (badge) {
-    badge.textContent = mode === 'tauri' ? t('app.modeTauri') : t('app.modeBridge');
+    if (!mode) {
+      badge.textContent = t('app.connecting');
+    } else {
+      badge.textContent = mode === 'tauri' ? t('app.modeTauri') : t('app.modeBridge');
+    }
   }
   if (dot) {
-    dot.classList.toggle('is-online', ok);
-    dot.classList.toggle('is-error', !ok);
+    dot.classList.toggle('is-online', Boolean(ok));
+    dot.classList.toggle('is-error', mode !== null && !ok);
   }
 }
 
@@ -70,21 +79,66 @@ export async function apiCall(route, method = 'GET', body = null, tauriCmd = nul
   return payload;
 }
 
-function showBanner(message, kind = 'info') {
+function renderBanner() {
   const banner = document.getElementById('status-banner');
-  if (!banner) return;
-  banner.textContent = message;
+  const textEl = document.getElementById('status-banner-text');
+  const detailsEl = document.getElementById('status-banner-details');
+  const rawEl = document.getElementById('status-banner-raw');
+  if (!banner || !textEl || !detailsEl || !rawEl) return;
+
+  if (!state.banner) {
+    banner.hidden = true;
+    textEl.textContent = '';
+    detailsEl.hidden = true;
+    rawEl.textContent = '';
+    return;
+  }
+
+  const b = state.banner;
   banner.className = 'status-banner';
-  if (kind === 'error') banner.classList.add('is-error');
-  else if (kind === 'success') banner.classList.add('is-success');
+  if (b.kind === 'error') banner.classList.add('is-error');
+  else if (b.kind === 'success') banner.classList.add('is-success');
+
+  if (b.errorCode) {
+    const info = resolveErrorInfo(b.errorCode, b.rawDetail);
+    textEl.textContent = info.userMessage;
+    const rawParts = [`${t('errors.rawCodeLabel')} ${info.rawCode}`];
+    if (info.rawDetail) {
+      rawParts.push(`${t('errors.rawMessageLabel')} ${info.rawDetail}`);
+    }
+    rawEl.textContent = rawParts.join(' · ');
+    detailsEl.hidden = false;
+  } else if (b.messageKey) {
+    textEl.textContent = t(b.messageKey, b.messageParams || {});
+    detailsEl.hidden = true;
+    rawEl.textContent = '';
+  } else {
+    textEl.textContent = b.rawText || '';
+    detailsEl.hidden = true;
+    rawEl.textContent = '';
+  }
+
   banner.hidden = false;
 }
 
+function showKeyBanner(messageKey, messageParams = {}, kind = 'info') {
+  state.banner = { kind, messageKey, messageParams };
+  renderBanner();
+}
+
+function showErrorBanner(errorCode, rawDetail = '') {
+  state.banner = { kind: 'error', errorCode: errorCode || 'UNKNOWN', rawDetail };
+  renderBanner();
+}
+
+function showRawBanner(rawText, kind = 'info') {
+  state.banner = { kind, rawText };
+  renderBanner();
+}
+
 function clearBanner() {
-  const banner = document.getElementById('status-banner');
-  if (!banner) return;
-  banner.hidden = true;
-  banner.textContent = '';
+  state.banner = null;
+  renderBanner();
 }
 
 function makeBadge(text, variant) {
@@ -153,25 +207,40 @@ function updateAppearanceControls() {
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-  const sysBtn = document.getElementById('theme-btn-system');
-  if (sysBtn) {
-    sysBtn.textContent = isSystemDark
+  const sysLabel = document.getElementById('theme-label-system');
+  if (sysLabel) {
+    sysLabel.textContent = isSystemDark
       ? t('settings.appearance.systemCurrentDark')
       : t('settings.appearance.systemCurrentLight');
   }
 
-  for (const btn of document.querySelectorAll('[data-theme-choice]')) {
-    const choice = btn.getAttribute('data-theme-choice');
-    btn.setAttribute('aria-checked', choice === active ? 'true' : 'false');
+  for (const input of document.querySelectorAll('input[name="ui-theme"]')) {
+    input.checked = input.value === active;
   }
 }
 
 function updateLanguageControls() {
   const active = getLocale();
-  for (const btn of document.querySelectorAll('[data-locale]')) {
-    const loc = btn.getAttribute('data-locale');
-    btn.setAttribute('aria-checked', loc === active ? 'true' : 'false');
+  for (const input of document.querySelectorAll('input[name="ui-locale"]')) {
+    input.checked = input.value === active;
   }
+}
+
+function updatePendingControls() {
+  const createBtn = document.querySelector('button[commandfor="create-profile-dialog"]');
+  if (createBtn) createBtn.disabled = state.pendingGlobalActions.has('create');
+
+  const restoreSubmit = document.querySelector('#restore-backup-form button[value="restore"]');
+  if (restoreSubmit) restoreSubmit.disabled = state.pendingGlobalActions.has('restore');
+
+  const createSubmit = document.querySelector('#create-profile-form button[value="create"]');
+  if (createSubmit) createSubmit.disabled = state.pendingGlobalActions.has('create');
+
+  const refreshBtn = document.getElementById('btn-refresh');
+  if (refreshBtn) refreshBtn.disabled = state.pendingGlobalActions.has('refresh');
+
+  const verifyBtn = document.getElementById('btn-run-isolation');
+  if (verifyBtn) verifyBtn.disabled = state.pendingGlobalActions.has('verify');
 }
 
 // Navigation
@@ -191,8 +260,13 @@ function selectView(viewName) {
 
 // Profile status helpers
 function resolveProfileState(prof) {
-  if (prof.status === 'starting') return { label: t('profiles.state.starting'), variant: 'badge-warn' };
-  if (prof.status === 'stopping') return { label: t('profiles.state.stopping'), variant: 'badge-warn' };
+  const pendingAction = state.pendingProfileActions.get(prof.id);
+  if (pendingAction === 'launch' || prof.status === 'starting') {
+    return { label: t('profiles.state.starting'), variant: 'badge-warn' };
+  }
+  if (pendingAction === 'stop' || prof.status === 'stopping') {
+    return { label: t('profiles.state.stopping'), variant: 'badge-warn' };
+  }
   if (prof.status === 'error') return { label: t('profiles.state.error'), variant: 'badge-fail' };
   if (prof.status === 'unknown') return { label: t('profiles.state.unknown'), variant: 'badge-neutral' };
   if (prof.running) return { label: t('profiles.state.running'), variant: 'badge-running' };
@@ -207,7 +281,9 @@ function renderStatusBar() {
   if (!bar || !primEl) return;
 
   if (!st) {
-    bar.textContent = t('statusBar.checking');
+    bar.textContent = state.pendingGlobalActions.has('refresh')
+      ? t('statusBar.loading')
+      : t('statusBar.checking');
     primEl.textContent = '';
     return;
   }
@@ -242,6 +318,168 @@ function filterProfiles(profiles, query) {
   });
 }
 
+function positionMenu(trigger, menuList) {
+  const rect = trigger.getBoundingClientRect();
+  const menuWidth = 190;
+  const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 180);
+  menuList.style.left = `${left}px`;
+  menuList.style.top = `${top}px`;
+}
+
+function buildOverflowMenu(prof, isPending) {
+  const menuId = `menu-${String(prof.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const menuWrap = document.createElement('div');
+  menuWrap.className = 'menu-wrap';
+
+  const supportsPopover = Object.hasOwn(HTMLElement.prototype, 'popover');
+
+  const moreBtn = document.createElement('button');
+  moreBtn.type = 'button';
+  moreBtn.className = 'btn btn-secondary btn-sm';
+  moreBtn.textContent = '⋯';
+  moreBtn.disabled = isPending;
+  moreBtn.setAttribute('aria-label', t('profiles.actions.more', { name: prof.name }));
+  moreBtn.setAttribute('aria-haspopup', 'menu');
+  moreBtn.setAttribute('aria-expanded', 'false');
+  moreBtn.setAttribute('aria-controls', menuId);
+
+  const menuList = document.createElement('div');
+  menuList.id = menuId;
+  menuList.className = 'overflow-menu';
+  menuList.setAttribute('role', 'menu');
+  if (supportsPopover) {
+    menuList.setAttribute('popover', 'auto');
+  } else {
+    menuList.hidden = true;
+  }
+
+  const getEnabledItems = () => Array.from(menuList.querySelectorAll('[role="menuitem"]:not(:disabled)'));
+  const isOpen = () => (supportsPopover ? menuList.matches(':popover-open') : !menuList.hidden);
+
+  const openMenu = (focusMode = 'first') => {
+    if (isPending) return;
+    if (supportsPopover) {
+      positionMenu(moreBtn, menuList);
+      if (!isOpen()) menuList.showPopover();
+    } else {
+      menuList.hidden = false;
+      menuList.classList.add('is-fallback-open');
+    }
+    moreBtn.setAttribute('aria-expanded', 'true');
+    const items = getEnabledItems();
+    if (items.length > 0) {
+      const target = focusMode === 'last' ? items[items.length - 1] : items[0];
+      target.focus();
+    }
+  };
+
+  const closeMenu = ({ restoreFocus = false } = {}) => {
+    if (supportsPopover) {
+      if (isOpen()) {
+        try {
+          menuList.hidePopover();
+        } catch (_err) {
+          // Ignore if already closed
+        }
+      }
+    } else {
+      menuList.hidden = true;
+      menuList.classList.remove('is-fallback-open');
+    }
+    moreBtn.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) {
+      moreBtn.focus();
+    }
+  };
+
+  if (supportsPopover) {
+    menuList.addEventListener('toggle', (event) => {
+      const openNow = event.newState === 'open';
+      moreBtn.setAttribute('aria-expanded', openNow ? 'true' : 'false');
+      if (openNow) {
+        positionMenu(moreBtn, menuList);
+      }
+    });
+  } else {
+    document.addEventListener('click', (event) => {
+      if (isOpen() && !menuWrap.contains(event.target)) {
+        closeMenu({ restoreFocus: false });
+      }
+    });
+  }
+
+  moreBtn.addEventListener('click', () => {
+    if (isOpen()) closeMenu({ restoreFocus: false });
+    else openMenu('first');
+  });
+
+  moreBtn.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openMenu('first');
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      openMenu('last');
+    }
+  });
+
+  menuList.addEventListener('keydown', (event) => {
+    const items = getEnabledItems();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeMenu({ restoreFocus: true });
+      return;
+    }
+    if (event.key === 'Tab') {
+      closeMenu({ restoreFocus: false });
+      return;
+    }
+    if (items.length === 0) return;
+
+    const currentIdx = items.indexOf(document.activeElement);
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      const next = currentIdx === -1 ? 0 : (currentIdx + 1) % items.length;
+      items[next].focus();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      const prev = currentIdx <= 0 ? items.length - 1 : currentIdx - 1;
+      items[prev].focus();
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      items[0].focus();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      items[items.length - 1].focus();
+    }
+  });
+
+  const addMenuItem = (label, onSelect, { disabled = false, danger = false } = {}) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = danger ? 'menu-item menu-item-danger' : 'menu-item';
+    item.setAttribute('role', 'menuitem');
+    item.tabIndex = -1;
+    item.textContent = label;
+    item.disabled = disabled || isPending;
+    item.addEventListener('click', () => {
+      closeMenu({ restoreFocus: false });
+      onSelect();
+    });
+    menuList.appendChild(item);
+  };
+
+  addMenuItem(t('profiles.actions.rename'), () => openRenameDialog(prof));
+  addMenuItem(t('profiles.actions.backup'), () => runProfileAction('backup', prof), { disabled: Boolean(prof.running) });
+  addMenuItem(t('profiles.actions.details'), () => openDetailsDialog(prof));
+  addMenuItem(t('profiles.actions.delete'), () => openDeleteDialog(prof), { disabled: Boolean(prof.running), danger: true });
+
+  menuWrap.appendChild(moreBtn);
+  menuWrap.appendChild(menuList);
+  return menuWrap;
+}
+
 function renderProfiles() {
   const list = document.getElementById('profiles-list');
   const emptyEl = document.getElementById('profiles-empty');
@@ -273,8 +511,10 @@ function renderProfiles() {
   list.hidden = false;
 
   for (const prof of filtered) {
+    const isPending = state.pendingProfileActions.has(prof.id);
     const li = document.createElement('li');
     li.className = 'profile-row';
+    li.dataset.profileId = prof.id;
 
     const main = document.createElement('div');
     main.className = 'profile-main';
@@ -289,31 +529,12 @@ function renderProfiles() {
 
     const pState = resolveProfileState(prof);
     titleLine.appendChild(makeBadge(pState.label, pState.variant));
-
-    if (!prof.zalo_user_id) {
-      titleLine.appendChild(makeBadge(t('profiles.state.loginUnverified'), 'badge-neutral'));
-    }
-
     main.appendChild(titleLine);
 
-    const subParts = [];
-    if (prof.notes) subParts.push(prof.notes);
-    if (prof.running && prof.main_pid != null) {
-      subParts.push(t('profiles.meta.pidSummary', {
-        pid: String(prof.main_pid),
-        count: formatNumber(prof.process_count ?? 1)
-      }));
-    }
-    if (prof.zalo_user_id) {
-      subParts.push(t('profiles.meta.userId', { id: prof.zalo_user_id }));
-    }
-    if (prof.data_size_bytes != null) {
-      subParts.push(t('profiles.meta.disk', { size: formatBytes(prof.data_size_bytes) }));
-    }
-    if (subParts.length > 0) {
+    if (prof.notes) {
       const subEl = document.createElement('div');
       subEl.className = 'profile-subline';
-      subEl.textContent = subParts.join(' · ');
+      subEl.textContent = prof.notes;
       main.appendChild(subEl);
     }
 
@@ -321,71 +542,13 @@ function renderProfiles() {
     actions.className = 'profile-actions';
 
     if (prof.running) {
-      actions.appendChild(makeButton(t('profiles.actions.focus'), 'btn-primary', () => runProfileAction('focus', prof)));
-      actions.appendChild(makeButton(t('profiles.actions.stop'), 'btn-danger', () => runProfileAction('stop', prof)));
+      actions.appendChild(makeButton(t('profiles.actions.focus'), 'btn-primary', () => runProfileAction('focus', prof), { disabled: isPending }));
+      actions.appendChild(makeButton(t('profiles.actions.stop'), 'btn-danger', () => runProfileAction('stop', prof), { disabled: isPending }));
     } else {
-      actions.appendChild(makeButton(t('profiles.actions.launch'), 'btn-primary', () => runProfileAction('launch', prof)));
+      actions.appendChild(makeButton(t('profiles.actions.launch'), 'btn-primary', () => runProfileAction('launch', prof), { disabled: isPending }));
     }
 
-    // Overflow menu (popover)
-    const menuId = `menu-${String(prof.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    const menuWrap = document.createElement('div');
-    menuWrap.className = 'menu-wrap';
-
-    const moreBtn = document.createElement('button');
-    moreBtn.type = 'button';
-    moreBtn.className = 'btn btn-secondary btn-sm';
-    moreBtn.textContent = '⋯';
-    moreBtn.setAttribute('aria-label', t('profiles.actions.more', { name: prof.name }));
-    moreBtn.setAttribute('popovertarget', menuId);
-
-    const menuList = document.createElement('div');
-    menuList.id = menuId;
-    menuList.className = 'overflow-menu';
-    menuList.setAttribute('popover', 'auto');
-    menuList.setAttribute('role', 'menu');
-
-    const closeMenu = () => {
-      if (typeof menuList.hidePopover === 'function') {
-        try {
-          menuList.hidePopover();
-        } catch (_err) {
-          // Ignore if already closed
-        }
-      } else {
-        menuList.hidden = true;
-      }
-    };
-
-    const addMenuItem = (label, onSelect, { disabled = false, danger = false } = {}) => {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = danger ? 'menu-item menu-item-danger' : 'menu-item';
-      item.setAttribute('role', 'menuitem');
-      item.textContent = label;
-      item.disabled = disabled;
-      item.addEventListener('click', () => {
-        closeMenu();
-        onSelect();
-      });
-      menuList.appendChild(item);
-    };
-
-    addMenuItem(t('profiles.actions.rename'), () => openRenameDialog(prof));
-    addMenuItem(t('profiles.actions.backup'), () => runProfileAction('backup', prof), { disabled: Boolean(prof.running) });
-    addMenuItem(t('profiles.actions.details'), () => openDetailsDialog(prof));
-    addMenuItem(t('profiles.actions.delete'), () => openDeleteDialog(prof), { disabled: Boolean(prof.running), danger: true });
-
-    if (!Object.hasOwn(HTMLElement.prototype, 'popover')) {
-      menuList.hidden = true;
-      moreBtn.addEventListener('click', () => {
-        menuList.hidden = !menuList.hidden;
-      });
-    }
-
-    menuWrap.appendChild(moreBtn);
-    menuWrap.appendChild(menuList);
-    actions.appendChild(menuWrap);
+    actions.appendChild(buildOverflowMenu(prof, isPending));
 
     li.appendChild(main);
     li.appendChild(actions);
@@ -410,6 +573,7 @@ function renderBackups() {
 
   emptyEl.hidden = true;
   tableWrap.hidden = false;
+  const restorePending = state.pendingGlobalActions.has('restore');
 
   for (const bk of backups) {
     const tr = document.createElement('tr');
@@ -445,7 +609,7 @@ function renderBackups() {
     tr.appendChild(verTd);
 
     const actTd = document.createElement('td');
-    actTd.appendChild(makeButton(t('backups.restoreButton'), 'btn-primary', () => openRestoreDialog(bk)));
+    actTd.appendChild(makeButton(t('backups.restoreButton'), 'btn-primary', () => openRestoreDialog(bk), { disabled: restorePending }));
     tr.appendChild(actTd);
 
     tbody.appendChild(tr);
@@ -453,7 +617,6 @@ function renderBackups() {
 }
 
 export function resolveIsolationCheckResult(chk) {
-  // Never convert NOT_TESTED / BLOCKED / UNKNOWN into PASS
   if (typeof chk.status === 'string' && chk.status.trim()) {
     const code = chk.status.trim().toUpperCase();
     if (code === 'PASS' || code === 'FAIL' || code === 'NOT_TESTED' || code === 'BLOCKED' || code === 'UNKNOWN') {
@@ -470,7 +633,6 @@ function renderDiagnostics() {
   const diag = state.diagnostics;
   const iso = state.isolation;
 
-  // 1. Application group
   const appList = document.getElementById('diag-app-list');
   if (appList) {
     appList.replaceChildren();
@@ -489,7 +651,6 @@ function renderDiagnostics() {
     appendKvRow(appList, t('diagnostics.fields.dataDir'), st?.data_dir || '—');
   }
 
-  // 2. Security & Isolation group
   const secList = document.getElementById('diag-security-list');
   if (secList) {
     secList.replaceChildren();
@@ -550,7 +711,6 @@ function renderDiagnostics() {
     }
   }
 
-  // 3. Profiles group
   const profList = document.getElementById('diag-profiles-list');
   if (profList) {
     profList.replaceChildren();
@@ -581,7 +741,6 @@ function renderDiagnostics() {
     );
   }
 
-  // 4. Environment & OS Readiness group
   const envList = document.getElementById('diag-env-list');
   if (envList) {
     envList.replaceChildren();
@@ -637,7 +796,6 @@ function renderDiagnostics() {
     }
   }
 
-  // 5. Sanitized Logs group
   const logBox = document.getElementById('sanitized-log-output');
   if (logBox) {
     const logs = diag?.sanitized_logs || [];
@@ -661,7 +819,32 @@ function renderSettingsAbout() {
   appendKvRow(aboutList, t('settings.about.connection'), connText);
 }
 
+function refreshOpenDialogTranslations() {
+  const ctx = state.openDialogContext;
+  if (!ctx) return;
+
+  if (ctx.type === 'rename' && document.getElementById('rename-profile-dialog')?.open) {
+    document.getElementById('rename-profile-subtitle').textContent = t('dialogs.rename.subtitle', {
+      name: ctx.prof.name,
+      id: ctx.prof.id
+    });
+  } else if (ctx.type === 'delete' && document.getElementById('delete-profile-dialog')?.open) {
+    document.getElementById('delete-profile-warning').textContent = t('dialogs.delete.warning', {
+      name: ctx.prof.name,
+      dir: ctx.prof.directory_name || ctx.prof.id
+    });
+  } else if (ctx.type === 'restore' && document.getElementById('restore-backup-dialog')?.open) {
+    document.getElementById('restore-backup-subtitle').textContent = t('dialogs.restore.subtitle', {
+      backupName: ctx.bk.backup_name || ctx.bk.backup_id || ''
+    });
+  } else if (ctx.type === 'details' && document.getElementById('profile-details-dialog')?.open) {
+    populateDetailsDialog(ctx.prof);
+  }
+}
+
 function renderAll() {
+  updateConnectionBadge();
+  renderBanner();
   renderStatusBar();
   renderProfiles();
   renderBackups();
@@ -669,9 +852,18 @@ function renderAll() {
   renderSettingsAbout();
   updateLanguageControls();
   updateAppearanceControls();
+  updatePendingControls();
+  refreshOpenDialogTranslations();
 }
 
-export async function refreshAll() {
+export async function refreshAll({ isVerify = false } = {}) {
+  const key = isVerify ? 'verify' : 'refresh';
+  if (state.pendingGlobalActions.has(key)) return;
+
+  state.pendingGlobalActions.add(key);
+  updatePendingControls();
+  renderStatusBar();
+
   try {
     const toggleSizes = document.getElementById('toggle-sizes');
     const withSize = Boolean(toggleSizes?.checked);
@@ -685,16 +877,21 @@ export async function refreshAll() {
     state.backups = backupsData?.backups || [];
     state.diagnostics = diagData;
     state.isolation = isoData;
-    renderAll();
   } catch (err) {
     updateConnectionBadge(state.connectionMode || 'bridge', false);
-    showBanner(t('statusBar.hostError', { message: err.message }), 'error');
-    renderSettingsAbout();
+    showKeyBanner('statusBar.hostError', { message: err.message }, 'error');
+  } finally {
+    state.pendingGlobalActions.delete(key);
+    renderAll();
   }
 }
 
 async function runProfileAction(action, prof) {
+  if (state.pendingProfileActions.has(prof.id)) return;
   clearBanner();
+  state.pendingProfileActions.set(prof.id, action);
+  renderProfiles();
+
   try {
     let res;
     if (action === 'launch') {
@@ -707,18 +904,22 @@ async function runProfileAction(action, prof) {
       res = await apiCall(`/api/profiles/${encodeURIComponent(prof.id)}/backup`, 'POST', {}, 'backup_profile', { id: prof.id });
     }
     if (res && res.ok === false) {
-      showBanner(translateErrorCode(res.error_code, res.message), 'error');
+      showErrorBanner(res.error_code, res.message);
     } else if (res?.message) {
-      showBanner(res.message, 'success');
+      showKeyBanner('messages.actionSuccess', {}, 'success');
     }
     await refreshAll();
   } catch (err) {
-    showBanner(err.message, 'error');
+    showRawBanner(err.message, 'error');
+  } finally {
+    state.pendingProfileActions.delete(prof.id);
+    renderProfiles();
   }
 }
 
 function openRenameDialog(prof) {
   state.activeRenameId = prof.id;
+  state.openDialogContext = { type: 'rename', prof };
   document.getElementById('rename-profile-subtitle').textContent = t('dialogs.rename.subtitle', {
     name: prof.name,
     id: prof.id
@@ -729,6 +930,7 @@ function openRenameDialog(prof) {
 
 function openDeleteDialog(prof) {
   state.activeDeleteId = prof.id;
+  state.openDialogContext = { type: 'delete', prof };
   document.getElementById('delete-profile-warning').textContent = t('dialogs.delete.warning', {
     name: prof.name,
     dir: prof.directory_name || prof.id
@@ -738,6 +940,7 @@ function openDeleteDialog(prof) {
 
 function openRestoreDialog(bk) {
   state.activeRestoreBackupDir = bk.backup_dir;
+  state.openDialogContext = { type: 'restore', bk };
   document.getElementById('restore-backup-subtitle').textContent = t('dialogs.restore.subtitle', {
     backupName: bk.backup_name || bk.backup_id || ''
   });
@@ -745,7 +948,7 @@ function openRestoreDialog(bk) {
   document.getElementById('restore-backup-dialog').showModal();
 }
 
-function openDetailsDialog(prof) {
+function populateDetailsDialog(prof) {
   const dl = document.getElementById('profile-details-list');
   dl.replaceChildren();
   const pState = resolveProfileState(prof);
@@ -763,16 +966,19 @@ function openDetailsDialog(prof) {
   appendKvRow(dl, t('profiles.details.createdAt'), formatDateTime(prof.created_at));
   appendKvRow(dl, t('profiles.details.lastLaunchedAt'), formatDateTime(prof.last_launched_at));
   appendKvRow(dl, t('profiles.details.notes'), prof.notes || t('profiles.details.none'));
+}
 
+function openDetailsDialog(prof) {
+  state.openDialogContext = { type: 'details', prof };
+  populateDetailsDialog(prof);
   document.getElementById('profile-details-dialog').showModal();
 }
 
 function wireDialogsAndFallbacks() {
-  // Progressive enhancement fallback when Invoker Commands (command/commandfor) are unsupported
   if (!('commandForElement' in HTMLButtonElement.prototype)) {
     document.addEventListener('click', (event) => {
       const btn = event.target.closest('button[command][commandfor]');
-      if (!btn) return;
+      if (!btn || btn.disabled) return;
       const target = document.getElementById(btn.getAttribute('commandfor'));
       if (!target || typeof target.showModal !== 'function') return;
       const cmd = btn.getAttribute('command');
@@ -784,7 +990,6 @@ function wireDialogsAndFallbacks() {
     });
   }
 
-  // Progressive enhancement fallback when <dialog closedby="any"> is unsupported
   if (!('closedBy' in HTMLDialogElement.prototype)) {
     const outside = (e, dialog) => {
       const r = dialog.getBoundingClientRect();
@@ -808,7 +1013,7 @@ function wireDialogsAndFallbacks() {
   createDialog.addEventListener('close', async () => {
     const action = createDialog.returnValue;
     createDialog.returnValue = '';
-    if (action !== 'create') return;
+    if (action !== 'create' || state.pendingGlobalActions.has('create')) return;
 
     const nameInput = document.getElementById('create-profile-name');
     const notesInput = document.getElementById('create-profile-notes');
@@ -818,73 +1023,116 @@ function wireDialogsAndFallbacks() {
     notesInput.value = '';
     if (!name) return;
 
-    const res = await apiCall('/api/profiles', 'POST', { name, notes }, 'create_profile', { name, notes });
-    if (res && res.ok === false) showBanner(translateErrorCode(res.error_code, res.message), 'error');
-    else showBanner(res?.message || t('messages.profileCreated'), 'success');
-    await refreshAll();
+    state.pendingGlobalActions.add('create');
+    updatePendingControls();
+    try {
+      const res = await apiCall('/api/profiles', 'POST', { name, notes }, 'create_profile', { name, notes });
+      if (res && res.ok === false) showErrorBanner(res.error_code, res.message);
+      else showKeyBanner('messages.profileCreated', {}, 'success');
+      await refreshAll();
+    } catch (err) {
+      showRawBanner(err.message, 'error');
+    } finally {
+      state.pendingGlobalActions.delete('create');
+      updatePendingControls();
+    }
   });
 
   const renameDialog = document.getElementById('rename-profile-dialog');
   renameDialog.addEventListener('close', async () => {
     const action = renameDialog.returnValue;
     renameDialog.returnValue = '';
+    state.openDialogContext = null;
     const targetId = state.activeRenameId;
     state.activeRenameId = null;
-    if (action !== 'rename' || !targetId) return;
+    if (action !== 'rename' || !targetId || state.pendingProfileActions.has(targetId)) return;
 
     const newName = document.getElementById('rename-profile-name').value.trim();
     if (!newName) return;
 
-    const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}/rename`, 'POST', { newName }, 'rename_profile', { id: targetId, newName });
-    if (res && res.ok === false) showBanner(translateErrorCode(res.error_code, res.message), 'error');
-    else showBanner(res?.message || t('messages.profileRenamed'), 'success');
-    await refreshAll();
+    state.pendingProfileActions.set(targetId, 'rename');
+    renderProfiles();
+    try {
+      const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}/rename`, 'POST', { newName }, 'rename_profile', { id: targetId, newName });
+      if (res && res.ok === false) showErrorBanner(res.error_code, res.message);
+      else showKeyBanner('messages.profileRenamed', {}, 'success');
+      await refreshAll();
+    } catch (err) {
+      showRawBanner(err.message, 'error');
+    } finally {
+      state.pendingProfileActions.delete(targetId);
+      renderProfiles();
+    }
   });
 
   const deleteDialog = document.getElementById('delete-profile-dialog');
   deleteDialog.addEventListener('close', async () => {
     const action = deleteDialog.returnValue;
     deleteDialog.returnValue = '';
+    state.openDialogContext = null;
     const targetId = state.activeDeleteId;
     state.activeDeleteId = null;
-    if (action !== 'delete' || !targetId) return;
+    if (action !== 'delete' || !targetId || state.pendingProfileActions.has(targetId)) return;
 
-    const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}`, 'DELETE', { confirm: true }, 'delete_profile', { id: targetId });
-    if (res && res.ok === false) showBanner(translateErrorCode(res.error_code, res.message), 'error');
-    else showBanner(res?.message || t('messages.profileDeleted'), 'success');
-    await refreshAll();
+    state.pendingProfileActions.set(targetId, 'delete');
+    renderProfiles();
+    try {
+      const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}`, 'DELETE', { confirm: true }, 'delete_profile', { id: targetId });
+      if (res && res.ok === false) showErrorBanner(res.error_code, res.message);
+      else showKeyBanner('messages.profileDeleted', {}, 'success');
+      await refreshAll();
+    } catch (err) {
+      showRawBanner(err.message, 'error');
+    } finally {
+      state.pendingProfileActions.delete(targetId);
+      renderProfiles();
+    }
   });
 
   const restoreDialog = document.getElementById('restore-backup-dialog');
   restoreDialog.addEventListener('close', async () => {
     const action = restoreDialog.returnValue;
     restoreDialog.returnValue = '';
+    state.openDialogContext = null;
     const backupDir = state.activeRestoreBackupDir;
     state.activeRestoreBackupDir = null;
-    if (action !== 'restore' || !backupDir) return;
+    if (action !== 'restore' || !backupDir || state.pendingGlobalActions.has('restore')) return;
 
     const name = document.getElementById('restore-profile-name').value.trim();
-    const res = await apiCall('/api/backups/restore', 'POST', { backupDir, name }, 'restore_backup', { backupDir, name });
-    if (res && res.ok === false) showBanner(translateErrorCode(res.error_code, res.message), 'error');
-    else showBanner(res?.message || t('messages.backupRestored'), 'success');
-    await refreshAll();
+    state.pendingGlobalActions.add('restore');
+    updatePendingControls();
+    renderBackups();
+    try {
+      const res = await apiCall('/api/backups/restore', 'POST', { backupDir, name }, 'restore_backup', { backupDir, name });
+      if (res && res.ok === false) showErrorBanner(res.error_code, res.message);
+      else showKeyBanner('messages.backupRestored', {}, 'success');
+      await refreshAll();
+    } catch (err) {
+      showRawBanner(err.message, 'error');
+    } finally {
+      state.pendingGlobalActions.delete('restore');
+      updatePendingControls();
+      renderBackups();
+    }
   });
 
-  for (const id of ['profile-details-dialog', 'safety-dialog']) {
-    const dlg = document.getElementById(id);
-    dlg.addEventListener('close', () => {
-      dlg.returnValue = '';
-    });
-  }
+  document.getElementById('profile-details-dialog').addEventListener('close', (e) => {
+    e.currentTarget.returnValue = '';
+    state.openDialogContext = null;
+  });
+
+  document.getElementById('safety-dialog').addEventListener('close', (e) => {
+    e.currentTarget.returnValue = '';
+  });
 }
 
-export function initApp() {
+export async function initApp() {
+  await initI18n();
   applyDomTranslations();
   updateLanguageControls();
   updateAppearanceControls();
   wireDialogsAndFallbacks();
 
-  // Sidebar navigation
   for (const btn of document.querySelectorAll('.nav-item[data-view]')) {
     btn.addEventListener('click', () => {
       selectView(btn.getAttribute('data-view'));
@@ -895,7 +1143,6 @@ export function initApp() {
     selectView('diagnostics');
   });
 
-  // Search & Toolbar
   document.getElementById('profile-search')?.addEventListener('input', (event) => {
     state.searchQuery = event.target.value;
     renderProfiles();
@@ -903,14 +1150,15 @@ export function initApp() {
 
   document.getElementById('btn-refresh')?.addEventListener('click', () => refreshAll());
   document.getElementById('btn-refresh-backups')?.addEventListener('click', () => refreshAll());
-  document.getElementById('btn-run-isolation')?.addEventListener('click', () => refreshAll());
+  document.getElementById('btn-run-isolation')?.addEventListener('click', () => refreshAll({ isVerify: true }));
   document.getElementById('btn-refresh-diagnostics')?.addEventListener('click', () => refreshAll());
   document.getElementById('toggle-sizes')?.addEventListener('change', () => refreshAll());
 
-  // Settings: Language
-  for (const btn of document.querySelectorAll('[data-locale]')) {
-    btn.addEventListener('click', () => {
-      setLocale(btn.getAttribute('data-locale'));
+  for (const input of document.querySelectorAll('input[name="ui-locale"]')) {
+    input.addEventListener('change', (event) => {
+      if (event.target.checked) {
+        setLocale(event.target.value);
+      }
     });
   }
 
@@ -919,10 +1167,11 @@ export function initApp() {
     renderAll();
   });
 
-  // Settings: Appearance
-  for (const btn of document.querySelectorAll('[data-theme-choice]')) {
-    btn.addEventListener('click', () => {
-      applyThemePreference(btn.getAttribute('data-theme-choice'));
+  for (const input of document.querySelectorAll('input[name="ui-theme"]')) {
+    input.addEventListener('change', (event) => {
+      if (event.target.checked) {
+        applyThemePreference(event.target.value);
+      }
     });
   }
 
@@ -940,7 +1189,7 @@ export function initApp() {
     });
   }
 
-  refreshAll();
+  await refreshAll();
 }
 
 if (typeof document !== 'undefined') {

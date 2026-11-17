@@ -19,6 +19,7 @@
   },
   "statusBar": {
     "checking": "Đang kiểm tra trạng thái Zalo Desktop...",
+    "loading": "Đang tải dữ liệu...",
     "detectedRunning": "Zalo Desktop đã phát hiện · {count} hồ sơ đang chạy",
     "detectedIdle": "Zalo Desktop đã phát hiện · Chưa có hồ sơ nào chạy",
     "notFound": "Chưa tìm thấy Zalo Desktop · Kiểm tra trong Chẩn đoán",
@@ -281,7 +282,10 @@
     "UNSUPPORTED_MEDIA_TYPE": "Định dạng dữ liệu gửi lên không được hỗ trợ.",
     "INVALID_ID": "Mã hồ sơ không hợp lệ.",
     "ROUTE_NOT_FOUND": "Không tìm thấy đường dẫn API.",
-    "UNKNOWN": "Đã xảy ra lỗi không xác định."
+    "UNKNOWN": "Đã xảy ra lỗi không xác định.",
+    "technicalDetails": "Chi tiết kỹ thuật",
+    "rawCodeLabel": "Mã lỗi:",
+    "rawMessageLabel": "Thông báo gốc:"
   },
   "messages": {
     "profileCreated": "Đã tạo hồ sơ mới.",

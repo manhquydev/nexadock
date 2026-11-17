@@ -5,7 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveIsolationCheckResult } from '../app.js';
-import { setLocale, getLocale, LOCALE_STORAGE_KEY } from '../i18n/index.js';
+import { initI18n, setLocale, getLocale, LOCALE_STORAGE_KEY } from '../i18n/index.js';
+
+await initI18n();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = path.resolve(__dirname, '..');
@@ -15,13 +17,15 @@ const css = fs.readFileSync(path.join(uiDir, 'styles.css'), 'utf8');
 const appJs = fs.readFileSync(path.join(uiDir, 'app.js'), 'utf8');
 const i18nJs = fs.readFileSync(path.join(uiDir, 'i18n', 'index.js'), 'utf8');
 
-test('HTML adheres to Modern Web Guidance & CSP rules', () => {
+test('HTML adheres to Modern Web Guidance, native radio groups, & CSP rules', () => {
   assert.match(html, /<meta\s+name="color-scheme"\s+content="light dark">/i);
   assert.match(html, /<script\s+src="\.\/theme-init\.js"><\/script>/i);
   assert.doesNotMatch(html, /\brole="dialog"/i, 'Native <dialog> must not have role="dialog"');
   assert.doesNotMatch(html, /\baria-modal=/i, 'Native <dialog> must not have aria-modal');
   assert.doesNotMatch(html, /https?:\/\//i, 'No remote CDNs, fonts, or external URLs allowed');
   assert.match(html, /id="delete-profile-dialog"[\s\S]*?value="cancel"[^>]*autofocus/i, 'Cancel button in delete dialog must have autofocus');
+  assert.match(html, /<fieldset[^>]*>[\s\S]*?<legend[^>]*>[\s\S]*?name="ui-locale"/i, 'Language control must use native radio inputs inside fieldset/legend');
+  assert.match(html, /<fieldset[^>]*>[\s\S]*?<legend[^>]*>[\s\S]*?name="ui-theme"/i, 'Appearance control must use native radio inputs inside fieldset/legend');
 });
 
 test('CSS adheres to Modern Web Guidance & Quiet Workspace rules', () => {
@@ -35,9 +39,13 @@ test('CSS adheres to Modern Web Guidance & Quiet Workspace rules', () => {
   assert.doesNotMatch(css, /@import\s+url\(|https?:\/\//i, 'No remote fonts or URLs in CSS');
 });
 
-test('JS preserves Tauri & HTTP contracts and forbids innerHTML', () => {
+test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forbids innerHTML', () => {
   assert.doesNotMatch(appJs, /\.innerHTML\b/);
   assert.doesNotMatch(i18nJs, /\.innerHTML\b/);
+  assert.doesNotMatch(i18nJs, /\bwith\s*\{\s*type:\s*['"]json['"]\s*\}/, 'Avoid import attributes for broader WebView compatibility');
+  assert.match(appJs, /pendingProfileActions/);
+  assert.match(appJs, /pendingGlobalActions/);
+  assert.match(appJs, /aria-haspopup/);
 
   const requiredTauriCommands = [
     'get_status',
