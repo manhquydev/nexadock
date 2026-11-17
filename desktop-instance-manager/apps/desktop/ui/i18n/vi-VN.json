@@ -1,0 +1,293 @@
+{
+  "app": {
+    "name": "Multi-Zalo Desktop",
+    "tagline": "Quản lý hồ sơ tách biệt",
+    "windowTitle": "Multi-Zalo Desktop — Quản lý hồ sơ",
+    "skipToContent": "Chuyển đến nội dung chính",
+    "modeTauri": "Tauri Native Core",
+    "modeBridge": "Cầu nối cục bộ (127.0.0.1)",
+    "connecting": "Đang kết nối..."
+  },
+  "nav": {
+    "ariaLabel": "Điều hướng chính",
+    "profiles": "Hồ sơ Zalo",
+    "backups": "Sao lưu",
+    "diagnostics": "Chẩn đoán",
+    "settings": "Cài đặt",
+    "refresh": "Làm mới",
+    "safetySpec": "Thông số an toàn"
+  },
+  "statusBar": {
+    "checking": "Đang kiểm tra trạng thái Zalo Desktop...",
+    "detectedRunning": "Zalo Desktop đã phát hiện · {count} hồ sơ đang chạy",
+    "detectedIdle": "Zalo Desktop đã phát hiện · Chưa có hồ sơ nào chạy",
+    "notFound": "Chưa tìm thấy Zalo Desktop · Kiểm tra trong Chẩn đoán",
+    "primaryRunning": "Zalo chính đang chạy ({count} PID được bảo vệ)",
+    "primaryIdle": "Zalo chính không chạy",
+    "hostError": "Không thể kết nối máy chủ điều khiển: {message}"
+  },
+  "profiles": {
+    "title": "Hồ sơ Zalo",
+    "hint": "Mỗi hồ sơ chạy trong hộp cát tách biệt, không chạm vào dữ liệu Zalo chính.",
+    "searchLabel": "Tìm kiếm hồ sơ",
+    "searchPlaceholder": "Tìm theo tên, ghi chú hoặc thư mục...",
+    "measureSizes": "Đo dung lượng đĩa",
+    "createButton": "Tạo hồ sơ",
+    "emptyTitle": "Chưa có hồ sơ nào",
+    "emptyHint": "Tạo hồ sơ mới để đăng nhập tài khoản Zalo tách biệt.",
+    "noMatches": "Không có hồ sơ nào khớp với \"{query}\".",
+    "listAriaLabel": "Danh sách hồ sơ Zalo",
+    "state": {
+      "running": "Đang chạy",
+      "stopped": "Đã dừng",
+      "starting": "Đang khởi chạy",
+      "stopping": "Đang dừng",
+      "crashRecoverable": "Cần khôi phục",
+      "loginUnverified": "Chưa xác minh đăng nhập",
+      "unknown": "Không xác định",
+      "error": "Lỗi"
+    },
+    "actions": {
+      "launch": "Mở Zalo",
+      "focus": "Mở cửa sổ",
+      "stop": "Dừng",
+      "backup": "Sao lưu",
+      "rename": "Đổi tên",
+      "details": "Chi tiết kỹ thuật",
+      "delete": "Xóa hồ sơ",
+      "more": "Thao tác khác cho {name}"
+    },
+    "meta": {
+      "pidSummary": "PID {pid} · {count} tiến trình",
+      "unauthenticated": "Chưa xác minh đăng nhập",
+      "userId": "ID Zalo: {id}",
+      "ram": "{size} RAM",
+      "disk": "{size} đĩa"
+    },
+    "details": {
+      "title": "Chi tiết kỹ thuật hồ sơ",
+      "id": "Mã hồ sơ (ID)",
+      "directory": "Thư mục dữ liệu",
+      "status": "Trạng thái",
+      "zaloUserId": "Zalo User ID",
+      "pid": "PID chính",
+      "processCount": "Số tiến trình",
+      "windowTitle": "Tiêu đề cửa sổ",
+      "ram": "Bộ nhớ đang dùng",
+      "disk": "Dung lượng đĩa",
+      "createdAt": "Ngày tạo",
+      "lastLaunchedAt": "Lần mở gần nhất",
+      "notes": "Ghi chú",
+      "staleLockfile": "Tệp khóa cũ (crash lockfile)",
+      "yes": "Có",
+      "no": "Không",
+      "notMeasured": "Chưa đo (bật \"Đo dung lượng đĩa\")",
+      "none": "—"
+    }
+  },
+  "backups": {
+    "title": "Sao lưu ngoại tuyến",
+    "hint": "Sao lưu yêu cầu hồ sơ đang dừng và kiểm tra mã băm SHA-256.",
+    "reloadButton": "Tải lại",
+    "restoreWarningTitle": "Lưu ý khôi phục an toàn:",
+    "restoreWarningBody": "Thao tác khôi phục luôn tạo một hồ sơ MỚI, không bao giờ ghi đè lên hồ sơ gốc hoặc dữ liệu Zalo chính.",
+    "emptyTitle": "Chưa có bản sao lưu nào",
+    "emptyHint": "Bạn có thể tạo bản sao lưu từ menu thao tác của một hồ sơ đang dừng.",
+    "columns": {
+      "backup": "Bản sao lưu",
+      "source": "Hồ sơ nguồn",
+      "size": "Tệp / Dung lượng",
+      "createdAt": "Thời điểm tạo",
+      "verification": "Xác minh",
+      "actions": "Thao tác"
+    },
+    "verifiable": "Sẵn sàng kiểm tra SHA-256",
+    "unverified": "Chưa có thông tin xác minh",
+    "fileCount": "{count} tệp · {size}",
+    "unknownSource": "Không rõ nguồn",
+    "restoreButton": "Khôi phục thành hồ sơ mới"
+  },
+  "diagnostics": {
+    "title": "Chẩn đoán hệ thống",
+    "hint": "Kiểm tra tách biệt thư mục, quyền truy cập, tương thích hệ điều hành và nhật ký đã lọc.",
+    "reverifyButton": "Kiểm tra lại",
+    "refreshButton": "Làm mới",
+    "groups": {
+      "application": "Ứng dụng",
+      "security": "Bảo mật & Tách biệt",
+      "profiles": "Hồ sơ",
+      "environment": "Môi trường & Tương thích hệ điều hành",
+      "logs": "Nhật ký đã lọc"
+    },
+    "fields": {
+      "zaloInstall": "Cài đặt Zalo Desktop",
+      "installVersion": "Phiên bản / Chế độ",
+      "authenticode": "Chữ ký Authenticode",
+      "dataDir": "Thư mục dữ liệu",
+      "elevation": "Quyền thực thi",
+      "smartAppControl": "Smart App Control",
+      "primaryProtection": "Bảo vệ Zalo chính",
+      "profileSummary": "Tổng số hồ sơ",
+      "duplicateUid": "Trùng Zalo User ID",
+      "platform": "Nền tảng",
+      "diskFree": "Dung lượng trống",
+      "folderRedirection": "Chuyển hướng thư mục"
+    },
+    "values": {
+      "installed": "Đã phát hiện",
+      "notInstalled": "Chưa tìm thấy",
+      "elevated": "Đang chạy với quyền quản trị (Elevated)",
+      "standardUser": "Người dùng chuẩn (asInvoker)",
+      "sacEnforced": "Đang bật (Enforced)",
+      "sacCode": "Mã trạng thái: {code}",
+      "primaryLocked": "Đang chạy ({count} PID được bảo vệ)",
+      "primaryIdle": "Không chạy (an toàn)",
+      "profileCounts": "{total} hồ sơ ({running} đang chạy, {stale} cần khôi phục)",
+      "noDuplicates": "Không phát hiện trùng lặp",
+      "duplicatesFound": "Phát hiện trùng ID: {ids}",
+      "diskOk": "{size} (Đủ dung lượng)",
+      "diskLow": "{size} (Dung lượng thấp)",
+      "redirected": "Có chuyển hướng thư mục: {warning}",
+      "notRedirected": "Không chuyển hướng"
+    },
+    "isolationTable": {
+      "check": "Hạng mục kiểm tra",
+      "result": "Kết quả",
+      "detail": "Chi tiết"
+    },
+    "readinessTable": {
+      "platform": "Nền tảng",
+      "status": "Mức độ hỗ trợ",
+      "strategy": "Cơ chế tách biệt",
+      "limits": "Giới hạn đã biết"
+    },
+    "result": {
+      "PASS": "ĐẠT",
+      "FAIL": "LỖI",
+      "NOT_TESTED": "CHƯA KIỂM TRA",
+      "BLOCKED": "BỊ CHẶN",
+      "UNKNOWN": "CHƯA RÕ"
+    },
+    "noLogs": "Chưa có sự kiện nhật ký nào được ghi nhận.",
+    "noChecks": "Chưa chạy kiểm tra tách biệt."
+  },
+  "settings": {
+    "title": "Cài đặt",
+    "hint": "Tùy chỉnh ngôn ngữ, giao diện và xem thông tin kết nối ứng dụng.",
+    "language": {
+      "title": "Ngôn ngữ hiển thị",
+      "description": "Chuyển đổi tức thì không cần tải lại ứng dụng. Tên hồ sơ, đường dẫn, PID và nhật ký gốc được giữ nguyên.",
+      "viVN": "Tiếng Việt (vi-VN)",
+      "enUS": "English (en-US)"
+    },
+    "appearance": {
+      "title": "Giao diện",
+      "description": "Chọn chế độ sáng/tối hoặc tự động theo hệ điều hành.",
+      "system": "Theo hệ thống",
+      "systemCurrentLight": "Theo hệ thống (hiện tại: Sáng)",
+      "systemCurrentDark": "Theo hệ thống (hiện tại: Tối)",
+      "light": "Sáng",
+      "dark": "Tối"
+    },
+    "about": {
+      "title": "Thông tin ứng dụng",
+      "appName": "Tên ứng dụng",
+      "uiVersion": "Phiên bản giao diện",
+      "os": "Hệ điều hành",
+      "connection": "Kết nối máy chủ",
+      "connected": "Đã kết nối ({mode})",
+      "disconnected": "Chưa kết nối",
+      "readinessLink": "Xem chi tiết tương thích trong mục Chẩn đoán"
+    }
+  },
+  "dialogs": {
+    "cancel": "Hủy",
+    "close": "Đóng",
+    "create": {
+      "title": "Tạo hồ sơ tách biệt",
+      "nameLabel": "Tên hiển thị hồ sơ",
+      "namePlaceholder": "Ví dụ: Đức - Công việc",
+      "notesLabel": "Ghi chú (tùy chọn, không chứa mật khẩu)",
+      "notesPlaceholder": "Tài khoản công việc",
+      "submit": "Tạo hồ sơ"
+    },
+    "rename": {
+      "title": "Đổi tên hồ sơ",
+      "subtitle": "Tên hiện tại: {name} ({id})",
+      "nameLabel": "Tên hiển thị mới",
+      "submit": "Lưu tên mới"
+    },
+    "delete": {
+      "title": "Xóa hồ sơ và dữ liệu tách biệt?",
+      "warning": "Thao tác này xóa vĩnh viễn thư mục hồ sơ \"{name}\" ({dir}) và gỡ liên kết NTFS an toàn. Dữ liệu Zalo chính không bị ảnh hưởng.",
+      "submit": "Xóa hồ sơ"
+    },
+    "restore": {
+      "title": "Khôi phục bản sao lưu thành hồ sơ mới",
+      "subtitle": "Kiểm tra mã băm SHA-256 trong \"{backupName}\" và khôi phục vào một hồ sơ tách biệt hoàn toàn mới.",
+      "nameLabel": "Tên hồ sơ mới (tùy chọn)",
+      "namePlaceholder": "Để trống để đặt tên tự động",
+      "submit": "Kiểm tra & Khôi phục"
+    },
+    "safety": {
+      "title": "Cam kết tách biệt & Bảo mật",
+      "item1Title": "Thực thi không đặc quyền:",
+      "item1Body": "Chạy với quyền người dùng chuẩn (asInvoker), không cài driver, không ghi HKLM.",
+      "item2Title": "Bảo vệ Zalo chính:",
+      "item2Body": "Kiểm tra %APPDATA%\\ZaloData\\lockfile qua Restart Manager và chặn mọi thao tác dừng nhắm vào PID của Zalo chính.",
+      "item3Title": "Chống trùng tài khoản:",
+      "item3Body": "Chặn mở đồng thời hai hồ sơ đang đăng nhập cùng một zalo_user_id.",
+      "item4Title": "Sao lưu nguyên tử ngoại tuyến:",
+      "item4Body": "Ghi tạm qua .partial kèm manifest SHA-256 backup.json; luôn khôi phục thành hồ sơ mới.",
+      "item5Title": "Giới hạn hệ điều hành đã biết:",
+      "item5Body": "Gọi thoại/video đồng thời bị giới hạn bởi named pipe toàn cục PipeZCallRecv; thông báo dùng chung AUMID com.vng.zalo."
+    }
+  },
+  "supportStatus": {
+    "SUPPORTED_AND_TESTED": "Hỗ trợ đầy đủ & Đã kiểm thử",
+    "PARTIALLY_SUPPORTED": "Hỗ trợ một phần",
+    "EXPERIMENTAL": "Thử nghiệm",
+    "NOT_TESTED": "Chưa kiểm thử",
+    "BLOCKED": "Bị chặn",
+    "UNSUPPORTED": "Không hỗ trợ",
+    "UNKNOWN": "Chưa rõ"
+  },
+  "errors": {
+    "INVALID_NAME": "Tên hồ sơ không hợp lệ.",
+    "DUPLICATE_NAME": "Tên hồ sơ đã tồn tại.",
+    "NOT_FOUND": "Không tìm thấy tài nguyên yêu cầu.",
+    "PROFILE_RUNNING": "Hồ sơ đang chạy. Hãy dừng hồ sơ trước khi thực hiện thao tác này.",
+    "PROFILE_IDENTITY_MISMATCH": "Danh tính hồ sơ không khớp.",
+    "PROTECTED_PRIMARY_PROCESS": "Đã chặn thao tác vì tiến trình thuộc Zalo chính được bảo vệ.",
+    "DUPLICATE_ZALO_USER_ID": "Tài khoản Zalo này đang mở ở một hồ sơ khác.",
+    "INSUFFICIENT_DISK_SPACE": "Dung lượng đĩa trống không đủ.",
+    "PATH_TRAVERSAL": "Đường dẫn không hợp lệ (vi phạm ranh giới thư mục).",
+    "PATH_TRAVERSAL_REJECTED": "Đường dẫn bị từ chối vì vượt ranh giới cho phép.",
+    "FOLDER_REDIRECTION_DETECTED": "Phát hiện chuyển hướng thư mục hệ thống.",
+    "INSTALL_NOT_FOUND": "Không tìm thấy cài đặt Zalo Desktop.",
+    "UNSUPPORTED_PLATFORM": "Nền tảng hiện tại chưa được hỗ trợ.",
+    "BACKUP_ERROR": "Lỗi khi tạo bản sao lưu.",
+    "RESTORE_ERROR": "Lỗi khi khôi phục bản sao lưu.",
+    "PROCESS_ERROR": "Lỗi điều khiển tiến trình Zalo.",
+    "SCHEMA_ERROR": "Dữ liệu không đúng định dạng yêu cầu.",
+    "CONFIRMATION_REQUIRED": "Cần xác nhận trước khi thực hiện thao tác.",
+    "IO_ERROR": "Lỗi đọc/ghi tệp trên ổ đĩa.",
+    "JSON_ERROR": "Lỗi phân tích dữ liệu JSON.",
+    "HOST_EXEC_FAILED": "Thực thi tiến trình máy chủ thất bại.",
+    "BAD_REQUEST": "Yêu cầu không hợp lệ.",
+    "FORBIDDEN_HOST": "Truy cập từ host không được phép.",
+    "FORBIDDEN_ORIGIN": "Truy cập từ origin không được phép.",
+    "METHOD_NOT_ALLOWED": "Phương thức HTTP không được hỗ trợ.",
+    "UNSUPPORTED_MEDIA_TYPE": "Định dạng dữ liệu gửi lên không được hỗ trợ.",
+    "INVALID_ID": "Mã hồ sơ không hợp lệ.",
+    "ROUTE_NOT_FOUND": "Không tìm thấy đường dẫn API.",
+    "UNKNOWN": "Đã xảy ra lỗi không xác định."
+  },
+  "messages": {
+    "profileCreated": "Đã tạo hồ sơ mới.",
+    "profileRenamed": "Đã đổi tên hồ sơ.",
+    "profileDeleted": "Đã xóa hồ sơ.",
+    "backupRestored": "Đã khôi phục bản sao lưu thành hồ sơ mới.",
+    "actionSuccess": "Thao tác hoàn tất."
+  }
+}

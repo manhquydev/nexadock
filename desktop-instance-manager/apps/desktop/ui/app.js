@@ -1,170 +1,65 @@
-// Multi-Zalo Desktop UI Controller (zero third-party runtime dependencies)
+import {
+  t,
+  getLocale,
+  setLocale,
+  onLocaleChange,
+  applyDomTranslations,
+  translateErrorCode,
+  translateSupportStatus,
+  formatBytes,
+  formatDateTime,
+  formatNumber
+} from './i18n/index.js';
+
+const THEME_STORAGE_KEY = 'color-scheme';
+const UI_VERSION = '0.1.0';
 
 const state = {
   status: null,
   backups: [],
   diagnostics: null,
   isolation: null,
+  activeView: 'profiles',
+  searchQuery: '',
+  connectionMode: null, // 'tauri' | 'bridge' | null
+  connectionOk: false,
   activeRenameId: null,
   activeDeleteId: null,
-  activeRestoreBackupDir: null,
-  busy: false
+  activeRestoreBackupDir: null
 };
 
-const tabsContainer = document.getElementById('main-tabs');
-const tablist = tabsContainer.querySelector('[focusgroup]');
-const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
-const panels = Array.from(tabsContainer.querySelectorAll('[role="tabpanel"]'));
-
-function selectTab(selectedTab, { focus = false } = {}) {
-  for (const tab of tabs) {
-    const isSelected = tab === selectedTab;
-    tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-    tab.toggleAttribute('focusgroupstart', isSelected);
-    if (!Object.hasOwn(HTMLElement.prototype, 'focusGroup')) {
-      tab.tabIndex = isSelected ? 0 : -1;
-    }
-  }
-
-  for (const panel of panels) {
-    const matches = panel.getAttribute('aria-labelledby') === selectedTab.id;
-    if (matches) {
-      panel.removeAttribute('hidden');
-      panel.setAttribute('tabindex', '0');
-    } else {
-      panel.setAttribute('hidden', 'until-found');
-      panel.removeAttribute('tabindex');
-    }
-  }
-
-  selectedTab.scrollIntoView({ block: 'nearest', inline: 'nearest', container: 'nearest' });
-  if (focus) {
-    selectedTab.focus();
-  }
-}
-
-tablist.addEventListener('click', (event) => {
-  const tab = event.target.closest('[role="tab"]');
-  if (tab) {
-    selectTab(tab, { focus: false });
-  }
-});
-
-// Synchronize active tab when browser find-in-page reveals a hidden="until-found" panel
-tabsContainer.addEventListener('beforematch', (event) => {
-  const matchedPanel = event.target.closest('[role="tabpanel"]');
-  if (!matchedPanel) return;
-  const tabId = matchedPanel.getAttribute('aria-labelledby');
-  const targetTab = tabs.find((t) => t.id === tabId);
-  if (targetTab) {
-    selectTab(targetTab, { focus: false });
-  }
-});
-
-// Progressive enhancement fallback when native focusgroup is unsupported
-if (!Object.hasOwn(HTMLElement.prototype, 'focusGroup')) {
-  for (const tab of tabs) {
-    tab.tabIndex = tab.getAttribute('aria-selected') === 'true' ? 0 : -1;
-  }
-
-  tablist.addEventListener('keydown', (event) => {
-    const current = event.target.closest('[role="tab"]');
-    if (!current) return;
-    const idx = tabs.indexOf(current);
-    if (idx === -1) return;
-
-    let nextIdx = null;
-    if (event.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length;
-    else if (event.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length;
-    else if (event.key === 'Home') nextIdx = 0;
-    else if (event.key === 'End') nextIdx = tabs.length - 1;
-
-    if (nextIdx !== null) {
-      event.preventDefault();
-      selectTab(tabs[nextIdx], { focus: true });
-    }
-  });
-}
-
-// Progressive enhancement fallback when Invoker Commands (command/commandfor) are unsupported
-if (!('commandForElement' in HTMLButtonElement.prototype)) {
-  document.addEventListener('click', (event) => {
-    const btn = event.target.closest('button[command][commandfor]');
-    if (!btn) return;
-    const target = document.getElementById(btn.getAttribute('commandfor'));
-    if (!target || typeof target.showModal !== 'function') return;
-    const cmd = btn.getAttribute('command');
-    if (cmd === 'show-modal' && !target.open) {
-      target.showModal();
-    } else if (cmd === 'close' && target.open) {
-      target.close('cancel');
-    } else if (cmd === 'request-close' && target.open) {
-      target.close('cancel');
-    }
-  });
-}
-
-// Progressive enhancement fallback when <dialog closedby="any"> is unsupported
-if (!('closedBy' in HTMLDialogElement.prototype)) {
-  const outside = (e, dialog) => {
-    const r = dialog.getBoundingClientRect();
-    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
-  };
-  for (const dialog of document.querySelectorAll('dialog[closedby="any"]')) {
-    let pressedOutside = false;
-    dialog.addEventListener('pointerdown', (e) => {
-      pressedOutside = outside(e, dialog);
-    });
-    dialog.addEventListener('pointerup', (e) => {
-      if (pressedOutside && outside(e, dialog)) {
-        dialog.close('');
-      }
-      pressedOutside = false;
-    });
-  }
-}
-
-function showBanner(message, kind = 'info') {
-  const banner = document.getElementById('status-banner');
-  banner.textContent = message;
-  banner.className = 'status-banner';
-  if (kind === 'error') banner.classList.add('is-error');
-  else if (kind === 'success') banner.classList.add('is-success');
-  banner.hidden = false;
-}
-
-function clearBanner() {
-  const banner = document.getElementById('status-banner');
-  banner.hidden = true;
-  banner.textContent = '';
-}
-
-function formatBytes(bytes) {
-  if (bytes == null || Number.isNaN(Number(bytes))) return '—';
-  const n = Number(bytes);
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function getTauriInvoke() {
+export function getTauriInvoke() {
+  if (typeof window === 'undefined') return null;
   if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke;
   if (window.__TAURI_INTERNALS__?.invoke) return window.__TAURI_INTERNALS__.invoke;
   return null;
 }
 
-async function apiCall(route, method = 'GET', body = null, tauriCmd = null, tauriArgs = {}) {
+function updateConnectionBadge(mode, ok = true) {
+  state.connectionMode = mode;
+  state.connectionOk = ok;
+  const badge = document.getElementById('host-mode-badge');
+  const dot = document.getElementById('connection-dot');
+  if (badge) {
+    badge.textContent = mode === 'tauri' ? t('app.modeTauri') : t('app.modeBridge');
+  }
+  if (dot) {
+    dot.classList.toggle('is-online', ok);
+    dot.classList.toggle('is-error', !ok);
+  }
+}
+
+export async function apiCall(route, method = 'GET', body = null, tauriCmd = null, tauriArgs = {}) {
   const invoke = getTauriInvoke();
   if (invoke && tauriCmd) {
-    document.getElementById('host-mode-badge').textContent = 'Tauri Native Core';
+    updateConnectionBadge('tauri', true);
     return await invoke(tauriCmd, tauriArgs);
   }
 
-  document.getElementById('host-mode-badge').textContent = 'Signed Host Bridge (127.0.0.1)';
+  updateConnectionBadge('bridge', true);
   const init = {
     method,
-    headers: { 'Accept': 'application/json' }
+    headers: { Accept: 'application/json' }
   };
   if (body !== null) {
     init.headers['Content-Type'] = 'application/json';
@@ -175,6 +70,23 @@ async function apiCall(route, method = 'GET', body = null, tauriCmd = null, taur
   return payload;
 }
 
+function showBanner(message, kind = 'info') {
+  const banner = document.getElementById('status-banner');
+  if (!banner) return;
+  banner.textContent = message;
+  banner.className = 'status-banner';
+  if (kind === 'error') banner.classList.add('is-error');
+  else if (kind === 'success') banner.classList.add('is-success');
+  banner.hidden = false;
+}
+
+function clearBanner() {
+  const banner = document.getElementById('status-banner');
+  if (!banner) return;
+  banner.hidden = true;
+  banner.textContent = '';
+}
+
 function makeBadge(text, variant) {
   const span = document.createElement('span');
   span.className = `badge ${variant}`;
@@ -182,243 +94,587 @@ function makeBadge(text, variant) {
   return span;
 }
 
-function makeActionButton(label, className, onClick) {
+function makeButton(label, className, onClick, { disabled = false } = {}) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = `btn btn-sm ${className}`;
   btn.textContent = label;
+  btn.disabled = disabled;
   btn.addEventListener('click', onClick);
   return btn;
 }
 
-function renderSummary() {
-  const st = state.status;
-  const diag = state.diagnostics;
-  if (!st) return;
+function appendKvRow(dl, label, value) {
+  const dt = document.createElement('dt');
+  dt.textContent = label;
+  const dd = document.createElement('dd');
+  dd.textContent = value;
+  dl.appendChild(dt);
+  dl.appendChild(dd);
+}
 
-  const inst = st.installation || {};
-  document.getElementById('stat-app').textContent = inst.valid
-    ? `${inst.mode === 'node-fixture' ? 'Node Fixture' : 'Zalo'} ${inst.version || ''}`.trim()
-    : 'Not found';
-  document.getElementById('stat-app-meta').textContent = inst.authenticode_status || inst.error || 'Unavailable';
+// Theme management (system | light | dark)
+export function getStoredThemePreference() {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch (_err) {
+    // Ignore storage errors
+  }
+  return 'system';
+}
 
-  const prim = st.primary_zalo || {};
-  document.getElementById('stat-primary').textContent = prim.is_running
-    ? `Running (${(prim.locking_pids || []).length} lock PID)`
-    : 'Not running';
-  document.getElementById('stat-primary-meta').textContent = `Protected · ${formatBytes(prim.total_working_set_bytes || 0)} RAM`;
+export function applyThemePreference(choice) {
+  const normalized = choice === 'light' || choice === 'dark' ? choice : 'system';
+  const meta = document.querySelector('meta[name="color-scheme"]');
+  if (normalized === 'system') {
+    if (meta) meta.setAttribute('content', 'light dark');
+    document.documentElement.setAttribute('data-theme', 'system');
+    try {
+      localStorage.removeItem(THEME_STORAGE_KEY);
+    } catch (_err) {
+      // Ignore storage errors
+    }
+  } else {
+    if (meta) meta.setAttribute('content', normalized);
+    document.documentElement.setAttribute('data-theme', normalized);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, normalized);
+    } catch (_err) {
+      // Ignore storage errors
+    }
+  }
+  updateAppearanceControls();
+}
 
-  const profiles = st.profiles || [];
-  const runningCount = profiles.filter((p) => p.running).length;
-  document.getElementById('stat-profiles').textContent = `${runningCount} / ${profiles.length} running`;
-  document.getElementById('stat-data-dir').textContent = st.data_dir || 'Default data dir';
+function updateAppearanceControls() {
+  const active = getStoredThemePreference();
+  const isSystemDark = typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-  if (diag) {
-    const elevatedText = diag.is_elevated ? 'Elevated' : 'Standard User (asInvoker)';
-    const sacText = diag.smart_app_control_state === 1 ? 'SAC Enforced' : `SAC=${diag.smart_app_control_state ?? 'Unknown'}`;
-    document.getElementById('stat-security').textContent = elevatedText;
-    document.getElementById('stat-security-meta').textContent = `${sacText} · Disk free ${formatBytes(diag.disk_free_bytes)}`;
+  const sysBtn = document.getElementById('theme-btn-system');
+  if (sysBtn) {
+    sysBtn.textContent = isSystemDark
+      ? t('settings.appearance.systemCurrentDark')
+      : t('settings.appearance.systemCurrentLight');
+  }
+
+  for (const btn of document.querySelectorAll('[data-theme-choice]')) {
+    const choice = btn.getAttribute('data-theme-choice');
+    btn.setAttribute('aria-checked', choice === active ? 'true' : 'false');
   }
 }
 
-function renderProfiles() {
-  const tbody = document.getElementById('profiles-tbody');
-  tbody.replaceChildren();
+function updateLanguageControls() {
+  const active = getLocale();
+  for (const btn of document.querySelectorAll('[data-locale]')) {
+    const loc = btn.getAttribute('data-locale');
+    btn.setAttribute('aria-checked', loc === active ? 'true' : 'false');
+  }
+}
 
-  const profiles = state.status?.profiles || [];
-  if (profiles.length === 0) {
-    const tr = document.createElement('tr');
-    const th = document.createElement('th');
-    th.scope = 'row';
-    th.textContent = 'No profiles created';
-    tr.appendChild(th);
-    for (let i = 0; i < 5; i += 1) {
-      const td = document.createElement('td');
-      td.textContent = '—';
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
+// Navigation
+function selectView(viewName) {
+  state.activeView = viewName;
+  for (const btn of document.querySelectorAll('.nav-item[data-view]')) {
+    const isMatch = btn.getAttribute('data-view') === viewName;
+    btn.classList.toggle('is-active', isMatch);
+    if (isMatch) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
+  }
+  for (const section of document.querySelectorAll('.view-section')) {
+    const isMatch = section.id === `view-${viewName}`;
+    section.hidden = !isMatch;
+  }
+}
+
+// Profile status helpers
+function resolveProfileState(prof) {
+  if (prof.status === 'starting') return { label: t('profiles.state.starting'), variant: 'badge-warn' };
+  if (prof.status === 'stopping') return { label: t('profiles.state.stopping'), variant: 'badge-warn' };
+  if (prof.status === 'error') return { label: t('profiles.state.error'), variant: 'badge-fail' };
+  if (prof.status === 'unknown') return { label: t('profiles.state.unknown'), variant: 'badge-neutral' };
+  if (prof.running) return { label: t('profiles.state.running'), variant: 'badge-running' };
+  if (prof.stale_lockfile_detected) return { label: t('profiles.state.crashRecoverable'), variant: 'badge-warn' };
+  return { label: t('profiles.state.stopped'), variant: 'badge-stopped' };
+}
+
+function renderStatusBar() {
+  const bar = document.getElementById('profiles-status-bar');
+  const primEl = document.getElementById('primary-status-pill');
+  const st = state.status;
+  if (!bar || !primEl) return;
+
+  if (!st) {
+    bar.textContent = t('statusBar.checking');
+    primEl.textContent = '';
     return;
   }
 
-  for (const prof of profiles) {
-    const tr = document.createElement('tr');
+  const inst = st.installation || {};
+  const profiles = st.profiles || [];
+  const runningCount = profiles.filter((p) => p.running).length;
 
-    const th = document.createElement('th');
-    th.scope = 'row';
-    th.textContent = prof.name;
-    const sub = document.createElement('span');
-    sub.className = 'row-subtext';
-    sub.textContent = `${prof.directory_name} (${prof.id})`;
-    th.appendChild(sub);
-    tr.appendChild(th);
+  if (!inst.valid) {
+    bar.textContent = t('statusBar.notFound');
+  } else if (runningCount > 0) {
+    bar.textContent = t('statusBar.detectedRunning', { count: formatNumber(runningCount) });
+  } else {
+    bar.textContent = t('statusBar.detectedIdle');
+  }
 
-    const statusTd = document.createElement('td');
+  const prim = st.primary_zalo || {};
+  primEl.textContent = prim.is_running
+    ? t('statusBar.primaryRunning', { count: formatNumber((prim.locking_pids || []).length) })
+    : t('statusBar.primaryIdle');
+}
+
+function filterProfiles(profiles, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return profiles;
+  return profiles.filter((p) => {
+    const name = (p.name || '').toLowerCase();
+    const notes = (p.notes || '').toLowerCase();
+    const dir = (p.directory_name || '').toLowerCase();
+    const id = (p.id || '').toLowerCase();
+    return name.includes(q) || notes.includes(q) || dir.includes(q) || id.includes(q);
+  });
+}
+
+function renderProfiles() {
+  const list = document.getElementById('profiles-list');
+  const emptyEl = document.getElementById('profiles-empty');
+  const emptyTitle = document.getElementById('profiles-empty-title');
+  const emptyHint = document.getElementById('profiles-empty-hint');
+  if (!list || !emptyEl) return;
+
+  list.replaceChildren();
+  const allProfiles = state.status?.profiles || [];
+  const filtered = filterProfiles(allProfiles, state.searchQuery);
+
+  if (allProfiles.length === 0) {
+    emptyTitle.textContent = t('profiles.emptyTitle');
+    emptyHint.textContent = t('profiles.emptyHint');
+    emptyEl.hidden = false;
+    list.hidden = true;
+    return;
+  }
+
+  if (filtered.length === 0) {
+    emptyTitle.textContent = t('profiles.noMatches', { query: state.searchQuery.trim() });
+    emptyHint.textContent = '';
+    emptyEl.hidden = false;
+    list.hidden = true;
+    return;
+  }
+
+  emptyEl.hidden = true;
+  list.hidden = false;
+
+  for (const prof of filtered) {
+    const li = document.createElement('li');
+    li.className = 'profile-row';
+
+    const main = document.createElement('div');
+    main.className = 'profile-main';
+
+    const titleLine = document.createElement('div');
+    titleLine.className = 'profile-title-line';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'profile-name';
+    nameEl.textContent = prof.name;
+    titleLine.appendChild(nameEl);
+
+    const pState = resolveProfileState(prof);
+    titleLine.appendChild(makeBadge(pState.label, pState.variant));
+
+    if (!prof.zalo_user_id) {
+      titleLine.appendChild(makeBadge(t('profiles.state.loginUnverified'), 'badge-neutral'));
+    }
+
+    main.appendChild(titleLine);
+
+    const subParts = [];
+    if (prof.notes) subParts.push(prof.notes);
+    if (prof.running && prof.main_pid != null) {
+      subParts.push(t('profiles.meta.pidSummary', {
+        pid: String(prof.main_pid),
+        count: formatNumber(prof.process_count ?? 1)
+      }));
+    }
+    if (prof.zalo_user_id) {
+      subParts.push(t('profiles.meta.userId', { id: prof.zalo_user_id }));
+    }
+    if (prof.data_size_bytes != null) {
+      subParts.push(t('profiles.meta.disk', { size: formatBytes(prof.data_size_bytes) }));
+    }
+    if (subParts.length > 0) {
+      const subEl = document.createElement('div');
+      subEl.className = 'profile-subline';
+      subEl.textContent = subParts.join(' · ');
+      main.appendChild(subEl);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'profile-actions';
+
     if (prof.running) {
-      statusTd.appendChild(makeBadge('Running', 'badge-running'));
-    } else if (prof.stale_lockfile_detected) {
-      statusTd.appendChild(makeBadge('Crash Recoverable', 'badge-warn'));
+      actions.appendChild(makeButton(t('profiles.actions.focus'), 'btn-primary', () => runProfileAction('focus', prof)));
+      actions.appendChild(makeButton(t('profiles.actions.stop'), 'btn-danger', () => runProfileAction('stop', prof)));
     } else {
-      statusTd.appendChild(makeBadge('Stopped', 'badge-stopped'));
-    }
-    tr.appendChild(statusTd);
-
-    const pidTd = document.createElement('td');
-    pidTd.textContent = prof.running
-      ? `PID ${prof.main_pid} · ${prof.process_count} proc(s)`
-      : 'Idle';
-    if (prof.window_title) {
-      const wSub = document.createElement('span');
-      wSub.className = 'row-subtext';
-      wSub.textContent = prof.window_title;
-      pidTd.appendChild(wSub);
-    }
-    tr.appendChild(pidTd);
-
-    const uidTd = document.createElement('td');
-    uidTd.textContent = prof.zalo_user_id || 'Unauthenticated';
-    tr.appendChild(uidTd);
-
-    const memTd = document.createElement('td');
-    const ramText = prof.running ? `${formatBytes(prof.total_working_set_bytes)} RAM` : '0 B RAM';
-    const diskText = prof.data_size_bytes != null ? ` · ${formatBytes(prof.data_size_bytes)} disk` : '';
-    memTd.textContent = `${ramText}${diskText}`;
-    tr.appendChild(memTd);
-
-    const actionsTd = document.createElement('td');
-    const actionBox = document.createElement('div');
-    actionBox.className = 'row-actions';
-
-    if (prof.running) {
-      actionBox.appendChild(makeActionButton('Focus', 'btn-secondary', () => runProfileAction('focus', prof)));
-      actionBox.appendChild(makeActionButton('Stop', 'btn-danger', () => runProfileAction('stop', prof)));
-    } else {
-      actionBox.appendChild(makeActionButton('Launch', 'btn-primary', () => runProfileAction('launch', prof)));
-      actionBox.appendChild(makeActionButton('Backup', 'btn-secondary', () => runProfileAction('backup', prof)));
+      actions.appendChild(makeButton(t('profiles.actions.launch'), 'btn-primary', () => runProfileAction('launch', prof)));
     }
 
-    actionBox.appendChild(makeActionButton('Rename', 'btn-secondary', () => openRenameDialog(prof)));
-    if (!prof.running) {
-      actionBox.appendChild(makeActionButton('Delete', 'btn-secondary', () => openDeleteDialog(prof)));
+    // Overflow menu (popover)
+    const menuId = `menu-${String(prof.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const menuWrap = document.createElement('div');
+    menuWrap.className = 'menu-wrap';
+
+    const moreBtn = document.createElement('button');
+    moreBtn.type = 'button';
+    moreBtn.className = 'btn btn-secondary btn-sm';
+    moreBtn.textContent = '⋯';
+    moreBtn.setAttribute('aria-label', t('profiles.actions.more', { name: prof.name }));
+    moreBtn.setAttribute('popovertarget', menuId);
+
+    const menuList = document.createElement('div');
+    menuList.id = menuId;
+    menuList.className = 'overflow-menu';
+    menuList.setAttribute('popover', 'auto');
+    menuList.setAttribute('role', 'menu');
+
+    const closeMenu = () => {
+      if (typeof menuList.hidePopover === 'function') {
+        try {
+          menuList.hidePopover();
+        } catch (_err) {
+          // Ignore if already closed
+        }
+      } else {
+        menuList.hidden = true;
+      }
+    };
+
+    const addMenuItem = (label, onSelect, { disabled = false, danger = false } = {}) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = danger ? 'menu-item menu-item-danger' : 'menu-item';
+      item.setAttribute('role', 'menuitem');
+      item.textContent = label;
+      item.disabled = disabled;
+      item.addEventListener('click', () => {
+        closeMenu();
+        onSelect();
+      });
+      menuList.appendChild(item);
+    };
+
+    addMenuItem(t('profiles.actions.rename'), () => openRenameDialog(prof));
+    addMenuItem(t('profiles.actions.backup'), () => runProfileAction('backup', prof), { disabled: Boolean(prof.running) });
+    addMenuItem(t('profiles.actions.details'), () => openDetailsDialog(prof));
+    addMenuItem(t('profiles.actions.delete'), () => openDeleteDialog(prof), { disabled: Boolean(prof.running), danger: true });
+
+    if (!Object.hasOwn(HTMLElement.prototype, 'popover')) {
+      menuList.hidden = true;
+      moreBtn.addEventListener('click', () => {
+        menuList.hidden = !menuList.hidden;
+      });
     }
 
-    actionsTd.appendChild(actionBox);
-    tr.appendChild(actionsTd);
-    tbody.appendChild(tr);
+    menuWrap.appendChild(moreBtn);
+    menuWrap.appendChild(menuList);
+    actions.appendChild(menuWrap);
+
+    li.appendChild(main);
+    li.appendChild(actions);
+    list.appendChild(li);
   }
 }
 
 function renderBackups() {
   const tbody = document.getElementById('backups-tbody');
-  tbody.replaceChildren();
+  const emptyEl = document.getElementById('backups-empty');
+  const tableWrap = document.getElementById('backups-table-wrap');
+  if (!tbody || !emptyEl || !tableWrap) return;
 
+  tbody.replaceChildren();
   const backups = state.backups || [];
+
   if (backups.length === 0) {
-    const tr = document.createElement('tr');
-    const th = document.createElement('th');
-    th.scope = 'row';
-    th.textContent = 'No offline backups found';
-    tr.appendChild(th);
-    for (let i = 0; i < 4; i += 1) {
-      const td = document.createElement('td');
-      td.textContent = '—';
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
+    emptyEl.hidden = false;
+    tableWrap.hidden = true;
     return;
   }
 
+  emptyEl.hidden = true;
+  tableWrap.hidden = false;
+
   for (const bk of backups) {
     const tr = document.createElement('tr');
+
     const th = document.createElement('th');
     th.scope = 'row';
-    th.textContent = bk.backup_name;
+    th.textContent = bk.backup_name || bk.backup_id || '—';
     tr.appendChild(th);
 
     const srcTd = document.createElement('td');
-    const srcName = bk.source_profile_name || bk.source_profile?.name || 'Unknown';
+    const srcName = bk.source_profile_name || bk.source_profile?.name || t('backups.unknownSource');
     const srcId = bk.source_profile_id || bk.source_profile?.id || '';
     srcTd.textContent = srcId ? `${srcName} (${srcId})` : srcName;
     tr.appendChild(srcTd);
 
     const sizeTd = document.createElement('td');
-    sizeTd.textContent = `${bk.file_count ?? 0} files · ${formatBytes(bk.total_bytes ?? 0)}`;
+    sizeTd.textContent = t('backups.fileCount', {
+      count: formatNumber(bk.file_count ?? 0),
+      size: formatBytes(bk.total_bytes ?? 0)
+    });
     tr.appendChild(sizeTd);
 
     const timeTd = document.createElement('td');
-    timeTd.textContent = bk.created_at || '—';
+    timeTd.textContent = formatDateTime(bk.created_at);
     tr.appendChild(timeTd);
 
+    const verTd = document.createElement('td');
+    const isVerifiable = Boolean(bk.backup_dir) && (bk.file_count ?? 0) > 0;
+    verTd.appendChild(makeBadge(
+      isVerifiable ? t('backups.verifiable') : t('backups.unverified'),
+      isVerifiable ? 'badge-pass' : 'badge-neutral'
+    ));
+    tr.appendChild(verTd);
+
     const actTd = document.createElement('td');
-    actTd.appendChild(makeActionButton('Restore as New', 'btn-primary', () => openRestoreDialog(bk)));
+    actTd.appendChild(makeButton(t('backups.restoreButton'), 'btn-primary', () => openRestoreDialog(bk)));
     tr.appendChild(actTd);
 
     tbody.appendChild(tr);
   }
 }
 
+export function resolveIsolationCheckResult(chk) {
+  // Never convert NOT_TESTED / BLOCKED / UNKNOWN into PASS
+  if (typeof chk.status === 'string' && chk.status.trim()) {
+    const code = chk.status.trim().toUpperCase();
+    if (code === 'PASS' || code === 'FAIL' || code === 'NOT_TESTED' || code === 'BLOCKED' || code === 'UNKNOWN') {
+      return code;
+    }
+  }
+  if (chk.passed === true) return 'PASS';
+  if (chk.passed === false) return 'FAIL';
+  return 'UNKNOWN';
+}
+
 function renderDiagnostics() {
-  const tbody = document.getElementById('diagnostics-tbody');
-  tbody.replaceChildren();
+  const st = state.status;
+  const diag = state.diagnostics;
+  const iso = state.isolation;
 
-  const checks = state.isolation?.checks || [];
-  for (const chk of checks) {
-    const tr = document.createElement('tr');
-    const th = document.createElement('th');
-    th.scope = 'row';
-    th.textContent = chk.check_name;
-    tr.appendChild(th);
-
-    const resTd = document.createElement('td');
-    resTd.appendChild(makeBadge(chk.passed ? 'PASS' : 'FAIL', chk.passed ? 'badge-pass' : 'badge-fail'));
-    tr.appendChild(resTd);
-
-    const detTd = document.createElement('td');
-    detTd.textContent = chk.detail || '';
-    tr.appendChild(detTd);
-
-    tbody.appendChild(tr);
+  // 1. Application group
+  const appList = document.getElementById('diag-app-list');
+  if (appList) {
+    appList.replaceChildren();
+    const inst = st?.installation || {};
+    appendKvRow(
+      appList,
+      t('diagnostics.fields.zaloInstall'),
+      inst.valid ? t('diagnostics.values.installed') : (inst.error || t('diagnostics.values.notInstalled'))
+    );
+    appendKvRow(
+      appList,
+      t('diagnostics.fields.installVersion'),
+      [inst.version, inst.mode].filter(Boolean).join(' · ') || '—'
+    );
+    appendKvRow(appList, t('diagnostics.fields.authenticode'), inst.authenticode_status || '—');
+    appendKvRow(appList, t('diagnostics.fields.dataDir'), st?.data_dir || '—');
   }
 
+  // 2. Security & Isolation group
+  const secList = document.getElementById('diag-security-list');
+  if (secList) {
+    secList.replaceChildren();
+    if (diag) {
+      appendKvRow(
+        secList,
+        t('diagnostics.fields.elevation'),
+        diag.is_elevated ? t('diagnostics.values.elevated') : t('diagnostics.values.standardUser')
+      );
+      const sacLabel = diag.smart_app_control_state === 1
+        ? t('diagnostics.values.sacEnforced')
+        : t('diagnostics.values.sacCode', { code: String(diag.smart_app_control_state ?? 'UNKNOWN') });
+      appendKvRow(secList, t('diagnostics.fields.smartAppControl'), sacLabel);
+    }
+    const prim = st?.primary_zalo || {};
+    appendKvRow(
+      secList,
+      t('diagnostics.fields.primaryProtection'),
+      prim.is_running
+        ? t('diagnostics.values.primaryLocked', { count: formatNumber((prim.locking_pids || []).length) })
+        : t('diagnostics.values.primaryIdle')
+    );
+  }
+
+  const diagTbody = document.getElementById('diagnostics-tbody');
+  if (diagTbody) {
+    diagTbody.replaceChildren();
+    const checks = iso?.checks || [];
+    if (checks.length === 0) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 3;
+      td.textContent = t('diagnostics.noChecks');
+      tr.appendChild(td);
+      diagTbody.appendChild(tr);
+    } else {
+      for (const chk of checks) {
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        th.scope = 'row';
+        th.textContent = chk.check_name || '—';
+        tr.appendChild(th);
+
+        const code = resolveIsolationCheckResult(chk);
+        const variant = code === 'PASS' ? 'badge-pass'
+          : (code === 'FAIL' ? 'badge-fail'
+            : (code === 'BLOCKED' ? 'badge-warn' : 'badge-neutral'));
+        const resTd = document.createElement('td');
+        resTd.appendChild(makeBadge(`${t(`diagnostics.result.${code}`)} (${code})`, variant));
+        tr.appendChild(resTd);
+
+        const detTd = document.createElement('td');
+        detTd.textContent = chk.detail || '';
+        tr.appendChild(detTd);
+
+        diagTbody.appendChild(tr);
+      }
+    }
+  }
+
+  // 3. Profiles group
+  const profList = document.getElementById('diag-profiles-list');
+  if (profList) {
+    profList.replaceChildren();
+    const profiles = st?.profiles || [];
+    const running = profiles.filter((p) => p.running).length;
+    const stale = profiles.filter((p) => p.stale_lockfile_detected).length;
+    appendKvRow(
+      profList,
+      t('diagnostics.fields.profileSummary'),
+      t('diagnostics.values.profileCounts', {
+        total: formatNumber(profiles.length),
+        running: formatNumber(running),
+        stale: formatNumber(stale)
+      })
+    );
+
+    const uidCounts = new Map();
+    for (const p of profiles) {
+      if (p.running && p.zalo_user_id) {
+        uidCounts.set(p.zalo_user_id, (uidCounts.get(p.zalo_user_id) || 0) + 1);
+      }
+    }
+    const dupIds = Array.from(uidCounts.entries()).filter(([, c]) => c > 1).map(([id]) => id);
+    appendKvRow(
+      profList,
+      t('diagnostics.fields.duplicateUid'),
+      dupIds.length > 0 ? t('diagnostics.values.duplicatesFound', { ids: dupIds.join(', ') }) : t('diagnostics.values.noDuplicates')
+    );
+  }
+
+  // 4. Environment & OS Readiness group
+  const envList = document.getElementById('diag-env-list');
+  if (envList) {
+    envList.replaceChildren();
+    appendKvRow(envList, t('diagnostics.fields.platform'), st?.platform || '—');
+    if (diag) {
+      const diskFormatted = formatBytes(diag.disk_free_bytes);
+      appendKvRow(
+        envList,
+        t('diagnostics.fields.diskFree'),
+        diag.disk_free_ok
+          ? t('diagnostics.values.diskOk', { size: diskFormatted })
+          : t('diagnostics.values.diskLow', { size: diskFormatted })
+      );
+      const redir = diag.folder_redirection || {};
+      appendKvRow(
+        envList,
+        t('diagnostics.fields.folderRedirection'),
+        redir.redirected
+          ? t('diagnostics.values.redirected', { warning: redir.warning || '—' })
+          : t('diagnostics.values.notRedirected')
+      );
+    }
+  }
+
+  const readyTbody = document.getElementById('readiness-tbody');
+  if (readyTbody) {
+    readyTbody.replaceChildren();
+    const matrix = diag?.platform_support_matrix || [];
+    for (const row of matrix) {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.scope = 'row';
+      th.textContent = row.platform || '—';
+      tr.appendChild(th);
+
+      const { code, label } = translateSupportStatus(row.status);
+      const variant = code === 'SUPPORTED_AND_TESTED' ? 'badge-pass'
+        : (code === 'PARTIALLY_SUPPORTED' ? 'badge-warn'
+          : (code === 'UNSUPPORTED' || code === 'BLOCKED' ? 'badge-fail' : 'badge-neutral'));
+      const stTd = document.createElement('td');
+      stTd.appendChild(makeBadge(`${label} (${code})`, variant));
+      tr.appendChild(stTd);
+
+      const stratTd = document.createElement('td');
+      stratTd.textContent = row.strategy || '—';
+      tr.appendChild(stratTd);
+
+      const limTd = document.createElement('td');
+      limTd.textContent = row.limits || '—';
+      tr.appendChild(limTd);
+
+      readyTbody.appendChild(tr);
+    }
+  }
+
+  // 5. Sanitized Logs group
   const logBox = document.getElementById('sanitized-log-output');
-  const logs = state.diagnostics?.sanitized_logs || [];
-  logBox.textContent = logs.length > 0 ? logs.join('\n') : 'No diagnostic log events yet.';
-}
-
-function renderReadiness() {
-  const tbody = document.getElementById('readiness-tbody');
-  tbody.replaceChildren();
-
-  const matrix = state.diagnostics?.platform_support_matrix || [];
-  for (const row of matrix) {
-    const tr = document.createElement('tr');
-    const th = document.createElement('th');
-    th.scope = 'row';
-    th.textContent = row.platform;
-    tr.appendChild(th);
-
-    const stTd = document.createElement('td');
-    const variant = row.status === 'SUPPORTED_AND_TESTED' ? 'badge-pass'
-      : (row.status === 'PARTIALLY_SUPPORTED' ? 'badge-warn'
-        : (row.status === 'UNSUPPORTED' ? 'badge-fail' : 'badge-neutral'));
-    stTd.appendChild(makeBadge(row.status, variant));
-    tr.appendChild(stTd);
-
-    const stratTd = document.createElement('td');
-    stratTd.textContent = row.strategy;
-    tr.appendChild(stratTd);
-
-    const limTd = document.createElement('td');
-    limTd.textContent = row.limits;
-    tr.appendChild(limTd);
-
-    tbody.appendChild(tr);
+  if (logBox) {
+    const logs = diag?.sanitized_logs || [];
+    logBox.textContent = logs.length > 0 ? logs.join('\n') : t('diagnostics.noLogs');
   }
 }
 
-async function refreshAll() {
+function renderSettingsAbout() {
+  const aboutList = document.getElementById('settings-about-list');
+  if (!aboutList) return;
+  aboutList.replaceChildren();
+
+  appendKvRow(aboutList, t('settings.about.appName'), t('app.name'));
+  appendKvRow(aboutList, t('settings.about.uiVersion'), state.status?.app_version || UI_VERSION);
+  appendKvRow(aboutList, t('settings.about.os'), state.status?.platform || '—');
+
+  const modeLabel = state.connectionMode === 'tauri' ? t('app.modeTauri') : t('app.modeBridge');
+  const connText = state.connectionOk
+    ? t('settings.about.connected', { mode: modeLabel })
+    : t('settings.about.disconnected');
+  appendKvRow(aboutList, t('settings.about.connection'), connText);
+}
+
+function renderAll() {
+  renderStatusBar();
+  renderProfiles();
+  renderBackups();
+  renderDiagnostics();
+  renderSettingsAbout();
+  updateLanguageControls();
+  updateAppearanceControls();
+}
+
+export async function refreshAll() {
   try {
-    const withSize = document.getElementById('toggle-sizes').checked;
+    const toggleSizes = document.getElementById('toggle-sizes');
+    const withSize = Boolean(toggleSizes?.checked);
     const [statusData, backupsData, diagData, isoData] = await Promise.all([
       apiCall(`/api/status${withSize ? '?withSize=1' : ''}`, 'GET', null, 'get_status', { withSize }),
       apiCall('/api/backups', 'GET', null, 'list_backups', {}),
@@ -429,14 +685,11 @@ async function refreshAll() {
     state.backups = backupsData?.backups || [];
     state.diagnostics = diagData;
     state.isolation = isoData;
-
-    renderSummary();
-    renderProfiles();
-    renderBackups();
-    renderDiagnostics();
-    renderReadiness();
+    renderAll();
   } catch (err) {
-    showBanner(`Host communication failed: ${err.message}`, 'error');
+    updateConnectionBadge(state.connectionMode || 'bridge', false);
+    showBanner(t('statusBar.hostError', { message: err.message }), 'error');
+    renderSettingsAbout();
   }
 }
 
@@ -454,7 +707,7 @@ async function runProfileAction(action, prof) {
       res = await apiCall(`/api/profiles/${encodeURIComponent(prof.id)}/backup`, 'POST', {}, 'backup_profile', { id: prof.id });
     }
     if (res && res.ok === false) {
-      showBanner(`${res.error_code || 'ERROR'}: ${res.message}`, 'error');
+      showBanner(translateErrorCode(res.error_code, res.message), 'error');
     } else if (res?.message) {
       showBanner(res.message, 'success');
     }
@@ -464,97 +717,232 @@ async function runProfileAction(action, prof) {
   }
 }
 
-// Dialog wiring with mandatory dialog.returnValue read + reset
-const createDialog = document.getElementById('create-profile-dialog');
-createDialog.addEventListener('close', async () => {
-  const action = createDialog.returnValue;
-  createDialog.returnValue = '';
-  if (action !== 'create') return;
-
-  const nameInput = document.getElementById('create-profile-name');
-  const notesInput = document.getElementById('create-profile-notes');
-  const name = nameInput.value.trim();
-  const notes = notesInput.value.trim();
-  nameInput.value = '';
-  notesInput.value = '';
-  if (!name) return;
-
-  const res = await apiCall('/api/profiles', 'POST', { name, notes }, 'create_profile', { name, notes });
-  showBanner(res.message || 'Profile created', res.ok ? 'success' : 'error');
-  await refreshAll();
-});
-
-const renameDialog = document.getElementById('rename-profile-dialog');
 function openRenameDialog(prof) {
   state.activeRenameId = prof.id;
-  document.getElementById('rename-profile-subtitle').textContent = `Current name: ${prof.name} (${prof.id})`;
+  document.getElementById('rename-profile-subtitle').textContent = t('dialogs.rename.subtitle', {
+    name: prof.name,
+    id: prof.id
+  });
   document.getElementById('rename-profile-name').value = prof.name;
-  renameDialog.showModal();
+  document.getElementById('rename-profile-dialog').showModal();
 }
-renameDialog.addEventListener('close', async () => {
-  const action = renameDialog.returnValue;
-  renameDialog.returnValue = '';
-  const targetId = state.activeRenameId;
-  state.activeRenameId = null;
-  if (action !== 'rename' || !targetId) return;
 
-  const newName = document.getElementById('rename-profile-name').value.trim();
-  if (!newName) return;
-
-  const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}/rename`, 'POST', { newName }, 'rename_profile', { id: targetId, newName });
-  showBanner(res.message || 'Renamed profile', res.ok ? 'success' : 'error');
-  await refreshAll();
-});
-
-const deleteDialog = document.getElementById('delete-profile-dialog');
 function openDeleteDialog(prof) {
   state.activeDeleteId = prof.id;
-  document.getElementById('delete-profile-warning').textContent =
-    `Delete profile "${prof.name}" (${prof.directory_name})? Only isolated profile files are deleted; primary Zalo data is untouched.`;
-  deleteDialog.showModal();
+  document.getElementById('delete-profile-warning').textContent = t('dialogs.delete.warning', {
+    name: prof.name,
+    dir: prof.directory_name || prof.id
+  });
+  document.getElementById('delete-profile-dialog').showModal();
 }
-deleteDialog.addEventListener('close', async () => {
-  const action = deleteDialog.returnValue;
-  deleteDialog.returnValue = '';
-  const targetId = state.activeDeleteId;
-  state.activeDeleteId = null;
-  if (action !== 'delete' || !targetId) return;
 
-  const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}`, 'DELETE', { confirm: true }, 'delete_profile', { id: targetId });
-  showBanner(res.message || 'Deleted profile', res.ok ? 'success' : 'error');
-  await refreshAll();
-});
-
-const restoreDialog = document.getElementById('restore-backup-dialog');
 function openRestoreDialog(bk) {
   state.activeRestoreBackupDir = bk.backup_dir;
-  document.getElementById('restore-backup-subtitle').textContent =
-    `Verify SHA-256 manifest in "${bk.backup_name}" and restore into a brand-new isolated profile.`;
+  document.getElementById('restore-backup-subtitle').textContent = t('dialogs.restore.subtitle', {
+    backupName: bk.backup_name || bk.backup_id || ''
+  });
   document.getElementById('restore-profile-name').value = '';
-  restoreDialog.showModal();
+  document.getElementById('restore-backup-dialog').showModal();
 }
-restoreDialog.addEventListener('close', async () => {
-  const action = restoreDialog.returnValue;
-  restoreDialog.returnValue = '';
-  const backupDir = state.activeRestoreBackupDir;
-  state.activeRestoreBackupDir = null;
-  if (action !== 'restore' || !backupDir) return;
 
-  const name = document.getElementById('restore-profile-name').value.trim();
-  const res = await apiCall('/api/backups/restore', 'POST', { backupDir, name }, 'restore_backup', { backupDir, name });
-  showBanner(res.message || 'Backup restored', res.ok ? 'success' : 'error');
-  await refreshAll();
-});
+function openDetailsDialog(prof) {
+  const dl = document.getElementById('profile-details-list');
+  dl.replaceChildren();
+  const pState = resolveProfileState(prof);
 
-const safetyDialog = document.getElementById('safety-dialog');
-safetyDialog.addEventListener('close', () => {
-  const _action = safetyDialog.returnValue;
-  safetyDialog.returnValue = '';
-});
+  appendKvRow(dl, t('profiles.details.id'), prof.id || t('profiles.details.none'));
+  appendKvRow(dl, t('profiles.details.directory'), prof.directory_name || t('profiles.details.none'));
+  appendKvRow(dl, t('profiles.details.status'), pState.label);
+  appendKvRow(dl, t('profiles.details.zaloUserId'), prof.zalo_user_id || t('profiles.state.loginUnverified'));
+  appendKvRow(dl, t('profiles.details.pid'), prof.main_pid != null ? String(prof.main_pid) : t('profiles.details.none'));
+  appendKvRow(dl, t('profiles.details.processCount'), prof.process_count != null ? formatNumber(prof.process_count) : '0');
+  appendKvRow(dl, t('profiles.details.windowTitle'), prof.window_title || t('profiles.details.none'));
+  appendKvRow(dl, t('profiles.details.ram'), prof.running ? formatBytes(prof.total_working_set_bytes) : formatBytes(0));
+  appendKvRow(dl, t('profiles.details.disk'), prof.data_size_bytes != null ? formatBytes(prof.data_size_bytes) : t('profiles.details.notMeasured'));
+  appendKvRow(dl, t('profiles.details.staleLockfile'), prof.stale_lockfile_detected ? t('profiles.details.yes') : t('profiles.details.no'));
+  appendKvRow(dl, t('profiles.details.createdAt'), formatDateTime(prof.created_at));
+  appendKvRow(dl, t('profiles.details.lastLaunchedAt'), formatDateTime(prof.last_launched_at));
+  appendKvRow(dl, t('profiles.details.notes'), prof.notes || t('profiles.details.none'));
 
-document.getElementById('btn-refresh').addEventListener('click', () => refreshAll());
-document.getElementById('btn-refresh-backups').addEventListener('click', () => refreshAll());
-document.getElementById('btn-run-isolation').addEventListener('click', () => refreshAll());
-document.getElementById('toggle-sizes').addEventListener('change', () => refreshAll());
+  document.getElementById('profile-details-dialog').showModal();
+}
 
-refreshAll();
+function wireDialogsAndFallbacks() {
+  // Progressive enhancement fallback when Invoker Commands (command/commandfor) are unsupported
+  if (!('commandForElement' in HTMLButtonElement.prototype)) {
+    document.addEventListener('click', (event) => {
+      const btn = event.target.closest('button[command][commandfor]');
+      if (!btn) return;
+      const target = document.getElementById(btn.getAttribute('commandfor'));
+      if (!target || typeof target.showModal !== 'function') return;
+      const cmd = btn.getAttribute('command');
+      if (cmd === 'show-modal' && !target.open) {
+        target.showModal();
+      } else if ((cmd === 'close' || cmd === 'request-close') && target.open) {
+        target.close('cancel');
+      }
+    });
+  }
+
+  // Progressive enhancement fallback when <dialog closedby="any"> is unsupported
+  if (!('closedBy' in HTMLDialogElement.prototype)) {
+    const outside = (e, dialog) => {
+      const r = dialog.getBoundingClientRect();
+      return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    };
+    for (const dialog of document.querySelectorAll('dialog[closedby="any"]')) {
+      let pressedOutside = false;
+      dialog.addEventListener('pointerdown', (e) => {
+        pressedOutside = outside(e, dialog);
+      });
+      dialog.addEventListener('pointerup', (e) => {
+        if (pressedOutside && outside(e, dialog)) {
+          dialog.close('');
+        }
+        pressedOutside = false;
+      });
+    }
+  }
+
+  const createDialog = document.getElementById('create-profile-dialog');
+  createDialog.addEventListener('close', async () => {
+    const action = createDialog.returnValue;
+    createDialog.returnValue = '';
+    if (action !== 'create') return;
+
+    const nameInput = document.getElementById('create-profile-name');
+    const notesInput = document.getElementById('create-profile-notes');
+    const name = nameInput.value.trim();
+    const notes = notesInput.value.trim();
+    nameInput.value = '';
+    notesInput.value = '';
+    if (!name) return;
+
+    const res = await apiCall('/api/profiles', 'POST', { name, notes }, 'create_profile', { name, notes });
+    if (res && res.ok === false) showBanner(translateErrorCode(res.error_code, res.message), 'error');
+    else showBanner(res?.message || t('messages.profileCreated'), 'success');
+    await refreshAll();
+  });
+
+  const renameDialog = document.getElementById('rename-profile-dialog');
+  renameDialog.addEventListener('close', async () => {
+    const action = renameDialog.returnValue;
+    renameDialog.returnValue = '';
+    const targetId = state.activeRenameId;
+    state.activeRenameId = null;
+    if (action !== 'rename' || !targetId) return;
+
+    const newName = document.getElementById('rename-profile-name').value.trim();
+    if (!newName) return;
+
+    const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}/rename`, 'POST', { newName }, 'rename_profile', { id: targetId, newName });
+    if (res && res.ok === false) showBanner(translateErrorCode(res.error_code, res.message), 'error');
+    else showBanner(res?.message || t('messages.profileRenamed'), 'success');
+    await refreshAll();
+  });
+
+  const deleteDialog = document.getElementById('delete-profile-dialog');
+  deleteDialog.addEventListener('close', async () => {
+    const action = deleteDialog.returnValue;
+    deleteDialog.returnValue = '';
+    const targetId = state.activeDeleteId;
+    state.activeDeleteId = null;
+    if (action !== 'delete' || !targetId) return;
+
+    const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}`, 'DELETE', { confirm: true }, 'delete_profile', { id: targetId });
+    if (res && res.ok === false) showBanner(translateErrorCode(res.error_code, res.message), 'error');
+    else showBanner(res?.message || t('messages.profileDeleted'), 'success');
+    await refreshAll();
+  });
+
+  const restoreDialog = document.getElementById('restore-backup-dialog');
+  restoreDialog.addEventListener('close', async () => {
+    const action = restoreDialog.returnValue;
+    restoreDialog.returnValue = '';
+    const backupDir = state.activeRestoreBackupDir;
+    state.activeRestoreBackupDir = null;
+    if (action !== 'restore' || !backupDir) return;
+
+    const name = document.getElementById('restore-profile-name').value.trim();
+    const res = await apiCall('/api/backups/restore', 'POST', { backupDir, name }, 'restore_backup', { backupDir, name });
+    if (res && res.ok === false) showBanner(translateErrorCode(res.error_code, res.message), 'error');
+    else showBanner(res?.message || t('messages.backupRestored'), 'success');
+    await refreshAll();
+  });
+
+  for (const id of ['profile-details-dialog', 'safety-dialog']) {
+    const dlg = document.getElementById(id);
+    dlg.addEventListener('close', () => {
+      dlg.returnValue = '';
+    });
+  }
+}
+
+export function initApp() {
+  applyDomTranslations();
+  updateLanguageControls();
+  updateAppearanceControls();
+  wireDialogsAndFallbacks();
+
+  // Sidebar navigation
+  for (const btn of document.querySelectorAll('.nav-item[data-view]')) {
+    btn.addEventListener('click', () => {
+      selectView(btn.getAttribute('data-view'));
+    });
+  }
+
+  document.getElementById('btn-goto-diagnostics')?.addEventListener('click', () => {
+    selectView('diagnostics');
+  });
+
+  // Search & Toolbar
+  document.getElementById('profile-search')?.addEventListener('input', (event) => {
+    state.searchQuery = event.target.value;
+    renderProfiles();
+  });
+
+  document.getElementById('btn-refresh')?.addEventListener('click', () => refreshAll());
+  document.getElementById('btn-refresh-backups')?.addEventListener('click', () => refreshAll());
+  document.getElementById('btn-run-isolation')?.addEventListener('click', () => refreshAll());
+  document.getElementById('btn-refresh-diagnostics')?.addEventListener('click', () => refreshAll());
+  document.getElementById('toggle-sizes')?.addEventListener('change', () => refreshAll());
+
+  // Settings: Language
+  for (const btn of document.querySelectorAll('[data-locale]')) {
+    btn.addEventListener('click', () => {
+      setLocale(btn.getAttribute('data-locale'));
+    });
+  }
+
+  onLocaleChange(() => {
+    applyDomTranslations();
+    renderAll();
+  });
+
+  // Settings: Appearance
+  for (const btn of document.querySelectorAll('[data-theme-choice]')) {
+    btn.addEventListener('click', () => {
+      applyThemePreference(btn.getAttribute('data-theme-choice'));
+    });
+  }
+
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      updateAppearanceControls();
+    });
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (event) => {
+      if (event.key === THEME_STORAGE_KEY) {
+        updateAppearanceControls();
+      }
+    });
+  }
+
+  refreshAll();
+}
+
+if (typeof document !== 'undefined') {
+  initApp();
+}

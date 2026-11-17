@@ -1,0 +1,293 @@
+{
+  "app": {
+    "name": "Multi-Zalo Desktop",
+    "tagline": "Isolated Profile Manager",
+    "windowTitle": "Multi-Zalo Desktop — Profile Manager",
+    "skipToContent": "Skip to main content",
+    "modeTauri": "Tauri Native Core",
+    "modeBridge": "Local Host Bridge (127.0.0.1)",
+    "connecting": "Connecting..."
+  },
+  "nav": {
+    "ariaLabel": "Primary navigation",
+    "profiles": "Zalo Profiles",
+    "backups": "Backups",
+    "diagnostics": "Diagnostics",
+    "settings": "Settings",
+    "refresh": "Refresh",
+    "safetySpec": "Safety Spec"
+  },
+  "statusBar": {
+    "checking": "Checking Zalo Desktop status...",
+    "detectedRunning": "Zalo Desktop detected · {count} profile(s) running",
+    "detectedIdle": "Zalo Desktop detected · No profiles running",
+    "notFound": "Zalo Desktop not found · Check Diagnostics",
+    "primaryRunning": "Primary Zalo running ({count} protected PID)",
+    "primaryIdle": "Primary Zalo not running",
+    "hostError": "Host communication failed: {message}"
+  },
+  "profiles": {
+    "title": "Zalo Profiles",
+    "hint": "Each profile runs in an isolated sandbox without touching primary Zalo data.",
+    "searchLabel": "Search profiles",
+    "searchPlaceholder": "Search by name, notes, or folder...",
+    "measureSizes": "Measure disk sizes",
+    "createButton": "Create profile",
+    "emptyTitle": "No profiles yet",
+    "emptyHint": "Create a profile to sign in to an isolated Zalo account.",
+    "noMatches": "No profiles match \"{query}\".",
+    "listAriaLabel": "Zalo profiles list",
+    "state": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "starting": "Starting",
+      "stopping": "Stopping",
+      "crashRecoverable": "Needs recovery",
+      "loginUnverified": "Login unverified",
+      "unknown": "Unknown",
+      "error": "Error"
+    },
+    "actions": {
+      "launch": "Launch",
+      "focus": "Focus",
+      "stop": "Stop",
+      "backup": "Backup",
+      "rename": "Rename",
+      "details": "Technical details",
+      "delete": "Delete profile",
+      "more": "More actions for {name}"
+    },
+    "meta": {
+      "pidSummary": "PID {pid} · {count} proc(s)",
+      "unauthenticated": "Login unverified",
+      "userId": "Zalo ID: {id}",
+      "ram": "{size} RAM",
+      "disk": "{size} disk"
+    },
+    "details": {
+      "title": "Profile Technical Details",
+      "id": "Profile ID",
+      "directory": "Data directory",
+      "status": "Status",
+      "zaloUserId": "Zalo User ID",
+      "pid": "Main PID",
+      "processCount": "Process count",
+      "windowTitle": "Window title",
+      "ram": "Memory usage",
+      "disk": "Disk size",
+      "createdAt": "Created at",
+      "lastLaunchedAt": "Last launched",
+      "notes": "Notes",
+      "staleLockfile": "Stale lockfile (crash recovery)",
+      "yes": "Yes",
+      "no": "No",
+      "notMeasured": "Not measured (enable \"Measure disk sizes\")",
+      "none": "—"
+    }
+  },
+  "backups": {
+    "title": "Offline Backups",
+    "hint": "Backups require the profile to be stopped and verify SHA-256 checksums.",
+    "reloadButton": "Reload",
+    "restoreWarningTitle": "Safe restore notice:",
+    "restoreWarningBody": "Restore always creates a NEW profile and never overwrites the original profile or primary Zalo data.",
+    "emptyTitle": "No offline backups yet",
+    "emptyHint": "Create a backup from the actions menu of any stopped profile.",
+    "columns": {
+      "backup": "Backup",
+      "source": "Source profile",
+      "size": "Files / Size",
+      "createdAt": "Created",
+      "verification": "Verification",
+      "actions": "Actions"
+    },
+    "verifiable": "SHA-256 verifiable",
+    "unverified": "Verification info unavailable",
+    "fileCount": "{count} file(s) · {size}",
+    "unknownSource": "Unknown source",
+    "restoreButton": "Restore as new profile"
+  },
+  "diagnostics": {
+    "title": "System Diagnostics",
+    "hint": "Verifies folder isolation, permissions, OS compatibility, and sanitized host logs.",
+    "reverifyButton": "Re-verify",
+    "refreshButton": "Refresh",
+    "groups": {
+      "application": "Application",
+      "security": "Security & Isolation",
+      "profiles": "Profiles",
+      "environment": "Environment & OS Readiness",
+      "logs": "Sanitized Logs"
+    },
+    "fields": {
+      "zaloInstall": "Zalo Desktop installation",
+      "installVersion": "Version / Mode",
+      "authenticode": "Authenticode signature",
+      "dataDir": "Data directory",
+      "elevation": "Execution privilege",
+      "smartAppControl": "Smart App Control",
+      "primaryProtection": "Primary Zalo protection",
+      "profileSummary": "Total profiles",
+      "duplicateUid": "Duplicate Zalo User ID",
+      "platform": "Platform",
+      "diskFree": "Free disk space",
+      "folderRedirection": "Folder redirection"
+    },
+    "values": {
+      "installed": "Detected",
+      "notInstalled": "Not found",
+      "elevated": "Running elevated (Administrator)",
+      "standardUser": "Standard user (asInvoker)",
+      "sacEnforced": "Enforced",
+      "sacCode": "State code: {code}",
+      "primaryLocked": "Running ({count} protected PID)",
+      "primaryIdle": "Not running (safe)",
+      "profileCounts": "{total} profile(s) ({running} running, {stale} need recovery)",
+      "noDuplicates": "No duplicates detected",
+      "duplicatesFound": "Duplicate IDs detected: {ids}",
+      "diskOk": "{size} (Sufficient space)",
+      "diskLow": "{size} (Low disk space)",
+      "redirected": "Folder redirection detected: {warning}",
+      "notRedirected": "Not redirected"
+    },
+    "isolationTable": {
+      "check": "Check",
+      "result": "Result",
+      "detail": "Detail"
+    },
+    "readinessTable": {
+      "platform": "Platform",
+      "status": "Support status",
+      "strategy": "Isolation strategy",
+      "limits": "Known limits"
+    },
+    "result": {
+      "PASS": "PASS",
+      "FAIL": "FAIL",
+      "NOT_TESTED": "NOT TESTED",
+      "BLOCKED": "BLOCKED",
+      "UNKNOWN": "UNKNOWN"
+    },
+    "noLogs": "No diagnostic log events recorded yet.",
+    "noChecks": "No isolation checks run yet."
+  },
+  "settings": {
+    "title": "Settings",
+    "hint": "Configure display language, appearance, and inspect application connection info.",
+    "language": {
+      "title": "Display language",
+      "description": "Switches immediately without reloading. Profile names, paths, PIDs, and raw logs remain untranslated.",
+      "viVN": "Tiếng Việt (vi-VN)",
+      "enUS": "English (en-US)"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "description": "Choose light, dark, or follow your operating system theme.",
+      "system": "System",
+      "systemCurrentLight": "System (currently Light)",
+      "systemCurrentDark": "System (currently Dark)",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "about": {
+      "title": "Application information",
+      "appName": "Application name",
+      "uiVersion": "UI version",
+      "os": "Operating system",
+      "connection": "Host connection",
+      "connected": "Connected ({mode})",
+      "disconnected": "Disconnected",
+      "readinessLink": "View OS compatibility details in Diagnostics"
+    }
+  },
+  "dialogs": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "create": {
+      "title": "Create Isolated Profile",
+      "nameLabel": "Profile display name",
+      "namePlaceholder": "e.g. Duc - Work",
+      "notesLabel": "Notes (optional, non-secret)",
+      "notesPlaceholder": "Work account",
+      "submit": "Create profile"
+    },
+    "rename": {
+      "title": "Rename Profile",
+      "subtitle": "Current name: {name} ({id})",
+      "nameLabel": "New display name",
+      "submit": "Save name"
+    },
+    "delete": {
+      "title": "Delete profile and isolated data?",
+      "warning": "This permanently removes profile directory \"{name}\" ({dir}) and safely unlinks any NTFS junctions. Primary Zalo data is never touched.",
+      "submit": "Delete profile"
+    },
+    "restore": {
+      "title": "Restore backup to new profile",
+      "subtitle": "Verify SHA-256 manifest in \"{backupName}\" and restore into a brand-new isolated profile.",
+      "nameLabel": "New profile name (optional)",
+      "namePlaceholder": "Leave blank for automatic name",
+      "submit": "Verify & Restore"
+    },
+    "safety": {
+      "title": "Isolation & Security Guarantees",
+      "item1Title": "Non-privileged execution:",
+      "item1Body": "Runs strictly as standard user (asInvoker), zero drivers or HKLM writes.",
+      "item2Title": "Primary Zalo protection:",
+      "item2Body": "Inspects %APPDATA%\\ZaloData\\lockfile via Restart Manager and blocks any stop targeting primary PIDs.",
+      "item3Title": "Duplicate account guard:",
+      "item3Body": "Blocks launching two profiles logged into the same zalo_user_id simultaneously.",
+      "item4Title": "Offline atomic backups:",
+      "item4Body": "Staged via .partial with SHA-256 backup.json; always restores into a new profile.",
+      "item5Title": "Known OS limits:",
+      "item5Body": "Concurrent voice/video calls remain blocked by global named pipe PipeZCallRecv; notifications share AUMID com.vng.zalo."
+    }
+  },
+  "supportStatus": {
+    "SUPPORTED_AND_TESTED": "Supported & Tested",
+    "PARTIALLY_SUPPORTED": "Partially Supported",
+    "EXPERIMENTAL": "Experimental",
+    "NOT_TESTED": "Not Tested",
+    "BLOCKED": "Blocked",
+    "UNSUPPORTED": "Unsupported",
+    "UNKNOWN": "Unknown"
+  },
+  "errors": {
+    "INVALID_NAME": "Invalid profile name.",
+    "DUPLICATE_NAME": "A profile with this name already exists.",
+    "NOT_FOUND": "Requested resource was not found.",
+    "PROFILE_RUNNING": "Profile is currently running. Stop it before performing this action.",
+    "PROFILE_IDENTITY_MISMATCH": "Profile identity mismatch.",
+    "PROTECTED_PRIMARY_PROCESS": "Operation blocked: target process belongs to protected primary Zalo.",
+    "DUPLICATE_ZALO_USER_ID": "This Zalo account is already running in another profile.",
+    "INSUFFICIENT_DISK_SPACE": "Insufficient free disk space.",
+    "PATH_TRAVERSAL": "Invalid path (directory boundary violation).",
+    "PATH_TRAVERSAL_REJECTED": "Path rejected due to boundary check.",
+    "FOLDER_REDIRECTION_DETECTED": "System folder redirection detected.",
+    "INSTALL_NOT_FOUND": "Zalo Desktop installation not found.",
+    "UNSUPPORTED_PLATFORM": "Current platform is not supported.",
+    "BACKUP_ERROR": "Failed to create backup.",
+    "RESTORE_ERROR": "Failed to restore backup.",
+    "PROCESS_ERROR": "Failed to control Zalo process.",
+    "SCHEMA_ERROR": "Payload does not match required schema.",
+    "CONFIRMATION_REQUIRED": "Confirmation is required for this operation.",
+    "IO_ERROR": "Disk I/O error.",
+    "JSON_ERROR": "Failed to parse JSON payload.",
+    "HOST_EXEC_FAILED": "Host process execution failed.",
+    "BAD_REQUEST": "Invalid request.",
+    "FORBIDDEN_HOST": "Access from forbidden host.",
+    "FORBIDDEN_ORIGIN": "Access from forbidden origin.",
+    "METHOD_NOT_ALLOWED": "HTTP method not allowed.",
+    "UNSUPPORTED_MEDIA_TYPE": "Unsupported request media type.",
+    "INVALID_ID": "Invalid profile ID.",
+    "ROUTE_NOT_FOUND": "API route not found.",
+    "UNKNOWN": "An unknown error occurred."
+  },
+  "messages": {
+    "profileCreated": "Profile created.",
+    "profileRenamed": "Profile renamed.",
+    "profileDeleted": "Profile deleted.",
+    "backupRestored": "Backup restored into a new profile.",
+    "actionSuccess": "Action completed."
+  }
+}
