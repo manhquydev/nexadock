@@ -6,10 +6,15 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
-use dim_core::{now_rfc3339_utc, LaunchTarget, PlatformCapabilities, PlatformKind, ProfileStore};
+use dim_core::{
+    now_rfc3339_utc, InstanceLauncher, LaunchTarget, PlatformCapabilities, PlatformKind,
+    ProfileRecord, ProfileStore,
+};
 use dim_process_manager::InstanceCoordinator;
-use dim_profile_store::{unlink_reparse_points_safe, FileBackupManager, JsonProfileStore};
-use dim_xf_fixture::is_os_pid_alive;
+use dim_profile_store::{
+    unlink_reparse_points_safe, verify_profile_id_marker, FileBackupManager, JsonProfileStore,
+};
+use dim_xf_fixture::{is_os_pid_alive, sha256_file};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -20,6 +25,335 @@ pub use dim_platform_linux::LinuxPlatformAdapter as ActiveHostAdapter;
 pub use dim_platform_macos::MacOsPlatformAdapter as ActiveHostAdapter;
 #[cfg(target_os = "windows")]
 pub use dim_platform_windows::WindowsPlatformAdapter as ActiveHostAdapter;
+
+/// Canonical 55 test case IDs in deterministic suite execution order.
+pub const CANONICAL_CASE_IDS: &[&str] = &[
+    // Suite 01: Process Lifecycle (9)
+    "LC-01",
+    "LC-02",
+    "LC-03",
+    "LC-04",
+    "LC-05",
+    "LC-06",
+    "LC-07",
+    "LC-08",
+    "LC-09",
+    // Suite 02: Profile Management (8)
+    "PM-01",
+    "PM-02",
+    "PM-03",
+    "PM-04",
+    "PM-05",
+    "PM-06",
+    "PM-07",
+    "PM-08",
+    // Suite 03: Data Safety (8)
+    "DS-01",
+    "DS-02",
+    "DS-03",
+    "DS-04",
+    "DS-05",
+    "DS-06",
+    "DS-07",
+    "DS-08",
+    // Suite 04: Reliability & Soak (8)
+    "REL-01",
+    "REL-02",
+    "REL-03",
+    "REL-04",
+    "REL-05",
+    "REL-06",
+    "REL-07",
+    "REL-08",
+    // Suite 05: Cross-Platform Differences (12)
+    "XP-WIN-01",
+    "XP-WIN-02",
+    "XP-WIN-03",
+    "XP-WIN-04",
+    "XP-MAC-01",
+    "XP-MAC-02",
+    "XP-MAC-03",
+    "XP-MAC-04",
+    "XP-LNX-01",
+    "XP-LNX-02",
+    "XP-LNX-03",
+    "XP-LNX-04",
+    // Suite 06: Adapter & CLI Contracts (10)
+    "CT-01",
+    "CT-02",
+    "CT-03",
+    "CT-04",
+    "CT-05",
+    "CT-06",
+    "CT-07",
+    "CT-08",
+    "CT-09",
+    "CT-10",
+];
+
+/// Frozen Mission C1 baseline `(test_id, defect_id)` pairs reproduced at `a2143550935d`.
+pub const KNOWN_BASELINE_DEFECTS: &[(&str, &str)] = &[
+    ("LC-07", "DEFECT-03"),
+    ("LC-08", "DEFECT-04"),
+    ("LC-09", "DEFECT-06"),
+    ("PM-04", "DEFECT-10"),
+    ("PM-08", "DEFECT-09"),
+    ("DS-08", "DEFECT-07"),
+    ("XP-MAC-03", "DEFECT-02"),
+    ("XP-LNX-02", "DEFECT-01"),
+    ("CT-08", "DEFECT-08"),
+    ("CT-09", "DEFECT-08"),
+    ("CT-10", "DEFECT-08"),
+];
+
+/// Controlled execution mode governing how `FailDefectReproduced` is gated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RegressionMode {
+    /// Baseline audit mode: separates known product defects (`FAIL_DEFECT_REPRODUCED`) from
+    /// unexpected failures (`FAIL_UNEXPECTED`) and reports `FIXED_CANDIDATE` transitions.
+    BaselineAudit,
+    /// Mandatory post-fix release gate: never treats `FAIL_DEFECT_REPRODUCED` as `PASS`;
+    /// exits `2` on any defect or unexpected failure (and `3` when `--require-native-os` hits non-host skips).
+    ReleaseRegression,
+}
+
+impl RegressionMode {
+    /// Parses `--mode <baseline-audit|release-regression>` case-insensitively.
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "baseline-audit" | "baseline_audit" => Ok(Self::BaselineAudit),
+            "release-regression" | "release_regression" => Ok(Self::ReleaseRegression),
+            other => Err(format!(
+                "invalid --mode '{other}'; expected 'baseline-audit' or 'release-regression'"
+            )),
+        }
+    }
+
+    /// Canonical CLI flag value.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::BaselineAudit => "baseline-audit",
+            Self::ReleaseRegression => "release-regression",
+        }
+    }
+}
+
+/// Mission C2 defect-fix priority tier for each canonical test case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PriorityTier {
+    /// P0 critical concurrency, pre-lock orphan, running-delete bypass, and corrupt-store safety (`4` cases).
+    P0,
+    /// P1 termination, dangling `SingletonLock`, POSIX launch parity, cross-OS backup UID, and CLI parity (`6` cases).
+    P1,
+    /// P2 Vietnamese Unicode non-ASCII duplicate folding (`1` case).
+    P2,
+    /// Passing baseline regression guard (`44` cases).
+    RegressionGuard,
+}
+
+impl PriorityTier {
+    /// Resolves the canonical Mission C2 priority tier for a test case ID.
+    #[must_use]
+    pub fn for_case(case_id: &str) -> Self {
+        let norm = case_id.trim().to_ascii_uppercase();
+        match norm.as_str() {
+            "LC-07" | "LC-08" | "PM-08" | "CT-10" => Self::P0,
+            "LC-09" | "DS-08" | "XP-MAC-03" | "XP-LNX-02" | "CT-08" | "CT-09" => Self::P1,
+            "PM-04" => Self::P2,
+            _ => Self::RegressionGuard,
+        }
+    }
+
+    /// Short uppercase label for console tables and JSON artifacts.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::P0 => "P0",
+            Self::P1 => "P1",
+            Self::P2 => "P2",
+            Self::RegressionGuard => "REGRESSION_GUARD",
+        }
+    }
+}
+
+/// CLI `--priority` filter selector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriorityFilter {
+    /// Only P0 cases (`LC-07`, `LC-08`, `PM-08`, `CT-10`).
+    P0,
+    /// Only P1 cases (`LC-09`, `DS-08`, `XP-MAC-03`, `XP-LNX-02`, `CT-08`, `CT-09`).
+    P1,
+    /// Only P2 cases (`PM-04`).
+    P2,
+    /// Combined P0 and P1 mandatory gates (`10` cases).
+    P0P1,
+    /// All prioritized baseline defect cases (`P0` + `P1` + `P2` = `11` cases).
+    P0P2,
+    /// Only passing regression guards (`44` cases).
+    RegressionGuard,
+    /// Every canonical test case (`55` cases).
+    All,
+}
+
+impl PriorityFilter {
+    /// Parses `--priority <p0|p1|p2|p0-p1|p0-p2|regression-guard|all>` case-insensitively.
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "p0" => Ok(Self::P0),
+            "p1" => Ok(Self::P1),
+            "p2" => Ok(Self::P2),
+            "p0-p1" | "p0_p1" | "p0,p1" => Ok(Self::P0P1),
+            "p0-p2" | "p0_p2" | "defects" => Ok(Self::P0P2),
+            "regression-guard" | "regression_guard" | "guard" => Ok(Self::RegressionGuard),
+            "all" => Ok(Self::All),
+            other => Err(format!(
+                "invalid --priority '{other}'; expected p0, p1, p2, p0-p1, p0-p2, regression-guard, or all"
+            )),
+        }
+    }
+
+    /// Canonical CLI flag label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::P0 => "p0",
+            Self::P1 => "p1",
+            Self::P2 => "p2",
+            Self::P0P1 => "p0-p1",
+            Self::P0P2 => "p0-p2",
+            Self::RegressionGuard => "regression-guard",
+            Self::All => "all",
+        }
+    }
+
+    /// Returns `true` when `tier` is included in this filter.
+    #[must_use]
+    pub const fn matches_tier(self, tier: PriorityTier) -> bool {
+        match self {
+            Self::P0 => matches!(tier, PriorityTier::P0),
+            Self::P1 => matches!(tier, PriorityTier::P1),
+            Self::P2 => matches!(tier, PriorityTier::P2),
+            Self::P0P1 => matches!(tier, PriorityTier::P0 | PriorityTier::P1),
+            Self::P0P2 => matches!(tier, PriorityTier::P0 | PriorityTier::P1 | PriorityTier::P2),
+            Self::RegressionGuard => matches!(tier, PriorityTier::RegressionGuard),
+            Self::All => true,
+        }
+    }
+}
+
+/// Composable filter selecting suites, priority tiers, and/or explicit test case IDs.
+#[derive(Debug, Clone)]
+pub struct CaseSelectionFilter {
+    /// Suite selector (`all`, `lifecycle`, `profile_management`, `data_safety`, `reliability`, `cross_platform`, `contract`).
+    pub suite: String,
+    /// Priority tier selector.
+    pub priority: PriorityFilter,
+    /// Validated uppercase canonical test IDs when `--case` is provided; empty means no ID restriction.
+    pub case_ids: Vec<String>,
+}
+
+impl Default for CaseSelectionFilter {
+    fn default() -> Self {
+        Self {
+            suite: "all".to_owned(),
+            priority: PriorityFilter::All,
+            case_ids: Vec::new(),
+        }
+    }
+}
+
+impl CaseSelectionFilter {
+    /// Validates and normalizes comma-separated or repeated `--case <ID[,ID...]>` tokens.
+    pub fn parse_case_ids(raw_specs: &[String]) -> Result<Vec<String>, String> {
+        if raw_specs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut normalized = Vec::new();
+        for spec in raw_specs {
+            for token in spec.split(',') {
+                let candidate = token.trim().to_ascii_uppercase();
+                if candidate.is_empty() {
+                    continue;
+                }
+                let Some(&canonical) = CANONICAL_CASE_IDS.iter().find(|&&id| id == candidate)
+                else {
+                    return Err(format!(
+                        "unknown test case ID '{token}'; expected one of LC-01..LC-09, PM-01..PM-08, DS-01..DS-08, REL-01..REL-08, XP-WIN-01..04, XP-MAC-01..04, XP-LNX-01..04, CT-01..CT-10"
+                    ));
+                };
+                if !normalized.iter().any(|existing| existing == canonical) {
+                    normalized.push(canonical.to_owned());
+                }
+            }
+        }
+        if normalized.is_empty() {
+            return Err("--case requires at least one non-empty test case ID".to_owned());
+        }
+        Ok(normalized)
+    }
+
+    /// Returns `true` when this filter narrows execution to a subset of cases (`--case` or `--priority != all` or `--suite != all`).
+    #[must_use]
+    pub fn is_scoped_subset(&self) -> bool {
+        let s = self.suite.trim();
+        let all_suites = s.is_empty() || s.eq_ignore_ascii_case("all");
+        !all_suites || self.priority != PriorityFilter::All || !self.case_ids.is_empty()
+    }
+
+    /// Returns `true` if `case_id` passes both the priority filter and any `--case` list.
+    #[must_use]
+    pub fn matches_case(&self, case_id: &str) -> bool {
+        if !self.priority.matches_tier(PriorityTier::for_case(case_id)) {
+            return false;
+        }
+        if self.case_ids.is_empty() {
+            return true;
+        }
+        self.case_ids
+            .iter()
+            .any(|wanted| wanted.eq_ignore_ascii_case(case_id))
+    }
+}
+
+/// Returns `true` if `path` resolves to one of the frozen C1 baseline JSON artifacts in `plans/reports/reliability/`.
+#[must_use]
+pub fn is_protected_baseline_report_path(path: &Path) -> bool {
+    const FROZEN_FILES: &[&str] = &[
+        "windows-host-execution-evidence.json",
+        "metrics-benchmark-windows.json",
+        "defect-reproductions.json",
+    ];
+    let Some(fname) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if !FROZEN_FILES.iter().any(|f| f.eq_ignore_ascii_case(fname)) {
+        return false;
+    }
+    let normalized = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    normalized.contains("plans/reports/reliability/")
+        || path.parent().is_none_or(|p| p.as_os_str().is_empty())
+}
+
+/// Identifies known C1 baseline defect cases that transitioned to `PASS` (`FIXED_CANDIDATE`).
+#[must_use]
+pub fn detect_fixed_candidates(outcomes: &[TestCaseOutcome]) -> Vec<(String, String)> {
+    let mut fixed = Vec::new();
+    for &(case_id, defect_id) in KNOWN_BASELINE_DEFECTS {
+        if outcomes
+            .iter()
+            .any(|o| o.id.eq_ignore_ascii_case(case_id) && o.verdict == TestVerdict::Pass)
+        {
+            fixed.push((case_id.to_owned(), defect_id.to_owned()));
+        }
+    }
+    fixed
+}
 
 /// Verdict classification for each executed test case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,6 +516,26 @@ where
             }
         }
     }
+}
+
+/// Conditionally executes `run_case` only when `filter` is `None` or includes `id`.
+pub fn run_case_if<F>(
+    filter: Option<&CaseSelectionFilter>,
+    id: &str,
+    category: &str,
+    title: &str,
+    platform_scope: &str,
+    f: F,
+) -> Option<TestCaseOutcome>
+where
+    F: FnOnce() -> Result<CaseSuccess, String>,
+{
+    if let Some(flt) = filter {
+        if !flt.matches_case(id) {
+            return None;
+        }
+    }
+    Some(run_case(id, category, title, platform_scope, f))
 }
 
 /// Structured return value from inside `run_case`.
@@ -606,5 +960,99 @@ pub fn build_run_summary(
         total_duration_ms,
         outcomes,
         defects: defect_catalog,
+    }
+}
+
+/// Snapshot of a sibling bystander profile seeded inside an [`IsolatedSandbox`] to prove
+/// P0 fault-injection and defect-reproduction scenarios cause zero collateral damage.
+#[derive(Debug, Clone)]
+pub struct BystanderSnapshot {
+    /// Bystander profile record persisted at seed time.
+    pub record: ProfileRecord,
+    /// Bystander profile root directory.
+    pub profile_dir: PathBuf,
+    /// Bystander isolated `ZaloData` directory.
+    pub zalo_data_dir: PathBuf,
+    /// Bystander canary payload path.
+    pub canary_path: PathBuf,
+    /// Expected SHA-256 hex digest of `canary_path`.
+    pub canary_sha256: String,
+}
+
+impl BystanderSnapshot {
+    /// Seeds a bystander profile with its isolated layout, `.zalo-profile-id` marker, and canary file.
+    pub fn seed(
+        sandbox: &IsolatedSandbox,
+        name: &str,
+        canary_payload: &str,
+    ) -> Result<Self, String> {
+        let record = sandbox
+            .store
+            .create_profile(name, "bystander-non-regression")
+            .map_err(|e| format!("failed creating bystander profile '{name}': {e}"))?;
+        let profile_dir = sandbox
+            .store
+            .profile_dir_for(&record)
+            .map_err(|e| format!("failed resolving bystander profile_dir: {e}"))?;
+        sandbox
+            .adapter
+            .ensure_profile_layout(&record, &profile_dir)
+            .map_err(|e| format!("failed initializing bystander layout: {e}"))?;
+        let zalo_data_dir = sandbox.zalo_data_dir_for(&profile_dir);
+        let canary_path = zalo_data_dir.join("bystander-canary.dat");
+        fs::write(&canary_path, canary_payload.as_bytes())
+            .map_err(|e| format!("failed writing bystander canary: {e}"))?;
+        let canary_sha256 = sha256_file(&canary_path)
+            .map_err(|e| format!("failed hashing bystander canary: {e}"))?;
+
+        Ok(Self {
+            record,
+            profile_dir,
+            zalo_data_dir,
+            canary_path,
+            canary_sha256,
+        })
+    }
+
+    /// Verifies that the bystander profile's metadata entry, directory, `.zalo-profile-id` marker,
+    /// and canary file SHA-256 remain 100% untouched.
+    pub fn verify_untouched(&self, sandbox: &IsolatedSandbox) -> Result<Value, String> {
+        if !self.profile_dir.is_dir() {
+            return Err(format!(
+                "bystander profile directory disappeared: {}",
+                self.profile_dir.display()
+            ));
+        }
+        verify_profile_id_marker(&self.zalo_data_dir, &self.record.id, true)
+            .map_err(|e| format!("bystander .zalo-profile-id marker corrupted: {e}"))?;
+        let observed_hash = sha256_file(&self.canary_path)
+            .map_err(|e| format!("bystander canary file missing or unreadable: {e}"))?;
+        if observed_hash != self.canary_sha256 {
+            return Err(format!(
+                "bystander canary SHA-256 mismatch: expected {}, got {observed_hash}",
+                self.canary_sha256
+            ));
+        }
+        let persisted = sandbox
+            .store
+            .get_profile(&self.record.id)
+            .map_err(|e| format!("bystander metadata entry missing in profiles.json: {e}"))?;
+        if persisted.name != self.record.name
+            || persisted.directory_name != self.record.directory_name
+            || persisted.notes != self.record.notes
+        {
+            return Err(format!(
+                "bystander metadata record was mutated: expected {:?}, got {persisted:?}",
+                self.record
+            ));
+        }
+
+        Ok(serde_json::json!({
+            "bystander_profile_id": self.record.id,
+            "bystander_directory_intact": true,
+            "bystander_marker_verified": true,
+            "bystander_canary_sha256_verified": true,
+            "bystander_metadata_intact": true,
+        }))
     }
 }

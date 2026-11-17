@@ -8,35 +8,56 @@ pub mod lifecycle;
 pub mod profile_mgmt;
 pub mod reliability;
 
-use crate::harness::{ReproducedDefectRecord, TestCaseOutcome};
+use crate::harness::{
+    CaseSelectionFilter, PriorityFilter, ReproducedDefectRecord, TestCaseOutcome,
+};
 
-/// Runs every enabled test suite and returns all outcomes.
+/// Runs every enabled test suite matching `suite_filter` and returns all outcomes.
 pub fn run_selected_suites(
     suite_filter: &str,
     soak_cycles: usize,
     seed: u64,
 ) -> Vec<TestCaseOutcome> {
-    let filter = suite_filter.trim().to_ascii_lowercase();
-    let run_all = filter.is_empty() || filter == "all";
+    let filter = CaseSelectionFilter {
+        suite: suite_filter.to_owned(),
+        priority: PriorityFilter::All,
+        case_ids: Vec::new(),
+    };
+    run_filtered_suites(&filter, soak_cycles, seed)
+}
+
+/// Runs only the suites and individual test cases matching [`CaseSelectionFilter`].
+pub fn run_filtered_suites(
+    filter: &CaseSelectionFilter,
+    soak_cycles: usize,
+    seed: u64,
+) -> Vec<TestCaseOutcome> {
+    let suite_norm = filter.suite.trim().to_ascii_lowercase();
+    let run_all = suite_norm.is_empty() || suite_norm == "all";
+    let opt = Some(filter);
     let mut out = Vec::new();
 
-    if run_all || filter == "lifecycle" {
-        out.extend(lifecycle::run_lifecycle_suite(seed));
+    if run_all || suite_norm == "lifecycle" {
+        out.extend(lifecycle::run_lifecycle_suite_filtered(seed, opt));
     }
-    if run_all || filter == "profile" || filter == "profile_management" {
-        out.extend(profile_mgmt::run_profile_management_suite());
+    if run_all || suite_norm == "profile" || suite_norm == "profile_management" {
+        out.extend(profile_mgmt::run_profile_management_suite_filtered(opt));
     }
-    if run_all || filter == "safety" || filter == "data_safety" {
-        out.extend(data_safety::run_data_safety_suite(seed));
+    if run_all || suite_norm == "safety" || suite_norm == "data_safety" {
+        out.extend(data_safety::run_data_safety_suite_filtered(seed, opt));
     }
-    if run_all || filter == "reliability" {
-        out.extend(reliability::run_reliability_suite(soak_cycles, seed));
+    if run_all || suite_norm == "reliability" {
+        out.extend(reliability::run_reliability_suite_filtered(
+            soak_cycles,
+            seed,
+            opt,
+        ));
     }
-    if run_all || filter == "cross-platform" || filter == "cross_platform" {
-        out.extend(cross_platform::run_cross_platform_suite(seed));
+    if run_all || suite_norm == "cross-platform" || suite_norm == "cross_platform" {
+        out.extend(cross_platform::run_cross_platform_suite_filtered(seed, opt));
     }
-    if run_all || filter == "contracts" || filter == "contract" {
-        out.extend(adapter_contracts::run_adapter_contract_suite());
+    if run_all || suite_norm == "contracts" || suite_norm == "contract" {
+        out.extend(adapter_contracts::run_adapter_contract_suite_filtered(opt));
     }
 
     out

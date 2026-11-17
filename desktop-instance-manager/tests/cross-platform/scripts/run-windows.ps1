@@ -1,10 +1,19 @@
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [int]$Cycles = 100,
     [int]$MetricsRuns = 10,
     [string]$Seed = "0x20261117",
     [string]$Suite = "all",
+    [string]$Mode = "baseline-audit",
+    [string]$Priority = "all",
+    [string]$Case = "",
+    [string]$ReportOut = "",
     [switch]$SkipMetrics,
-    [switch]$FailOnProductDefects
+    [switch]$FailOnProductDefects,
+    [switch]$RequireNativeOs,
+    [switch]$OverwriteBaselineReports,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$ExtraArgs
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,21 +47,40 @@ try {
     & cargo build --manifest-path tests/cross-platform/Cargo.toml --release --bin xf-test-runner
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    $reportsDir = Join-Path $dimRoot "plans\reports\reliability"
-    New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
-
     $runnerExe = Join-Path $crossPlatformDir "target\release\xf-test-runner.exe"
     $runnerArgs = @(
+        "--mode", $Mode,
         "--suite", $Suite,
+        "--priority", $Priority,
         "--cycles", "$Cycles",
         "--metrics-runs", "$MetricsRuns",
-        "--seed", $Seed,
-        "--json-out", (Join-Path $reportsDir "windows-host-execution-evidence.json"),
-        "--metrics-out", (Join-Path $reportsDir "metrics-benchmark-windows.json"),
-        "--defects-out", (Join-Path $reportsDir "defect-reproductions.json")
+        "--seed", $Seed
     )
+    if (-not [string]::IsNullOrWhiteSpace($Case)) {
+        $runnerArgs += @("--case", $Case)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ReportOut)) {
+        $runnerArgs += @("--report-out", $ReportOut)
+    }
     if ($SkipMetrics) { $runnerArgs += "--skip-metrics" }
     if ($FailOnProductDefects) { $runnerArgs += "--fail-on-product-defects" }
+    if ($RequireNativeOs) { $runnerArgs += "--require-native-os" }
+
+    # Never overwrite frozen C1 baseline JSON artifacts unless explicitly requested!
+    if ($OverwriteBaselineReports) {
+        $reportsDir = Join-Path $dimRoot "plans\reports\reliability"
+        New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
+        $runnerArgs += @(
+            "--overwrite-baseline-reports",
+            "--json-out", (Join-Path $reportsDir "windows-host-execution-evidence.json"),
+            "--metrics-out", (Join-Path $reportsDir "metrics-benchmark-windows.json"),
+            "--defects-out", (Join-Path $reportsDir "defect-reproductions.json")
+        )
+    }
+
+    if ($ExtraArgs) {
+        $runnerArgs += $ExtraArgs
+    }
 
     Write-Host "=== [Windows Host] 4/4 Executing Cross-Platform Reliability & Contract Suites ==="
     & $runnerExe @runnerArgs

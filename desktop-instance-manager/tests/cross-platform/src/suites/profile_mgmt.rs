@@ -19,69 +19,88 @@ use dim_core::{
 use serde_json::json;
 
 use crate::harness::{
-    make_node_fixture_target, run_case, CaseSuccess, IsolatedSandbox, TestCaseOutcome,
+    make_node_fixture_target, run_case_if, BystanderSnapshot, CaseSelectionFilter, CaseSuccess,
+    IsolatedSandbox, TestCaseOutcome,
 };
 
 /// Executes all Profile Management scenarios (`PM-01` .. `PM-08`).
 pub fn run_profile_management_suite() -> Vec<TestCaseOutcome> {
-    vec![
-        run_case(
+    run_profile_management_suite_filtered(None)
+}
+
+/// Executes Profile Management scenarios (`PM-01` .. `PM-08`) matching `filter`.
+pub fn run_profile_management_suite_filtered(
+    filter: Option<&CaseSelectionFilter>,
+) -> Vec<TestCaseOutcome> {
+    [
+        run_case_if(
+            filter,
             "PM-01",
             "profile_management",
             "Create, lookup, live-safe rename, and confirmed delete lifecycle",
             "all",
             pm_01_crud_and_immutable_dir,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "PM-02",
             "profile_management",
             "Bulk creation of 25 profiles with unique 8-hex IDs and collision-free directories",
             "all",
             pm_02_bulk_multi_profile_creation,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "PM-03",
             "profile_management",
             "Unicode Vietnamese NFC/NFD diacritics, Đ/đ folding, and symbol-only slug disambiguation",
             "all",
             pm_03_vietnamese_unicode_and_symbols,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "PM-04",
             "profile_management",
             "Unicode Vietnamese case-insensitive duplicate name rejection (`Đức` vs `đức`)",
             "all",
             pm_04_vietnamese_case_duplicate_guard,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "PM-05",
             "profile_management",
             "Profile name length boundaries (63/64/65 ASCII & multi-byte Vietnamese chars)",
             "all",
             pm_05_long_name_boundaries,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "PM-06",
             "profile_management",
             "Duplicate names (ASCII case-insensitive, whitespace-trimmed, and self-rename)",
             "all",
             pm_06_duplicate_names_and_self_rename,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "PM-07",
             "profile_management",
             "Invalid profile names and unsafe/primary storage root path rejections",
             "all",
             pm_07_invalid_names_and_paths,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "PM-08",
             "profile_management",
-            "Permission/write failure rollback on `profiles.json.tmp` & trait `delete_profile` running guard",
+            "Permission/write failure rollback on `profiles.json` & trait `delete_profile` running guard",
             "all",
             pm_08_permission_failure_and_trait_delete_guard,
         ),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn pm_01_crud_and_immutable_dir() -> Result<CaseSuccess, String> {
@@ -390,34 +409,84 @@ fn pm_07_invalid_names_and_paths() -> Result<CaseSuccess, String> {
 
 fn pm_08_permission_failure_and_trait_delete_guard() -> Result<CaseSuccess, String> {
     let mut sandbox = IsolatedSandbox::new()?;
-    let keep = sandbox
-        .store
-        .create_profile("Keep Intact On Failure", "")
-        .map_err(|e| e.to_string())?;
+    let keep = BystanderSnapshot::seed(
+        &sandbox,
+        "Keep Intact On Failure",
+        "PM08_BYSTANDER_CANARY_V1",
+    )?;
 
-    // 1. Simulate permission / directory collision blocking atomic `profiles.json.tmp` creation:
-    // Creating a directory at `profiles.json.tmp` forces `File::create(&tmp_path)` to fail with `PermissionDenied`/`IsADirectory` on ALL OSes (even root!).
-    let tmp_blocker = sandbox.data_dir().join("profiles.json.tmp");
-    fs::create_dir_all(&tmp_blocker).map_err(|e| e.to_string())?;
+    // 1. Simulate atomic metadata commit failure in a temp-filename-agnostic manner:
+    // - Windows: hold a `FILE_SHARE_READ`-only handle on `profiles.json` (denying `FILE_SHARE_DELETE`),
+    //   which permits `read_document_locked` and temp file creation (`profiles.json.tmp` or PID-suffixed
+    //   `profiles.json.<nonce>.tmp`) while deterministically failing `fs::rename(..., profiles.json)`.
+    // - Unix: set `data_dir` permissions to `0o555` (`r-xr-xr-x`; with `profiles.json.tmp` directory
+    //   fallback when running as `uid == 0` root) so temp file creation / rename fails cleanly.
+    #[cfg(windows)]
+    let fail_res = {
+        use std::os::windows::fs::OpenOptionsExt;
+        let read_only_share_lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x0000_0001) // FILE_SHARE_READ without FILE_SHARE_WRITE or FILE_SHARE_DELETE
+            .open(sandbox.store.metadata_path())
+            .map_err(|e| format!("failed locking profiles.json for rename rollback test: {e}"))?;
+        let res = sandbox.store.create_profile("Should Rollback Metadata", "");
+        drop(read_only_share_lock);
+        res
+    };
 
-    let fail_res = sandbox.store.create_profile("Should Rollback Metadata", "");
+    #[cfg(unix)]
+    let fail_res = {
+        use std::os::unix::fs::PermissionsExt;
+        let data_dir = sandbox.data_dir().to_path_buf();
+        sandbox.track_acl_dir(data_dir.clone());
+        let tmp_blocker = data_dir.join("profiles.json.tmp");
+        let is_root = unsafe { libc::geteuid() == 0 };
+        if is_root {
+            fs::create_dir_all(&tmp_blocker).map_err(|e| e.to_string())?;
+        } else {
+            let mut perms = fs::metadata(&data_dir)
+                .map_err(|e| e.to_string())?
+                .permissions();
+            perms.set_mode(0o555);
+            fs::set_permissions(&data_dir, perms).map_err(|e| e.to_string())?;
+        }
+        let res = sandbox.store.create_profile("Should Rollback Metadata", "");
+        if is_root {
+            let _ = fs::remove_dir_all(&tmp_blocker);
+        } else if let Ok(meta) = fs::metadata(&data_dir) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o700);
+            let _ = fs::set_permissions(&data_dir, perms);
+        }
+        res
+    };
+
     let write_blocked_code = match fail_res {
         Err(err) => err.code(),
         Ok(_) => {
-            let _ = fs::remove_dir_all(&tmp_blocker);
             return Err(
-                "create_profile unexpectedly succeeded while profiles.json.tmp was blocked"
+                "create_profile unexpectedly succeeded while profiles.json atomic commit was blocked"
                     .to_owned(),
             );
         }
     };
-    let _ = fs::remove_dir_all(&tmp_blocker);
 
-    // Verify original `profiles.json` remained valid and uncorrupted!
+    // Clean any unrenamed temp artifact left behind by the simulated rename failure
+    if let Ok(entries) = fs::read_dir(sandbox.data_dir()) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name();
+            if fname.to_string_lossy().ends_with(".tmp") {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    // Verify original `profiles.json` and bystander `keep` remained 100% valid and uncorrupted!
     let after_fail = sandbox.store.list_profiles().map_err(|e| e.to_string())?;
-    if after_fail.len() != 1 || after_fail[0].id != keep.id {
+    if after_fail.len() != 1 || after_fail[0].id != keep.record.id {
         return Err("profiles.json was corrupted after failed atomic write".to_owned());
     }
+    let _ = keep.verify_untouched(&sandbox)?;
 
     // 2. Check trait `ProfileStore::delete_profile(&*sandbox.store, id, true)` while profile is RUNNING!
     let running_prof = sandbox
@@ -448,6 +517,7 @@ fn pm_08_permission_failure_and_trait_delete_guard() -> Result<CaseSuccess, Stri
     // Now test the `ProfileStore::delete_profile` trait method directly while the process is running:
     let trait_del_res = ProfileStore::delete_profile(&*sandbox.store, &running_prof.id, true);
     sandbox.reap_all_sandbox_processes();
+    let bystander_ev = keep.verify_untouched(&sandbox)?;
 
     if trait_del_res.is_ok() {
         return Ok(CaseSuccess::defect(
@@ -459,6 +529,7 @@ fn pm_08_permission_failure_and_trait_delete_guard() -> Result<CaseSuccess, Stri
                 "profiles_json_preserved_on_write_error": true,
                 "coordinator_delete_guard": coord_del_err.code(),
                 "trait_delete_profile_bypassed_running_guard": true,
+                "bystander_non_regression": bystander_ev,
             }),
         ));
     }
@@ -467,5 +538,6 @@ fn pm_08_permission_failure_and_trait_delete_guard() -> Result<CaseSuccess, Stri
         "atomic_tmp_block_error_code": write_blocked_code,
         "profiles_json_preserved_on_write_error": true,
         "coordinator_delete_guard": coord_del_err.code(),
+        "bystander_non_regression": bystander_ev,
     })))
 }

@@ -23,65 +23,82 @@ use dim_xf_fixture::{is_os_pid_alive, FixturePersistentState};
 use serde_json::json;
 
 use crate::harness::{
-    force_kill_unprotected_test_pid, make_node_fixture_target, run_case, xf_fixture_bin_path,
-    xf_fixture_mjs_path, CaseSuccess, IsolatedSandbox, TestCaseOutcome,
+    force_kill_unprotected_test_pid, make_node_fixture_target, run_case_if, xf_fixture_bin_path,
+    xf_fixture_mjs_path, CaseSelectionFilter, CaseSuccess, IsolatedSandbox, TestCaseOutcome,
 };
 use crate::metrics::{inspect_cleanup_residuals, summarize_latencies};
 
 /// Executes all Reliability & Soak scenarios (`REL-01` .. `REL-08`).
 pub fn run_reliability_suite(soak_cycles: usize, seed: u64) -> Vec<TestCaseOutcome> {
+    run_reliability_suite_filtered(soak_cycles, seed, None)
+}
+
+/// Executes Reliability & Soak scenarios (`REL-01` .. `REL-08`) matching `filter`.
+pub fn run_reliability_suite_filtered(
+    soak_cycles: usize,
+    seed: u64,
+    filter: Option<&CaseSelectionFilter>,
+) -> Vec<TestCaseOutcome> {
     let cycles = soak_cycles.max(10);
-    vec![
-        run_case(
+    [
+        run_case_if(
+            filter,
             "REL-01",
             "reliability",
             "10 consecutive full coordinator launch/stop restart cycles",
             "all",
             || rel_01_ten_coordinator_restart_cycles(seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "REL-02",
             "reliability",
             &format!("{cycles} fixture launch/stop soak cycles with zero leak verification"),
             "all",
             || rel_02_hundred_fixture_cycles(cycles, seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "REL-03",
             "reliability",
             "Crash injection & controlled error matrix (`immediate`, `after-lock`, `corrupt-state`, `disk-full`, `eacces`)",
             "all",
             rel_03_crash_and_controlled_error_matrix,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "REL-04",
             "reliability",
             "Slow disk I/O simulation (`--slow-io-ms`) with offline backup SHA-256 verification",
             "all",
             || rel_04_slow_disk_simulation(seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "REL-05",
             "reliability",
             "5 concurrent heartbeating profiles under parallel status & live rename stress",
             "all",
             || rel_05_concurrent_profiles_stress(seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "REL-06",
             "reliability",
             "Corrupted metadata resilience (`profiles.json`, `.zalo-profile-id`, `ZaloData/config.json`)",
             "all",
             rel_06_corrupted_metadata_resilience,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "REL-07",
             "reliability",
             "Process tree cleanup with `--spawn-children=2` worker hierarchy",
             "all",
             rel_07_process_tree_cleanup,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "REL-08",
             "reliability",
             "Stale locks, garbage lockfiles, and live non-Zalo PID-reuse spoof protection",
@@ -89,6 +106,9 @@ pub fn run_reliability_suite(soak_cycles: usize, seed: u64) -> Vec<TestCaseOutco
             rel_08_stale_locks_and_pid_reuse,
         ),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn rel_01_ten_coordinator_restart_cycles(seed: u64) -> Result<CaseSuccess, String> {

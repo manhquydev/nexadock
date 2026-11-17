@@ -27,62 +27,79 @@ use dim_xf_fixture::{sha256_file, FixturePayloadManifest};
 use serde_json::json;
 
 use crate::harness::{
-    make_node_fixture_target, run_case, CaseSuccess, IsolatedSandbox, TestCaseOutcome,
+    make_node_fixture_target, run_case_if, CaseSelectionFilter, CaseSuccess, IsolatedSandbox,
+    TestCaseOutcome,
 };
 
 /// Executes all Data Safety scenarios (`DS-01` .. `DS-08`).
 pub fn run_data_safety_suite(seed: u64) -> Vec<TestCaseOutcome> {
-    vec![
-        run_case(
+    run_data_safety_suite_filtered(seed, None)
+}
+
+/// Executes Data Safety scenarios (`DS-01` .. `DS-08`) matching `filter`.
+pub fn run_data_safety_suite_filtered(
+    seed: u64,
+    filter: Option<&CaseSelectionFilter>,
+) -> Vec<TestCaseOutcome> {
+    [
+        run_case_if(
+            filter,
             "DS-01",
             "data_safety",
             "Strict multi-profile data separation and SHA-256 payload isolation",
             "all",
             || ds_01_multi_profile_data_separation(seed),
         ),
-        run_case(
+        run_case_if(
+            filter,
             "DS-02",
             "data_safety",
             "Symlinks & Windows NTFS junctions: skipped during backup and unlinked safely on delete",
             "all",
             ds_02_symlink_and_ntfs_junction_safety,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "DS-03",
             "data_safety",
             "Path traversal, Windows device names, NTFS ADS (`:$DATA`), and zip-slip manifest attacks",
             "all",
             ds_03_traversal_ads_and_manifest_attacks,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "DS-04",
             "data_safety",
             "Backup partial failure mid-copy cleans `.partial` staging directory cleanly",
             "all",
             ds_04_backup_partial_failure_rollback,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "DS-05",
             "data_safety",
             "Restore tamper/interruption & duplicate-name rollback preserve existing profiles",
             "all",
             ds_05_restore_interrupted_and_rollback,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "DS-06",
             "data_safety",
             "Disk full simulation enforces exact `5 GiB + payload` threshold on backup and restore",
             "all",
             ds_06_disk_full_threshold_boundaries,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "DS-07",
             "data_safety",
             "Atomic `profiles.json` writes under concurrent reader stress & staging dir sweep",
             "all",
             ds_07_atomic_writes_and_staging_sweep,
         ),
-        run_case(
+        run_case_if(
+            filter,
             "DS-08",
             "data_safety",
             "Cross-platform macOS/Linux backup & restore `zalo_user_id` preservation",
@@ -90,6 +107,9 @@ pub fn run_data_safety_suite(seed: u64) -> Vec<TestCaseOutcome> {
             ds_08_cross_platform_backup_restore_uid,
         ),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn ds_01_multi_profile_data_separation(seed: u64) -> Result<CaseSuccess, String> {
