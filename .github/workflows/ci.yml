@@ -40,19 +40,19 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             desktop-instance-manager/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Type-check workspace
-        run: cargo check --workspace --all-targets
+        run: cargo check --workspace --all-targets --locked
 
       - name: Run Clippy with warnings denied
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Run workspace unit tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --locked
 
   cargo-deny:
     name: Dependency licenses & security advisories (cargo-deny)
@@ -67,6 +67,7 @@ jobs:
           command: check
           manifest-path: desktop-instance-manager/Cargo.toml
           arguments: --all-features --locked
+          command-arguments: ""
 
       - name: Run cargo-deny check (Tauri desktop crate)
         uses: EmbarkStudios/cargo-deny-action@v2
@@ -74,6 +75,7 @@ jobs:
           command: check
           manifest-path: desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
           arguments: --all-features --locked
+          command-arguments: ""
 
   node-and-windows-integration:
     name: Node.js, PowerShell & Rust parity tests (${{ matrix.os }})
@@ -123,7 +125,7 @@ jobs:
 
       - name: Build native dim-cli for contract parity tests
         if: runner.os == 'Windows'
-        run: cargo build -p dim-test-fixture --bin dim-cli --release
+        run: cargo build -p dim-test-fixture --bin dim-cli --release --locked
 
       - name: Run Windows PowerShell + UI integration suite
         if: runner.os == 'Windows'
@@ -157,16 +159,16 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Format-check Tauri desktop crate
         run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
 
       - name: Check Tauri desktop crate
-        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
 
       - name: Clippy Tauri desktop crate
-        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- -D warnings
 
       - name: Test Tauri desktop crate
-        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
