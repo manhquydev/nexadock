@@ -9,7 +9,9 @@
   - `b1446d6`: i18n fetch resilience, out-of-order refresh guard, open menu preservation
   - `cc74584`: Account Dock consumer UX redesign
   - `4904e6f4bd48ba8bc747b522edf77efa0e4d85a3` (`4904e6f`): Post-review Account Dock UX, accessibility, security-contract & test remediation (Commit 1: 29 files changed vs `cc74584`, `1666 insertions(+), 247 deletions(-)`)
-  - Final documentation & handoff commit (Commit 2)
+  - `c7cf9766a963af74c3306f4304605b6509fdec60` (`c7cf976`): Initial Account Dock final acceptance & backend handoff docs (Commit 2)
+  - `fc91901ebc897c62630c0cfeeebaaed0fd8c469c` (`fc91901`): Home search toolbar single-row alignment & single-line status badge polish + regenerated screenshots (Commit 3: 19 files: `styles.css` + 18 PNGs, `20 insertions(+), 3 deletions(-)`)
+  - Final documentation update commit (Commit 4)
 - **Modified Scope:** Strictly `apps/desktop/ui/**` and `docs/design/**`. Zero changes to `crates/**`, `apps/desktop/src-tauri/**`, `apps/desktop/ui-server.mjs`, `scripts/**`, or `.github/workflows/**`.
 - **Privacy & Path Hygiene:** Zero personal machine paths (absolute OS user-home paths) or personal phone numbers included in UI docs; all workspace paths use `<ui-worktree>/desktop-instance-manager/` and `<repo-root>/desktop-instance-manager/`.
 
@@ -17,7 +19,7 @@
 
 ## 2. Executive Verdict & Acceptance Status
 - **Final Verdict:** **`READY_WITH_LIMITATIONS`**
-- **Rationale:** All post-review UX, accessibility (WCAG 2.2 AA), localization (`vi-VN`/`en-US` parity + all 27 error codes), backend contract compatibility (`X-DIM-Session-Token`, `delete_profile` `confirm: true`, `AbortController` `32000ms` timeout, `statusData.ok === false` guard), and browser E2E visual checks passed against the hardened CSP-enforced mock bridge (`20/20` unit/contract tests PASS; `visual-cdp.mjs` PASS across 16 matrix checks, journeys A–E, and 20 inspected PNGs at Commit 1 `4904e6f`). Live native Windows Tauri WebView2 + Rust core execution, live `ui-server.mjs` + `dim-host.ps1` execution, physical macOS WKWebView, physical Ubuntu WebKitGTK, and real end-user usability testing remain `NOT_TESTED` in this UI-only worktree.
+- **Rationale:** All post-review UX, accessibility (WCAG 2.2 AA), localization (`vi-VN`/`en-US` parity + all 27 error codes), backend contract compatibility (`X-DIM-Session-Token`, `delete_profile` `confirm: true`, `AbortController` `32000ms` timeout, `statusData.ok === false` guard), and browser E2E visual checks passed against the hardened CSP-enforced mock bridge (`20/20` unit/contract tests PASS; `visual-cdp.mjs` PASS across 16 matrix checks, journeys A–E, and 20 inspected PNGs at final UI code commit `fc91901`). Live native Windows Tauri WebView2 + Rust core execution, live `ui-server.mjs` + `dim-host.ps1` execution, physical macOS WKWebView, physical Ubuntu WebKitGTK, and real end-user usability testing remain `NOT_TESTED` in this UI-only worktree.
 
 ---
 
@@ -37,7 +39,7 @@
 
 ## 4. Defects Observed in `cc74584` Screenshots & Post-Review Remediation Inventory
 
-Visual inspection of the 18 `cc74584` PNG screenshots under `docs/design/screenshots/` plus code audit uncovered the following defects, all remediated in `4904e6f4bd48ba8bc747b522edf77efa0e4d85a3` (`4904e6f`):
+Visual inspection of the 18 `cc74584` PNG screenshots (plus follow-up inspection of `4904e6f`) uncovered the following defects, all remediated across `4904e6f` and `fc91901ebc897c62630c0cfeeebaaed0fd8c469c` (`fc91901`):
 
 | ID | Observed Defect in `cc74584` (Screenshots / Audit) | Remediation Implemented |
 |---|---|---|
@@ -54,6 +56,7 @@ Visual inspection of the 18 `cc74584` PNG screenshots under `docs/design/screens
 | `D-11` | **Theme reload FOUC & missing Primary Zalo `unknown` state** (`theme-init.js`, `app.js`, `index.html`): `theme-init.js` read `'color-scheme'` while `app.js` saved `'multi-zalo.theme'`; Primary Zalo card hid on missing status or omitted `.state-dot`. | Fixed `theme-init.js` + `initApp()` + `storage` listener; wrapped `#primary-zalo-desc` in `#primary-zalo-state-row` and always displayed Primary Zalo card (`running` / `stopped` / `unknown`). |
 | `D-12` | **Help lived in modal (`#safety-dialog`) & tables lacked `<caption>` / `<th scope="row">`** (`account-dock-backups-vi-light.png`, `diagnostics`): limited scanning & screen-reader semantics. | Replaced `#safety-dialog` with dedicated `#view-help` (4 consumer guide cards + `#btn-help-diagnostics`), added `<caption class="visually-hidden">` on all 3 tables, and `<th scope="row">` on tbody rows. |
 | `D-13` | **Backend Integration Blockers (`X-DIM-Session-Token`, `delete_profile` `confirm: true`, `statusData.ok === false`, 11 missing error keys)** (`cc74584` `app.js`, `i18n/*.json`). | Fixed `apiCall()` (`X-DIM-Session-Token`, `32000ms` timeout, disconnect badge), `delete_profile` (`{ id, confirm: true }`), `refreshAll()` error guard, and added all 11 missing backend/bridge error keys. |
+| `D-14` | **Toolbar wrapping & badge pill wrapping observed in `4904e6f`** (`account-dock-3accounts-vi-light.png`, `20accounts`, `420x540`, `backups`): `#btn-refresh` wrapped onto a second line below `#search-wrap`, and `.badge` `"Sẵn sàng khôi phục"` wrapped inside its pill. | Added `.page-header > div:first-child { flex: 1 1 280px; min-width: 0; }`, `#home-toolbar { flex: 0 1 auto; }` (`flex-wrap: nowrap` at `>= 720px`), `.header-search-wrap { width: 210px; min-width: 160px; max-width: 240px; flex: 1 1 180px; }`, and `.badge { white-space: nowrap; }` in `fc91901`. |
 
 ---
 
@@ -112,16 +115,16 @@ Visual inspection of the 18 `cc74584` PNG screenshots under `docs/design/screens
 
 ## 10. Visual QA & Post-Fix Screenshot Inspection
 
-All **20** post-fix PNG screenshots generated under `docs/design/screenshots/` at Commit 1 (`4904e6f`) were visually inspected during Step 1 verification:
-- **Regenerated PNG Inventory (20 files at `4904e6f`):** `account-dock-3accounts-vi-light.png` (`57488 B`), `account-dock-empty-vi-light.png` (`43669 B`), `account-dock-add-step1-vi-light.png` (`65485 B`), `account-dock-add-step2-vi-light.png` (`57574 B`), `account-dock-vi-VN-dark-1160x780.png` (`47219 B`), `account-dock-vi-VN-light-420x540.png` (`30653 B`), `account-dock-menu-vi-light.png` (`65606 B`), `account-dock-settings-vi-light.png` (`46857 B`), `account-dock-error-vi-light.png` (`60283 B`), `account-dock-en-US-light-1160x780.png` (`46109 B`), `account-dock-vi-VN-light-1160x780.png` (`47189 B`), `account-dock-vi-VN-light-900x650.png` (`45920 B`), `account-dock-vi-VN-light-768x650.png` (`45161 B`), `account-dock-en-US-dark-1160x780.png` (`46122 B`), `account-dock-backups-vi-light.png` (`38925 B`), `account-dock-details-vi-light.png` (`77833 B`), `account-dock-diagnostics-vi-light.png` (`62560 B`), `account-dock-zoom-200-vi-light.png` (`66917 B`), `account-dock-help-vi-light.png` (`72694 B`), `account-dock-20accounts-vi-light.png` (`73590 B`).
-- **Inspection Findings Confirming `D-01`..`D-12` Fixes:**
-  - `account-dock-3accounts-vi-light.png` & `account-dock-en-US-light-1160x780.png`: Clean left/right action separation (`Chuyển đến` / `Switch to window` on left vs `Đóng Zalo` / `Close Zalo` + `⋯` on right), solid dot vs hollow ring `.state-dot`, darker high-contrast avatars, zero sticky `"Đã hoàn tất thao tác."` banner, and Primary Zalo card displaying `.state-dot`.
+All **20** post-fix PNG screenshots generated under `docs/design/screenshots/` at final UI code commit `fc91901` were visually inspected during verification:
+- **Regenerated PNG Inventory (20 files at `fc91901`):** `account-dock-20accounts-vi-light.png` (`75293 B`), `account-dock-3accounts-vi-light.png` (`57391 B`), `account-dock-add-step1-vi-light.png` (`65485 B`), `account-dock-add-step2-vi-light.png` (`57570 B`), `account-dock-backups-vi-light.png` (`38767 B`), `account-dock-details-vi-light.png` (`76634 B`), `account-dock-diagnostics-vi-light.png` (`62561 B`), `account-dock-empty-vi-light.png` (`43669 B`), `account-dock-en-US-dark-1160x780.png` (`46076 B`), `account-dock-en-US-light-1160x780.png` (`46098 B`), `account-dock-error-vi-light.png` (`60209 B`), `account-dock-help-vi-light.png` (`72728 B`), `account-dock-menu-vi-light.png` (`65495 B`), `account-dock-settings-vi-light.png` (`46592 B`), `account-dock-vi-VN-dark-1160x780.png` (`47113 B`), `account-dock-vi-VN-light-1160x780.png` (`47093 B`), `account-dock-vi-VN-light-420x540.png` (`33077 B`), `account-dock-vi-VN-light-768x650.png` (`45644 B`), `account-dock-vi-VN-light-900x650.png` (`45822 B`), `account-dock-zoom-200-vi-light.png` (`73584 B`).
+- **Inspection Findings Confirming `D-01`..`D-14` Fixes:**
+  - `account-dock-3accounts-vi-light.png` & `account-dock-en-US-light-1160x780.png`: `[Tìm tài khoản...]` and `[Làm mới]` sit aligned on one single row; clean left/right card footer separation (`Chuyển đến` / `Switch to window` on left vs `Đóng Zalo` / `Close Zalo` + `⋯` on right), solid dot vs hollow ring `.state-dot`, darker high-contrast avatars, zero sticky `"Đã hoàn tất thao tác."` banner, and Primary Zalo card displaying `.state-dot`.
   - `account-dock-menu-vi-light.png`: Disabled `Sao lưu` and `Xóa tài khoản` items show `"Đóng Zalo trước"` inline hint.
   - `account-dock-add-step1-vi-light.png`: Checked swatch renders crisp white `✓` checkmark; consumer-friendly Vietnamese copy without technical jargon.
-  - `account-dock-settings-vi-light.png`, `backups`, `diagnostics`, `help`: `+ Thêm tài khoản` hidden off Home and zero stale success banners across view transitions.
+  - `account-dock-backups-vi-light.png`, `settings`, `diagnostics`, `help`: `Sẵn sàng khôi phục` pill remains single-line (`D-14`), `+ Thêm tài khoản` hidden off Home, and zero stale success banners across view transitions.
   - `account-dock-help-vi-light.png`: 2x2 grid of 4 guide cards + `"Mở Kiểm tra sự cố"` CTA bar.
-  - `account-dock-20accounts-vi-light.png`: Clean 2-column grid with `"Hiển thị 20 / 20 tài khoản"` summary + search input.
-  - `account-dock-vi-VN-light-420x540.png` & `account-dock-zoom-200-vi-light.png`: Non-sticky compact 2-row topbar with zero horizontal overflow (`scrollWidth <= clientWidth`).
+  - `account-dock-20accounts-vi-light.png`: Clean 2-column grid with `"Hiển thị 20 / 20 tài khoản"` + search input + `"Làm mới"` aligned on one row.
+  - `account-dock-vi-VN-light-420x540.png` & `account-dock-zoom-200-vi-light.png`: Non-sticky compact 2-row topbar with `[Tìm tài khoản...]` + `[Làm mới]` aligned on one row and zero horizontal overflow (`scrollWidth <= clientWidth`).
 
 ---
 
@@ -147,7 +150,7 @@ All **20** post-fix PNG screenshots generated under `docs/design/screenshots/` a
 ---
 
 ## 13. Handoff & Sign-Off Summary
-- **UI Code Commit:** `4904e6f4bd48ba8bc747b522edf77efa0e4d85a3` (`4904e6f`)
+- **UI Code Commits:** `4904e6f4bd48ba8bc747b522edf77efa0e4d85a3` (`4904e6f`) + `fc91901ebc897c62630c0cfeeebaaed0fd8c469c` (`fc91901`)
 - **Design & Acceptance Artifacts:**
   - `docs/design/account-dock-redesign.md`
   - `docs/design/account-dock-final-acceptance.md` (this document; Verdict: **`READY_WITH_LIMITATIONS`**)

@@ -3,7 +3,7 @@
 **UI Branch:** `feat/ui-vi-en-quiet-workspace` (`<ui-worktree>/desktop-instance-manager/`)  
 **Target Main Baseline:** `a5feb4a` (`<repo-root>/desktop-instance-manager/`)  
 **Common Ancestor:** `8cf4703`  
-**UI Final Code Commit:** `4904e6f4bd48ba8bc747b522edf77efa0e4d85a3` (`4904e6f`)  
+**UI Final Code Commit:** `fc91901ebc897c62630c0cfeeebaaed0fd8c469c` (`fc91901`, layout polish on top of `4904e6f`)  
 **Scope:** Strictly UI/Design (`apps/desktop/ui/**` and `docs/design/**`). Zero modifications to `crates/**`, `apps/desktop/src-tauri/**`, `apps/desktop/ui-server.mjs`, `scripts/**`, or `.github/workflows/**`.
 
 ---
@@ -276,7 +276,7 @@ All of these gracefully map via `resolveErrorInfo()` to the localized `errors.UN
 
 ## 9. Git Merge Conflict Guidance (`main` `a5feb4a` <-> `feat/ui-vi-en-quiet-workspace`)
 
-Comparing `8cf4703..a5feb4a` (`main`) against `8cf4703..4904e6f` (`feat/ui-vi-en-quiet-workspace`), **exactly 3 files overlap** and will produce merge conflicts:
+Comparing `8cf4703..a5feb4a` (`main`) against `8cf4703..fc91901` (`feat/ui-vi-en-quiet-workspace`), **exactly 3 files overlap** and will produce merge conflicts:
 
 1. `desktop-instance-manager/apps/desktop/ui/index.html`
 2. `desktop-instance-manager/apps/desktop/ui/styles.css`
