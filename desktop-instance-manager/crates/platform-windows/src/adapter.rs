@@ -4,9 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use dim_core::{
-    detect_zalo_user_id, ApplicationInstallation, ApplicationLocator, DimError, InstanceLauncher,
-    InstanceMonitor, LaunchTarget, PlatformCapabilities, PlatformCapabilityReport, PlatformKind,
-    PrimaryInstanceStatus, ProfileRecord, ProfileRuntimeState, SupportStatus,
+    build_runtime_lease, detect_zalo_user_id, remove_runtime_lease, verify_runtime_lease,
+    write_runtime_lease, ApplicationInstallation, ApplicationLocator, DimError, InstanceLauncher,
+    InstanceMonitor, LaunchTarget, LeaseVerification, PlatformCapabilities,
+    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileLifecycleState,
+    ProfileRecord, ProfileRuntimeState, SupportStatus, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
 };
 use dim_profile_store::unlink_reparse_points_safe;
 
@@ -485,43 +487,102 @@ impl InstanceMonitor for WindowsPlatformAdapter {
 
         #[cfg(windows)]
         {
-            let locking_pids = crate::win32_ffi::get_locking_pids(&lockfile);
-            let mut main_pid = locking_pids.first().copied();
-            let mut cached_snap: Option<crate::win32_ffi::ProcessSnapshot> = None;
+            let marker_mismatch = zalo_data.exists()
+                && dim_profile_store::verify_profile_id_marker(&zalo_data, &profile.id, false)
+                    .is_err();
 
+            let locking_pids: Vec<u32> = crate::win32_ffi::get_locking_pids(&lockfile)
+                .into_iter()
+                .filter(|&pid| {
+                    pid > 0 && pid != std::process::id() && crate::win32_ffi::is_pid_alive(pid)
+                })
+                .collect();
+            let exclusively_locked =
+                lockfile.exists() && crate::win32_ffi::is_file_exclusively_locked(&lockfile);
+            let lease_check = verify_runtime_lease(profile_dir, &profile.id, &[]);
+
+            let mut cached_snap: Option<crate::win32_ffi::ProcessSnapshot> = None;
             let is_expected_exe = |snap: &crate::win32_ffi::ProcessSnapshot, pid: u32| -> bool {
                 snap.exe_name(pid).is_some_and(|exe| {
-                    exe.eq_ignore_ascii_case("zalo.exe")
-                        || exe.eq_ignore_ascii_case("node.exe")
-                        || exe.eq_ignore_ascii_case("dim-test-fixture.exe")
+                    let lower = exe.to_ascii_lowercase();
+                    lower == "zalo.exe"
+                        || lower == "node.exe"
+                        || lower.starts_with("dim-test-fixture")
+                        || lower.starts_with("xf-desktop-fixture")
                 })
             };
 
-            if main_pid.is_none() {
-                if let Some(fixture_pid) = read_lockfile_json_pid(&lockfile) {
-                    if crate::win32_ffi::is_pid_alive(fixture_pid) {
-                        let snap = cached_snap
-                            .get_or_insert_with(crate::win32_ffi::ProcessSnapshot::capture);
-                        if is_expected_exe(snap, fixture_pid) {
-                            main_pid = Some(fixture_pid);
+            let mut main_pid: Option<u32> = None;
+            let mut lifecycle_state = ProfileLifecycleState::Stopped;
+            let mut indeterminate = false;
+
+            if let Some(&rm_pid) = locking_pids.first() {
+                main_pid = Some(rm_pid);
+                lifecycle_state = ProfileLifecycleState::Running;
+            } else if exclusively_locked {
+                if let LeaseVerification::VerifiedLive(ref lease) = lease_check {
+                    main_pid = Some(lease.pid);
+                    lifecycle_state = ProfileLifecycleState::Running;
+                } else {
+                    lifecycle_state = ProfileLifecycleState::RecoveryRequired;
+                    indeterminate = true;
+                }
+            } else {
+                let lockfile_non_empty = fs::metadata(&lockfile)
+                    .map(|m| m.is_file() && m.len() > 0)
+                    .unwrap_or(false);
+                if lockfile_non_empty {
+                    if let Some(json_pid) = read_lockfile_json_pid(&lockfile) {
+                        if json_pid > 0
+                            && json_pid != std::process::id()
+                            && crate::win32_ffi::is_pid_alive(json_pid)
+                        {
+                            let verified_by_lease = matches!(
+                                &lease_check,
+                                LeaseVerification::VerifiedLive(l) if l.pid == json_pid
+                            );
+                            let verified_unmanaged =
+                                if matches!(lease_check, LeaseVerification::Absent) {
+                                    let snap = cached_snap.get_or_insert_with(
+                                        crate::win32_ffi::ProcessSnapshot::capture,
+                                    );
+                                    is_expected_exe(snap, json_pid)
+                                } else {
+                                    false
+                                };
+                            if verified_by_lease || verified_unmanaged {
+                                main_pid = Some(json_pid);
+                                lifecycle_state = ProfileLifecycleState::Running;
+                            }
+                        }
+                    }
+                }
+
+                if main_pid.is_none() {
+                    match &lease_check {
+                        LeaseVerification::VerifiedLive(lease) => {
+                            // Spawned process is verified alive (matching creation time + exe path)
+                            // while `lockfile` is not yet created or still 0-byte transient -> `Starting`!
+                            main_pid = Some(lease.pid);
+                            lifecycle_state = ProfileLifecycleState::Starting;
+                        }
+                        LeaseVerification::InvalidOrIndeterminate(_) => {
+                            lifecycle_state = ProfileLifecycleState::RecoveryRequired;
+                            indeterminate = true;
+                        }
+                        LeaseVerification::Absent | LeaseVerification::StaleDead(_) => {
+                            if marker_mismatch {
+                                lifecycle_state = ProfileLifecycleState::RecoveryRequired;
+                                indeterminate = true;
+                            } else {
+                                lifecycle_state = ProfileLifecycleState::Stopped;
+                            }
                         }
                     }
                 }
             }
 
-            if main_pid.is_none() && crate::win32_ffi::is_file_exclusively_locked(&lockfile) {
-                if let Some(hint_pid) = read_runtime_pid_hint(profile_dir) {
-                    if crate::win32_ffi::is_pid_alive(hint_pid) {
-                        let snap = cached_snap
-                            .get_or_insert_with(crate::win32_ffi::ProcessSnapshot::capture);
-                        if is_expected_exe(snap, hint_pid) {
-                            main_pid = Some(hint_pid);
-                        }
-                    }
-                }
-            }
-
-            let (running, process_ids, working_set, window_handle, window_title) =
+            let (process_ids, working_set, window_handle, window_title) =
                 if let Some(pid) = main_pid {
                     let snap =
                         cached_snap.unwrap_or_else(crate::win32_ffi::ProcessSnapshot::capture);
@@ -529,17 +590,24 @@ impl InstanceMonitor for WindowsPlatformAdapter {
                     let ws = crate::win32_ffi::sum_working_set_bytes(&tree);
                     let win = crate::win32_ffi::find_main_window_for_pids(&tree);
                     (
-                        true,
                         tree,
                         ws,
                         win.as_ref().map(|(h, _)| *h),
                         win.map(|(_, t)| t),
                     )
                 } else {
-                    (false, Vec::new(), 0, None, None)
+                    (Vec::new(), 0, None, None)
                 };
 
-            let stale_lock_detected = !running && lockfile.exists();
+            let running = lifecycle_state.is_active();
+            let has_stale_artifacts = lockfile.exists()
+                || matches!(lease_check, LeaseVerification::StaleDead(_))
+                || profile_dir.join(RUNTIME_LEASE_FILE).exists()
+                || profile_dir.join(RUNTIME_PID_FILE).exists();
+            let stale_lock_detected = !running && !indeterminate && has_stale_artifacts;
+            let status_label = lifecycle_state
+                .default_status_label(stale_lock_detected)
+                .to_owned();
 
             Ok(ProfileRuntimeState {
                 profile_id: profile.id.clone(),
@@ -557,13 +625,7 @@ impl InstanceMonitor for WindowsPlatformAdapter {
                 window_title,
                 detected_zalo_user_id: detected_uid,
                 disk_usage_bytes: dir_size_no_follow(profile_dir),
-                status_label: if running {
-                    "Running".to_owned()
-                } else if stale_lock_detected {
-                    "Stopped (Stale Lock)".to_owned()
-                } else {
-                    "Stopped".to_owned()
-                },
+                status_label,
             })
         }
         #[cfg(not(windows))]
@@ -613,19 +675,47 @@ impl InstanceLauncher for WindowsPlatformAdapter {
             let env_block = encode_windows_env_block_utf16(&env_map);
             let cmd_line = build_windows_command_line(&exe, &args);
 
-            let pid =
-                crate::win32_ffi::spawn_process_isolated(&exe, &cmd_line, &work_dir, &env_block)?;
-            let _ = fs::write(profile_dir.join(".runtime-pid"), pid.to_string());
+            let _ = fs::remove_file(zalo_data.join(".quit-signal"));
+            let spawned = crate::win32_ffi::spawn_process_isolated_with_identity(
+                &exe, &cmd_line, &work_dir, &env_block,
+            )?;
+            let lease = build_runtime_lease(
+                spawned.pid,
+                &exe,
+                &profile.id,
+                Some((spawned.create_time_100ns, spawned.executable_path)),
+            );
+            write_runtime_lease(profile_dir, &lease)?;
 
-            if matches!(target, LaunchTarget::NodeFixture { .. }) {
-                let lockfile = zalo_data.join("lockfile");
-                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2_500);
-                while std::time::Instant::now() < deadline {
-                    if lockfile.exists() || !crate::win32_ffi::is_pid_alive(pid) {
+            let lockfile = zalo_data.join("lockfile");
+            let quit_signal = zalo_data.join(".quit-signal");
+            let poll_budget_ms = match target {
+                LaunchTarget::NodeFixture { .. } | LaunchTarget::CustomExecutable { .. } => 2_500,
+                LaunchTarget::OfficialZalo { .. } => 1_500,
+            };
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_millis(poll_budget_ms);
+            while std::time::Instant::now() < deadline {
+                if quit_signal.exists() || is_windows_lockfile_ready(&lockfile) {
+                    break;
+                }
+                if !crate::win32_ffi::is_pid_alive(spawned.pid) {
+                    if is_windows_lockfile_ready(&lockfile) {
                         break;
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(25));
+                    let _ = remove_runtime_lease(profile_dir);
+                    if lockfile.exists()
+                        && fs::metadata(&lockfile).map(|m| m.len() == 0).unwrap_or(false)
+                        && !crate::win32_ffi::is_file_exclusively_locked(&lockfile)
+                    {
+                        let _ = fs::remove_file(&lockfile);
+                    }
+                    return Err(DimError::LaunchFailed(format!(
+                        "spawned process (PID {}) exited before acquiring profile lockfile",
+                        spawned.pid
+                    )));
                 }
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
 
             self.inspect_profile(profile, profile_dir)
@@ -695,6 +785,21 @@ impl InstanceLauncher for WindowsPlatformAdapter {
 
         #[cfg(windows)]
         {
+            let lease_verified_pid = match verify_runtime_lease(
+                &state.profile_dir,
+                &state.profile_id,
+                protected_primary_pids,
+            ) {
+                LeaseVerification::VerifiedLive(lease) => Some(lease.pid),
+                LeaseVerification::InvalidOrIndeterminate(msg)
+                    if msg.contains("protected primary") =>
+                {
+                    return Err(DimError::ProtectedPrimaryProcess(msg));
+                }
+                _ => None,
+            };
+            let rm_locking_pids = crate::win32_ffi::get_locking_pids(&state.lockfile_path);
+
             let pre_snap = crate::win32_ffi::ProcessSnapshot::capture();
             let is_zalo_exe = pre_snap
                 .exe_name(main_pid)
@@ -708,7 +813,7 @@ impl InstanceLauncher for WindowsPlatformAdapter {
                     format!("{{\"requested_at\":\"{}\"}}\n", dim_core::now_rfc3339_utc()),
                 );
             }
-            if is_zalo_exe {
+            if is_zalo_exe && state.lifecycle_state() == ProfileLifecycleState::Running {
                 if let Ok(install) = self.discover_installation(None) {
                     if install.is_valid {
                         if let Some(exe) = install.executable_path {
@@ -744,20 +849,62 @@ impl InstanceLauncher for WindowsPlatformAdapter {
                 crate::win32_ffi::post_wm_close(hwnd);
             }
 
-            if crate::win32_ffi::wait_for_exit(main_pid, timeout_ms) {
-                wait_for_lock_release(&state.lockfile_path);
-                let _ = fs::remove_file(state.profile_dir.join(".runtime-pid"));
-                return Ok(1);
+            // During pre-lock `Starting` with no window handle, the spawned process has not yet entered
+            // its lockfile/IPC loop, so cap graceful wait to 150ms before terminating the owned tree cleanly.
+            let graceful_wait_ms = if state.lifecycle_state() == ProfileLifecycleState::Starting
+                && state.window_handle.is_none()
+            {
+                timeout_ms.min(150)
+            } else {
+                timeout_ms
+            };
+
+            if crate::win32_ffi::wait_for_exit(main_pid, graceful_wait_ms) {
+                let all_children_exited = state
+                    .process_ids
+                    .iter()
+                    .all(|&p| p == main_pid || !crate::win32_ffi::is_pid_alive(p));
+                if all_children_exited {
+                    wait_for_lock_release(&state.lockfile_path);
+                    let _ = remove_runtime_lease(&state.profile_dir);
+                    let _ = fs::remove_file(state.zalo_data_dir.join(".quit-signal"));
+                    return Ok(1);
+                }
             }
 
             // Step 2: Targeted cleanup of ONLY this profile's surviving non-primary PID tree.
             let snap = crate::win32_ffi::ProcessSnapshot::capture();
-            let mut candidates = snap.collect_tree(main_pid);
-            for pid in &state.process_ids {
-                if !candidates.contains(pid) {
-                    candidates.push(*pid);
+            let mut verified_roots = Vec::new();
+            if let Some(lpid) = lease_verified_pid {
+                verified_roots.push(lpid);
+            }
+            for &rpid in &rm_locking_pids {
+                if rpid > 0 && !verified_roots.contains(&rpid) {
+                    verified_roots.push(rpid);
                 }
             }
+
+            let mut verified_owned_tree = Vec::new();
+            for &root in &verified_roots {
+                for pid in snap.collect_tree(root) {
+                    if !verified_owned_tree.contains(&pid) {
+                        verified_owned_tree.push(pid);
+                    }
+                }
+            }
+
+            let mut candidates = snap.collect_tree(main_pid);
+            for &pid in &verified_owned_tree {
+                if !candidates.contains(&pid) {
+                    candidates.push(pid);
+                }
+            }
+            for &pid in &state.process_ids {
+                if !candidates.contains(&pid) {
+                    candidates.push(pid);
+                }
+            }
+
             let safe_pids = dim_process_manager::PrimaryProtectionGuard::filter_protected_pids(
                 &candidates,
                 protected_primary_pids,
@@ -765,27 +912,39 @@ impl InstanceLauncher for WindowsPlatformAdapter {
 
             let mut stopped_count = 0u32;
             for pid in safe_pids {
-                if !crate::win32_ffi::is_pid_alive(pid) {
+                if pid == 0 || pid == std::process::id() || !crate::win32_ffi::is_pid_alive(pid) {
                     continue;
                 }
-                let allowed_exe = snap
-                    .exe_name(pid)
-                    .map(|n| {
-                        let lower = n.to_ascii_lowercase();
-                        lower.starts_with("zalo")
-                            || lower.starts_with("zocr")
-                            || lower == "node.exe"
-                            || lower.starts_with("dim-test-fixture")
-                    })
-                    .unwrap_or(false);
+                let is_verified_owned = verified_owned_tree.contains(&pid);
+                let allowed_exe = is_verified_owned
+                    || snap
+                        .exe_name(pid)
+                        .map(|n| {
+                            let lower = n.to_ascii_lowercase();
+                            lower.starts_with("zalo")
+                                || lower.starts_with("zocr")
+                                || lower == "node.exe"
+                                || lower.starts_with("dim-test-fixture")
+                                || lower.starts_with("xf-desktop-fixture")
+                        })
+                        .unwrap_or(false);
                 if allowed_exe && crate::win32_ffi::terminate_pid(pid) {
                     let _ = crate::win32_ffi::wait_for_exit(pid, 1_500);
+                    stopped_count += 1;
+                } else if allowed_exe && !crate::win32_ffi::is_pid_alive(pid) {
                     stopped_count += 1;
                 }
             }
 
             wait_for_lock_release(&state.lockfile_path);
-            let _ = fs::remove_file(state.profile_dir.join(".runtime-pid"));
+            let _ = remove_runtime_lease(&state.profile_dir);
+            let _ = fs::remove_file(state.zalo_data_dir.join(".quit-signal"));
+            if !crate::win32_ffi::is_pid_alive(main_pid)
+                && !crate::win32_ffi::is_file_exclusively_locked(&state.lockfile_path)
+            {
+                let _ = fs::remove_file(&state.lockfile_path);
+                let _ = fs::remove_file(state.zalo_data_dir.join("children.json"));
+            }
             Ok(stopped_count)
         }
         #[cfg(not(windows))]
@@ -875,21 +1034,32 @@ fn resolve_node_executable(custom: Option<&Path>) -> Result<PathBuf, DimError> {
 }
 
 #[cfg(windows)]
+fn is_windows_lockfile_ready(lockfile: &Path) -> bool {
+    if !lockfile.exists() {
+        return false;
+    }
+    if crate::win32_ffi::is_file_exclusively_locked(lockfile) {
+        return true;
+    }
+    if crate::win32_ffi::get_locking_pids(lockfile)
+        .into_iter()
+        .any(|p| p > 0 && p != std::process::id() && crate::win32_ffi::is_pid_alive(p))
+    {
+        return true;
+    }
+    let non_empty = fs::metadata(lockfile)
+        .map(|m| m.is_file() && m.len() > 0)
+        .unwrap_or(false);
+    non_empty && read_lockfile_json_pid(lockfile).is_some()
+}
+
+#[cfg(windows)]
 fn read_lockfile_json_pid(lockfile: &Path) -> Option<u32> {
     let raw = fs::read_to_string(lockfile).ok()?;
     let val: serde_json::Value = serde_json::from_str(&raw).ok()?;
     val.get("pid")
         .and_then(serde_json::Value::as_u64)
         .and_then(|n| u32::try_from(n).ok())
-}
-
-#[cfg(windows)]
-fn read_runtime_pid_hint(profile_dir: &Path) -> Option<u32> {
-    fs::read_to_string(profile_dir.join(".runtime-pid"))
-        .ok()?
-        .trim()
-        .parse::<u32>()
-        .ok()
 }
 
 #[cfg(windows)]

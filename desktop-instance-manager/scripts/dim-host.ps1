@@ -621,9 +621,17 @@ namespace DesktopInstanceManager.Host
             string raw = File.ReadAllText(_metadataFile, Encoding.UTF8);
             if (string.IsNullOrWhiteSpace(raw))
             {
-                return new ProfileStoreFile();
+                throw new InvalidOperationException("JSON_ERROR: profiles.json exists but is empty or whitespace-only. This indicates a corrupted metadata file (possibly from an interrupted write). The original file has NOT been modified. Recovery: restore from a backup or delete profiles.json to reinitialize.");
             }
-            ProfileStoreFile store = _json.Deserialize<ProfileStoreFile>(raw);
+            ProfileStoreFile store;
+            try
+            {
+                store = _json.Deserialize<ProfileStoreFile>(raw);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("JSON_ERROR: profiles.json contains invalid JSON: " + ex.Message + ". The original file has NOT been modified. Recovery: restore from a backup or delete profiles.json to reinitialize.");
+            }
             if (store == null)
             {
                 store = new ProfileStoreFile();
@@ -1408,7 +1416,7 @@ namespace DesktopInstanceManager.Host
 
         private static bool IsManagedAppProcessAlive(int pid)
         {
-            if (pid <= 0) return false;
+            if (pid <= 0 || pid == Process.GetCurrentProcess().Id) return false;
             try
             {
                 Process p = Process.GetProcessById(pid);
@@ -1416,11 +1424,70 @@ namespace DesktopInstanceManager.Host
                 string name = p.ProcessName;
                 return name.StartsWith("Zalo", StringComparison.OrdinalIgnoreCase) ||
                        name.Equals("node", StringComparison.OrdinalIgnoreCase) ||
-                       name.StartsWith("dim-test-fixture", StringComparison.OrdinalIgnoreCase);
+                       name.StartsWith("dim-test-fixture", StringComparison.OrdinalIgnoreCase) ||
+                       name.StartsWith("xf-desktop-fixture", StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
                 return false;
+            }
+        }
+
+        private bool IsLockfileReady(string lockfilePath)
+        {
+            if (string.IsNullOrEmpty(lockfilePath) || !File.Exists(lockfilePath)) return false;
+            if (IsFileExclusivelyLocked(lockfilePath)) return true;
+            List<int> rm = GetLockingPids(lockfilePath);
+            if (rm != null && rm.Count > 0) return true;
+            try
+            {
+                FileInfo fi = new FileInfo(lockfilePath);
+                if (fi.Exists && fi.Length > 0 && ReadLockfilePid(lockfilePath) > 0) return true;
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
+        private int VerifyLiveLeasePid(string profilePath, string expectedProfileId)
+        {
+            string leasePath = Path.Combine(profilePath, ".runtime-lease.json");
+            if (!File.Exists(leasePath) || IsReparsePoint(leasePath)) return 0;
+            try
+            {
+                string raw = File.ReadAllText(leasePath, Encoding.UTF8).Trim();
+                if (string.IsNullOrEmpty(raw)) return 0;
+                Dictionary<string, object> obj = _json.Deserialize<Dictionary<string, object>>(raw);
+                if (obj == null) return 0;
+                string profId = obj.ContainsKey("profile_id") && obj["profile_id"] != null ? obj["profile_id"].ToString() : string.Empty;
+                if (!string.Equals(profId, expectedProfileId, StringComparison.OrdinalIgnoreCase)) return 0;
+                int pid = obj.ContainsKey("pid") && obj["pid"] != null ? Convert.ToInt32(obj["pid"], CultureInfo.InvariantCulture) : 0;
+                if (pid <= 0 || pid == Process.GetCurrentProcess().Id) return 0;
+                long expectedFt = obj.ContainsKey("process_create_time") && obj["process_create_time"] != null
+                    ? Convert.ToInt64(obj["process_create_time"], CultureInfo.InvariantCulture)
+                    : 0L;
+                string expectedExe = obj.ContainsKey("executable_path") && obj["executable_path"] != null
+                    ? obj["executable_path"].ToString()
+                    : string.Empty;
+
+                Process p = Process.GetProcessById(pid);
+                if (p == null || p.HasExited) return 0;
+                long liveFt = p.StartTime.ToFileTimeUtc();
+                if (expectedFt <= 0 || liveFt <= 0 || expectedFt != liveFt) return 0;
+                if (!string.IsNullOrEmpty(expectedExe))
+                {
+                    string expectedName = Path.GetFileNameWithoutExtension(expectedExe);
+                    if (!string.IsNullOrEmpty(expectedName) && !string.Equals(p.ProcessName, expectedName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return 0;
+                    }
+                }
+                return pid;
+            }
+            catch
+            {
+                return 0;
             }
         }
 
@@ -1474,19 +1541,60 @@ namespace DesktopInstanceManager.Host
             return null;
         }
 
-        private void WriteRuntimeHint(string profilePath, int pid, string mode, string appPath)
+        private void WriteRuntimeHint(string profilePath, string profileId, int pid, string mode, string appPath, string exeToRun)
         {
+            string startedAt = NowRfc3339();
+            long createFt = 0L;
+            string resolvedExe = exeToRun ?? string.Empty;
+            try
+            {
+                Process p = Process.GetProcessById(pid);
+                if (p != null && !p.HasExited)
+                {
+                    createFt = p.StartTime.ToFileTimeUtc();
+                    try
+                    {
+                        if (p.MainModule != null && !string.IsNullOrEmpty(p.MainModule.FileName))
+                        {
+                            resolvedExe = p.MainModule.FileName;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            if (createFt > 0 && !string.IsNullOrEmpty(profileId))
+            {
+                string leasePath = Path.Combine(profilePath, ".runtime-lease.json");
+                Dictionary<string, object> lease = new Dictionary<string, object>();
+                lease["pid"] = pid;
+                lease["process_create_time"] = createFt;
+                lease["executable_path"] = resolvedExe;
+                lease["profile_id"] = profileId;
+                lease["spawned_at_utc"] = startedAt;
+                File.WriteAllText(leasePath, PrettyPrintJson(_json.Serialize(lease)) + "\n", new UTF8Encoding(false));
+            }
+
             string hintPath = Path.Combine(profilePath, ".runtime-pid");
             Dictionary<string, object> d = new Dictionary<string, object>();
             d["pid"] = pid;
             d["mode"] = mode;
             d["app_path"] = appPath;
-            d["started_at"] = NowRfc3339();
+            d["started_at"] = startedAt;
             File.WriteAllText(hintPath, _json.Serialize(d), new UTF8Encoding(false));
         }
 
         private void RemoveRuntimeHint(string profilePath)
         {
+            try
+            {
+                string leasePath = Path.Combine(profilePath, ".runtime-lease.json");
+                if (File.Exists(leasePath)) File.Delete(leasePath);
+            }
+            catch
+            {
+            }
             try
             {
                 string hintPath = Path.Combine(profilePath, ".runtime-pid");
@@ -1658,23 +1766,33 @@ namespace DesktopInstanceManager.Host
             int hintPid = (hint != null && hint.ContainsKey("pid") && hint["pid"] != null)
                 ? Convert.ToInt32(hint["pid"], CultureInfo.InvariantCulture)
                 : 0;
+            int verifiedLeasePid = VerifyLiveLeasePid(profilePath, rec.id);
 
             int mainPid = 0;
+            string lifecycleState = "stopped";
             if (rmPids.Count > 0)
             {
                 mainPid = rmPids[0];
+                lifecycleState = "running";
             }
             else if (lockJsonPid > 0 && IsManagedAppProcessAlive(lockJsonPid))
             {
                 mainPid = lockJsonPid;
+                lifecycleState = "running";
             }
             else if (IsFileExclusivelyLocked(lockfilePath) && hintPid > 0 && IsManagedAppProcessAlive(hintPid))
             {
                 mainPid = hintPid;
+                lifecycleState = "running";
+            }
+            else if (verifiedLeasePid > 0 && IsManagedAppProcessAlive(verifiedLeasePid))
+            {
+                mainPid = verifiedLeasePid;
+                lifecycleState = "starting";
             }
 
             bool isRunning = mainPid > 0;
-            bool staleLock = !isRunning && File.Exists(lockfilePath);
+            bool staleLock = !isRunning && (File.Exists(lockfilePath) || File.Exists(Path.Combine(profilePath, ".runtime-lease.json")) || File.Exists(Path.Combine(profilePath, ".runtime-pid")));
 
             HashSet<int> tree = new HashSet<int>();
             long ws = 0;
@@ -1708,6 +1826,7 @@ namespace DesktopInstanceManager.Host
             state["profile_path"] = profilePath;
             state["zalo_data_path"] = zaloDataPath;
             state["lockfile_path"] = lockfilePath;
+            state["lifecycle_state"] = lifecycleState;
             state["running"] = isRunning;
             state["main_pid"] = isRunning ? (object)mainPid : null;
             state["process_ids"] = new List<int>(tree);
@@ -2343,17 +2462,24 @@ namespace DesktopInstanceManager.Host
                 workDir = Path.GetDirectoryName(scriptPath);
             }
 
-            int pid = StartIsolatedProcess(exeToRun, launchArgs, workDir, profilePath, target, hideConsole);
-            WriteRuntimeHint(profilePath, pid, mode, trackedAppPath);
+            string quitSigBeforeLaunch = Path.Combine(zaloDataPath, ".quit-signal");
+            try { if (File.Exists(quitSigBeforeLaunch)) File.Delete(quitSigBeforeLaunch); } catch { }
 
-            if (mode == "node-fixture")
+            int pid = StartIsolatedProcess(exeToRun, launchArgs, workDir, profilePath, target, hideConsole);
+            WriteRuntimeHint(profilePath, target.id, pid, mode, trackedAppPath, exeToRun);
+
+            int pollBudgetMs = (mode == "official-zalo") ? 1500 : 2500;
+            Stopwatch waitSw = Stopwatch.StartNew();
+            while (waitSw.ElapsedMilliseconds < pollBudgetMs)
             {
-                Stopwatch waitSw = Stopwatch.StartNew();
-                while (waitSw.ElapsedMilliseconds < 2500)
+                if (File.Exists(quitSigBeforeLaunch) || IsLockfileReady(lockfilePath)) break;
+                if (!IsPidStillAlive(pid))
                 {
-                    if (File.Exists(lockfilePath) || !IsPidStillAlive(pid)) break;
-                    Thread.Sleep(25);
+                    if (IsLockfileReady(lockfilePath)) break;
+                    RemoveRuntimeHint(profilePath);
+                    return Fail("LAUNCH_FAILED", "Spawned process (PID " + pid + ") exited before acquiring profile lockfile.");
                 }
+                Thread.Sleep(20);
             }
 
             using (AcquireStoreLockScope())
@@ -2491,7 +2617,21 @@ namespace DesktopInstanceManager.Host
 
             int mainPid = mainPidObj.Value;
             string profilePath = GetProfilePath(target);
-            string lockfilePath = Path.Combine(profilePath, "AppData", "Roaming", "ZaloData", "lockfile");
+            using (AcquireProfileLockScope(profilePath, 10000))
+            {
+            string zaloDataDir = Path.Combine(profilePath, "AppData", "Roaming", "ZaloData");
+            string lockfilePath = Path.Combine(zaloDataDir, "lockfile");
+            string quitSigPath = Path.Combine(zaloDataDir, ".quit-signal");
+            if (Directory.Exists(zaloDataDir))
+            {
+                try { File.WriteAllText(quitSigPath, "{\"requested_at\":\"" + NowRfc3339() + "\"}\n", new UTF8Encoding(false)); } catch { }
+            }
+
+            string lifecycle = (runtime.ContainsKey("lifecycle_state") && runtime["lifecycle_state"] != null)
+                ? runtime["lifecycle_state"].ToString()
+                : "running";
+            bool isStartingNoWindow = string.Equals(lifecycle, "starting", StringComparison.OrdinalIgnoreCase) &&
+                Convert.ToInt64(runtime["window_handle"], CultureInfo.InvariantCulture) == 0L;
 
             string mode = (runtime["mode"] as string) ?? (nodeFixture ? "node-fixture" : "official-zalo");
             string storedAppPath = runtime["app_path"] as string;
@@ -2522,8 +2662,9 @@ namespace DesktopInstanceManager.Host
                     StartIsolatedProcess(nodeExe, QuoteArg(scriptPath) + " --z-update-force-quit", Path.GetDirectoryName(scriptPath), profilePath, target, true);
                 }
 
+                int waitBudgetMs = isStartingNoWindow ? 150 : 5000;
                 Stopwatch sw = Stopwatch.StartNew();
-                while (sw.ElapsedMilliseconds < 5000)
+                while (sw.ElapsedMilliseconds < waitBudgetMs)
                 {
                     if (!IsPidStillAlive(mainPid))
                     {
@@ -2560,7 +2701,7 @@ namespace DesktopInstanceManager.Host
                     if (mp != null && !mp.HasExited)
                     {
                         mp.CloseMainWindow();
-                        if (mp.WaitForExit(2500)) gracefulExited = true;
+                        if (mp.WaitForExit(isStartingNoWindow ? 150 : 2500)) gracefulExited = true;
                     }
                     else
                     {
@@ -2576,29 +2717,46 @@ namespace DesktopInstanceManager.Host
             if (!gracefulExited)
             {
                 ProcessTreeSnapshot freshSnap = CaptureProcessTreeSnapshot();
+                List<int> rmLocking = GetLockingPids(lockfilePath);
+                int verifiedLease = VerifyLiveLeasePid(profilePath, target.id);
+                HashSet<int> verifiedOwned = new HashSet<int>();
+                if (verifiedLease > 0) CollectDescendants(freshSnap, verifiedLease, verifiedOwned, true);
+                for (int i = 0; i < rmLocking.Count; i++)
+                {
+                    if (rmLocking[i] > 0) CollectDescendants(freshSnap, rmLocking[i], verifiedOwned, true);
+                }
+
                 HashSet<int> toStop = new HashSet<int>();
                 if (IsPidStillAlive(mainPid))
                 {
                     CollectDescendants(freshSnap, mainPid, toStop, true);
+                }
+                foreach (int vpid in verifiedOwned)
+                {
+                    if (IsPidStillAlive(vpid)) toStop.Add(vpid);
                 }
                 for (int i = 0; i < profileTree.Count; i++)
                 {
                     if (IsPidStillAlive(profileTree[i])) toStop.Add(profileTree[i]);
                 }
 
+                int selfPid = Process.GetCurrentProcess().Id;
                 foreach (int pid in toStop)
                 {
-                    if (protectedPids.Contains(pid)) continue;
+                    if (pid <= 0 || pid == selfPid || protectedPids.Contains(pid)) continue;
                     try
                     {
                         Process p = Process.GetProcessById(pid);
                         if (p != null && !p.HasExited)
                         {
                             string pn = p.ProcessName;
-                            if (pn.StartsWith("Zalo", StringComparison.OrdinalIgnoreCase) ||
+                            bool allowed = verifiedOwned.Contains(pid) ||
+                                pn.StartsWith("Zalo", StringComparison.OrdinalIgnoreCase) ||
                                 pn.StartsWith("zocr", StringComparison.OrdinalIgnoreCase) ||
                                 pn.Equals("node", StringComparison.OrdinalIgnoreCase) ||
-                                pn.StartsWith("dim-test-fixture", StringComparison.OrdinalIgnoreCase))
+                                pn.StartsWith("dim-test-fixture", StringComparison.OrdinalIgnoreCase) ||
+                                pn.StartsWith("xf-desktop-fixture", StringComparison.OrdinalIgnoreCase);
+                            if (allowed)
                             {
                                 p.Kill();
                                 p.WaitForExit(2000);
@@ -2619,6 +2777,7 @@ namespace DesktopInstanceManager.Host
             }
 
             RemoveRuntimeHint(profilePath);
+            try { if (File.Exists(quitSigPath)) File.Delete(quitSigPath); } catch { }
             LogEvent("info", "stop", "Stopped profile id=" + target.id + " graceful=" + gracefulExited + " killed=" + terminatedCount);
 
             Dictionary<string, object> data = new Dictionary<string, object>();
@@ -2627,6 +2786,7 @@ namespace DesktopInstanceManager.Host
             data["graceful_exit"] = gracefulExited;
             data["terminated_process_count"] = terminatedCount;
             return Ok("Stopped profile '" + target.name + "'.", data);
+            }
         }
 
         private static bool IsPidStillAlive(int pid)
@@ -3355,7 +3515,11 @@ namespace DesktopInstanceManager.Host
             {
                 string msg = ex.Message ?? "Unhandled error";
                 string code = msg.StartsWith("PATH_TRAVERSAL", StringComparison.Ordinal) ? "PATH_TRAVERSAL"
-                    : (msg.StartsWith("PROTECTED_PRIMARY_PATH", StringComparison.Ordinal) ? "PROTECTED_PRIMARY_PATH" : "UNHANDLED_EXCEPTION");
+                    : msg.StartsWith("PROTECTED_PRIMARY_PATH", StringComparison.Ordinal) ? "PROTECTED_PRIMARY_PATH"
+                    : msg.StartsWith("JSON_ERROR", StringComparison.Ordinal) ? "JSON_ERROR"
+                    : msg.StartsWith("SCHEMA_ERROR", StringComparison.Ordinal) ? "SCHEMA_ERROR"
+                    : msg.StartsWith("IO_ERROR", StringComparison.Ordinal) ? "IO_ERROR"
+                    : "UNHANDLED_EXCEPTION";
                 output = Fail(code, msg);
             }
 
@@ -3397,7 +3561,7 @@ catch {
     if ($_.Exception.InnerException) {
         $errMsg = $_.Exception.InnerException.Message
     }
-    $code = if ($errMsg -like "PATH_TRAVERSAL*") { "PATH_TRAVERSAL" } elseif ($errMsg -like "PROTECTED_PRIMARY_PATH*") { "PROTECTED_PRIMARY_PATH" } else { "INIT_FAILED" }
+    $code = if ($errMsg -like "PATH_TRAVERSAL*") { "PATH_TRAVERSAL" } elseif ($errMsg -like "PROTECTED_PRIMARY_PATH*") { "PROTECTED_PRIMARY_PATH" } elseif ($errMsg -like "JSON_ERROR*") { "JSON_ERROR" } elseif ($errMsg -like "SCHEMA_ERROR*") { "SCHEMA_ERROR" } elseif ($errMsg -like "IO_ERROR*") { "IO_ERROR" } else { "INIT_FAILED" }
     $errObj = [ordered]@{
         ok = $false
         error_code = $code

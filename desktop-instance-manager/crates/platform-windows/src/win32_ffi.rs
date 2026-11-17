@@ -300,6 +300,19 @@ extern "system" {
     ) -> *mut c_void;
     fn TerminateProcess(h_process: *mut c_void, u_exit_code: u32) -> i32;
     fn GetExitCodeProcess(h_process: *mut c_void, lp_exit_code: *mut u32) -> i32;
+    fn GetProcessTimes(
+        h_process: *mut c_void,
+        lp_creation_time: *mut FILETIME,
+        lp_exit_time: *mut FILETIME,
+        lp_kernel_time: *mut FILETIME,
+        lp_user_time: *mut FILETIME,
+    ) -> i32;
+    fn QueryFullProcessImageNameW(
+        h_process: *mut c_void,
+        dw_flags: u32,
+        lp_exe_name: *mut u16,
+        lpdw_size: *mut u32,
+    ) -> i32;
     fn WaitForSingleObject(h_handle: *mut c_void, dw_milliseconds: u32) -> u32;
     fn CreateFileW(
         lp_file_name: *const u16,
@@ -518,15 +531,30 @@ fn to_wide_null(s: &str) -> Vec<u16> {
         .collect()
 }
 
+/// Verified kernel identity of a newly spawned Windows process.
+#[derive(Debug, Clone)]
+pub struct SpawnedProcessIdentity {
+    /// OS process ID.
+    pub pid: u32,
+    /// `GetProcessTimes` creation timestamp in 100ns FILETIME ticks.
+    pub create_time_100ns: u64,
+    /// Full executable image path queried directly from `pi.h_process`.
+    pub executable_path: String,
+}
+
 /// Spawns a detached child process using `CreateProcessW` with an isolated UTF-16 environment
 /// block (`CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`) and
-/// `bInheritHandles = FALSE` so console children do not inherit parent stdio pipes.
-pub fn spawn_process_isolated(
+/// `bInheritHandles = FALSE`, capturing `lpCreationTime` and full image path directly from
+/// `pi.h_process` before closing handles so PID-reuse checks are race-free.
+pub fn spawn_process_isolated_with_identity(
     exe_path: &Path,
     command_line: &str,
     work_dir: &Path,
     env_utf16_block: &[u16],
-) -> Result<u32, DimError> {
+) -> Result<SpawnedProcessIdentity, DimError> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
     let app_w = to_wide_null(&exe_path.to_string_lossy());
     let mut cmd_w = to_wide_null(command_line);
     let cwd_w = to_wide_null(&work_dir.to_string_lossy());
@@ -560,9 +588,57 @@ pub fn spawn_process_isolated(
 
         let pid = pi.dw_process_id;
         let _thread_guard = HandleGuard(pi.h_thread);
-        let _proc_guard = HandleGuard(pi.h_process);
-        Ok(pid)
+        let proc_guard = HandleGuard(pi.h_process);
+
+        let mut creation: FILETIME = zeroed();
+        let mut exit_t: FILETIME = zeroed();
+        let mut kernel_t: FILETIME = zeroed();
+        let mut user_t: FILETIME = zeroed();
+        let create_time_100ns = if GetProcessTimes(
+            proc_guard.0,
+            &mut creation,
+            &mut exit_t,
+            &mut kernel_t,
+            &mut user_t,
+        ) != 0
+        {
+            (u64::from(creation.dw_high_date_time) << 32) | u64::from(creation.dw_low_date_time)
+        } else {
+            0
+        };
+
+        let mut img_buf = vec![0u16; 2048];
+        let mut img_len = img_buf.len() as u32;
+        let executable_path =
+            if QueryFullProcessImageNameW(proc_guard.0, 0, img_buf.as_mut_ptr(), &mut img_len) != 0
+                && img_len > 0
+            {
+                OsString::from_wide(&img_buf[..img_len as usize])
+                    .to_string_lossy()
+                    .into_owned()
+            } else {
+                exe_path.display().to_string()
+            };
+
+        Ok(SpawnedProcessIdentity {
+            pid,
+            create_time_100ns,
+            executable_path,
+        })
     }
+}
+
+/// Spawns a detached child process using `CreateProcessW` with an isolated UTF-16 environment
+/// block (`CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`) and
+/// `bInheritHandles = FALSE` so console children do not inherit parent stdio pipes.
+pub fn spawn_process_isolated(
+    exe_path: &Path,
+    command_line: &str,
+    work_dir: &Path,
+    env_utf16_block: &[u16],
+) -> Result<u32, DimError> {
+    spawn_process_isolated_with_identity(exe_path, command_line, work_dir, env_utf16_block)
+        .map(|s| s.pid)
 }
 
 /// Queries `rstrtmgr.dll` (`RmStartSession` -> `RmRegisterResources` -> `RmGetList`) for all PIDs

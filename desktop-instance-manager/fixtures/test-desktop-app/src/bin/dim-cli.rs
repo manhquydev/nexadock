@@ -234,6 +234,7 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
                     "profile_id": rt.profile_id,
                     "pid": rt.main_pid,
                     "running": rt.running,
+                    "lifecycle_state": rt.lifecycle_state().as_str(),
                     "crash_recovered": crash_recovered,
                     "zalo_data_dir": rt.zalo_data_dir,
                     "detected_zalo_user_id": rt.detected_zalo_user_id,
@@ -395,6 +396,7 @@ fn cmd_status(
     for rec in records {
         let dir = store.profile_dir_for(&rec)?;
         let rt = adapter.inspect_profile(&rec, &dir)?;
+        let lifecycle_state = rt.lifecycle_state().as_str();
         let mut obj = json!({
             "id": rec.id,
             "name": rec.name,
@@ -404,6 +406,7 @@ fn cmd_status(
             "zalo_user_id": rt.detected_zalo_user_id.or(rec.zalo_user_id),
             "notes": rec.notes,
             "running": rt.running,
+            "lifecycle_state": lifecycle_state,
             "main_pid": rt.main_pid,
             "process_ids": rt.process_ids,
             "process_count": rt.process_count,
