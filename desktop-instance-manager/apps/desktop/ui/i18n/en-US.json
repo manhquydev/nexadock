@@ -1,0 +1,352 @@
+{
+  "app": {
+    "name": "Multi-Zalo",
+    "windowTitle": "Multi-Zalo — Accounts",
+    "subtitle": "Multiple Zalo accounts on one computer",
+    "modeTauri": "Desktop app",
+    "modeBridge": "Local bridge",
+    "connecting": "Connecting...",
+    "disconnected": "Disconnected",
+    "connectedShort": "Connected",
+    "openCount": "{count} open",
+    "noneOpen": "No windows open"
+  },
+  "nav": {
+    "ariaLabel": "Primary",
+    "skipToMain": "Skip to main content",
+    "accounts": "Accounts",
+    "backups": "Backups",
+    "settings": "Settings",
+    "help": "Help",
+    "backToAccounts": "← Back to Accounts"
+  },
+  "statusBar": {
+    "zaloReady": "Zalo Desktop is ready",
+    "zaloNotFound": "Zalo Desktop was not found on this computer. Install Zalo Desktop to open accounts.",
+    "zaloUnknown": "Could not verify Zalo Desktop installation.",
+    "refreshing": "Refreshing account status...",
+    "hostError": "Could not connect to the app. Try refreshing."
+  },
+  "accounts": {
+    "title": "Zalo Accounts",
+    "subtitle": "Each card below is a separate space where you sign in to an existing Zalo account.",
+    "searchPlaceholder": "Search accounts...",
+    "searchAria": "Search accounts",
+    "add": "Add account",
+    "emptyTitle": "Use multiple Zalo accounts on one computer",
+    "emptyHint": "Create a separate space to open and sign in to another existing Zalo account without signing out.",
+    "countSummary": "Showing {shown} of {total} accounts",
+    "noMatches": "No accounts match \"{query}\".",
+    "states": {
+      "running": "Window open",
+      "stopped": "Closed",
+      "starting": "Opening Zalo...",
+      "stopping": "Closing Zalo...",
+      "unknown": "Unknown",
+      "error": "Issue",
+      "loginNotVerified": "Sign-in not verified"
+    },
+    "actions": {
+      "launch": "Open Zalo",
+      "launchAria": "Open Zalo — {name}",
+      "focus": "Switch to window",
+      "focusAria": "Switch to window — {name}",
+      "stop": "Close Zalo",
+      "stopAria": "Close Zalo — {name}",
+      "more": "More options for {name}",
+      "rename": "Rename",
+      "backup": "Back up",
+      "details": "Account info",
+      "delete": "Remove account",
+      "closeFirstHint": "Close Zalo first",
+      "refresh": "Refresh"
+    },
+    "primaryZalo": {
+      "heading": "Zalo already on this computer",
+      "running": "Window open · Protected; cannot be closed or removed from here",
+      "stopped": "Closed · Your main Zalo installation always stays untouched",
+      "unknown": "Unknown · Could not verify your main Zalo status right now"
+    },
+    "details": {
+      "title": "Account info",
+      "subtitle": "Storage and session details for this account.",
+      "name": "Account name",
+      "color": "Account color",
+      "state": "Status",
+      "createdAt": "Created",
+      "lastLaunched": "Last opened",
+      "notes": "Note",
+      "technicalSummary": "Advanced details",
+      "id": "Identifier",
+      "directory": "Storage folder",
+      "pid": "Process (PID)",
+      "processCount": "Processes",
+      "windowTitle": "Window title",
+      "workingSet": "Memory usage",
+      "diskSize": "Data size",
+      "zaloUserId": "Zalo session ID",
+      "staleLockfile": "Stale lockfile",
+      "lockfileFound": "Stale lockfile detected",
+      "lockfileClean": "Clean"
+    }
+  },
+  "backups": {
+    "title": "Backups",
+    "subtitle": "Save copies of your account data to restore later.",
+    "refresh": "Reload",
+    "warningTitle": "Safe restore:",
+    "warningBody": "Restoring always creates a NEW account and never overwrites an existing account or your main Zalo.",
+    "emptyTitle": "No backups yet",
+    "emptyHint": "Close an account's Zalo window, then choose Back up from its menu (⋯).",
+    "tableCaption": "Account backups list",
+    "cols": {
+      "name": "Backup",
+      "source": "Source account",
+      "size": "Size",
+      "created": "Created",
+      "status": "Status",
+      "action": "Action"
+    },
+    "filesCount": "{count} files",
+    "statusReady": "Ready to restore",
+    "restoreAction": "Restore as new account"
+  },
+  "diagnostics": {
+    "title": "Troubleshoot",
+    "subtitle": "Advanced checks for Zalo installation, storage, and data isolation.",
+    "backToSettings": "← Back to Settings",
+    "reverify": "Run checks",
+    "refresh": "Refresh",
+    "measureDisk": "Measure account disk sizes",
+    "groups": {
+      "application": "Zalo Desktop app",
+      "security": "Isolation & protection",
+      "profiles": "Accounts summary",
+      "environment": "Environment & OS",
+      "logs": "Filtered logs"
+    },
+    "labels": {
+      "installState": "Installation",
+      "installDetected": "Detected",
+      "installMissing": "Not found",
+      "installUnknown": "Unknown",
+      "versionMode": "Version / Mode",
+      "authenticode": "App signature",
+      "dataDir": "Data folder",
+      "elevation": "Privilege level",
+      "elevatedAdmin": "Administrator (Elevated)",
+      "elevatedStandard": "Standard user",
+      "smartAppControl": "Smart App Control",
+      "sacEnabled": "Enforced",
+      "sacDisabled": "Off / Evaluation",
+      "sacUnknown": "Unknown",
+      "primaryProtection": "Main Zalo protection",
+      "primaryProtected": "Open ({count} protected process(es))",
+      "primaryIdle": "Not running",
+      "profileCount": "Total accounts",
+      "profileSummary": "{total} account(s) ({running} open, {stale} need lockfile check)",
+      "duplicateZaloId": "Duplicate session ID",
+      "duplicateFound": "Duplicates found ({count})",
+      "duplicateNone": "No duplicates",
+      "diskFree": "Free disk space",
+      "diskOk": "Sufficient",
+      "diskLow": "Low disk space",
+      "folderRedirection": "Folder redirection",
+      "redirectedYes": "Redirected",
+      "redirectedNo": "None"
+    },
+    "checks": {
+      "tableCaption": "Data isolation check results",
+      "check": "Check",
+      "result": "Result",
+      "detail": "Details",
+      "noChecks": "No checks run yet. Click Run checks to start.",
+      "pass": "PASS",
+      "fail": "FAIL",
+      "blocked": "BLOCKED",
+      "notTested": "NOT TESTED",
+      "unknown": "UNKNOWN"
+    },
+    "readiness": {
+      "tableCaption": "Operating system support matrix",
+      "platform": "Platform",
+      "status": "Support status",
+      "strategy": "Mechanism",
+      "limits": "Limitations",
+      "empty": "No platform compatibility data."
+    },
+    "noLogs": "No logs available."
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Customize language, appearance, and advanced troubleshooting.",
+    "language": {
+      "heading": "Display language",
+      "description": "Applies immediately. Your account names stay unchanged.",
+      "viLabel": "Tiếng Việt",
+      "enLabel": "English"
+    },
+    "appearance": {
+      "heading": "Appearance",
+      "description": "Choose light, dark, or match your system setting.",
+      "system": "System",
+      "systemWithCurrent": "System ({current})",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "about": {
+      "heading": "About",
+      "appName": "Application",
+      "uiVersion": "Version",
+      "os": "Operating system",
+      "connection": "Connection",
+      "connected": "Connected ({mode})",
+      "disconnected": "Disconnected"
+    },
+    "advanced": {
+      "heading": "Advanced",
+      "description": "For troubleshooting, disk size measurement, or viewing technical logs.",
+      "openDiagnostics": "Troubleshoot"
+    }
+  },
+  "help": {
+    "title": "Quick guide",
+    "subtitle": "How to use multiple Zalo accounts safely and handle common situations.",
+    "cards": {
+      "mentalModel": {
+        "title": "1. What this app does (and doesn't do)",
+        "body": "Multi-Zalo creates separate data spaces so you can run multiple Zalo Desktop windows side by side. It does not register new Zalo accounts and never asks for or stores your passwords, OTP codes, or messages."
+      },
+      "signIn": {
+        "title": "2. Adding and signing in to an account",
+        "body": "Click Add account, pick a memorable name (such as Work or Sales) and color, then click Open Zalo to sign in directly inside the Zalo Desktop window via QR code or password."
+      },
+      "windowState": {
+        "title": "3. Window status & main Zalo protection",
+        "body": "\"Window open\" means the Zalo window is running on your computer — it does not assume you are signed in inside Zalo. Your existing main Zalo installation always stays untouched and cannot be closed or removed here."
+      },
+      "commonIssues": {
+        "title": "4. Common issues & known limits",
+        "body": "• Cannot open Zalo: make sure official Zalo Desktop is installed on this computer.\n• Cannot back up or remove: click Close Zalo on that account card first.\n• Duplicate account warning: avoid signing in to the same Zalo account in two windows at once.\n• Voice/video call limit: Zalo Desktop shares a system call channel, so simultaneous calls across multiple windows may be limited."
+      }
+    },
+    "troubleshootPrompt": "Need deeper installation or system checks?",
+    "openTroubleshoot": "Open Troubleshoot"
+  },
+  "dialogs": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "create": {
+      "title": "Add Zalo account",
+      "subtitle": "Creates a separate Zalo space on this computer. You sign in to an existing account inside Zalo Desktop — this app never creates new Zalo accounts or stores passwords or OTPs.",
+      "nameLabel": "Account name",
+      "namePlaceholder": "e.g. Work, Personal, Sales",
+      "suggestionsLabel": "Quick ideas",
+      "suggestions": {
+        "personal": "Personal",
+        "work": "Work",
+        "teaching": "Teaching",
+        "sales": "Sales"
+      },
+      "colorLabel": "Account color",
+      "notesLabel": "Short note (optional)",
+      "notesPlaceholder": "e.g. Storefront or team groups",
+      "submit": "Continue",
+      "submitting": "Creating...",
+      "step2Title": "Space \"{name}\" is ready",
+      "step2Body": "Its separate Zalo space is ready. Open Zalo Desktop now to sign in with QR or password (or open it anytime from the main screen).",
+      "step2Launch": "Open Zalo to sign in",
+      "step2Later": "Later"
+    },
+    "rename": {
+      "title": "Rename account",
+      "subtitle": "Change the display name for \"{name}\".",
+      "nameLabel": "New name",
+      "submit": "Save name"
+    },
+    "delete": {
+      "title": "Remove this account?",
+      "warning": "This deletes all local data for \"{name}\" from Multi-Zalo. Back it up first if you want to keep local history.",
+      "confirmText": "Close Zalo before removing account data.",
+      "submit": "Remove account"
+    },
+    "restore": {
+      "title": "Restore as new account",
+      "subtitle": "Create a new account from backup \"{backupName}\".",
+      "nameLabel": "New account name (optional)",
+      "namePlaceholder": "Leave blank to auto-name",
+      "submit": "Restore"
+    },
+    "help": {
+      "title": "How Multi-Zalo works",
+      "items": [
+        "Each account you add opens Zalo Desktop in its own separate space.",
+        "You sign in directly inside Zalo (QR or password); Multi-Zalo never collects credentials.",
+        "Any Zalo already installed on your computer stays untouched and protected.",
+        "You can back up any account whenever its Zalo window is closed."
+      ]
+    }
+  },
+  "colors": {
+    "blue": "Blue",
+    "teal": "Teal",
+    "green": "Green",
+    "amber": "Amber",
+    "coral": "Coral",
+    "plum": "Plum",
+    "indigo": "Indigo",
+    "slate": "Slate"
+  },
+  "messages": {
+    "actionSuccess": "Done.",
+    "accountCreated": "Account added.",
+    "accountRenamed": "Renamed.",
+    "accountDeleted": "Account removed.",
+    "backupRestored": "Restored as a new account.",
+    "backupCreated": "Backup created."
+  },
+  "supportStatus": {
+    "SUPPORTED_AND_TESTED": "Supported & tested",
+    "PARTIALLY_SUPPORTED": "Partially supported",
+    "EXPERIMENTAL": "Experimental",
+    "BLOCKED": "Blocked",
+    "UNSUPPORTED": "Unsupported",
+    "NOT_TESTED": "Not tested",
+    "UNKNOWN": "Unknown"
+  },
+  "errors": {
+    "technicalDetails": "Technical details",
+    "rawCodeLabel": "Error code",
+    "rawMessageLabel": "Response",
+    "INVALID_NAME": "Invalid account name. Please try another name.",
+    "DUPLICATE_NAME": "An account with this name already exists.",
+    "NOT_FOUND": "Account or backup was not found.",
+    "PROFILE_RUNNING": "Close Zalo before doing this.",
+    "PROFILE_IDENTITY_MISMATCH": "Account data conflict detected. Check Troubleshoot in Settings.",
+    "PROTECTED_PRIMARY_PROCESS": "Your main Zalo on this computer is protected and cannot be closed here.",
+    "DUPLICATE_ZALO_USER_ID": "This Zalo account is already open in another window.",
+    "INSUFFICIENT_DISK_SPACE": "Not enough free disk space.",
+    "PATH_TRAVERSAL": "Invalid folder path.",
+    "FOLDER_REDIRECTION_DETECTED": "Data folder is redirected.",
+    "INSTALL_NOT_FOUND": "Zalo Desktop was not found on this computer. Please install Zalo first.",
+    "UNSUPPORTED_PLATFORM": "This feature is not supported on your operating system yet.",
+    "BACKUP_ERROR": "Cannot back up while Zalo is open or the folder is busy.",
+    "RESTORE_ERROR": "Could not restore from this backup.",
+    "PROCESS_ERROR": "Could not open Zalo. Try again.",
+    "CONFIRMATION_REQUIRED": "Confirmation is required before removing an account.",
+    "CONFIRM_REQUIRED": "Confirmation is required before removing an account.",
+    "PROFILE_MARKER_MISMATCH": "Account data conflict detected. Check Troubleshoot in Settings.",
+    "PROTECTED_PRIMARY_PATH": "Your main Zalo data folder is protected and cannot be modified.",
+    "UNVERIFIED_BINARY": "Could not verify the Zalo Desktop app signature. Please reinstall official Zalo Desktop.",
+    "NOT_RUNNING": "This account's Zalo window is closed. Click Open Zalo first.",
+    "SCHEMA_ERROR": "Account configuration data could not be read. Open Troubleshoot in Settings.",
+    "IO_ERROR": "Could not read or write files on disk. Check free disk space and folder permissions.",
+    "JSON_ERROR": "Received an invalid data response. Please try refreshing.",
+    "HOST_EXEC_FAILED": "Could not connect to the app. Try again.",
+    "HOST_TIMEOUT": "The app took too long to respond. Please try again in a moment.",
+    "UNAUTHORIZED": "Local connection session expired. Please reload the app.",
+    "RATE_LIMITED": "Too many actions at once. Please wait a few seconds and try again.",
+    "UNKNOWN": "Something went wrong. Try again or check technical details."
+  }
+}

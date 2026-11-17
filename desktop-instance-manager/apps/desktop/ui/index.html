@@ -1,300 +1,509 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="vi">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
-  <title>Multi-Zalo Desktop — Instance Manager</title>
+  <title>Multi-Zalo — Tài khoản</title>
+  <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
+  <a href="#main-content" class="skip-link visually-hidden" data-i18n="nav.skipToMain">Chuyển đến nội dung chính</a>
+
   <div class="app-shell">
-    <header class="app-header">
-      <div class="brand-block">
-        <h1>Multi-Zalo Desktop</h1>
-        <p class="subtitle">Isolated multi-profile launcher &amp; signed-host supervisor</p>
-      </div>
-      <div class="header-actions">
-        <span id="host-mode-badge" class="badge badge-neutral">Connecting...</span>
-        <button type="button" id="btn-refresh" class="btn btn-secondary">Refresh</button>
-        <button type="button" class="btn btn-secondary" command="show-modal" commandfor="safety-dialog">Safety Spec</button>
-        <button type="button" class="btn btn-primary" command="show-modal" commandfor="create-profile-dialog">New Profile</button>
+    <!-- Compact Top Application Bar -->
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand-cluster">
+          <button type="button" class="brand-home-btn" id="btn-brand-home" aria-label="Multi-Zalo">
+            <span class="brand-mark" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="12" height="12" rx="3"/>
+                <path d="M9 15v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-6a3 3 0 0 0-3-3h-3"/>
+              </svg>
+            </span>
+            <span class="brand-text">
+              <span class="brand-name" data-i18n="app.name">Multi-Zalo</span>
+              <span class="brand-sub" id="topbar-open-summary" data-i18n="app.connecting">Đang kết nối...</span>
+            </span>
+          </button>
+          <span class="conn-indicator" id="connection-pill" role="status" aria-live="polite" hidden>
+            <span class="conn-dot" aria-hidden="true"></span>
+            <span id="connection-label"></span>
+          </span>
+        </div>
+
+        <nav class="topbar-nav" data-i18n-aria-label="nav.ariaLabel" aria-label="Chính">
+          <button type="button" class="top-nav-btn is-active" data-view="profiles" aria-current="page">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <span data-i18n="nav.accounts">Tài khoản</span>
+          </button>
+          <button type="button" class="top-nav-btn" data-view="backups">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span data-i18n="nav.backups">Sao lưu</span>
+          </button>
+          <button type="button" class="top-nav-btn" data-view="settings">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span data-i18n="nav.settings">Cài đặt</span>
+          </button>
+          <button type="button" class="top-nav-btn" id="btn-nav-help" data-view="help">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span data-i18n="nav.help">Trợ giúp</span>
+          </button>
+        </nav>
+
+        <div class="topbar-actions">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-open-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
+        </div>
       </div>
     </header>
 
-    <section class="summary-strip" aria-label="Environment Summary">
-      <article class="stat-card">
-        <span class="stat-label">App Discovery</span>
-        <strong id="stat-app" class="stat-value">Checking...</strong>
-        <span id="stat-app-meta" class="stat-meta">VNG Authenticode &amp; path</span>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Primary Zalo</span>
-        <strong id="stat-primary" class="stat-value">Checking...</strong>
-        <span id="stat-primary-meta" class="stat-meta">Protected (%APPDATA%\ZaloData)</span>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Isolated Profiles</span>
-        <strong id="stat-profiles" class="stat-value">0 / 0 running</strong>
-        <span id="stat-data-dir" class="stat-meta">Data dir loading...</span>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Host Security</span>
-        <strong id="stat-security" class="stat-value">Checking...</strong>
-        <span id="stat-security-meta" class="stat-meta">UAC &amp; Smart App Control</span>
-      </article>
-    </section>
-
-    <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
-
-    <main class="tabs" id="main-tabs">
-      <div role="tablist" focusgroup="tablist nomemory" aria-label="Workspace Views" class="tablist">
-        <button type="button" role="tab" id="tab-profiles" aria-controls="panel-profiles" aria-selected="true" focusgroupstart>Profiles</button>
-        <button type="button" role="tab" id="tab-backups" aria-controls="panel-backups" aria-selected="false">Backups</button>
-        <button type="button" role="tab" id="tab-diagnostics" aria-controls="panel-diagnostics" aria-selected="false">Diagnostics</button>
-        <button type="button" role="tab" id="tab-os-readiness" aria-controls="panel-os-readiness" aria-selected="false">OS Readiness</button>
+    <!-- Main Workspace -->
+    <main id="main-content" class="main-content" tabindex="-1">
+      <div id="status-banner" class="banner" role="status" aria-live="polite" hidden>
+        <div class="banner-row">
+          <span id="status-banner-text"></span>
+          <button type="button" class="btn-link banner-dismiss" id="btn-dismiss-banner" data-i18n="dialogs.close">Đóng</button>
+        </div>
+        <details id="status-banner-details" class="banner-details" hidden>
+          <summary data-i18n="errors.technicalDetails">Chi tiết kỹ thuật</summary>
+          <pre id="status-banner-raw" class="banner-raw"></pre>
+        </details>
       </div>
 
-      <div role="tabpanel" id="panel-profiles" aria-labelledby="tab-profiles" tabindex="0">
-        <div class="panel-body">
-          <div class="panel-toolbar">
-            <div>
-              <h2>Isolated Profiles</h2>
-              <p class="panel-hint">Each profile runs in its own isolated <code>USERPROFILE</code>, <code>APPDATA</code>, and <code>TEMP</code> sandbox without touching primary Zalo.</p>
-            </div>
-            <div class="toolbar-controls">
-              <label class="checkbox-label">
-                <input type="checkbox" id="toggle-sizes">
-                <span>Measure disk sizes</span>
-              </label>
-              <button type="button" class="btn btn-primary" command="show-modal" commandfor="create-profile-dialog">New Profile</button>
-            </div>
-          </div>
+      <div id="zalo-install-alert" class="banner banner-warn" role="status" aria-live="polite" hidden>
+        <span id="zalo-install-alert-text"></span>
+      </div>
 
-          <div tabindex="0" role="region" aria-labelledby="profiles-table-caption" class="table-wrapper">
-            <table class="data-table profiles-table">
-              <caption id="profiles-table-caption">Isolated Zalo Desktop Profiles</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Profile</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">PID / Window</th>
-                  <th scope="col">Zalo User ID</th>
-                  <th scope="col">Memory / Disk</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="profiles-tbody">
-                <tr>
-                  <th scope="row">Loading...</th>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                </tr>
-              </tbody>
-            </table>
+      <!-- View 1: Accounts Home -->
+      <section id="view-profiles" class="view">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title" data-i18n="accounts.title">Tài khoản Zalo</h1>
+            <p class="page-subtitle" data-i18n="accounts.subtitle">Mở nhiều tài khoản Zalo cùng lúc trong các cửa sổ riêng.</p>
+          </div>
+          <div class="page-actions" id="home-toolbar">
+            <span id="accounts-count-summary" class="accounts-count-summary" hidden></span>
+            <div class="header-search-wrap" id="search-wrap">
+              <label for="profile-search" class="visually-hidden" data-i18n="accounts.searchAria">Tìm kiếm tài khoản</label>
+              <input
+                type="search"
+                id="profile-search"
+                class="search-input"
+                data-i18n-placeholder="accounts.searchPlaceholder"
+                placeholder="Tìm tài khoản..."
+              >
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh" data-i18n="accounts.actions.refresh">Làm mới</button>
           </div>
         </div>
-      </div>
 
-      <div role="tabpanel" id="panel-backups" aria-labelledby="tab-backups" hidden="until-found">
-        <div class="panel-body">
-          <div class="panel-toolbar">
-            <div>
-              <h2>Offline Atomic Backups</h2>
-              <p class="panel-hint">Backups require the profile to be stopped, verify SHA-256 manifests, and always restore into a brand-new profile.</p>
-            </div>
-            <button type="button" id="btn-refresh-backups" class="btn btn-secondary">Reload Backups</button>
-          </div>
+        <ul id="profiles-list" class="account-grid" role="list"></ul>
 
-          <div tabindex="0" role="region" aria-labelledby="backups-table-caption" class="table-wrapper">
-            <table class="data-table backups-table">
-              <caption id="backups-table-caption">Verified Profile Backups</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Backup</th>
-                  <th scope="col">Source Profile</th>
-                  <th scope="col">Files / Size</th>
-                  <th scope="col">Created (UTC)</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="backups-tbody">
-                <tr>
-                  <th scope="row">No backups yet</th>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                </tr>
-              </tbody>
-            </table>
+        <div id="profiles-empty" class="empty-state empty-hero" hidden>
+          <div class="empty-icon" aria-hidden="true">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="12" height="12" rx="3"/>
+              <path d="M9 15v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-6a3 3 0 0 0-3-3h-3"/>
+            </svg>
           </div>
+          <h2 class="empty-title" id="profiles-empty-title" data-i18n="accounts.emptyTitle">Dùng nhiều tài khoản Zalo trên một máy</h2>
+          <p class="empty-hint" id="profiles-empty-hint" data-i18n="accounts.emptyHint">Thêm một tài khoản để mở Zalo trong cửa sổ riêng mà không cần đăng xuất.</p>
+          <button type="button" class="btn btn-primary" id="btn-empty-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
         </div>
-      </div>
 
-      <div role="tabpanel" id="panel-diagnostics" aria-labelledby="tab-diagnostics" hidden="until-found">
-        <div class="panel-body">
-          <div class="panel-toolbar">
-            <div>
-              <h2>Isolation &amp; Security Diagnostics</h2>
-              <p class="panel-hint">Verifies path boundaries, NTFS ACLs, Restart Manager lockfile ownership, and redacted host logs.</p>
-            </div>
-            <button type="button" id="btn-run-isolation" class="btn btn-secondary">Run Verify-Isolation</button>
-          </div>
-
-          <div tabindex="0" role="region" aria-labelledby="diagnostics-table-caption" class="table-wrapper">
-            <table class="data-table diagnostics-table">
-              <caption id="diagnostics-table-caption">Isolation &amp; Host Security Checks</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Check</th>
-                  <th scope="col">Result</th>
-                  <th scope="col">Detail</th>
-                </tr>
-              </thead>
-              <tbody id="diagnostics-tbody">
-                <tr>
-                  <th scope="row">Loading...</th>
-                  <td>—</td>
-                  <td>—</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="log-section">
-            <h3>Sanitized Diagnostic Log</h3>
-            <pre id="sanitized-log-output" class="log-viewer" tabindex="0">No events recorded yet.</pre>
-          </div>
-        </div>
-      </div>
-
-      <div role="tabpanel" id="panel-os-readiness" aria-labelledby="tab-os-readiness" hidden="until-found">
-        <div class="panel-body">
-          <div class="panel-toolbar">
-            <div>
-              <h2>Platform &amp; OS Readiness Matrix</h2>
-              <p class="panel-hint">Honest compatibility assessment across Windows 10/11, macOS, and Ubuntu LTS without binary patching.</p>
+        <!-- Read-only Protected Primary Zalo Card -->
+        <section id="primary-zalo-section" class="primary-zalo-section" hidden>
+          <div class="primary-zalo-card">
+            <div class="account-avatar avatar-protected" aria-hidden="true">Z</div>
+            <div class="primary-zalo-meta">
+              <div class="primary-zalo-title" data-i18n="accounts.primaryZalo.heading">Zalo đang dùng trên máy</div>
+              <div class="account-state-row is-unknown" id="primary-zalo-state-row">
+                <span class="state-dot" aria-hidden="true"></span>
+                <span class="primary-zalo-desc" id="primary-zalo-desc"></span>
+              </div>
             </div>
           </div>
+        </section>
+      </section>
 
-          <div tabindex="0" role="region" aria-labelledby="readiness-table-caption" class="table-wrapper">
-            <table class="data-table readiness-table">
-              <caption id="readiness-table-caption">Cross-Platform Support &amp; Limitations</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Platform</th>
-                  <th scope="col">Support Status</th>
-                  <th scope="col">Isolation Strategy</th>
-                  <th scope="col">Known Limits</th>
-                </tr>
-              </thead>
-              <tbody id="readiness-tbody">
-                <tr>
-                  <th scope="row">Loading...</th>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                </tr>
-              </tbody>
-            </table>
+      <!-- View 2: Backups -->
+      <section id="view-backups" class="view" hidden>
+        <div class="view-back-bar">
+          <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
+        </div>
+        <div class="page-header">
+          <div>
+            <h1 class="page-title" data-i18n="backups.title">Sao lưu</h1>
+            <p class="page-subtitle" data-i18n="backups.subtitle">Lưu bản sao dữ liệu tài khoản để khôi phục khi cần.</p>
+          </div>
+          <div class="page-actions">
+            <button type="button" class="btn btn-secondary" id="btn-refresh-backups" data-i18n="backups.refresh">Tải lại</button>
           </div>
         </div>
-      </div>
+
+        <div class="notice-box notice-warn" role="note">
+          <strong data-i18n="backups.warningTitle">Khôi phục an toàn:</strong>
+          <span data-i18n="backups.warningBody">Khôi phục luôn tạo một tài khoản MỚI, không ghi đè lên tài khoản đang có hay Zalo gốc trên máy.</span>
+        </div>
+
+        <div class="table-wrap" id="backups-table-wrap">
+          <table class="data-table">
+            <caption class="visually-hidden" data-i18n="backups.tableCaption">Danh sách các bản sao lưu tài khoản</caption>
+            <thead>
+              <tr>
+                <th scope="col" data-i18n="backups.cols.name">Bản sao lưu</th>
+                <th scope="col" data-i18n="backups.cols.source">Tài khoản nguồn</th>
+                <th scope="col" data-i18n="backups.cols.size">Dung lượng</th>
+                <th scope="col" data-i18n="backups.cols.created">Ngày tạo</th>
+                <th scope="col" data-i18n="backups.cols.status">Trạng thái</th>
+                <th scope="col" data-i18n="backups.cols.action">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="backups-tbody"></tbody>
+          </table>
+        </div>
+
+        <div id="backups-empty" class="empty-state" hidden>
+          <p class="empty-title" data-i18n="backups.emptyTitle">Chưa có bản sao lưu nào</p>
+          <p class="empty-hint" data-i18n="backups.emptyHint">Đóng Zalo của một tài khoản rồi chọn Sao lưu trong menu tùy chọn (⋯).</p>
+        </div>
+      </section>
+
+      <!-- View 3: Settings -->
+      <section id="view-settings" class="view" hidden>
+        <div class="view-back-bar">
+          <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
+        </div>
+        <div class="page-header">
+          <div>
+            <h1 class="page-title" data-i18n="settings.title">Cài đặt</h1>
+            <p class="page-subtitle" data-i18n="settings.subtitle">Tùy chỉnh ngôn ngữ, giao diện và kiểm tra nâng cao.</p>
+          </div>
+        </div>
+
+        <div class="settings-list">
+          <section class="panel settings-panel">
+            <fieldset class="segmented-fieldset">
+              <legend class="settings-title" data-i18n="settings.language.heading">Ngôn ngữ hiển thị</legend>
+              <p class="settings-desc" data-i18n="settings.language.description">Áp dụng ngay lập tức. Tên tài khoản bạn đặt được giữ nguyên.</p>
+              <div class="segmented-control">
+                <label class="seg-option">
+                  <input type="radio" name="ui-locale" value="vi-VN" checked>
+                  <span data-i18n="settings.language.viLabel">Tiếng Việt</span>
+                </label>
+                <label class="seg-option">
+                  <input type="radio" name="ui-locale" value="en-US">
+                  <span data-i18n="settings.language.enLabel">English</span>
+                </label>
+              </div>
+            </fieldset>
+          </section>
+
+          <section class="panel settings-panel">
+            <fieldset class="segmented-fieldset">
+              <legend class="settings-title" data-i18n="settings.appearance.heading">Giao diện</legend>
+              <p class="settings-desc" data-i18n="settings.appearance.description">Chọn chế độ sáng, tối hoặc tự động theo hệ điều hành.</p>
+              <div class="segmented-control">
+                <label class="seg-option">
+                  <input type="radio" name="ui-theme" value="system" checked>
+                  <span id="theme-system-label" data-i18n="settings.appearance.system">Theo hệ thống</span>
+                </label>
+                <label class="seg-option">
+                  <input type="radio" name="ui-theme" value="light">
+                  <span data-i18n="settings.appearance.light">Sáng</span>
+                </label>
+                <label class="seg-option">
+                  <input type="radio" name="ui-theme" value="dark">
+                  <span data-i18n="settings.appearance.dark">Tối</span>
+                </label>
+              </div>
+            </fieldset>
+          </section>
+
+          <section class="panel settings-panel">
+            <h2 class="settings-title" data-i18n="settings.about.heading">Thông tin ứng dụng</h2>
+            <dl class="kv-list" id="settings-about-list"></dl>
+          </section>
+
+          <section class="panel settings-panel">
+            <h2 class="settings-title" data-i18n="settings.advanced.heading">Nâng cao</h2>
+            <p class="settings-desc" data-i18n="settings.advanced.description">Dành cho trường hợp cần kiểm tra lỗi, dung lượng đĩa hoặc nhật ký kỹ thuật.</p>
+            <div class="settings-actions">
+              <button type="button" class="btn btn-secondary" id="btn-goto-diagnostics" data-i18n="settings.advanced.openDiagnostics">Kiểm tra sự cố</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- View 4: Advanced Diagnostics (nested under Settings -> Advanced) -->
+      <section id="view-diagnostics" class="view" hidden>
+        <div class="view-back-bar">
+          <button type="button" class="btn-link back-link" data-back-to="settings" data-i18n="diagnostics.backToSettings">← Quay lại Cài đặt</button>
+        </div>
+        <div class="page-header">
+          <div>
+            <h1 class="page-title" data-i18n="diagnostics.title">Kiểm tra sự cố</h1>
+            <p class="page-subtitle" data-i18n="diagnostics.subtitle">Thông tin nâng cao giúp kiểm tra cài đặt Zalo, bộ nhớ và khả năng tách biệt dữ liệu.</p>
+          </div>
+          <div class="page-actions">
+            <label class="inline-toggle">
+              <input type="checkbox" id="toggle-sizes">
+              <span data-i18n="diagnostics.measureDisk">Đo dung lượng đĩa của các tài khoản</span>
+            </label>
+            <button type="button" class="btn btn-primary" id="btn-run-isolation" data-i18n="diagnostics.reverify">Kiểm tra lại</button>
+            <button type="button" class="btn btn-secondary" id="btn-refresh-diagnostics" data-i18n="diagnostics.refresh">Làm mới</button>
+          </div>
+        </div>
+
+        <div class="diag-stack">
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="diagnostics.groups.application">Ứng dụng Zalo Desktop</h2>
+            <dl class="kv-list" id="diag-app-list"></dl>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="diagnostics.groups.security">Tách biệt & bảo vệ dữ liệu</h2>
+            <dl class="kv-list" id="diag-security-list"></dl>
+            <div class="table-wrap table-wrap-spaced">
+              <table class="data-table">
+                <caption class="visually-hidden" data-i18n="diagnostics.checks.tableCaption">Kết quả kiểm tra tách biệt dữ liệu</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" data-i18n="diagnostics.checks.check">Hạng mục</th>
+                    <th scope="col" data-i18n="diagnostics.checks.result">Kết quả</th>
+                    <th scope="col" data-i18n="diagnostics.checks.detail">Chi tiết</th>
+                  </tr>
+                </thead>
+                <tbody id="diagnostics-tbody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="diagnostics.groups.profiles">Tổng quan tài khoản</h2>
+            <dl class="kv-list" id="diag-profiles-list"></dl>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="diagnostics.groups.environment">Môi trường & hệ điều hành</h2>
+            <dl class="kv-list" id="diag-env-list"></dl>
+            <div class="table-wrap table-wrap-spaced">
+              <table class="data-table">
+                <caption class="visually-hidden" data-i18n="diagnostics.readiness.tableCaption">Mức độ hỗ trợ theo hệ điều hành</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" data-i18n="diagnostics.readiness.platform">Nền tảng</th>
+                    <th scope="col" data-i18n="diagnostics.readiness.status">Mức độ hỗ trợ</th>
+                    <th scope="col" data-i18n="diagnostics.readiness.strategy">Cơ chế</th>
+                    <th scope="col" data-i18n="diagnostics.readiness.limits">Giới hạn</th>
+                  </tr>
+                </thead>
+                <tbody id="readiness-tbody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="diagnostics.groups.logs">Nhật ký hệ thống (đã lọc)</h2>
+            <pre class="log-box" id="sanitized-log-output"></pre>
+          </section>
+        </div>
+      </section>
+
+      <!-- View 5: Help -->
+      <section id="view-help" class="view" hidden>
+        <div class="view-back-bar">
+          <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
+        </div>
+        <div class="page-header">
+          <div>
+            <h1 class="page-title" data-i18n="help.title">Hướng dẫn sử dụng</h1>
+            <p class="page-subtitle" data-i18n="help.subtitle">Cách dùng nhiều tài khoản Zalo an toàn và xử lý các tình huống thường gặp.</p>
+          </div>
+        </div>
+
+        <div class="help-grid">
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="help.cards.mentalModel.title">1. Công cụ này làm gì (và không làm gì)?</h2>
+            <p class="help-body" data-i18n="help.cards.mentalModel.body">Multi-Zalo tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn.</p>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="help.cards.signIn.title">2. Cách thêm và đăng nhập tài khoản</h2>
+            <p class="help-body" data-i18n="help.cards.signIn.body">Nhấn Thêm tài khoản, đặt tên dễ nhớ (ví dụ: Công việc, Bán hàng) và chọn màu nhận diện, sau đó nhấn Mở Zalo để đăng nhập trực tiếp trong cửa sổ Zalo Desktop bằng mã QR hoặc mật khẩu.</p>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="help.cards.windowState.title">3. Ý nghĩa trạng thái &amp; bảo vệ Zalo gốc</h2>
+            <p class="help-body" data-i18n="help.cards.windowState.body">Trạng thái "Cửa sổ đang mở" cho biết cửa sổ Zalo đang chạy trên máy, không mặc định bạn đã đăng nhập bên trong. Ứng dụng Zalo bạn cài sẵn từ trước luôn được bảo vệ riêng, không thể đóng hoặc xóa từ đây.</p>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title" data-i18n="help.cards.commonIssues.title">4. Xử lý lỗi thường gặp &amp; giới hạn thực tế</h2>
+            <p class="help-body" data-i18n="help.cards.commonIssues.body">• Không mở được Zalo: hãy kiểm tra máy đã cài Zalo Desktop chính thức chưa.
+• Không sao lưu hoặc xóa được: hãy nhấn Đóng Zalo trên thẻ tài khoản trước.
+• Báo trùng tài khoản: cùng một tài khoản Zalo không nên đăng nhập ở hai cửa sổ cùng lúc.
+• Giới hạn cuộc gọi: Zalo Desktop dùng chung kênh cuộc gọi hệ thống nên gọi thoại/video đồng thời trên nhiều cửa sổ có thể bị giới hạn.</p>
+          </section>
+        </div>
+
+        <div class="panel help-footer-bar">
+          <span data-i18n="help.troubleshootPrompt">Cần kiểm tra chi tiết cài đặt hoặc nhật ký hệ thống?</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-help-diagnostics" data-i18n="help.openTroubleshoot">Mở Kiểm tra sự cố</button>
+        </div>
+      </section>
     </main>
   </div>
 
-  <!-- Create Profile Modal -->
-  <dialog id="create-profile-dialog" aria-labelledby="create-profile-title" closedby="any">
-    <div class="dialog-header">
-      <h2 id="create-profile-title">Create Isolated Profile</h2>
+  <!-- Dialog 1: Add Account (2-Step Onboarding) -->
+  <dialog id="create-profile-dialog" class="modal" aria-labelledby="create-dialog-title">
+    <div id="create-step-1">
+      <h2 id="create-dialog-title" class="modal-title" data-i18n="dialogs.create.title">Thêm tài khoản Zalo</h2>
+      <p class="modal-subtitle" data-i18n="dialogs.create.subtitle">Đặt tên để phân biệt tài khoản này. Bạn sẽ đăng nhập trực tiếp trong ứng dụng Zalo.</p>
+      <form id="create-profile-form">
+        <div class="form-field">
+          <label for="create-profile-name" data-i18n="dialogs.create.nameLabel">Tên tài khoản</label>
+          <input
+            type="text"
+            id="create-profile-name"
+            required
+            maxlength="80"
+            autofocus
+            data-i18n-placeholder="dialogs.create.namePlaceholder"
+            placeholder="Ví dụ: Công việc, Cá nhân, Bán hàng"
+          >
+          <div class="chip-row" aria-label="Gợi ý nhanh" data-i18n-aria-label="dialogs.create.suggestionsLabel">
+            <button type="button" class="chip-btn" data-suggest-key="dialogs.create.suggestions.personal" data-i18n="dialogs.create.suggestions.personal">Cá nhân</button>
+            <button type="button" class="chip-btn" data-suggest-key="dialogs.create.suggestions.work" data-i18n="dialogs.create.suggestions.work">Công việc</button>
+            <button type="button" class="chip-btn" data-suggest-key="dialogs.create.suggestions.teaching" data-i18n="dialogs.create.suggestions.teaching">Giảng dạy</button>
+            <button type="button" class="chip-btn" data-suggest-key="dialogs.create.suggestions.sales" data-i18n="dialogs.create.suggestions.sales">Bán hàng</button>
+          </div>
+        </div>
+
+        <fieldset class="color-fieldset">
+          <legend data-i18n="dialogs.create.colorLabel">Màu nhận diện</legend>
+          <div class="color-palette" id="create-color-palette"></div>
+        </fieldset>
+
+        <div class="form-field">
+          <label for="create-profile-notes" data-i18n="dialogs.create.notesLabel">Ghi chú ngắn (không bắt buộc)</label>
+          <input
+            type="text"
+            id="create-profile-notes"
+            maxlength="160"
+            data-i18n-placeholder="dialogs.create.notesPlaceholder"
+            placeholder="Ví dụ: Nhóm lớp học hoặc tài khoản công ty"
+          >
+        </div>
+
+        <p id="create-step1-error" class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-create" data-i18n="dialogs.cancel">Hủy</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-create" data-i18n="dialogs.create.submit">Tiếp tục</button>
+        </div>
+      </form>
     </div>
-    <form method="dialog" id="create-profile-form" class="dialog-form">
-      <div class="form-field">
-        <label for="create-profile-name">Profile Display Name</label>
-        <input id="create-profile-name" name="name" type="text" required maxlength="64" placeholder="e.g. Đức - Công việc" autofocus>
-      </div>
-      <div class="form-field">
-        <label for="create-profile-notes">Notes (optional, non-secret)</label>
-        <input id="create-profile-notes" name="notes" type="text" maxlength="200" placeholder="Work account">
-      </div>
+
+    <div id="create-step-2" hidden>
+      <div class="step2-badge" id="create-step2-avatar" aria-hidden="true">Z</div>
+      <h2 class="modal-title" id="create-step2-title"></h2>
+      <p class="modal-subtitle" data-i18n="dialogs.create.step2Body">Không gian dữ liệu riêng đã được tạo. Hãy mở Zalo Desktop để đăng nhập tài khoản này.</p>
       <div class="dialog-actions">
-        <button type="submit" value="cancel" class="btn btn-secondary" formnovalidate>Cancel</button>
-        <button type="submit" value="create" class="btn btn-primary">Create Profile</button>
+        <button type="button" class="btn btn-secondary" id="btn-create-later" data-i18n="dialogs.create.step2Later">Để sau</button>
+        <button type="button" class="btn btn-primary" id="btn-create-launch" data-i18n="dialogs.create.step2Launch">Mở Zalo để đăng nhập</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Dialog 2: Rename Account -->
+  <dialog id="rename-profile-dialog" class="modal" aria-labelledby="rename-dialog-title">
+    <h2 id="rename-dialog-title" class="modal-title" data-i18n="dialogs.rename.title">Đổi tên tài khoản</h2>
+    <p class="modal-subtitle" id="rename-profile-subtitle"></p>
+    <form method="dialog" id="rename-profile-form">
+      <div class="form-field">
+        <label for="rename-profile-name" data-i18n="dialogs.rename.nameLabel">Tên mới</label>
+        <input type="text" id="rename-profile-name" required maxlength="80" autofocus>
+      </div>
+      <fieldset class="color-fieldset">
+        <legend data-i18n="dialogs.create.colorLabel">Màu nhận diện</legend>
+        <div class="color-palette" id="rename-color-palette"></div>
+      </fieldset>
+      <div class="dialog-actions">
+        <button type="submit" class="btn btn-secondary" value="cancel" formnovalidate data-i18n="dialogs.cancel">Hủy</button>
+        <button type="submit" class="btn btn-primary" value="rename" data-i18n="dialogs.rename.submit">Lưu tên mới</button>
       </div>
     </form>
   </dialog>
 
-  <!-- Rename Profile Modal -->
-  <dialog id="rename-profile-dialog" aria-labelledby="rename-profile-title" closedby="any">
-    <div class="dialog-header">
-      <h2 id="rename-profile-title">Rename Profile</h2>
-    </div>
-    <form method="dialog" id="rename-profile-form" class="dialog-form">
-      <p id="rename-profile-subtitle" class="dialog-copy"></p>
+  <!-- Dialog 3: Remove Account -->
+  <dialog id="delete-profile-dialog" class="modal" aria-labelledby="delete-dialog-title">
+    <h2 id="delete-dialog-title" class="modal-title" data-i18n="dialogs.delete.title">Xóa tài khoản này?</h2>
+    <p class="modal-warning" id="delete-profile-warning"></p>
+    <p class="modal-subtitle" data-i18n="dialogs.delete.confirmText">Hãy đóng Zalo trước khi xóa dữ liệu tài khoản.</p>
+    <form method="dialog" id="delete-profile-form">
+      <div class="dialog-actions">
+        <button type="submit" class="btn btn-secondary" value="cancel" autofocus data-i18n="dialogs.cancel">Hủy</button>
+        <button type="submit" class="btn btn-danger" value="delete" data-i18n="dialogs.delete.submit">Xóa tài khoản</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog 4: Restore Backup -->
+  <dialog id="restore-backup-dialog" class="modal" aria-labelledby="restore-dialog-title">
+    <h2 id="restore-dialog-title" class="modal-title" data-i18n="dialogs.restore.title">Khôi phục thành tài khoản mới</h2>
+    <p class="modal-subtitle" id="restore-backup-subtitle"></p>
+    <form method="dialog" id="restore-backup-form">
       <div class="form-field">
-        <label for="rename-profile-name">New Display Name</label>
-        <input id="rename-profile-name" name="newName" type="text" required maxlength="64" autofocus>
+        <label for="restore-profile-name" data-i18n="dialogs.restore.nameLabel">Tên tài khoản mới (không bắt buộc)</label>
+        <input
+          type="text"
+          id="restore-profile-name"
+          maxlength="80"
+          autofocus
+          data-i18n-placeholder="dialogs.restore.namePlaceholder"
+          placeholder="Để trống để tự động đặt tên"
+        >
       </div>
       <div class="dialog-actions">
-        <button type="submit" value="cancel" class="btn btn-secondary" formnovalidate>Cancel</button>
-        <button type="submit" value="rename" class="btn btn-primary">Save Name</button>
+        <button type="submit" class="btn btn-secondary" value="cancel" formnovalidate data-i18n="dialogs.cancel">Hủy</button>
+        <button type="submit" class="btn btn-primary" value="restore" data-i18n="dialogs.restore.submit">Khôi phục</button>
       </div>
     </form>
   </dialog>
 
-  <!-- Delete Profile Confirmation Modal (safe Cancel button gets autofocus) -->
-  <dialog id="delete-profile-dialog" aria-labelledby="delete-profile-title">
-    <div class="dialog-header">
-      <h2 id="delete-profile-title">Delete Profile &amp; Isolated Data?</h2>
-    </div>
-    <form method="dialog" id="delete-profile-form" class="dialog-form">
-      <p id="delete-profile-warning" class="dialog-copy">This permanently removes the isolated directory and unlinks any NTFS junctions safely. Primary Zalo data is never touched.</p>
+  <!-- Dialog 5: Account Info (Progressive Disclosure) -->
+  <dialog id="profile-details-dialog" class="modal modal-wide" aria-labelledby="details-dialog-title">
+    <h2 id="details-dialog-title" class="modal-title" data-i18n="accounts.details.title">Thông tin tài khoản</h2>
+    <p class="modal-subtitle" data-i18n="accounts.details.subtitle">Thông tin lưu trữ và phiên chạy của tài khoản này.</p>
+    <dl class="kv-list" id="profile-details-list"></dl>
+    <details class="advanced-details">
+      <summary data-i18n="accounts.details.technicalSummary">Thông tin nâng cao</summary>
+      <dl class="kv-list kv-list-spaced" id="profile-details-advanced-list"></dl>
+    </details>
+    <form method="dialog">
       <div class="dialog-actions">
-        <button type="submit" value="cancel" class="btn btn-secondary" autofocus>Cancel</button>
-        <button type="submit" value="delete" class="btn btn-danger">Delete Profile</button>
+        <button type="submit" class="btn btn-primary" value="close" autofocus data-i18n="dialogs.close">Đóng</button>
       </div>
     </form>
-  </dialog>
-
-  <!-- Restore Backup Modal -->
-  <dialog id="restore-backup-dialog" aria-labelledby="restore-backup-title" closedby="any">
-    <div class="dialog-header">
-      <h2 id="restore-backup-title">Restore Backup to New Profile</h2>
-    </div>
-    <form method="dialog" id="restore-backup-form" class="dialog-form">
-      <p id="restore-backup-subtitle" class="dialog-copy">Non-destructive restore verifies SHA-256 checksums and always creates a new profile.</p>
-      <div class="form-field">
-        <label for="restore-profile-name">New Profile Name (optional)</label>
-        <input id="restore-profile-name" name="restoredName" type="text" maxlength="64" placeholder="Leave blank for automatic name" autofocus>
-      </div>
-      <div class="dialog-actions">
-        <button type="submit" value="cancel" class="btn btn-secondary" formnovalidate>Cancel</button>
-        <button type="submit" value="restore" class="btn btn-primary">Verify &amp; Restore</button>
-      </div>
-    </form>
-  </dialog>
-
-  <!-- Safety Specification Modal (uses declarative command="close" outside <form>) -->
-  <dialog id="safety-dialog" aria-labelledby="safety-dialog-title" closedby="any">
-    <div class="dialog-header">
-      <h2 id="safety-dialog-title">Isolation &amp; Security Guarantees</h2>
-    </div>
-    <div class="dialog-body">
-      <ul class="safety-list">
-        <li><strong>Non-privileged execution:</strong> Runs strictly as standard user (<code>asInvoker</code>), zero drivers or HKLM writes.</li>
-        <li><strong>Primary Zalo protection:</strong> Inspects <code>%APPDATA%\ZaloData\lockfile</code> via Restart Manager and blocks any stop/kill targeting primary PIDs.</li>
-        <li><strong>Duplicate account guard:</strong> Blocks launching two profiles with the same logged-in <code>zalo_user_id</code> simultaneously.</li>
-        <li><strong>Offline atomic backups:</strong> Staged via <code>.partial</code> with SHA-256 <code>backup.json</code>; restores strictly into a new profile.</li>
-        <li><strong>Known OS limits:</strong> Concurrent voice/video calls remain blocked by global named pipe <code>PipeZCallRecv</code>; notifications share AUMID <code>com.vng.zalo</code>.</li>
-      </ul>
-      <div class="dialog-actions">
-        <button type="button" class="btn btn-primary" command="close" commandfor="safety-dialog" autofocus>Close</button>
-      </div>
-    </div>
   </dialog>
 
   <script type="module" src="./app.js"></script>
