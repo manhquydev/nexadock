@@ -280,13 +280,43 @@ pub async fn stop_profile(
 }
 
 #[tauri::command]
+pub async fn stop_all_profiles(
+    state: State<'_, AppState>,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app.coordinator.stop_all_secondary_profiles() {
+            Ok(stopped) => {
+                let items: Vec<serde_json::Value> = stopped
+                    .iter()
+                    .map(|(pid, count)| {
+                        serde_json::json!({ "profile_id": pid, "terminated_process_count": count })
+                    })
+                    .collect();
+                ApiEnvelope::ok(
+                    format!("Stopped {} secondary profile(s).", items.len()),
+                    serde_json::json!({
+                        "stopped_profiles_count": items.len(),
+                        "stopped_profiles": items,
+                    }),
+                )
+            }
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
+}
+
+#[tauri::command]
 pub async fn backup_profile(
     state: State<'_, AppState>,
     id: String,
+    allow_external_db_omit: Option<bool>,
 ) -> Result<ApiEnvelope<dim_core::BackupResult>, String> {
     let app = state.inner().clone();
     Ok(tauri::async_runtime::spawn_blocking(move || {
-        match app.backup_profile_synchronized(&id) {
+        match app.backup_profile_synchronized(&id, allow_external_db_omit.unwrap_or(false)) {
             Ok(bk) => ApiEnvelope::ok("Created offline atomic backup.", bk),
             Err(err) => ApiEnvelope::err(&err),
         }

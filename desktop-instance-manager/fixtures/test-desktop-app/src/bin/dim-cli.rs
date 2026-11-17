@@ -28,6 +28,7 @@ struct CliFlags {
     node_fixture: bool,
     with_size: bool,
     confirm: bool,
+    allow_external_db_omit: bool,
     crash: bool,
     crash_delay_ms: Option<u64>,
     dest: Option<PathBuf>,
@@ -81,6 +82,7 @@ fn parse_args<I: Iterator<Item = String>>(iter: I) -> CliFlags {
         node_fixture: false,
         with_size: false,
         confirm: false,
+        allow_external_db_omit: false,
         crash: false,
         crash_delay_ms: None,
         dest: None,
@@ -117,6 +119,9 @@ fn parse_args<I: Iterator<Item = String>>(iter: I) -> CliFlags {
             "--node-fixture" => flags.node_fixture = true,
             "--with-size" => flags.with_size = true,
             "--confirm" => flags.confirm = true,
+            "--allow-external-db-omit" | "--allow-incomplete-external-db" => {
+                flags.allow_external_db_omit = true;
+            }
             "--crash" => flags.crash = true,
             "--crash-delay-ms" if i + 1 < args.len() => {
                 i += 1;
@@ -271,6 +276,20 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
                 }),
             ))
         }
+        "stop-all" => {
+            let stopped = coordinator.stop_all_secondary_profiles()?;
+            let items: Vec<Value> = stopped
+                .iter()
+                .map(|(pid, count)| json!({ "profile_id": pid, "terminated_process_count": count }))
+                .collect();
+            Ok(envelope_ok(
+                format!("Stopped {} secondary profile(s).", items.len()),
+                json!({
+                    "stopped_profiles_count": items.len(),
+                    "stopped_profiles": items,
+                }),
+            ))
+        }
         "backup" => {
             let id = flags
                 .positional
@@ -279,7 +298,14 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
             let profile = store.get_profile(id)?;
             let dir = store.profile_dir_for(&profile)?;
             let rt = adapter.inspect_profile(&profile, &dir)?;
-            let bk = backups.backup_profile(&profile, &dir, flags.dest.as_deref(), rt.running)?;
+            let external_omitted = !dim_core::external_paths_for_profile_all_layouts(&dir).is_empty();
+            let bk = backups.backup_profile_with_options(
+                &profile,
+                &dir,
+                flags.dest.as_deref(),
+                rt.running,
+                flags.allow_external_db_omit,
+            )?;
             let backup_name = bk
                 .backup_dir
                 .file_name()
@@ -294,6 +320,7 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
                     "manifest_path": bk.manifest_path,
                     "file_count": bk.manifest.file_count,
                     "total_bytes": bk.manifest.total_bytes,
+                    "external_db_omitted": external_omitted,
                 }),
             ))
         }

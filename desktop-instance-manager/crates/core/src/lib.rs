@@ -39,7 +39,10 @@ pub use traits::{
     ProfileStore, RecoveryManager,
 };
 pub use zalo_identity::{
-    check_duplicate_zalo_user_id, detect_zalo_user_id, is_valid_zalo_user_id, MIN_ZALO_USER_ID_LEN,
+    check_duplicate_zalo_user_id, detect_zalo_user_id, external_paths_for_profile_all_layouts,
+    external_paths_outside_profile, is_path_truly_contained_in_profile, is_valid_zalo_user_id,
+    paths_overlap_or_equal, read_configured_external_paths, resolve_effective_path,
+    ConfiguredExternalPaths, MIN_ZALO_USER_ID_LEN,
 };
 pub use fs_lock::{
     clean_stale_temp_files, unique_temp_file_path, write_bytes_atomic, AdvisoryFileLock,

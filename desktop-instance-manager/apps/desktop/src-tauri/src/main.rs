@@ -18,6 +18,7 @@ fn main() {
             commands::launch_profile,
             commands::focus_profile,
             commands::stop_profile,
+            commands::stop_all_profiles,
             commands::backup_profile,
             commands::list_backups,
             commands::restore_backup,

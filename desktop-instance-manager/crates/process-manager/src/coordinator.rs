@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -18,7 +18,10 @@ use dim_core::{
 };
 use dim_profile_store::{is_symlink_or_reparse, verify_profile_id_marker, JsonProfileStore};
 
-use crate::guard::{PrimaryProtectionGuard, DEFAULT_GRACEFUL_QUIT_TIMEOUT_MS};
+use crate::guard::{
+    ExternalStorageGuard, PrimaryProtectionGuard, RunningProfileStorageRef,
+    DEFAULT_GRACEFUL_QUIT_TIMEOUT_MS,
+};
 use crate::recovery::StaleLockRecoveryManager;
 
 #[derive(Debug, Clone)]
@@ -27,6 +30,7 @@ enum CoalescedLaunchError {
     ProfileRunning(String),
     MarkerMismatch { expected: String, actual: String },
     DuplicateUid { user_id: String, running_profile: String },
+    SharedExternalDb { path: String, owner: String },
     InsufficientDisk { path: String, available: u64, required: u64 },
     FolderRedirection(String),
     InstallNotFound(String),
@@ -52,6 +56,13 @@ impl CoalescedLaunchError {
             } => Self::DuplicateUid {
                 user_id: user_id.clone(),
                 running_profile: running_profile.clone(),
+            },
+            DimError::SharedExternalDbPath {
+                path,
+                conflicting_owner,
+            } => Self::SharedExternalDb {
+                path: path.clone(),
+                owner: conflicting_owner.clone(),
             },
             DimError::InsufficientDiskSpace {
                 path,
@@ -85,6 +96,10 @@ impl CoalescedLaunchError {
             } => DimError::DuplicateZaloUserId {
                 user_id,
                 running_profile,
+            },
+            Self::SharedExternalDb { path, owner } => DimError::SharedExternalDbPath {
+                path,
+                conflicting_owner: owner,
             },
             Self::InsufficientDisk {
                 path,
@@ -161,6 +176,7 @@ pub struct InstanceCoordinator<A> {
     adapter: Arc<A>,
     recovery: StaleLockRecoveryManager,
     profile_sync: Mutex<HashMap<String, Arc<ProfileSyncEntry>>>,
+    protected_zalo_data_dirs: Vec<PathBuf>,
 }
 
 impl<A> std::fmt::Debug for InstanceCoordinator<A> {
@@ -183,7 +199,16 @@ where
             adapter,
             recovery: StaleLockRecoveryManager,
             profile_sync: Mutex::new(HashMap::new()),
+            protected_zalo_data_dirs: Vec::new(),
         }
+    }
+
+    /// Registers an explicit protected `ZaloData` directory (e.g. synthetic primary path in tests)
+    /// whose configured external DB/resource paths must never be shared with secondary profiles.
+    #[must_use]
+    pub fn with_protected_zalo_data_dir(mut self, zalo_data_dir: PathBuf) -> Self {
+        self.protected_zalo_data_dirs.push(zalo_data_dir);
+        self
     }
 
     fn sync_entry_for(&self, canonical_profile_id: &str) -> Result<Arc<ProfileSyncEntry>, DimError> {
@@ -353,6 +378,11 @@ where
         let free_bytes = self.adapter.free_disk_bytes(&profile_dir)?;
         ensure_min_free_disk_space(&profile_dir, free_bytes, 0)?;
 
+        self.enforce_no_shared_external_storage(
+            &profile,
+            &profile_dir,
+            &runtime_before.zalo_data_dir,
+        )?;
         self.enforce_unique_zalo_user_id(&profile, &runtime_before.zalo_data_dir)?;
 
         if entry.is_stop_requested() {
@@ -449,6 +479,20 @@ where
         }
 
         res
+    }
+
+    /// Gracefully stops all currently running secondary profiles while leaving primary Zalo Desktop
+    /// completely untouched (`IR-WIN-04` / `F-CORE-02` safe upgrade preparation).
+    pub fn stop_all_secondary_profiles(&self) -> Result<Vec<(String, u32)>, DimError> {
+        let profiles = self.store.list_profiles()?;
+        let mut outcomes = Vec::new();
+        for rec in profiles {
+            let count = self.stop_profile(&rec.id)?;
+            if count > 0 {
+                outcomes.push((rec.id, count));
+            }
+        }
+        Ok(outcomes)
     }
 
     /// Deletes a stopped profile after unlinking any junctions/symlinks safely.
@@ -890,6 +934,53 @@ where
         }
 
         Ok(())
+    }
+
+    fn enforce_no_shared_external_storage(
+        &self,
+        target: &ProfileRecord,
+        target_profile_dir: &Path,
+        target_zalo_data_dir: &Path,
+    ) -> Result<(), DimError> {
+        let all_profiles = self.store.list_profiles()?;
+        let mut running_others = Vec::new();
+
+        for other in all_profiles {
+            if other.id.eq_ignore_ascii_case(&target.id) {
+                continue;
+            }
+            let Ok(other_dir) = self.store.profile_dir_for(&other) else {
+                continue;
+            };
+            let Ok(state) = self.adapter.inspect_profile(&other, &other_dir) else {
+                continue;
+            };
+            if state.running {
+                running_others.push(RunningProfileStorageRef {
+                    owner_label: format!("{} ({})", other.name, other.id),
+                    profile_dir: other_dir,
+                    zalo_data_dir: state.zalo_data_dir,
+                });
+            }
+        }
+
+        let mut protected_dirs = self.protected_zalo_data_dirs.clone();
+        if let Some(env_prim) = std::env::var_os("DIM_PROTECTED_PRIMARY_ZALO_DATA") {
+            if !env_prim.is_empty() {
+                protected_dirs.push(PathBuf::from(env_prim));
+            }
+        } else if let Ok(primary) = self.adapter.inspect_primary() {
+            if !primary.zalo_data_dir.as_os_str().is_empty() {
+                protected_dirs.push(primary.zalo_data_dir);
+            }
+        }
+
+        ExternalStorageGuard::ensure_no_shared_external_paths(
+            target_profile_dir,
+            target_zalo_data_dir,
+            &running_others,
+            &protected_dirs,
+        )
     }
 }
 

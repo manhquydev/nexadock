@@ -8,8 +8,9 @@ pub mod win32_ffi;
 pub use adapter::WindowsPlatformAdapter;
 pub use layout::{
     build_isolated_env_map, build_windows_command_line, compare_versions,
-    encode_windows_env_block_utf16, ensure_windows_profile_layout, has_pe_authenticode_table,
-    is_appdata_redirected, parse_version_parts, quote_windows_arg, windows_zalo_data_dir,
+    configure_windows_host_folder_links, encode_windows_env_block_utf16,
+    ensure_windows_profile_layout, has_pe_authenticode_table, is_appdata_redirected,
+    parse_version_parts, quote_windows_arg, windows_zalo_data_dir,
 };
 
 #[cfg(test)]

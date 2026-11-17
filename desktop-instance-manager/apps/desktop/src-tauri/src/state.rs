@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dim_core::{
-    AdvisoryFileLock, BackupManager, BackupResult, DimError, InstanceMonitor,
-    PlatformCapabilities, ProfileLifecycleState, ProfileStore, PROFILE_OP_LOCK_FILE,
+    AdvisoryFileLock, BackupResult, DimError, InstanceMonitor, PlatformCapabilities,
+    ProfileLifecycleState, ProfileStore, PROFILE_OP_LOCK_FILE,
 };
 use dim_process_manager::InstanceCoordinator;
 use dim_profile_store::{FileBackupManager, JsonProfileStore};
@@ -69,7 +69,11 @@ impl AppState {
 
     /// Creates an offline atomic backup synchronized on the target profile's `.dim-profile.lock`
     /// so concurrent launches/deletes on the same profile serialize cleanly without blocking other profiles.
-    pub fn backup_profile_synchronized(&self, id: &str) -> Result<BackupResult, DimError> {
+    pub fn backup_profile_synchronized(
+        &self,
+        id: &str,
+        allow_external_db_omit: bool,
+    ) -> Result<BackupResult, DimError> {
         let initial_profile = self.store.get_profile(id)?;
         let dir = self.store.profile_dir_for(&initial_profile)?;
 
@@ -85,8 +89,13 @@ impl AppState {
         let profile = self.store.get_profile(id)?;
         let rt = self.adapter.inspect_profile(&profile, &dir)?;
         let is_active_or_unclean = rt.running || rt.lifecycle_state() != ProfileLifecycleState::Stopped;
-        self.backups
-            .backup_profile(&profile, &dir, None, is_active_or_unclean)
+        self.backups.backup_profile_with_options(
+            &profile,
+            &dir,
+            None,
+            is_active_or_unclean,
+            allow_external_db_omit,
+        )
     }
 }
 

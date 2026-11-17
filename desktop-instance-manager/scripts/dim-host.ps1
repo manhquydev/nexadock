@@ -208,6 +208,27 @@ namespace DesktopInstanceManager.Host
             string lpNewFileName,
             uint dwFlags);
 
+        public const uint FILE_SHARE_READ_WRITE_DELETE = 0x00000007;
+        public const uint OPEN_EXISTING = 3;
+        public const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
+            string lpFileName,
+            uint dwDesiredAccess,
+            uint dwShareMode,
+            IntPtr lpSecurityAttributes,
+            uint dwCreationDisposition,
+            uint dwFlagsAndAttributes,
+            IntPtr hTemplateFile);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern uint GetFinalPathNameByHandleW(
+            Microsoft.Win32.SafeHandles.SafeFileHandle hFile,
+            StringBuilder lpszFilePath,
+            uint cchFilePath,
+            uint dwFlags);
+
         [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
         public static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
 
@@ -1659,6 +1680,207 @@ namespace DesktopInstanceManager.Host
             }
         }
 
+        private static string StripVerbatimPrefix(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return string.Empty;
+            if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+            {
+                return @"\\" + path.Substring(8);
+            }
+            if (path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+            {
+                return path.Substring(4);
+            }
+            return path;
+        }
+
+        private static string TryGetFinalPathByHandle(string existingPath)
+        {
+            try
+            {
+                using (Microsoft.Win32.SafeHandles.SafeFileHandle h = NativeWin32.CreateFileW(
+                    existingPath,
+                    0u,
+                    NativeWin32.FILE_SHARE_READ_WRITE_DELETE,
+                    IntPtr.Zero,
+                    NativeWin32.OPEN_EXISTING,
+                    NativeWin32.FILE_FLAG_BACKUP_SEMANTICS,
+                    IntPtr.Zero))
+                {
+                    if (h == null || h.IsInvalid) return null;
+                    StringBuilder sb = new StringBuilder(2048);
+                    uint len = NativeWin32.GetFinalPathNameByHandleW(h, sb, (uint)sb.Capacity, 0u);
+                    if (len > 0 && len < sb.Capacity)
+                    {
+                        return StripVerbatimPrefix(sb.ToString());
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
+        private static string ResolveEffectivePath(string baseDir, string candidate)
+        {
+            string raw = StripVerbatimPrefix((candidate ?? string.Empty).Trim());
+            string baseClean = StripVerbatimPrefix((baseDir ?? string.Empty).Trim());
+            string combined = Path.IsPathRooted(raw) ? raw : Path.Combine(baseClean, raw);
+            string lexical = StripVerbatimPrefix(Path.GetFullPath(combined));
+
+            if (Directory.Exists(lexical) || File.Exists(lexical))
+            {
+                string directFinal = TryGetFinalPathByHandle(lexical);
+                if (!string.IsNullOrEmpty(directFinal))
+                {
+                    return Path.GetFullPath(directFinal).TrimEnd('\\', '/');
+                }
+            }
+
+            string root = Path.GetPathRoot(lexical) ?? string.Empty;
+            string remainder = lexical.Substring(root.Length).TrimStart('\\', '/');
+            string[] parts = remainder.Length == 0
+                ? new string[0]
+                : remainder.Split(new char[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            string cur = root;
+            int deepestIdx = -1;
+            string deepestResolved = root;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                cur = Path.Combine(cur, parts[i]);
+                if (Directory.Exists(cur) || File.Exists(cur))
+                {
+                    string resolvedCur = TryGetFinalPathByHandle(cur);
+                    if (!string.IsNullOrEmpty(resolvedCur))
+                    {
+                        cur = Path.GetFullPath(resolvedCur);
+                    }
+                    deepestIdx = i;
+                    deepestResolved = cur;
+                }
+            }
+
+            if (deepestIdx >= 0)
+            {
+                string result = deepestResolved;
+                for (int j = deepestIdx + 1; j < parts.Length; j++)
+                {
+                    result = Path.Combine(result, parts[j]);
+                }
+                return Path.GetFullPath(result).TrimEnd('\\', '/');
+            }
+
+            return lexical.TrimEnd('\\', '/');
+        }
+
+        private static bool IsPathTrulyContainedInProfile(string profilePath, string candidatePath)
+        {
+            string resolvedProf = ResolveEffectivePath(profilePath, profilePath);
+            string resolvedCand = ResolveEffectivePath(profilePath, candidatePath);
+            if (string.IsNullOrEmpty(resolvedProf) || string.IsNullOrEmpty(resolvedCand)) return false;
+            if (string.Equals(resolvedCand, resolvedProf, StringComparison.OrdinalIgnoreCase)) return true;
+            return resolvedCand.StartsWith(resolvedProf + "\\", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool PathsOverlapOrEqual(string resolvedA, string resolvedB)
+        {
+            if (string.IsNullOrEmpty(resolvedA) || string.IsNullOrEmpty(resolvedB)) return false;
+            string a = resolvedA.TrimEnd('\\', '/');
+            string b = resolvedB.TrimEnd('\\', '/');
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+            return a.StartsWith(b + "\\", StringComparison.OrdinalIgnoreCase) ||
+                   b.StartsWith(a + "\\", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static List<string> ReadConfiguredStorageLocationsRaw(string zaloDataPath)
+        {
+            List<string> rawList = new List<string>();
+            if (string.IsNullOrEmpty(zaloDataPath)) return rawList;
+            string cfgPath = Path.Combine(zaloDataPath, "config.json");
+            if (!File.Exists(cfgPath)) return rawList;
+            try
+            {
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                Dictionary<string, object> cfg = ser.Deserialize<Dictionary<string, object>>(File.ReadAllText(cfgPath, Encoding.UTF8));
+                if (cfg == null) return rawList;
+
+                if (cfg.ContainsKey("db_path") && cfg["db_path"] != null)
+                {
+                    Dictionary<string, object> dbObj = cfg["db_path"] as Dictionary<string, object>;
+                    if (dbObj != null && dbObj.ContainsKey("location") && dbObj["location"] != null)
+                    {
+                        string loc = dbObj["location"].ToString().Trim();
+                        if (loc.Length > 0) rawList.Add(Path.IsPathRooted(loc) ? loc : Path.Combine(zaloDataPath, loc));
+                    }
+                    else if (cfg["db_path"] is string)
+                    {
+                        string loc = cfg["db_path"].ToString().Trim();
+                        if (loc.Length > 0) rawList.Add(Path.IsPathRooted(loc) ? loc : Path.Combine(zaloDataPath, loc));
+                    }
+                }
+
+                if (cfg.ContainsKey("resource") && cfg["resource"] is Dictionary<string, object>)
+                {
+                    Dictionary<string, object> resObj = (Dictionary<string, object>)cfg["resource"];
+                    if (resObj.ContainsKey("location") && resObj["location"] != null)
+                    {
+                        Dictionary<string, object> locObj = resObj["location"] as Dictionary<string, object>;
+                        if (locObj != null && locObj.ContainsKey("path") && locObj["path"] != null)
+                        {
+                            string p = locObj["path"].ToString().Trim();
+                            if (p.Length > 0) rawList.Add(Path.IsPathRooted(p) ? p : Path.Combine(zaloDataPath, p));
+                        }
+                        else if (resObj["location"] is string)
+                        {
+                            string p = resObj["location"].ToString().Trim();
+                            if (p.Length > 0) rawList.Add(Path.IsPathRooted(p) ? p : Path.Combine(zaloDataPath, p));
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return rawList;
+        }
+
+        private static List<string> GetExternalPathsOutsideProfile(string profilePath)
+        {
+            List<string> externals = new List<string>();
+            string[] zdirs = new string[]
+            {
+                Path.Combine(profilePath, "AppData", "Roaming", "ZaloData"),
+                Path.Combine(profilePath, "Library", "Application Support", "ZaloData"),
+                Path.Combine(profilePath, ".config", "ZaloData")
+            };
+
+            for (int z = 0; z < zdirs.Length; z++)
+            {
+                string zdir = zdirs[z];
+                List<string> rawPaths = ReadConfiguredStorageLocationsRaw(zdir);
+                for (int i = 0; i < rawPaths.Count; i++)
+                {
+                    string resolved = ResolveEffectivePath(zdir, rawPaths[i]);
+                    if (!IsPathTrulyContainedInProfile(profilePath, resolved))
+                    {
+                        bool seen = false;
+                        for (int k = 0; k < externals.Count; k++)
+                        {
+                            if (string.Equals(externals[k], resolved, StringComparison.OrdinalIgnoreCase))
+                            {
+                                seen = true;
+                                break;
+                            }
+                        }
+                        if (!seen) externals.Add(resolved);
+                    }
+                }
+            }
+            return externals;
+        }
+
         private static string DetectZaloUserId(string zaloDataPath)
         {
             try
@@ -1965,7 +2187,15 @@ namespace DesktopInstanceManager.Host
             Directory.CreateDirectory(media);
             Directory.CreateDirectory(localTemp);
             Directory.CreateDirectory(documents);
-            Directory.CreateDirectory(desktop);
+            string[] userFolders = new string[] { "Desktop", "Downloads", "Pictures", "Videos", "Music" };
+            for (int i = 0; i < userFolders.Length; i++)
+            {
+                string uf = Path.Combine(profilePath, userFolders[i]);
+                if (!Directory.Exists(uf) && !File.Exists(uf) && !IsReparsePoint(uf))
+                {
+                    Directory.CreateDirectory(uf);
+                }
+            }
 
             string zmetaPath = Path.Combine(roaming, "zmeta.json");
             if (!File.Exists(zmetaPath))
@@ -2522,6 +2752,77 @@ namespace DesktopInstanceManager.Host
                 return FocusProfileInternal(target, runtime, install);
             }
 
+            // External DB / resource collision guard (IR-WIN-04 / F-CORE-01) — runs before UID check
+            // because sharing an external DB directory also exposes the owner's `_production/<uid>`.
+            List<string> targetExtPaths = GetExternalPathsOutsideProfile(profilePath);
+            string resolvedTargetProf = ResolveEffectivePath(profilePath, profilePath);
+            for (int i = 0; i < store.profiles.Count; i++)
+            {
+                ProfileRecord other = store.profiles[i];
+                if (string.Equals(other.id, target.id, StringComparison.OrdinalIgnoreCase)) continue;
+                Dictionary<string, object> otherRuntime = InspectProfileRuntime(other, snap, false);
+                if (!(bool)otherRuntime["running"]) continue;
+
+                string otherProfPath = GetProfilePath(other);
+                string resolvedOtherProf = ResolveEffectivePath(otherProfPath, otherProfPath);
+                List<string> otherExtPaths = GetExternalPathsOutsideProfile(otherProfPath);
+
+                for (int tIdx = 0; tIdx < targetExtPaths.Count; tIdx++)
+                {
+                    string tExt = targetExtPaths[tIdx];
+                    if (PathsOverlapOrEqual(tExt, resolvedOtherProf))
+                    {
+                        return Fail("SHARED_EXTERNAL_DB_PATH",
+                            "External Zalo storage path '" + tExt + "' overlaps running profile '" + other.name + "'.");
+                    }
+                    for (int oIdx = 0; oIdx < otherExtPaths.Count; oIdx++)
+                    {
+                        if (PathsOverlapOrEqual(tExt, otherExtPaths[oIdx]))
+                        {
+                            return Fail("SHARED_EXTERNAL_DB_PATH",
+                                "External Zalo storage path '" + tExt + "' is already used by running profile '" + other.name + "'.");
+                        }
+                    }
+                }
+                for (int oIdx = 0; oIdx < otherExtPaths.Count; oIdx++)
+                {
+                    if (PathsOverlapOrEqual(otherExtPaths[oIdx], resolvedTargetProf))
+                    {
+                        return Fail("SHARED_EXTERNAL_DB_PATH",
+                            "Running profile '" + other.name + "' uses external storage overlapping '" + target.name + "'.");
+                    }
+                }
+            }
+
+            if (targetExtPaths.Count > 0)
+            {
+                string envPrimZalo = Environment.GetEnvironmentVariable("DIM_PROTECTED_PRIMARY_ZALO_DATA");
+                string primZaloDir = !string.IsNullOrWhiteSpace(envPrimZalo)
+                    ? envPrimZalo.Trim()
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZaloData");
+                if (!string.IsNullOrEmpty(primZaloDir))
+                {
+                    List<string> primProtected = new List<string>();
+                    primProtected.Add(ResolveEffectivePath(primZaloDir, primZaloDir));
+                    List<string> primRawExt = ReadConfiguredStorageLocationsRaw(primZaloDir);
+                    for (int pIdx = 0; pIdx < primRawExt.Count; pIdx++)
+                    {
+                        primProtected.Add(ResolveEffectivePath(primZaloDir, primRawExt[pIdx]));
+                    }
+                    for (int tIdx = 0; tIdx < targetExtPaths.Count; tIdx++)
+                    {
+                        for (int pIdx = 0; pIdx < primProtected.Count; pIdx++)
+                        {
+                            if (PathsOverlapOrEqual(targetExtPaths[tIdx], primProtected[pIdx]))
+                            {
+                                return Fail("SHARED_EXTERNAL_DB_PATH",
+                                    "External Zalo storage path '" + targetExtPaths[tIdx] + "' is already used by Primary Zalo Desktop.");
+                            }
+                        }
+                    }
+                }
+            }
+
             // Duplicate zalo_user_id guard
             string zaloDataPath = Path.Combine(profilePath, "AppData", "Roaming", "ZaloData");
             string explicitUid = !string.IsNullOrWhiteSpace(fixtureUserId) ? fixtureUserId.Trim() : null;
@@ -2946,6 +3247,32 @@ namespace DesktopInstanceManager.Host
             }
         }
 
+        public Dictionary<string, object> StopAllProfiles(string appPath, bool nodeFixture)
+        {
+            ProfileStoreFile store = LoadStore();
+            List<Dictionary<string, object>> stoppedItems = new List<Dictionary<string, object>>();
+            for (int i = 0; i < store.profiles.Count; i++)
+            {
+                ProfileRecord rec = store.profiles[i];
+                Dictionary<string, object> res = StopProfile(rec.id, appPath, nodeFixture);
+                if (res != null && res.ContainsKey("ok") && (bool)res["ok"] && res["data"] is Dictionary<string, object>)
+                {
+                    Dictionary<string, object> d = (Dictionary<string, object>)res["data"];
+                    if (d.ContainsKey("stopped_main_pid"))
+                    {
+                        Dictionary<string, object> item = new Dictionary<string, object>();
+                        item["profile_id"] = rec.id;
+                        item["terminated_process_count"] = d.ContainsKey("terminated_process_count") ? d["terminated_process_count"] : 1;
+                        stoppedItems.Add(item);
+                    }
+                }
+            }
+            Dictionary<string, object> outData = new Dictionary<string, object>();
+            outData["stopped_profiles_count"] = stoppedItems.Count;
+            outData["stopped_profiles"] = stoppedItems;
+            return Ok("Stopped " + stoppedItems.Count + " secondary profile(s).", outData);
+        }
+
         private static bool IsPidStillAlive(int pid)
         {
             if (pid <= 0) return false;
@@ -2962,6 +3289,11 @@ namespace DesktopInstanceManager.Host
 
         public Dictionary<string, object> BackupProfile(string idOrName, string customDest)
         {
+            return BackupProfile(idOrName, customDest, false);
+        }
+
+        public Dictionary<string, object> BackupProfile(string idOrName, string customDest, bool allowExternalDbOmit)
+        {
             ProfileStoreFile store = LoadStore();
             ProfileRecord target = FindProfile(store, idOrName);
             if (target == null) return Fail("NOT_FOUND", "Profile not found.");
@@ -2971,6 +3303,16 @@ namespace DesktopInstanceManager.Host
             if ((bool)runtime["running"])
             {
                 return Fail("PROFILE_RUNNING", "Stop profile '" + target.name + "' before creating an offline backup.");
+            }
+
+            string profilePathForExt = GetProfilePath(target);
+            List<string> externalPaths = GetExternalPathsOutsideProfile(profilePathForExt);
+            if (externalPaths.Count > 0 && !allowExternalDbOmit)
+            {
+                return Fail("EXTERNAL_DB_OUTSIDE_PROFILE",
+                    "Profile '" + target.name + "' stores Zalo database/resources outside its isolated directory (" +
+                    string.Join(", ", externalPaths.ToArray()) +
+                    "); pass --allow-external-db-omit to back up profile-local files only.");
             }
 
             string destRoot = _backupsRoot;
@@ -3032,6 +3374,11 @@ namespace DesktopInstanceManager.Host
                 manifest["file_count"] = manifestFiles.Count;
                 manifest["total_bytes"] = totalBytes;
                 manifest["files"] = manifestFiles;
+                if (externalPaths.Count > 0)
+                {
+                    manifest["external_db_omitted"] = true;
+                    manifest["omitted_external_paths"] = externalPaths;
+                }
 
                 File.WriteAllText(Path.Combine(partialDir, "backup.json"), PrettyPrintJson(_json.Serialize(manifest)), new UTF8Encoding(false));
                 Directory.Move(partialDir, finalDir);
@@ -3048,6 +3395,7 @@ namespace DesktopInstanceManager.Host
             resultData["backup_id"] = backupId;
             resultData["backup_dir"] = finalDir;
             resultData["backup_name"] = backupName;
+            resultData["external_db_omitted"] = externalPaths.Count > 0;
             resultData["manifest_path"] = Path.Combine(finalDir, "backup.json");
             resultData["file_count"] = manifestFiles.Count;
             resultData["total_bytes"] = totalBytes;
@@ -3576,6 +3924,7 @@ namespace DesktopInstanceManager.Host
             bool nodeFixture = false;
             bool withSize = false;
             bool confirm = false;
+            bool allowExternalDbOmit = false;
             bool crash = false;
             int crashDelayMs = 0;
             string dest = null;
@@ -3604,6 +3953,7 @@ namespace DesktopInstanceManager.Host
                 if (a == "--node-fixture") { nodeFixture = true; continue; }
                 if (a == "--with-size") { withSize = true; continue; }
                 if (a == "--confirm") { confirm = true; continue; }
+                if (a == "--allow-external-db-omit" || a == "--allow-incomplete-external-db") { allowExternalDbOmit = true; continue; }
                 if (a == "--crash") { crash = true; continue; }
                 if (a == "--crash-delay-ms" && i + 1 < args.Length)
                 {
@@ -3654,10 +4004,11 @@ namespace DesktopInstanceManager.Host
                     if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: stop <id>");
                     else output = StopProfile(positional[1], appPath, nodeFixture);
                 }
+                else if (cmd == "stop-all") output = StopAllProfiles(appPath, nodeFixture);
                 else if (cmd == "backup")
                 {
-                    if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: backup <id> [--dest <dir>]");
-                    else output = BackupProfile(positional[1], dest);
+                    if (positional.Count < 2) output = Fail("NOT_FOUND", "Usage: backup <id> [--dest <dir>] [--allow-external-db-omit]");
+                    else output = BackupProfile(positional[1], dest, allowExternalDbOmit);
                 }
                 else if (cmd == "restore")
                 {

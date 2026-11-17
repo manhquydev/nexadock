@@ -65,15 +65,17 @@ impl FileBackupManager {
         }
         Ok(())
     }
-}
 
-impl BackupManager for FileBackupManager {
-    fn backup_profile(
+    /// Creates an offline atomic backup, rejecting profiles whose `config.json` configures
+    /// `db_path.location` / `resource.location.path` outside `profile_dir` unless
+    /// `allow_external_db_omit` is explicitly `true` (`IR-WIN-04` / `F-CORE-01`).
+    pub fn backup_profile_with_options(
         &self,
         profile: &ProfileRecord,
         profile_dir: &Path,
         dest_dir: Option<&Path>,
         is_running: bool,
+        allow_external_db_omit: bool,
     ) -> Result<BackupResult, DimError> {
         if is_running {
             return Err(DimError::ProfileRunning(format!(
@@ -84,8 +86,19 @@ impl BackupManager for FileBackupManager {
         if !profile_dir.exists() {
             return Err(DimError::BackupError(format!(
                 "source profile directory does not exist: {}",
-                profile_dir.display()
+                profile.name
             )));
+        }
+
+        let external_paths = dim_core::external_paths_for_profile_all_layouts(profile_dir);
+        if !external_paths.is_empty() && !allow_external_db_omit {
+            return Err(DimError::ExternalDbOutsideProfile {
+                profile_name: profile.name.clone(),
+                external_paths: external_paths
+                    .into_iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
+            });
         }
 
         if let Some(custom_dest) = dest_dir {
@@ -146,8 +159,12 @@ impl BackupManager for FileBackupManager {
             files,
         };
 
+        let omitted_strs: Vec<String> = external_paths
+            .into_iter()
+            .map(|p| p.display().to_string())
+            .collect();
         let manifest_tmp = partial_dir.join("backup.json");
-        if let Err(err) = write_manifest_synced(&manifest_tmp, &manifest) {
+        if let Err(err) = write_manifest_synced_with_omissions(&manifest_tmp, &manifest, &omitted_strs) {
             let _ = fs::remove_dir_all(&partial_dir);
             return Err(err);
         }
@@ -162,6 +179,18 @@ impl BackupManager for FileBackupManager {
             backup_dir: final_dir,
             manifest,
         })
+    }
+}
+
+impl BackupManager for FileBackupManager {
+    fn backup_profile(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        dest_dir: Option<&Path>,
+        is_running: bool,
+    ) -> Result<BackupResult, DimError> {
+        self.backup_profile_with_options(profile, profile_dir, dest_dir, is_running, false)
     }
 
     fn verify_backup(&self, backup_dir: &Path) -> Result<BackupManifest, DimError> {
@@ -462,8 +491,25 @@ fn rewrite_profile_identity_markers(profile_dir: &Path, new_id: &str) -> Result<
     Ok(())
 }
 
-fn write_manifest_synced(path: &Path, manifest: &BackupManifest) -> Result<(), DimError> {
-    let json = serde_json::to_string_pretty(manifest)?;
+fn write_manifest_synced_with_omissions(
+    path: &Path,
+    manifest: &BackupManifest,
+    omitted_external_paths: &[String],
+) -> Result<(), DimError> {
+    let mut val = serde_json::to_value(manifest)?;
+    if !omitted_external_paths.is_empty() {
+        if let Some(obj) = val.as_object_mut() {
+            obj.insert(
+                "external_db_omitted".to_owned(),
+                serde_json::Value::Bool(true),
+            );
+            obj.insert(
+                "omitted_external_paths".to_owned(),
+                serde_json::to_value(omitted_external_paths)?,
+            );
+        }
+    }
+    let json = serde_json::to_string_pretty(&val)?;
     let mut f = File::create(path)?;
     f.write_all(json.as_bytes())?;
     f.write_all(b"\n")?;
