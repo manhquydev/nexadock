@@ -354,81 +354,130 @@ try {
           innerWidth: window.innerWidth,
           lang: document.documentElement.lang,
           themeMeta: document.querySelector('meta[name="color-scheme"]').content,
-          profileCount: document.querySelectorAll('#profiles-list .profile-row').length
+          accountCount: document.querySelectorAll('#profiles-list .account-card').length,
+          primaryVisible: !document.getElementById('primary-zalo-section').hidden
         }))()`);
         assert.ok(metrics.scrollWidth <= metrics.innerWidth, `Overflow at ${width}x${height} (${locale}/${theme})`);
-        assert.equal(metrics.profileCount, 2);
+        assert.equal(metrics.accountCount, 2);
+        assert.equal(metrics.primaryVisible, true);
         assert.equal(metrics.themeMeta, theme);
         assert.equal(metrics.lang, locale === 'vi-VN' ? 'vi' : 'en');
         if (width === 1160 || (locale === 'vi-VN' && theme === 'light')) {
-          await snap(`profiles-${locale}-${theme}-${width}x${height}.png`);
+          await snap(`account-dock-${locale}-${theme}-${width}x${height}.png`);
         }
       }
     }
   }
 
-  // Reset to vi-VN / light / 1160x780 for interaction & accessibility tests
+  // Reset to vi-VN / light / 1160x780 for Journey & Accessibility tests
   await evalJs(`(() => {
     const l = document.querySelector('input[name="ui-locale"][value="vi-VN"]'); l.checked = true; l.dispatchEvent(new Event('change', { bubbles: true }));
     const t = document.querySelector('input[name="ui-theme"][value="light"]'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
   await setViewport(1160, 780);
 
-  // 2. WAI-ARIA Menu Button keyboard navigation test
-  await evalJs(`document.querySelector('#profiles-list .profile-row:first-child button[aria-haspopup="menu"]').focus()`);
+  // Journey A: Empty state (0 accounts) -> Add Account 2-step onboarding -> Launch
+  const savedProfiles = JSON.parse(JSON.stringify(mockData.status.profiles));
+  mockData.status.profiles = [];
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const emptyVisible = await evalJs(`!document.getElementById('profiles-empty').hidden`);
+  assert.equal(emptyVisible, true);
+  await snap('account-dock-empty-vi-light.png');
+
+  await evalJs(`document.getElementById('btn-empty-create').click()`);
+  await snap('account-dock-add-step1-vi-light.png');
+  await evalJs(`(() => {
+    document.querySelector('.chip-btn[data-suggest-key="dialogs.create.suggestions.sales"]').click();
+    const color = document.querySelector('input[name="create-account-color"][value="teal"]');
+    if (color) color.checked = true;
+    document.getElementById('create-profile-form').requestSubmit();
+  })()`);
+  await new Promise((r) => setTimeout(r, 200));
+  const step2Visible = await evalJs(`!document.getElementById('create-step-2').hidden`);
+  assert.equal(step2Visible, true);
+  await snap('account-dock-add-step2-vi-light.png');
+  await evalJs(`document.getElementById('btn-create-launch').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+
+  // Restore 3 accounts (2 running) for Journey B
+  mockData.status.profiles = [
+    ...savedProfiles,
+    {
+      id: 'prof-3',
+      name: 'Bán hàng',
+      directory_name: 'ban-hang',
+      created_at: '2026-02-10T09:00:00Z',
+      last_launched_at: '2026-02-11T10:00:00Z',
+      zalo_user_id: null,
+      notes: 'Nhóm khách hàng',
+      running: true,
+      main_pid: 4105,
+      process_count: 2,
+      window_title: 'Zalo',
+      total_working_set_bytes: 180 * 1024 * 1024,
+      data_size_bytes: 64 * 1024 * 1024,
+      stale_lockfile_detected: false
+    }
+  ];
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  await snap('account-dock-3accounts-vi-light.png');
+
+  // 2. WAI-ARIA Menu Button keyboard navigation test (Journey D)
+  await evalJs(`document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]').focus()`);
   await pressKey('Enter', 'Enter', 13);
   const menuOpened = await evalJs(`(() => {
-    const btn = document.querySelector('#profiles-list .profile-row:first-child button[aria-haspopup="menu"]');
+    const btn = document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]');
     const activeRole = document.activeElement?.getAttribute('role');
     return { expanded: btn.getAttribute('aria-expanded'), activeRole };
   })()`);
   assert.equal(menuOpened.expanded, 'true');
   assert.equal(menuOpened.activeRole, 'menuitem');
-  await snap('overflow-menu-vi-light.png');
+  await snap('account-dock-menu-vi-light.png');
   await pressKey('ArrowDown', 'ArrowDown', 40);
   await pressKey('Escape', 'Escape', 27);
   const menuClosed = await evalJs(`(() => {
-    const btn = document.querySelector('#profiles-list .profile-row:first-child button[aria-haspopup="menu"]');
+    const btn = document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]');
     return { expanded: btn.getAttribute('aria-expanded'), focusedBack: document.activeElement === btn };
   })()`);
   assert.equal(menuClosed.expanded, 'false');
   assert.equal(menuClosed.focusedBack, true);
 
-  // 3. Native Radio Group keyboard navigation in Settings
-  await evalJs(`document.querySelector('.nav-item[data-view="settings"]').click()`);
-  await snap('settings-vi-light-1160x780.png');
+  // 3. Native Radio Group keyboard navigation in Settings + Advanced Diagnostics (Journey E)
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="settings"]').click()`);
+  await snap('account-dock-settings-vi-light.png');
   await evalJs(`document.querySelector('input[name="ui-locale"][value="vi-VN"]').focus()`);
   await pressKey('ArrowRight', 'ArrowRight', 39);
-  const langAfterArrow = await evalJs(`document.documentElement.lang`);
-  assert.equal(langAfterArrow, 'en');
+  assert.equal(await evalJs(`document.documentElement.lang`), 'en');
   await pressKey('ArrowLeft', 'ArrowLeft', 37);
   assert.equal(await evalJs(`document.documentElement.lang`), 'vi');
 
-  // 4. Backups & Diagnostics views + screenshots
-  await evalJs(`document.querySelector('.nav-item[data-view="backups"]').click()`);
-  await snap('backups-vi-light-1160x780.png');
-  await evalJs(`document.querySelector('.nav-item[data-view="diagnostics"]').click()`);
-  await snap('diagnostics-vi-light-1160x780.png');
+  await evalJs(`document.getElementById('btn-goto-diagnostics').click()`);
+  await snap('account-dock-diagnostics-vi-light.png');
   const diagText = await evalJs(`document.getElementById('diagnostics-tbody').textContent`);
   assert.match(diagText, /NOT_TESTED/);
   assert.match(diagText, /BLOCKED/);
 
-  // 5. Async per-profile pending isolation + Dialogs + Error Banner i18n
-  await evalJs(`document.querySelector('.nav-item[data-view="profiles"]').click()`);
+  // 4. Backups view
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="backups"]').click()`);
+  await snap('account-dock-backups-vi-light.png');
+
+  // 5. Async per-account pending isolation + Error Banner (Journey C) + Dialogs
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
   mockData.delayNextLaunchMs = 250;
-  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(2) .btn-primary').click()`);
+  await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(2) .btn-primary').click()`);
   await new Promise((r) => setTimeout(r, 60));
   const pendingCheck = await evalJs(`(() => ({
-    prof2Disabled: document.querySelector('#profiles-list .profile-row:nth-child(2) .btn-primary').disabled,
-    prof1Enabled: !document.querySelector('#profiles-list .profile-row:nth-child(1) .btn-primary').disabled
+    prof2Disabled: document.querySelector('#profiles-list .account-card:nth-child(2) .btn-primary').disabled,
+    prof1Enabled: !document.querySelector('#profiles-list .account-card:nth-child(1) .btn-primary').disabled
   }))()`);
   assert.equal(pendingCheck.prof2Disabled, true);
   assert.equal(pendingCheck.prof1Enabled, true);
   await new Promise((r) => setTimeout(r, 300));
 
-  // Error banner: raw English message must NOT appear in Vietnamese banner text, only in expandable details
   mockData.failNextAction = { ok: false, error_code: 'PROTECTED_PRIMARY_PROCESS', message: 'Target PID 4120 is primary Zalo' };
-  await evalJs(`document.querySelector('#profiles-list .profile-row:first-child .btn-danger').click()`);
+  await evalJs(`document.querySelector('#profiles-list .account-card:first-child .btn-subtle-danger').click()`);
   await new Promise((r) => setTimeout(r, 150));
   const errCheck = await evalJs(`(() => ({
     bannerText: document.getElementById('status-banner-text').textContent,
@@ -438,80 +487,58 @@ try {
   assert.doesNotMatch(errCheck.bannerText, /Target PID 4120/);
   assert.match(errCheck.rawText, /PROTECTED_PRIMARY_PROCESS/);
   assert.equal(errCheck.detailsHidden, false);
-  await snap('state-error-banner-vi-light.png');
+  await snap('account-dock-error-vi-light.png');
 
-  // Dialogs: Create, Details, Delete (verify autofocus on Cancel)
-  await evalJs(`document.querySelector('button[commandfor="create-profile-dialog"]').click()`);
-  await snap('dialog-create-vi-light.png');
-  await evalJs(`document.getElementById('create-profile-dialog').close('cancel')`);
-
-  await evalJs(`document.querySelector('#profiles-list .profile-row:first-child [role="menuitem"]:nth-child(3)').click()`);
-  await snap('dialog-details-vi-light.png');
+  await evalJs(`document.querySelector('#profiles-list .account-card:first-child [role="menuitem"]:nth-child(3)').click()`);
+  await snap('account-dock-details-vi-light.png');
   await evalJs(`document.getElementById('profile-details-dialog').close('close')`);
-
-  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(2) [role="menuitem"]:nth-child(4)').click()`);
-  await snap('dialog-delete-vi-light.png');
-  await evalJs(`document.getElementById('delete-profile-dialog').close('cancel')`);
 
   // Zoom 200% simulation (580x390 CSS px)
   await setViewport(580, 390, 2);
   const zoomMetrics = await evalJs(`({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth })`);
   assert.ok(zoomMetrics.scrollWidth <= zoomMetrics.innerWidth, 'Overflow at 200% zoom');
-  await snap('zoom-200-vi-light.png');
+  await snap('account-dock-zoom-200-vi-light.png');
 
-  // 6. Full 8 API operations + double-click dedup + out-of-order status + menu open across re-render
+  // 6. Full API operations + double-click dedup + out-of-order status + menu open across re-render
   await setViewport(1160, 780, 1);
-  // Ensure prof-2 is stopped before testing launch double-click
-  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(2) .btn-danger')?.click()`);
+  await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(2) .btn-subtle-danger')?.click()`);
   await new Promise((r) => setTimeout(r, 150));
   recordedRequests.length = 0;
 
-  // Double-click launch on prof-2 -> only 1 launch request
   mockData.delayNextLaunchMs = 200;
   await evalJs(`(() => {
-    const btn = document.querySelector('#profiles-list .profile-row:nth-child(2) .btn-primary');
+    const btn = document.querySelector('#profiles-list .account-card:nth-child(2) .btn-primary');
     btn.click();
     btn.click();
   })()`);
   await new Promise((r) => setTimeout(r, 320));
-  const launchReqs = recordedRequests.filter((r) => r.urlPath === '/api/profiles/prof-2/launch');
-  assert.equal(launchReqs.length, 1, 'Double-click must send only 1 launch request');
+  assert.equal(recordedRequests.filter((r) => r.urlPath === '/api/profiles/prof-2/launch').length, 1, 'Double-click must send only 1 launch request');
 
-  // Focus, Stop, Backup, Rename, Create, Delete, Restore
-  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(1) .btn-primary').click()`);
+  await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(1) .btn-primary').click()`);
   await new Promise((r) => setTimeout(r, 120));
-  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(2) .btn-danger').click()`);
+  await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(2) .btn-subtle-danger').click()`);
   await new Promise((r) => setTimeout(r, 120));
-  await evalJs(`document.querySelector('#profiles-list .profile-row:nth-child(2) [role="menuitem"]:nth-child(2)').click()`);
+  await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(2) [role="menuitem"]:nth-child(2)').click()`);
   await new Promise((r) => setTimeout(r, 120));
 
-  // Create
   await evalJs(`(() => {
-    document.querySelector('button[commandfor="create-profile-dialog"]').click();
-    document.getElementById('create-profile-name').value = 'QA Temp';
-    document.getElementById('create-profile-notes').value = 'Sanitized';
-    document.getElementById('create-profile-dialog').close('create');
-  })()`);
-  await new Promise((r) => setTimeout(r, 150));
-
-  // Rename prof-3
-  await evalJs(`(() => {
-    document.querySelector('#profiles-list .profile-row:nth-child(3) [role="menuitem"]:nth-child(1)').click();
+    document.querySelector('#profiles-list .account-card:nth-child(3) [role="menuitem"]:nth-child(1)').click();
     document.getElementById('rename-profile-name').value = 'QA Renamed';
     document.getElementById('rename-profile-dialog').close('rename');
   })()`);
   await new Promise((r) => setTimeout(r, 150));
 
-  // Delete prof-3
+  await evalJs(`document.querySelector('#profiles-list .account-card:nth-child(3) .btn-subtle-danger').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+
   await evalJs(`(() => {
-    document.querySelector('#profiles-list .profile-row:nth-child(3) [role="menuitem"]:nth-child(4)').click();
+    document.querySelector('#profiles-list .account-card:nth-child(3) [role="menuitem"]:nth-child(4)').click();
     document.getElementById('delete-profile-dialog').close('delete');
   })()`);
   await new Promise((r) => setTimeout(r, 150));
 
-  // Restore backup
   await evalJs(`(() => {
-    document.querySelector('.nav-item[data-view="backups"]').click();
+    document.querySelector('.top-nav-btn[data-view="backups"]').click();
     document.querySelector('#backups-tbody .btn-primary').click();
     document.getElementById('restore-profile-name').value = 'Restored QA';
     document.getElementById('restore-backup-dialog').close('restore');
@@ -524,7 +551,6 @@ try {
     'POST /api/profiles/prof-1/focus',
     'POST /api/profiles/prof-2/stop',
     'POST /api/profiles/prof-2/backup',
-    'POST /api/profiles',
     'POST /api/profiles/prof-3/rename',
     'DELETE /api/profiles/prof-3',
     'POST /api/backups/restore'
@@ -532,8 +558,8 @@ try {
     assert.ok(seenRoutes.has(expected), `Missing recorded route: ${expected}`);
   }
 
-  // Out-of-order /api/status responses: slower request #1 must not overwrite faster request #2
-  await evalJs(`document.querySelector('.nav-item[data-view="profiles"]').click()`);
+  // Out-of-order /api/status responses
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
   const staleStatus = JSON.parse(JSON.stringify(mockData.status));
   staleStatus.profiles = [staleStatus.profiles[0]];
   const freshStatus = JSON.parse(JSON.stringify(mockData.status));
@@ -541,22 +567,20 @@ try {
     { delayMs: 220, payload: staleStatus },
     { delayMs: 20, payload: freshStatus }
   ];
-  await evalJs(`document.getElementById('btn-refresh').click()`);
-  await new Promise((r) => setTimeout(r, 30));
   await evalJs(`document.getElementById('btn-run-isolation').click()`);
+  await new Promise((r) => setTimeout(r, 30));
+  await evalJs(`document.getElementById('btn-refresh').click()`);
   await new Promise((r) => setTimeout(r, 320));
-  const countAfterRace = await evalJs(`document.querySelectorAll('#profiles-list .profile-row').length`);
-  assert.equal(countAfterRace, 2, 'Stale slower /api/status must not overwrite newer response');
+  assert.equal(await evalJs(`document.querySelectorAll('#profiles-list .account-card').length`), 2);
 
-  // Overflow menu stays open when profiles re-render
-  await evalJs(`document.querySelector('#profiles-list .profile-row:first-child button[aria-haspopup="menu"]').click()`);
+  // Overflow menu stays open when accounts re-render
+  await evalJs(`document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]').click()`);
   await evalJs(`document.getElementById('btn-refresh').click()`);
   await new Promise((r) => setTimeout(r, 150));
-  const stillExpanded = await evalJs(`document.querySelector('#profiles-list .profile-row:first-child button[aria-haspopup="menu"]').getAttribute('aria-expanded')`);
-  assert.equal(stillExpanded, 'true', 'Overflow menu should stay open across profile re-render');
+  assert.equal(await evalJs(`document.querySelector('#profiles-list .account-card:first-child button[aria-haspopup="menu"]').getAttribute('aria-expanded')`), 'true');
 
   assert.deepEqual(runtimeErrors, [], `Runtime errors: ${runtimeErrors.join('; ')}`);
-  console.log('PASS (16 matrix combinations, WAI-ARIA menu, native radios, async pending, error banner, dialogs, 200% zoom, 0 runtime errors)');
+  console.log('PASS (Account Dock: 16 matrix combinations, Journeys A-E, WAI-ARIA menu, native radios, async pending, out-of-order status, 200% zoom, 0 runtime errors)');
   ws.close();
 } finally {
   proc.kill();

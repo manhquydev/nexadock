@@ -41,7 +41,8 @@ function flattenKeys(obj, prefix = '') {
   return out.sort();
 }
 
-function extractPlaceholders(str) {
+function extractPlaceholders(val) {
+  const str = Array.isArray(val) ? val.join('\n') : String(val ?? '');
   return Array.from(str.matchAll(/\{([a-zA-Z0-9_]+)\}/g), (m) => m[1]).sort();
 }
 
@@ -84,9 +85,9 @@ test('vi-VN dictionary contains proper Vietnamese diacritics', () => {
   const viText = JSON.stringify(DICTIONARIES['vi-VN']);
   const hasDiacritics = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(viText);
   assert.ok(hasDiacritics, 'vi-VN.json must contain Vietnamese diacritics');
-  assert.match(DICTIONARIES['vi-VN'].nav.profiles, /Hồ sơ Zalo/);
+  assert.match(DICTIONARIES['vi-VN'].nav.accounts, /Tài khoản/);
   assert.match(DICTIONARIES['vi-VN'].nav.backups, /Sao lưu/);
-  assert.match(DICTIONARIES['vi-VN'].nav.diagnostics, /Chẩn đoán/);
+  assert.match(DICTIONARIES['vi-VN'].diagnostics.title, /Kiểm tra sự cố/);
   assert.match(DICTIONARIES['vi-VN'].nav.settings, /Cài đặt/);
 });
 
@@ -138,7 +139,7 @@ test('support status normalization handles both PascalCase and SCREAMING_SNAKE_C
   setLocale('en-US');
   const en = translateSupportStatus('NOT_TESTED');
   assert.equal(en.code, 'NOT_TESTED');
-  assert.equal(en.label, 'Not Tested');
+  assert.equal(en.label, 'Not tested');
   setLocale('vi-VN');
 });
 
@@ -146,7 +147,7 @@ test('resolveErrorInfo separates localized userMessage from rawCode and rawDetai
   setLocale('vi-VN');
   const info = resolveErrorInfo('PROTECTED_PRIMARY_PROCESS', 'Target PID 4120 is primary Zalo');
   assert.doesNotMatch(info.userMessage, /Target PID 4120/);
-  assert.match(info.userMessage, /Zalo chính/);
+  assert.match(info.userMessage, /Zalo đang dùng trên máy được bảo vệ/);
   assert.equal(info.rawCode, 'PROTECTED_PRIMARY_PROCESS');
   assert.equal(info.rawDetail, 'Target PID 4120 is primary Zalo');
 });
@@ -216,5 +217,17 @@ test('initI18n handles HTTP 404, invalid JSON, timeout, and rapid locale switchi
   setLocale('en-US');
   setLocale('vi-VN');
   assert.equal(getLocale(), 'vi-VN');
-  assert.equal(t('nav.profiles'), 'Hồ sơ Zalo');
+  assert.equal(t('nav.accounts'), 'Tài khoản');
+});
+
+test('consumer-facing Account Dock copy avoids technical jargon on Home and Add Account flows', () => {
+  const vi = JSON.parse(fs.readFileSync(path.join(uiDir, 'i18n', 'vi-VN.json'), 'utf8'));
+  const en = JSON.parse(fs.readFileSync(path.join(uiDir, 'i18n', 'en-US.json'), 'utf8'));
+  const forbidden = /\b(PID|sandbox|IPC|Authenticode|loopback)\b/i;
+
+  for (const dict of [vi, en]) {
+    const consumerSections = [dict.app, dict.nav, dict.statusBar, dict.accounts?.states, dict.accounts?.actions, dict.accounts?.primaryZalo, dict.dialogs?.create, dict.dialogs?.help];
+    const serialized = JSON.stringify(consumerSections);
+    assert.doesNotMatch(serialized, forbidden, 'Consumer copy must not contain technical jargon');
+  }
 });

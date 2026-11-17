@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveIsolationCheckResult } from '../app.js';
+import { resolveIsolationCheckResult, getAccountInitials } from '../app.js';
 import { initI18n, setLocale, getLocale, LOCALE_STORAGE_KEY } from '../i18n/index.js';
 
 await initI18n();
@@ -79,12 +79,19 @@ test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forb
 });
 
 test('resolveIsolationCheckResult never converts NOT_TESTED, BLOCKED, or UNKNOWN into PASS', () => {
-  assert.equal(resolveIsolationCheckResult({ status: 'NOT_TESTED', passed: true }), 'NOT_TESTED');
-  assert.equal(resolveIsolationCheckResult({ status: 'BLOCKED', passed: false }), 'BLOCKED');
-  assert.equal(resolveIsolationCheckResult({ status: 'UNKNOWN' }), 'UNKNOWN');
-  assert.equal(resolveIsolationCheckResult({ passed: true }), 'PASS');
-  assert.equal(resolveIsolationCheckResult({ passed: false }), 'FAIL');
-  assert.equal(resolveIsolationCheckResult({}), 'UNKNOWN');
+  assert.equal(resolveIsolationCheckResult({ status: 'NOT_TESTED', passed: true }).raw, 'NOT_TESTED');
+  assert.equal(resolveIsolationCheckResult({ status: 'BLOCKED', passed: false }).raw, 'BLOCKED');
+  assert.equal(resolveIsolationCheckResult({ status: 'UNKNOWN' }).raw, 'UNKNOWN');
+  assert.equal(resolveIsolationCheckResult({ passed: true }).raw, 'PASS');
+  assert.equal(resolveIsolationCheckResult({ passed: false }).raw, 'FAIL');
+  assert.equal(resolveIsolationCheckResult({}).raw, 'UNKNOWN');
+});
+
+test('getAccountInitials derives clean initials for single and multi-word Vietnamese names', () => {
+  assert.equal(getAccountInitials('Cá nhân'), 'CN');
+  assert.equal(getAccountInitials('Đức - Công việc'), 'ĐV');
+  assert.equal(getAccountInitials('Shop'), 'SH');
+  assert.equal(getAccountInitials(''), 'Z');
 });
 
 test('locale persistence updates localStorage and document.documentElement.lang', () => {
