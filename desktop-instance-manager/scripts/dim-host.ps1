@@ -710,42 +710,99 @@ namespace DesktopInstanceManager.Host
                 {
                     throw new InvalidOperationException("JSON_ERROR: corrupted profiles.json (root value must be a JSON object); original file preserved untouched for recovery.");
                 }
-                if (!rootObj.ContainsKey("schema_version") || rootObj["schema_version"] == null)
+                if (rootObj.ContainsKey("schema_version") && rootObj["schema_version"] != null)
                 {
-                    throw new InvalidOperationException("SCHEMA_ERROR: missing schema_version in profiles.json; original file preserved untouched for recovery.");
-                }
-                int schemaVer;
-                try
-                {
-                    schemaVer = Convert.ToInt32(rootObj["schema_version"], CultureInfo.InvariantCulture);
-                }
-                catch
-                {
-                    throw new InvalidOperationException("SCHEMA_ERROR: invalid non-integer schema_version in profiles.json; original file preserved untouched for recovery.");
-                }
-                if (schemaVer != 1)
-                {
-                    throw new InvalidOperationException("SCHEMA_ERROR: unsupported profiles.json schema_version " + schemaVer + " (expected 1); original file preserved untouched for recovery.");
+                    int schemaVer;
+                    try
+                    {
+                        schemaVer = Convert.ToInt32(rootObj["schema_version"], CultureInfo.InvariantCulture);
+                    }
+                    catch
+                    {
+                        throw new InvalidOperationException("SCHEMA_ERROR: invalid non-integer schema_version in profiles.json; original file preserved untouched for recovery.");
+                    }
+                    if (schemaVer != 1)
+                    {
+                        throw new InvalidOperationException("SCHEMA_ERROR: unsupported profiles.json schema_version " + schemaVer + " (expected 1); original file preserved untouched for recovery.");
+                    }
+
+                    ProfileStoreFile store;
+                    try
+                    {
+                        store = _json.Deserialize<ProfileStoreFile>(raw);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new InvalidOperationException("JSON_ERROR: malformed profiles.json schema (" + ex.Message + "); original file preserved untouched for recovery.");
+                    }
+                    if (store == null)
+                    {
+                        throw new InvalidOperationException("JSON_ERROR: deserialized profiles.json was null; original file preserved untouched for recovery.");
+                    }
+                    if (store.profiles == null)
+                    {
+                        store.profiles = new List<ProfileRecord>();
+                    }
+                    return store;
                 }
 
-                ProfileStoreFile store;
-                try
+                if (rootObj.ContainsKey("StorageVersion") && rootObj["StorageVersion"] != null)
                 {
-                    store = _json.Deserialize<ProfileStoreFile>(raw);
+                    int storageVer;
+                    try
+                    {
+                        storageVer = Convert.ToInt32(rootObj["StorageVersion"], CultureInfo.InvariantCulture);
+                    }
+                    catch
+                    {
+                        throw new InvalidOperationException("SCHEMA_ERROR: invalid non-integer StorageVersion in profiles.json; original file preserved untouched for recovery.");
+                    }
+                    if (storageVer != 1)
+                    {
+                        throw new InvalidOperationException("SCHEMA_ERROR: unsupported legacy profiles.json StorageVersion " + storageVer + " (expected 1); original file preserved untouched for recovery.");
+                    }
+
+                    object profilesObj;
+                    if (!rootObj.TryGetValue("Profiles", out profilesObj) || profilesObj == null)
+                    {
+                        throw new InvalidOperationException("JSON_ERROR: malformed legacy profiles.json schema (missing Profiles); original file preserved untouched for recovery.");
+                    }
+                    System.Collections.IEnumerable legacyList = profilesObj as System.Collections.IEnumerable;
+                    if (legacyList == null || profilesObj is string)
+                    {
+                        throw new InvalidOperationException("JSON_ERROR: malformed legacy profiles.json schema (Profiles must be an array); original file preserved untouched for recovery.");
+                    }
+
+                    ProfileStoreFile migrated = new ProfileStoreFile();
+                    foreach (object item in legacyList)
+                    {
+                        Dictionary<string, object> recObj = item as Dictionary<string, object>;
+                        if (recObj == null)
+                        {
+                            throw new InvalidOperationException("JSON_ERROR: malformed legacy profiles.json record (expected object); original file preserved untouched for recovery.");
+                        }
+                        string id = recObj.ContainsKey("Id") && recObj["Id"] != null ? recObj["Id"].ToString() : null;
+                        string name = recObj.ContainsKey("Name") && recObj["Name"] != null ? recObj["Name"].ToString() : null;
+                        string dirName = recObj.ContainsKey("DirectoryName") && recObj["DirectoryName"] != null ? recObj["DirectoryName"].ToString() : null;
+                        string createdAt = recObj.ContainsKey("CreatedAt") && recObj["CreatedAt"] != null ? recObj["CreatedAt"].ToString() : null;
+                        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(name) || string.IsNullOrEmpty(dirName) || string.IsNullOrEmpty(createdAt))
+                        {
+                            throw new InvalidOperationException("JSON_ERROR: malformed legacy profiles.json record (missing required fields); original file preserved untouched for recovery.");
+                        }
+                        ProfileRecord rec = new ProfileRecord();
+                        rec.id = id;
+                        rec.name = name;
+                        rec.directory_name = dirName;
+                        rec.created_at = createdAt;
+                        rec.last_launched_at = recObj.ContainsKey("LastLaunchedAt") && recObj["LastLaunchedAt"] != null ? recObj["LastLaunchedAt"].ToString() : null;
+                        rec.zalo_user_id = recObj.ContainsKey("ZaloUserId") && recObj["ZaloUserId"] != null ? recObj["ZaloUserId"].ToString() : null;
+                        rec.notes = recObj.ContainsKey("Notes") && recObj["Notes"] != null ? recObj["Notes"].ToString() : string.Empty;
+                        migrated.profiles.Add(rec);
+                    }
+                    return migrated;
                 }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException("JSON_ERROR: malformed profiles.json schema (" + ex.Message + "); original file preserved untouched for recovery.");
-                }
-                if (store == null)
-                {
-                    throw new InvalidOperationException("JSON_ERROR: deserialized profiles.json was null; original file preserved untouched for recovery.");
-                }
-                if (store.profiles == null)
-                {
-                    store.profiles = new List<ProfileRecord>();
-                }
-                return store;
+
+                throw new InvalidOperationException("SCHEMA_ERROR: missing schema_version in profiles.json; original file preserved untouched for recovery.");
             }
         }
 
