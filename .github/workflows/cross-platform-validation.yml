@@ -62,16 +62,36 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Ubuntu 24.04 WebKitGTK & Ayatana AppIndicator headers
+        timeout-minutes: 6
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            pkg-config \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
+          sudo sed -i -E 's|https?://[^/]*ec2\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          APT_OPTS=(
+            -o Acquire::ForceIPv4=true
+            -o Acquire::Retries=3
+            -o Acquire::http::Timeout=15
+            -o Acquire::https::Timeout=15
+            -o Acquire::http::Pipeline-Depth=0
+            -o Dpkg::Options::="--force-confdef"
+            -o Dpkg::Options::="--force-confold"
+          )
+          for attempt in 1 2 3; do
+            if timeout 120s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" update && \
+               timeout 120s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
+                 build-essential \
+                 pkg-config \
+                 libssl-dev \
+                 libwebkit2gtk-4.1-dev \
+                 libayatana-appindicator3-dev \
+                 librsvg2-dev \
+                 patchelf; then
+              break
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              exit 1
+            fi
+            sudo apt-get clean
+            sleep 5
+          done
 
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -180,19 +200,21 @@ jobs:
           node-version: "22"
 
       - name: Install Ubuntu 24.04 LTS Tauri, Xvfb & packaging build dependencies
-        timeout-minutes: 8
+        timeout-minutes: 6
         run: |
+          sudo sed -i -E 's|https?://[^/]*ec2\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           APT_OPTS=(
-            -o Acquire::Retries=5
-            -o Acquire::http::Timeout=20
-            -o Acquire::https::Timeout=20
+            -o Acquire::ForceIPv4=true
+            -o Acquire::Retries=3
+            -o Acquire::http::Timeout=15
+            -o Acquire::https::Timeout=15
             -o Acquire::http::Pipeline-Depth=0
             -o Dpkg::Options::="--force-confdef"
             -o Dpkg::Options::="--force-confold"
           )
           for attempt in 1 2 3; do
-            if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" update && \
-               sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
+            if timeout 120s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" update && \
+               timeout 120s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
                  build-essential \
                  pkg-config \
                  curl \
