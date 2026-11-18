@@ -10,10 +10,11 @@ use std::time::Duration;
 
 use dim_core::{
     build_directory_name, check_profile_lockfile_activity, clean_stale_temp_files,
-    ensure_not_primary_zalo_path, generate_profile_id, now_rfc3339_utc, resolve_data_dir,
-    resolve_safe_child, validate_directory_input, validate_profile_name, verify_runtime_lease,
-    write_bytes_atomic, AdvisoryFileLock, DimError, LeaseVerification, ProfileLockActivity,
-    ProfileRecord, ProfileStore, ProfilesDocument, VerifiedDeletionState,
+    ensure_not_primary_zalo_path, generate_profile_id, is_existing_lock_contended,
+    launch_admission_lock_path, now_rfc3339_utc, profile_lock_file_path, remove_dir_with_retry,
+    resolve_data_dir, resolve_safe_child, validate_directory_input, validate_profile_name,
+    verify_runtime_lease, write_bytes_atomic, AdvisoryFileLock, DimError, LeaseVerification,
+    ProfileLockActivity, ProfileRecord, ProfileStore, ProfilesDocument, VerifiedDeletionState,
     DEFAULT_ADVISORY_LOCK_TIMEOUT, PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION,
     PROFILE_OP_LOCK_FILE, ZALO_PROFILE_ID_FILE,
 };
@@ -94,6 +95,18 @@ impl JsonProfileStore {
     #[must_use]
     pub fn lock_path(&self) -> &Path {
         &self.lock_path
+    }
+
+    /// Returns `<data_dir>/locks/<profile_id>.lock` (outside `Profiles/`).
+    #[must_use]
+    pub fn profile_lock_path(&self, profile_id: &str) -> PathBuf {
+        profile_lock_file_path(&self.data_dir, profile_id)
+    }
+
+    /// Returns `<data_dir>/locks/_launch_admission.lock`.
+    #[must_use]
+    pub fn launch_admission_lock_path(&self) -> PathBuf {
+        launch_admission_lock_path(&self.data_dir)
     }
 
     /// Ensures `<data_dir>`, `Profiles/`, `Backups/`, and `profiles.json` exist.
@@ -215,20 +228,31 @@ impl JsonProfileStore {
                 }
             }
 
-            // 3. Independent filesystem/OS runtime verification & verified two-phase reparse-safe removal.
+            // 3. Acquire per-profile advisory lock in `<data_dir>/locks/<id>.lock` (OUTSIDE `profile_dir`)
+            // and hold it across directory removal + `profiles.json` commit so concurrent processes can
+            // neither resurrect `profile_dir` nor open handles inside `profile_dir` during `RemoveDirectoryW`.
+            let external_op_lock_path = store.profile_lock_path(&candidate.id);
+            let Some(_profile_op_guard) =
+                AdvisoryFileLock::try_acquire_exclusive(&external_op_lock_path)?
+            else {
+                return Err(DimError::ProfileRunning(format!(
+                    "profile '{}' ({}) is currently locked by another active process (locks/{}.lock)",
+                    candidate.name, candidate.id, candidate.id
+                )));
+            };
+
+            // 4. Independent filesystem/OS runtime verification & verified two-phase reparse-safe removal.
             if let Ok(root_meta) = fs::symlink_metadata(&profile_dir) {
                 if is_symlink_or_reparse(&root_meta) {
                     remove_reparse_or_symlink(&profile_dir, &root_meta)?;
                 } else if root_meta.is_dir() {
-                    let op_lock_path = profile_dir.join(PROFILE_OP_LOCK_FILE);
-                    let Some(profile_op_guard) =
-                        AdvisoryFileLock::try_acquire_exclusive(&op_lock_path)?
-                    else {
+                    let legacy_op_lock_path = profile_dir.join(PROFILE_OP_LOCK_FILE);
+                    if is_existing_lock_contended(&legacy_op_lock_path)? {
                         return Err(DimError::ProfileRunning(format!(
                             "profile '{}' ({}) is currently locked by another active process (.dim-profile.lock)",
                             candidate.name, candidate.id
                         )));
-                    };
+                    }
 
                     // Verify identity markers inside any existing OS ZaloData layout before deleting.
                     for zdir in candidate_zalo_data_dirs(&profile_dir) {
@@ -274,12 +298,8 @@ impl JsonProfileStore {
                     // ZERO reparse points remain anywhere in `<profile_dir>` BEFORE deleting contents!
                     let _ = unlink_junctions(&profile_dir)?;
                     verify_zero_reparse_points_remaining(&profile_dir)?;
-                    remove_dir_contents_preserving_file(&profile_dir, PROFILE_OP_LOCK_FILE)?;
-
-                    // Release handle to `.dim-profile.lock` so Windows `RemoveDirectoryW` removes `profile_dir` cleanly.
-                    drop(profile_op_guard);
-                    let _ = fs::remove_file(&op_lock_path);
-                    fs::remove_dir(&profile_dir)?;
+                    remove_dir_contents_preserving_file(&profile_dir, "")?;
+                    remove_dir_with_retry(&profile_dir)?;
                 } else {
                     fs::remove_file(&profile_dir)?;
                 }

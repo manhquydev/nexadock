@@ -10,11 +10,13 @@ use std::time::{Duration, Instant};
 
 use dim_core::{
     check_duplicate_zalo_user_id, detect_zalo_user_id, ensure_min_free_disk_space,
-    ensure_not_primary_zalo_path, now_rfc3339_utc, AdvisoryFileLock, ApplicationLocator, DimError,
-    InstanceLauncher, InstanceMonitor, IsolationCheckItem, IsolationVerificationReport,
-    LaunchTarget, PlatformCapabilities, PlatformKind, ProfileLifecycleState, ProfileRecord,
-    ProfileRuntimeState, ProfileStore, RecoveryManager, SupportStatus, VerifiedDeletionState,
-    DEFAULT_ADVISORY_LOCK_TIMEOUT, PROFILE_OP_LOCK_FILE,
+    ensure_not_primary_zalo_path, is_existing_lock_contended, now_rfc3339_utc,
+    read_live_launch_admission_claims, write_launch_admission_claim, AdvisoryFileLock,
+    ApplicationLocator, DimError, InstanceLauncher, InstanceMonitor, IsolationCheckItem,
+    IsolationVerificationReport, LaunchAdmissionClaim, LaunchTarget, PlatformCapabilities,
+    PlatformKind, ProfileLifecycleState, ProfileRecord, ProfileRuntimeState, ProfileStore,
+    RecoveryManager, SupportStatus, VerifiedDeletionState, DEFAULT_ADVISORY_LOCK_TIMEOUT,
+    PROFILE_OP_LOCK_FILE,
 };
 use dim_profile_store::{is_symlink_or_reparse, verify_profile_id_marker, JsonProfileStore};
 
@@ -183,12 +185,29 @@ impl ProfileSyncEntry {
     }
 }
 
+#[derive(Debug)]
+struct AdmissionClaimGuard {
+    key: String,
+    claims_map: Arc<Mutex<HashMap<String, LaunchAdmissionClaim>>>,
+    claim_file_path: PathBuf,
+}
+
+impl Drop for AdmissionClaimGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = self.claims_map.lock() {
+            map.remove(&self.key);
+        }
+        let _ = fs::remove_file(&self.claim_file_path);
+    }
+}
+
 /// Coordinates safe profile creation, launch, focus, graceful quit, recovery, and deletion.
 pub struct InstanceCoordinator<A> {
     store: Arc<JsonProfileStore>,
     adapter: Arc<A>,
     recovery: StaleLockRecoveryManager,
     profile_sync: Mutex<HashMap<String, Arc<ProfileSyncEntry>>>,
+    in_flight_claims: Arc<Mutex<HashMap<String, LaunchAdmissionClaim>>>,
     protected_zalo_data_dirs: Vec<PathBuf>,
 }
 
@@ -212,6 +231,7 @@ where
             adapter,
             recovery: StaleLockRecoveryManager,
             profile_sync: Mutex::new(HashMap::new()),
+            in_flight_claims: Arc::new(Mutex::new(HashMap::new())),
             protected_zalo_data_dirs: Vec::new(),
         }
     }
@@ -312,20 +332,26 @@ where
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("profile op mutex poisoned")))?;
 
-        let profile = self.store.get_profile(profile_id)?;
-        let profile_dir = self.store.profile_dir_for(&profile)?;
-        if !profile_dir.exists() {
-            let _ = self.store.get_profile(profile_id)?;
-            fs::create_dir_all(&profile_dir)?;
-        }
-
-        let profile_op_lock_path = profile_dir.join(PROFILE_OP_LOCK_FILE);
+        // Acquire cross-process per-profile lock in `<data_dir>/locks/<id>.lock` (outside `Profiles/`)
+        // BEFORE re-verifying `get_profile` or creating `profile_dir`, preventing deleted-profile
+        // directory resurrection and `ERROR_DIR_NOT_EMPTY` mid-delete races across OS processes.
+        let profile_op_lock_path = self.store.profile_lock_path(profile_id);
         let _cross_proc_guard = AdvisoryFileLock::acquire_exclusive(
             &profile_op_lock_path,
             DEFAULT_ADVISORY_LOCK_TIMEOUT,
         )?;
 
         let profile = self.store.get_profile(profile_id)?;
+        let profile_dir = self.store.profile_dir_for(&profile)?;
+        if !profile_dir.exists() {
+            fs::create_dir_all(&profile_dir)?;
+        }
+        if is_existing_lock_contended(&profile_dir.join(PROFILE_OP_LOCK_FILE))? {
+            return Err(DimError::ProfileRunning(format!(
+                "profile '{}' ({}) is locked by another process (.dim-profile.lock)",
+                profile.name, profile.id
+            )));
+        }
         let caps = self.adapter.capabilities();
 
         if matches!(target, LaunchTarget::OfficialZalo { .. }) {
@@ -396,12 +422,14 @@ where
         let free_bytes = self.adapter.free_disk_bytes(&profile_dir)?;
         ensure_min_free_disk_space(&profile_dir, free_bytes, 0)?;
 
-        self.enforce_no_shared_external_storage(
+        // Fast pre-spawn admission check (`<5ms`) serialized across threads & processes via
+        // `in_flight_claims` + `<data_dir>/locks/_launch_admission.lock`, released BEFORE
+        // `self.adapter.launch(...)` so distinct-profile readiness polling runs in parallel!
+        let _admission_claim_guard = self.acquire_launch_admission_claim(
             &profile,
             &profile_dir,
             &runtime_before.zalo_data_dir,
         )?;
-        self.enforce_unique_zalo_user_id(&profile, &runtime_before.zalo_data_dir)?;
 
         if entry.is_stop_requested() {
             return Err(DimError::LaunchFailed(
@@ -452,23 +480,33 @@ where
         }
 
         let res = (|| -> Result<u32, DimError> {
-            let cross_lock_guard = if profile_dir.exists() {
-                Some(AdvisoryFileLock::acquire_exclusive(
-                    &profile_dir.join(PROFILE_OP_LOCK_FILE),
-                    DEFAULT_ADVISORY_LOCK_TIMEOUT,
-                )?)
-            } else {
-                None
+            let cross_lock_guard = AdvisoryFileLock::acquire_exclusive(
+                &self.store.profile_lock_path(&profile.id),
+                DEFAULT_ADVISORY_LOCK_TIMEOUT,
+            )?;
+
+            let fresh_profile = match self.store.get_profile(&profile.id) {
+                Ok(rec) => rec,
+                Err(DimError::ProfileNotFound(_)) => {
+                    drop(cross_lock_guard);
+                    return Ok(0);
+                }
+                Err(err) => return Err(err),
             };
+            let fresh_dir = self.store.profile_dir_for(&fresh_profile)?;
+            if !fresh_dir.exists() {
+                drop(cross_lock_guard);
+                return Ok(0);
+            }
 
             let primary = self.adapter.inspect_primary()?;
-            let mut state = self.adapter.inspect_profile(&profile, &profile_dir)?;
+            let mut state = self.adapter.inspect_profile(&fresh_profile, &fresh_dir)?;
 
             if !state.running && !state.lifecycle_state().is_active() {
                 if state.stale_lock_detected {
-                    let _ = self
-                        .recovery
-                        .recover_stale_state(&profile, &profile_dir, &state)?;
+                    let _ =
+                        self.recovery
+                            .recover_stale_state(&fresh_profile, &fresh_dir, &state)?;
                 }
                 drop(cross_lock_guard);
                 return Ok(0);
@@ -569,17 +607,27 @@ where
         res
     }
 
-    /// Inspects runtime state of a single profile, reflecting in-flight `Stopping` transitions.
-    pub fn inspect_profile(&self, id_or_name: &str) -> Result<ProfileRuntimeState, DimError> {
-        let profile = self.store.get_profile(id_or_name)?;
-        let profile_dir = self.store.profile_dir_for(&profile)?;
-        let mut rt = self.adapter.inspect_profile(&profile, &profile_dir)?;
+    /// Inspects runtime state of an already-loaded [`ProfileRecord`], overlaying in-flight
+    /// coordinator `Stopping` transitions so Tauri IPC and CLI `status` surface accurate lifecycle states.
+    pub fn inspect_profile_record(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+    ) -> Result<ProfileRuntimeState, DimError> {
+        let mut rt = self.adapter.inspect_profile(profile, profile_dir)?;
         if let Ok(entry) = self.sync_entry_for(&profile.id) {
             if entry.current_phase() == InFlightPhase::Stopping && rt.main_pid.is_some() {
                 rt.set_lifecycle_state(ProfileLifecycleState::Stopping);
             }
         }
         Ok(rt)
+    }
+
+    /// Inspects runtime state of a single profile, reflecting in-flight `Stopping` transitions.
+    pub fn inspect_profile(&self, id_or_name: &str) -> Result<ProfileRuntimeState, DimError> {
+        let profile = self.store.get_profile(id_or_name)?;
+        let profile_dir = self.store.profile_dir_for(&profile)?;
+        self.inspect_profile_record(&profile, &profile_dir)
     }
 
     /// Focuses an already-running isolated profile window or signals restore.
@@ -905,46 +953,141 @@ where
         })
     }
 
+    fn acquire_launch_admission_claim(
+        &self,
+        target: &ProfileRecord,
+        target_profile_dir: &Path,
+        target_zalo_data_dir: &Path,
+    ) -> Result<AdmissionClaimGuard, DimError> {
+        let mut in_proc = self
+            .in_flight_claims
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("launch admission mutex poisoned")))?;
+        let _cross_adm = AdvisoryFileLock::acquire_exclusive(
+            &self.store.launch_admission_lock_path(),
+            DEFAULT_ADVISORY_LOCK_TIMEOUT,
+        )?;
+
+        let target_key = target.id.to_ascii_lowercase();
+        let mut merged_claims: HashMap<String, LaunchAdmissionClaim> = HashMap::new();
+        for claim in read_live_launch_admission_claims(self.store.data_dir()) {
+            let k = claim.profile_id.to_ascii_lowercase();
+            if k != target_key {
+                merged_claims.insert(k, claim);
+            }
+        }
+        for (k, claim) in in_proc.iter() {
+            if k != &target_key {
+                merged_claims.insert(k.clone(), claim.clone());
+            }
+        }
+        let active_claims: Vec<LaunchAdmissionClaim> = merged_claims.into_values().collect();
+
+        self.enforce_no_shared_external_storage(
+            target,
+            target_profile_dir,
+            target_zalo_data_dir,
+            &active_claims,
+        )?;
+        let target_uid =
+            self.enforce_unique_zalo_user_id(target, target_zalo_data_dir, &active_claims)?;
+
+        let claim_file_path = write_launch_admission_claim(
+            self.store.data_dir(),
+            &target_key,
+            &target.name,
+            target_profile_dir,
+            target_zalo_data_dir,
+            target_uid.clone(),
+        )?;
+
+        in_proc.insert(
+            target_key.clone(),
+            LaunchAdmissionClaim {
+                claimer_pid: std::process::id(),
+                claimer_create_time: 0,
+                profile_id: target_key.clone(),
+                profile_name: target.name.clone(),
+                profile_dir: target_profile_dir.to_path_buf(),
+                zalo_data_dir: target_zalo_data_dir.to_path_buf(),
+                zalo_user_id: target_uid,
+            },
+        );
+
+        Ok(AdmissionClaimGuard {
+            key: target_key,
+            claims_map: Arc::clone(&self.in_flight_claims),
+            claim_file_path,
+        })
+    }
+
     fn enforce_unique_zalo_user_id(
         &self,
         target: &ProfileRecord,
         target_zalo_data_dir: &Path,
-    ) -> Result<(), DimError> {
+        active_claims: &[LaunchAdmissionClaim],
+    ) -> Result<Option<String>, DimError> {
         let target_uid = detect_zalo_user_id(target_zalo_data_dir);
+        let effective_target_uid = target_uid
+            .clone()
+            .or_else(|| target.zalo_user_id.clone())
+            .filter(|s| !s.is_empty());
         let all_profiles = self.store.list_profiles()?;
         let mut running = Vec::new();
+        let mut seen_ids = HashSet::new();
 
-        for other in all_profiles {
+        for other in &all_profiles {
             if other.id.eq_ignore_ascii_case(&target.id) {
                 continue;
             }
-            let Ok(other_dir) = self.store.profile_dir_for(&other) else {
+            let Ok(other_dir) = self.store.profile_dir_for(other) else {
                 continue;
             };
-            let Ok(state) = self.adapter.inspect_profile(&other, &other_dir) else {
+            let Ok(state) = self.adapter.inspect_profile(other, &other_dir) else {
                 continue;
             };
             if state.running {
                 let uid = detect_zalo_user_id(&state.zalo_data_dir).or(state.detected_zalo_user_id);
-                running.push((other, uid));
+                seen_ids.insert(other.id.to_ascii_lowercase());
+                running.push((other.clone(), uid));
             }
+        }
+
+        for claim in active_claims {
+            let k = claim.profile_id.to_ascii_lowercase();
+            if seen_ids.contains(&k) || k.eq_ignore_ascii_case(&target.id) {
+                continue;
+            }
+            let synth_rec = all_profiles
+                .iter()
+                .find(|p| p.id.eq_ignore_ascii_case(&claim.profile_id))
+                .cloned()
+                .unwrap_or_else(|| ProfileRecord {
+                    id: claim.profile_id.clone(),
+                    name: claim.profile_name.clone(),
+                    directory_name: String::new(),
+                    created_at: String::new(),
+                    last_launched_at: None,
+                    zalo_user_id: claim.zalo_user_id.clone(),
+                    notes: String::new(),
+                });
+            let uid =
+                detect_zalo_user_id(&claim.zalo_data_dir).or_else(|| claim.zalo_user_id.clone());
+            seen_ids.insert(k);
+            running.push((synth_rec, uid));
         }
 
         check_duplicate_zalo_user_id(target, target_uid.as_deref(), &running)?;
 
-        if let Some(t_uid) = target_uid
-            .as_deref()
-            .or(target.zalo_user_id.as_deref())
-            .filter(|s| !s.is_empty())
-        {
+        if let Some(ref t_uid) = effective_target_uid {
             if let Ok(primary) = self.adapter.inspect_primary() {
                 if primary.running {
                     let p_uid = primary
                         .detected_zalo_user_id
                         .or_else(|| detect_zalo_user_id(&primary.zalo_data_dir));
-                    if p_uid.as_deref() == Some(t_uid) {
+                    if p_uid.as_deref() == Some(t_uid.as_str()) {
                         return Err(DimError::DuplicateZaloUserId {
-                            user_id: t_uid.to_owned(),
+                            user_id: t_uid.clone(),
                             running_profile: "Primary Zalo Desktop".to_owned(),
                         });
                     }
@@ -952,7 +1095,7 @@ where
             }
         }
 
-        Ok(())
+        Ok(effective_target_uid)
     }
 
     fn enforce_no_shared_external_storage(
@@ -960,9 +1103,11 @@ where
         target: &ProfileRecord,
         target_profile_dir: &Path,
         target_zalo_data_dir: &Path,
+        active_claims: &[LaunchAdmissionClaim],
     ) -> Result<(), DimError> {
         let all_profiles = self.store.list_profiles()?;
         let mut running_others = Vec::new();
+        let mut seen_ids = HashSet::new();
 
         for other in all_profiles {
             if other.id.eq_ignore_ascii_case(&target.id) {
@@ -975,12 +1120,26 @@ where
                 continue;
             };
             if state.running {
+                seen_ids.insert(other.id.to_ascii_lowercase());
                 running_others.push(RunningProfileStorageRef {
                     owner_label: format!("{} ({})", other.name, other.id),
                     profile_dir: other_dir,
                     zalo_data_dir: state.zalo_data_dir,
                 });
             }
+        }
+
+        for claim in active_claims {
+            let k = claim.profile_id.to_ascii_lowercase();
+            if seen_ids.contains(&k) || k.eq_ignore_ascii_case(&target.id) {
+                continue;
+            }
+            seen_ids.insert(k);
+            running_others.push(RunningProfileStorageRef {
+                owner_label: format!("{} ({})", claim.profile_name, claim.profile_id),
+                profile_dir: claim.profile_dir.clone(),
+                zalo_data_dir: claim.zalo_data_dir.clone(),
+            });
         }
 
         let mut protected_dirs = self.protected_zalo_data_dirs.clone();

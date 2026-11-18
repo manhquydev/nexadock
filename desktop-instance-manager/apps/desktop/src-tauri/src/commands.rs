@@ -107,8 +107,8 @@ pub async fn get_status(
         for rec in records {
             let dir = app.store.profile_dir_for(&rec).map_err(redact_err_text)?;
             let rt = app
-                .adapter
-                .inspect_profile(&rec, &dir)
+                .coordinator
+                .inspect_profile_record(&rec, &dir)
                 .map_err(redact_err_text)?;
             let data_size = if measure_size {
                 Some(rt.disk_usage_bytes)

@@ -20,7 +20,15 @@ pub const ZALO_PROFILE_ID_FILE: &str = ".zalo-profile-id";
 /// Cross-process advisory lock file protecting `<data_dir>/profiles.json` read-modify-write cycles.
 pub const PROFILES_LOCK_FILE: &str = "profiles.lock";
 
-/// Cross-process per-profile advisory lock file protecting `<profile_dir>` spawn/stop/delete critical sections.
+/// Subdirectory inside `<data_dir>` storing per-profile and admission advisory lockfiles
+/// (`<data_dir>/locks/<profile_id>.lock`), outside `<data_dir>/Profiles` so lock acquisition
+/// never resurrects a deleted profile directory or blocks `RemoveDirectoryW` with `ERROR_DIR_NOT_EMPTY`.
+pub const PROFILE_LOCKS_DIR: &str = "locks";
+
+/// Cross-process advisory lock file inside `<data_dir>/locks` protecting pre-spawn admission checks.
+pub const LAUNCH_ADMISSION_LOCK_FILE: &str = "_launch_admission.lock";
+
+/// Legacy per-profile advisory lock file name checked non-blockingly if already present on disk.
 pub const PROFILE_OP_LOCK_FILE: &str = ".dim-profile.lock";
 
 /// Atomic runtime process ownership lease file inside `<profile_dir>`.

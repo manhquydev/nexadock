@@ -13,12 +13,14 @@ pub mod zalo_identity;
 
 pub use error::{DimError, OperationOutcome};
 pub use fs_lock::{
-    clean_stale_temp_files, unique_temp_file_path, write_bytes_atomic, AdvisoryFileLock,
-    DEFAULT_ADVISORY_LOCK_TIMEOUT,
+    clean_stale_temp_files, is_existing_lock_contended, launch_admission_lock_path,
+    profile_lock_file_path, remove_dir_with_retry, unique_temp_file_path, write_bytes_atomic,
+    AdvisoryFileLock, DEFAULT_ADVISORY_LOCK_TIMEOUT,
 };
 pub use lease::{
     build_runtime_lease, check_profile_lockfile_activity, query_process_identity,
-    remove_runtime_lease, verify_runtime_lease, write_runtime_lease, LeaseVerification,
+    read_live_launch_admission_claims, remove_runtime_lease, verify_runtime_lease,
+    write_launch_admission_claim, write_runtime_lease, LaunchAdmissionClaim, LeaseVerification,
     ProcessIdentity, ProcessIdentityProbe, ProfileLockActivity, RuntimeLease,
 };
 pub use models::{
@@ -27,8 +29,9 @@ pub use models::{
     PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileLifecycleState,
     ProfileRecord, ProfileRuntimeState, ProfilesDocument, RecoveryReport, RuntimeOwnershipState,
     RuntimeStatus, SupportStatus, VerifiedDeletionState, APP_DIR_NAME, BACKUP_SCHEMA_VERSION,
-    DIM_DATA_DIR_ENV, MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION,
-    PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE, ZALO_PROFILE_ID_FILE,
+    DIM_DATA_DIR_ENV, LAUNCH_ADMISSION_LOCK_FILE, MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE,
+    PROFILES_SCHEMA_VERSION, PROFILE_LOCKS_DIR, PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE,
+    RUNTIME_PID_FILE, ZALO_PROFILE_ID_FILE,
 };
 pub use path_guard::{
     check_disk_space_bytes, ensure_min_free_disk_space, ensure_not_primary_zalo_path,

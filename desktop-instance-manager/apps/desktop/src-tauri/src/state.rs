@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dim_core::{
-    AdvisoryFileLock, BackupResult, DimError, InstanceMonitor, PlatformCapabilities,
-    ProfileLifecycleState, ProfileStore, PROFILE_OP_LOCK_FILE,
+    AdvisoryFileLock, BackupResult, DimError, PlatformCapabilities, ProfileLifecycleState,
+    ProfileStore,
 };
 use dim_process_manager::InstanceCoordinator;
 use dim_profile_store::{FileBackupManager, JsonProfileStore};
@@ -67,27 +67,25 @@ impl AppState {
         })
     }
 
-    /// Creates an offline atomic backup synchronized on the target profile's `.dim-profile.lock`
-    /// so concurrent launches/deletes on the same profile serialize cleanly without blocking other profiles.
+    /// Creates an offline atomic backup synchronized on `<data_dir>/locks/<profile_id>.lock`
+    /// (outside `Profiles/`) so concurrent launches/deletes on the same profile serialize cleanly
+    /// without blocking other profiles or resurrecting a deleted profile directory.
     pub fn backup_profile_synchronized(
         &self,
         id: &str,
         allow_external_db_omit: bool,
     ) -> Result<BackupResult, DimError> {
         let initial_profile = self.store.get_profile(id)?;
-        let dir = self.store.profile_dir_for(&initial_profile)?;
+        let _profile_op_guard = AdvisoryFileLock::acquire_exclusive(
+            &self.store.profile_lock_path(&initial_profile.id),
+            PROFILE_BACKUP_LOCK_TIMEOUT,
+        )?;
 
-        let _profile_op_guard = if dir.exists() {
-            Some(AdvisoryFileLock::acquire_exclusive(
-                &dir.join(PROFILE_OP_LOCK_FILE),
-                PROFILE_BACKUP_LOCK_TIMEOUT,
-            )?)
-        } else {
-            None
-        };
-
-        let profile = self.store.get_profile(id)?;
-        let rt = self.adapter.inspect_profile(&profile, &dir)?;
+        let profile = self.store.get_profile(&initial_profile.id)?;
+        let dir = self.store.profile_dir_for(&profile)?;
+        let rt = self
+            .coordinator
+            .inspect_profile_record(&profile, &dir)?;
         let is_active_or_unclean =
             rt.running || rt.lifecycle_state() != ProfileLifecycleState::Stopped;
         self.backups.backup_profile_with_options(

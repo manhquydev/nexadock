@@ -445,10 +445,12 @@ namespace DesktopInstanceManager.Host
             }
         }
 
-        private IDisposable AcquireProfileLockScope(string profilePath, int timeoutMs)
+        private IDisposable AcquireProfileLockScope(string profileId, int timeoutMs)
         {
-            Directory.CreateDirectory(profilePath);
-            string opLockPath = Path.Combine(profilePath, ".dim-profile.lock");
+            string locksDir = Path.Combine(_dataDir, "locks");
+            Directory.CreateDirectory(locksDir);
+            string cleanId = (profileId ?? string.Empty).Trim().ToLowerInvariant();
+            string opLockPath = Path.Combine(locksDir, cleanId + ".lock");
             object syncObj;
             lock (_profileLocks)
             {
@@ -2749,29 +2751,30 @@ namespace DesktopInstanceManager.Host
                     return Fail("PROTECTED_PRIMARY_PATH", "Refused delete: target path overlaps primary ZaloData.");
                 }
 
-                int unlinked = 0;
-                if (Directory.Exists(profilePath))
+                IDisposable opLock = null;
+                try
                 {
-                    if (IsReparsePoint(profilePath))
+                    opLock = AcquireProfileLockScope(target.id, 0);
+                }
+                catch (Exception ex)
+                {
+                    return Fail("PROFILE_RUNNING", ex.Message);
+                }
+
+                try
+                {
+                    int unlinked = 0;
+                    if (Directory.Exists(profilePath))
                     {
-                        if (!NativeWin32.RemoveDirectoryW(profilePath))
+                        if (IsReparsePoint(profilePath))
                         {
-                            Directory.Delete(profilePath, false);
+                            if (!NativeWin32.RemoveDirectoryW(profilePath))
+                            {
+                                Directory.Delete(profilePath, false);
+                            }
+                            unlinked = 1;
                         }
-                        unlinked = 1;
-                    }
-                    else
-                    {
-                        IDisposable opLock = null;
-                        try
-                        {
-                            opLock = AcquireProfileLockScope(profilePath, 0);
-                        }
-                        catch (Exception ex)
-                        {
-                            return Fail("PROFILE_RUNNING", ex.Message);
-                        }
-                        try
+                        else
                         {
                             ProcessTreeSnapshot recheckSnap = CaptureProcessTreeSnapshot();
                             Dictionary<string, object> recheckState = InspectProfileRuntime(target, recheckSnap, false);
@@ -2793,25 +2796,39 @@ namespace DesktopInstanceManager.Host
                             unlinked = UnlinkJunctionsRecursively(profilePath);
                             VerifyZeroReparsePointsRemaining(profilePath);
                             DeleteDirectoryContentsPreservingOpLock(profilePath);
+                            string legacyOpLockFile = Path.Combine(profilePath, ".dim-profile.lock");
+                            try { if (File.Exists(legacyOpLockFile)) File.Delete(legacyOpLockFile); } catch { }
+
+                            for (int rmAttempt = 1; rmAttempt <= 10; rmAttempt++)
+                            {
+                                try
+                                {
+                                    if (!Directory.Exists(profilePath)) break;
+                                    Directory.Delete(profilePath, false);
+                                    break;
+                                }
+                                catch
+                                {
+                                    if (rmAttempt == 10) throw;
+                                    Thread.Sleep(5 * rmAttempt);
+                                }
+                            }
                         }
-                        finally
-                        {
-                            if (opLock != null) opLock.Dispose();
-                        }
-                        string opLockFile = Path.Combine(profilePath, ".dim-profile.lock");
-                        try { if (File.Exists(opLockFile)) File.Delete(opLockFile); } catch { }
-                        Directory.Delete(profilePath, false);
                     }
+
+                    store.profiles.Remove(target);
+                    SaveStore(store);
+                    LogEvent("info", "delete", "Deleted profile id=" + target.id + " unlinked_junctions=" + unlinked);
+
+                    Dictionary<string, object> data = new Dictionary<string, object>();
+                    data["deleted_profile_id"] = target.id;
+                    data["unlinked_junctions"] = unlinked;
+                    return Ok("Deleted profile '" + target.name + "'.", data);
                 }
-
-                store.profiles.Remove(target);
-                SaveStore(store);
-                LogEvent("info", "delete", "Deleted profile id=" + target.id + " unlinked_junctions=" + unlinked);
-
-                Dictionary<string, object> data = new Dictionary<string, object>();
-                data["deleted_profile_id"] = target.id;
-                data["unlinked_junctions"] = unlinked;
-                return Ok("Deleted profile '" + target.name + "'.", data);
+                finally
+                {
+                    if (opLock != null) opLock.Dispose();
+                }
             }
         }
 
@@ -2867,9 +2884,13 @@ namespace DesktopInstanceManager.Host
                 }
             }
 
-            string profilePath = GetProfilePath(target);
-            using (AcquireProfileLockScope(profilePath, 10000))
+            string initialId = target.id;
+            using (AcquireProfileLockScope(initialId, 10000))
             {
+            store = LoadStore();
+            target = FindProfile(store, initialId);
+            if (target == null) return Fail("NOT_FOUND", "Profile not found.");
+            string profilePath = GetProfilePath(target);
             ProcessTreeSnapshot snap = CaptureProcessTreeSnapshot();
             Dictionary<string, object> runtime = InspectProfileRuntime(target, snap, false);
             if ((bool)runtime["running"])
@@ -3206,9 +3227,13 @@ namespace DesktopInstanceManager.Host
             }
 
             int mainPid = mainPidObj.Value;
-            string profilePath = GetProfilePath(target);
-            using (AcquireProfileLockScope(profilePath, 10000))
+            string initialId = target.id;
+            using (AcquireProfileLockScope(initialId, 10000))
             {
+            store = LoadStore();
+            target = FindProfile(store, initialId);
+            if (target == null) return Fail("NOT_FOUND", "Profile not found.");
+            string profilePath = GetProfilePath(target);
             string zaloDataDir = Path.Combine(profilePath, "AppData", "Roaming", "ZaloData");
             string lockfilePath = Path.Combine(zaloDataDir, "lockfile");
             string quitSigPath = Path.Combine(zaloDataDir, ".quit-signal");
@@ -3427,7 +3452,13 @@ namespace DesktopInstanceManager.Host
         public Dictionary<string, object> BackupProfile(string idOrName, string customDest, bool allowExternalDbOmit)
         {
             ProfileStoreFile store = LoadStore();
-            ProfileRecord target = FindProfile(store, idOrName);
+            ProfileRecord initialTarget = FindProfile(store, idOrName);
+            if (initialTarget == null) return Fail("NOT_FOUND", "Profile not found.");
+
+            using (AcquireProfileLockScope(initialTarget.id, 15000))
+            {
+            store = LoadStore();
+            ProfileRecord target = FindProfile(store, initialTarget.id);
             if (target == null) return Fail("NOT_FOUND", "Profile not found.");
 
             ProcessTreeSnapshot snap = CaptureProcessTreeSnapshot();
@@ -3532,6 +3563,7 @@ namespace DesktopInstanceManager.Host
             resultData["file_count"] = manifestFiles.Count;
             resultData["total_bytes"] = totalBytes;
             return Ok("Created offline atomic backup.", resultData);
+            }
         }
 
         private static void CopyProfileTreeForBackup(string rootDir, string currentDir, string destPayloadDir, List<Dictionary<string, object>> manifestFiles, ref long totalBytes)

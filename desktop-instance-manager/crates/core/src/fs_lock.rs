@@ -11,6 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::error::DimError;
+use crate::models::{LAUNCH_ADMISSION_LOCK_FILE, PROFILE_LOCKS_DIR};
 
 /// Default bounded timeout when acquiring a cross-process advisory file lock.
 pub const DEFAULT_ADVISORY_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -219,6 +220,113 @@ pub fn clean_stale_temp_files(dir: &Path, base_file_name: &str) -> usize {
         }
     }
     removed
+}
+
+/// Returns `<data_dir>/locks/<profile_id>.lock` (lowercased), keeping per-profile advisory locks
+/// outside `<data_dir>/Profiles/<slug>_<id>` so lock acquisition never resurrects a deleted
+/// profile directory or holds an open NTFS handle inside a directory being deleted.
+#[must_use]
+pub fn profile_lock_file_path(data_dir: &Path, profile_id: &str) -> PathBuf {
+    let clean_id: String = profile_id
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    data_dir
+        .join(PROFILE_LOCKS_DIR)
+        .join(format!("{clean_id}.lock"))
+}
+
+/// Returns `<data_dir>/locks/_launch_admission.lock`, used to serialize the fast pre-spawn
+/// duplicate-UID and shared-external-DB admission check across OS processes.
+#[must_use]
+pub fn launch_admission_lock_path(data_dir: &Path) -> PathBuf {
+    data_dir
+        .join(PROFILE_LOCKS_DIR)
+        .join(LAUNCH_ADMISSION_LOCK_FILE)
+}
+
+/// Probes whether an *already-existing* advisory lock file is currently held exclusively by
+/// another process, WITHOUT creating any parent directories or creating the lock file if absent.
+pub fn is_existing_lock_contended(lock_path: &Path) -> Result<bool, DimError> {
+    let meta = match fs::symlink_metadata(lock_path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(DimError::Io(e)),
+    };
+    if meta.file_type().is_symlink() || meta.is_dir() {
+        return Err(DimError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "existing lock path '{}' cannot be a directory or symlink",
+                lock_path.display()
+            ),
+        )));
+    }
+    let file = match open_existing_lock_file(lock_path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(DimError::Io(e)),
+    };
+    match try_lock_file_exclusive(&file) {
+        Ok(true) => {
+            let _ = unlock_file(&file);
+            Ok(false)
+        }
+        Ok(false) => Ok(true),
+        Err(err) => Err(DimError::Io(err)),
+    }
+}
+
+/// Removes an empty directory with bounded retry on transient Windows sharing/directory-not-empty
+/// races (e.g. Windows Defender / Search Indexer handle release).
+pub fn remove_dir_with_retry(dir: &Path) -> Result<(), DimError> {
+    let mut last_err: Option<io::Error> = None;
+    for attempt in 1..=12u64 {
+        match fs::remove_dir(dir) {
+            Ok(()) => return Ok(()),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => {
+                let retryable = matches!(
+                    err.kind(),
+                    io::ErrorKind::PermissionDenied | io::ErrorKind::DirectoryNotEmpty
+                ) || matches!(err.raw_os_error(), Some(5 | 32 | 145));
+                if !retryable || attempt == 12 {
+                    return Err(DimError::Io(err));
+                }
+                last_err = Some(err);
+                thread::sleep(Duration::from_millis(5 * attempt));
+            }
+        }
+    }
+    Err(DimError::Io(last_err.unwrap_or_else(|| {
+        io::Error::other("remove_dir retry exhausted")
+    })))
+}
+
+fn open_existing_lock_file(lock_path: &Path) -> io::Result<File> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x0000_0001;
+        const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+        const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(false)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .open(lock_path)
+    }
+    #[cfg(not(windows))]
+    {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(false)
+            .open(lock_path)
+    }
 }
 
 fn open_lock_file(lock_path: &Path) -> io::Result<File> {

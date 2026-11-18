@@ -315,17 +315,19 @@ fn verified_deletion_state_and_forged_stopped_defense_in_depth() {
         assert!(pdir.exists());
     }
 
-    // 2. Forged `ConfirmedStopped` while `.dim-profile.lock` is held must reject.
-    let op_lock = AdvisoryFileLock::acquire_exclusive(
-        &pdir.join(PROFILE_OP_LOCK_FILE),
-        Duration::from_secs(1),
-    )
-    .unwrap();
-    let lock_err = store
-        .delete_profile_verified(&prof.id, true, VerifiedDeletionState::ConfirmedStopped)
-        .unwrap_err();
-    assert_eq!(lock_err.code(), "PROFILE_RUNNING");
-    drop(op_lock);
+    // 2. Forged `ConfirmedStopped` while `<data_dir>/locks/<id>.lock` or legacy `.dim-profile.lock` is held must reject.
+    for lock_candidate in [
+        store.profile_lock_path(&prof.id),
+        pdir.join(PROFILE_OP_LOCK_FILE),
+    ] {
+        let op_lock =
+            AdvisoryFileLock::acquire_exclusive(&lock_candidate, Duration::from_secs(1)).unwrap();
+        let lock_err = store
+            .delete_profile_verified(&prof.id, true, VerifiedDeletionState::ConfirmedStopped)
+            .unwrap_err();
+        assert_eq!(lock_err.code(), "PROFILE_RUNNING");
+        drop(op_lock);
+    }
 
     // 3. Forged `ConfirmedStopped` while an indeterminate/corrupted `.runtime-lease.json` exists must reject.
     fs::write(pdir.join(RUNTIME_LEASE_FILE), b"{corrupt_lease").unwrap();

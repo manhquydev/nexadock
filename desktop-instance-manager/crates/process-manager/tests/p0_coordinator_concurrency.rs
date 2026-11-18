@@ -491,42 +491,47 @@ fn multi_process_coordinator_cross_process_lock_and_lease_crash_recovery() {
     let pdir = store.profile_dir_for(&prof).unwrap();
     adapter.ensure_profile_layout(&prof, &pdir).unwrap();
 
-    // 1. Cross-process `.dim-profile.lock` held by a separate OS subprocess blocks `delete_profile`!
+    // 1. Cross-process `<data_dir>/locks/<id>.lock` AND legacy `.dim-profile.lock` held by a
+    // separate OS subprocess both block `delete_profile`!
     let current_exe = env::current_exe().unwrap();
-    let lock_path = pdir.join(PROFILE_OP_LOCK_FILE);
-    let mut lock_holder = Command::new(&current_exe)
-        .args([
-            "--exact",
-            "multi_process_coordinator_cross_process_lock_and_lease_crash_recovery",
-            "--nocapture",
-        ])
-        .env("DIM_COORD_SUBPROC_MODE", "hold_profile_lock")
-        .env("DIM_COORD_LOCK_PATH", &lock_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    for lock_path in [
+        store.profile_lock_path(&prof.id),
+        pdir.join(PROFILE_OP_LOCK_FILE),
+    ] {
+        let mut lock_holder = Command::new(&current_exe)
+            .args([
+                "--exact",
+                "multi_process_coordinator_cross_process_lock_and_lease_crash_recovery",
+                "--nocapture",
+            ])
+            .env("DIM_COORD_SUBPROC_MODE", "hold_profile_lock")
+            .env("DIM_COORD_LOCK_PATH", &lock_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
 
-    // Wait until subprocess prints `LOCKED` (acquiring OS lock after libtest header).
-    let stdout = lock_holder.stdout.take().unwrap();
-    let mut reader = BufReader::new(stdout);
-    let mut saw_locked = false;
-    let mut line = String::new();
-    while reader.read_line(&mut line).unwrap() > 0 {
-        if line.contains("LOCKED") {
-            saw_locked = true;
-            break;
+        let stdout = lock_holder.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+        let mut saw_locked = false;
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            if line.contains("LOCKED") {
+                saw_locked = true;
+                break;
+            }
+            line.clear();
         }
-        line.clear();
+        assert!(saw_locked, "subprocess failed to report LOCKED");
+
+        let blocked_del = coord.delete_profile(&prof.id, true).unwrap_err();
+        assert_eq!(blocked_del.code(), "PROFILE_RUNNING");
+
+        drop(lock_holder.stdin.take());
+        let _ = lock_holder.wait();
     }
-    assert!(saw_locked, "subprocess failed to report LOCKED");
-
-    let blocked_del = coord.delete_profile(&prof.id, true).unwrap_err();
-    assert_eq!(blocked_del.code(), "PROFILE_RUNNING");
-
-    drop(lock_holder.stdin.take());
-    let _ = lock_holder.wait();
+    let _ = fs::remove_file(pdir.join(PROFILE_OP_LOCK_FILE));
 
     // 2. Live `.runtime-lease.json` for a real running OS subprocess:
     // `verify_runtime_lease` reports `VerifiedLive`, and `StaleLockRecoveryManager` refuses cleanup!
@@ -576,4 +581,185 @@ fn multi_process_coordinator_cross_process_lock_and_lease_crash_recovery() {
     assert!(!pdir.join(RUNTIME_LEASE_FILE).exists());
     assert_eq!(coord.stop_profile(&prof.id).unwrap(), 1);
     let _ = remove_runtime_lease(&pdir);
+}
+
+#[test]
+fn multi_process_subprocesses_launch_vs_delete_race_never_resurrects_or_corrupts() {
+    if let Ok(role) = env::var("DIM_SUBPROC_RACE_ROLE") {
+        let data_dir = PathBuf::from(env::var("DIM_SUBPROC_RACE_DATA_DIR").unwrap());
+        let primary_dir = PathBuf::from(env::var("DIM_SUBPROC_RACE_PRIMARY_DIR").unwrap());
+        let profile_id = env::var("DIM_SUBPROC_RACE_PROFILE_ID").unwrap();
+        let store = Arc::new(JsonProfileStore::new(data_dir).unwrap());
+        let adapter = Arc::new(ConcurrencyTestAdapter::new(primary_dir, 25, None));
+        let coord = InstanceCoordinator::new(Arc::clone(&store), Arc::clone(&adapter));
+
+        match role.as_str() {
+            "launcher" => match coord.launch_profile(&profile_id, &dummy_fixture_target()) {
+                Ok(_) => println!("RESULT:OK"),
+                Err(err) => println!("RESULT:ERR:{}", err.code()),
+            },
+            "deleter" => match coord.delete_profile(&profile_id, true) {
+                Ok(()) => println!("RESULT:OK"),
+                Err(err) => println!("RESULT:ERR:{}", err.code()),
+            },
+            _ => panic!("unknown role {role}"),
+        }
+        return;
+    }
+
+    let tmp = tempfile::tempdir().unwrap();
+    let data_dir = tmp.path().join("subproc-launch-delete-race");
+    let primary_dir = tmp.path().join("primary");
+    let store = Arc::new(JsonProfileStore::new(data_dir.clone()).unwrap());
+    store.ensure_initialized().unwrap();
+
+    let current_exe = env::current_exe().unwrap();
+
+    for round in 0..12usize {
+        let prof = store
+            .create_profile(&format!("Subproc Delete Race {round}"), "")
+            .unwrap();
+        let pdir = store.profile_dir_for(&prof).unwrap();
+        // Seed files inside `profile_dir` so mid-delete `ERROR_DIR_NOT_EMPTY` would be observable!
+        let zalo_data = pdir.join("AppData").join("Roaming").join("ZaloData");
+        fs::create_dir_all(&zalo_data).unwrap();
+        write_profile_id_marker(&zalo_data, &prof.id).unwrap();
+        fs::write(zalo_data.join("payload.bin"), b"USER_PROFILE_STATE").unwrap();
+
+        let launcher_child = Command::new(&current_exe)
+            .args([
+                "--exact",
+                "multi_process_subprocesses_launch_vs_delete_race_never_resurrects_or_corrupts",
+                "--nocapture",
+            ])
+            .env("DIM_SUBPROC_RACE_ROLE", "launcher")
+            .env("DIM_SUBPROC_RACE_DATA_DIR", &data_dir)
+            .env("DIM_SUBPROC_RACE_PRIMARY_DIR", &primary_dir)
+            .env("DIM_SUBPROC_RACE_PROFILE_ID", &prof.id)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let deleter_child = Command::new(&current_exe)
+            .args([
+                "--exact",
+                "multi_process_subprocesses_launch_vs_delete_race_never_resurrects_or_corrupts",
+                "--nocapture",
+            ])
+            .env("DIM_SUBPROC_RACE_ROLE", "deleter")
+            .env("DIM_SUBPROC_RACE_DATA_DIR", &data_dir)
+            .env("DIM_SUBPROC_RACE_PRIMARY_DIR", &primary_dir)
+            .env("DIM_SUBPROC_RACE_PROFILE_ID", &prof.id)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let l_out = launcher_child.wait_with_output().unwrap();
+        let d_out = deleter_child.wait_with_output().unwrap();
+        assert!(l_out.status.success());
+        assert!(d_out.status.success());
+
+        let l_stdout = String::from_utf8_lossy(&l_out.stdout);
+        let d_stdout = String::from_utf8_lossy(&d_out.stdout);
+
+        let d_result = d_stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("RESULT:"))
+            .expect("missing deleter RESULT line");
+        let l_result = l_stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("RESULT:"))
+            .expect("missing launcher RESULT line");
+
+        // Deleter MUST NEVER fail with `IO_ERROR` (`ERROR_DIR_NOT_EMPTY` / os error 145)!
+        assert!(
+            d_result == "OK" || d_result == "ERR:PROFILE_RUNNING",
+            "round {round}: unexpected deleter outcome '{d_result}' (launcher='{l_result}')"
+        );
+
+        if d_result == "OK" {
+            // Deleted profile MUST NOT exist in `profiles.json` AND `profile_dir` MUST NOT be resurrected!
+            assert_eq!(store.get_profile(&prof.id).unwrap_err().code(), "NOT_FOUND");
+            assert!(
+                !pdir.exists(),
+                "round {round}: cross-process launcher resurrected deleted profile_dir '{}' (launcher='{l_result}')",
+                pdir.display()
+            );
+        } else {
+            // Launcher held `locks/<id>.lock` first, so deleter cleanly refused with `PROFILE_RUNNING`
+            // and all profile files remained intact!
+            assert_eq!(l_result, "OK");
+            assert!(pdir.exists());
+            store.delete_profile(&prof.id, true).unwrap();
+            assert!(!pdir.exists());
+        }
+    }
+
+    assert!(store.list_profiles().unwrap().is_empty());
+}
+
+#[test]
+fn simultaneous_distinct_profile_launches_block_duplicate_zalo_user_id_toctou() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Arc::new(JsonProfileStore::new(tmp.path().join("data")).unwrap());
+    // 150ms launch delay ensures both threads would overlap pre-lock if not guarded by `in_flight_claims`!
+    let adapter = Arc::new(ConcurrencyTestAdapter::new(
+        tmp.path().join("primary"),
+        150,
+        None,
+    ));
+    let coord = Arc::new(InstanceCoordinator::new(
+        Arc::clone(&store),
+        Arc::clone(&adapter),
+    ));
+
+    let p_a = store.create_profile("Dup UID A", "").unwrap();
+    let p_b = store.create_profile("Dup UID B", "").unwrap();
+    for p in [&p_a, &p_b] {
+        let zd = store
+            .profile_dir_for(p)
+            .unwrap()
+            .join("AppData")
+            .join("Roaming")
+            .join("ZaloData");
+        fs::create_dir_all(zd.join("Database").join("_production").join("849777001")).unwrap();
+        write_profile_id_marker(&zd, &p.id).unwrap();
+    }
+
+    let barrier = Arc::new(Barrier::new(2));
+    let c_a = Arc::clone(&coord);
+    let b_a = Arc::clone(&barrier);
+    let id_a = p_a.id.clone();
+    let h_a = thread::spawn(move || {
+        b_a.wait();
+        c_a.launch_profile(&id_a, &dummy_fixture_target())
+    });
+
+    let c_b = Arc::clone(&coord);
+    let b_b = Arc::clone(&barrier);
+    let id_b = p_b.id.clone();
+    let h_b = thread::spawn(move || {
+        b_b.wait();
+        c_b.launch_profile(&id_b, &dummy_fixture_target())
+    });
+
+    let res_a = h_a.join().unwrap();
+    let res_b = h_b.join().unwrap();
+
+    let (ok_count, dup_err_count) = match (&res_a, &res_b) {
+        (Ok(_), Err(e)) => (1, usize::from(e.code() == "DUPLICATE_ZALO_USER_ID")),
+        (Err(e), Ok(_)) => (1, usize::from(e.code() == "DUPLICATE_ZALO_USER_ID")),
+        _ => (0, 0),
+    };
+    assert_eq!(
+        (ok_count, dup_err_count),
+        (1, 1),
+        "expected exactly 1 launch success and 1 DUPLICATE_ZALO_USER_ID rejection, got A={res_a:?}, B={res_b:?}"
+    );
+    assert_eq!(adapter.spawn_calls.load(Ordering::SeqCst), 1);
+
+    let _ = coord.stop_all_secondary_profiles().unwrap();
+    assert_eq!(adapter.active_count(), 0);
 }

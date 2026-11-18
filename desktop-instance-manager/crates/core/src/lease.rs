@@ -1,13 +1,13 @@
 //! Atomic `.runtime-lease.json` persistence and anti-PID-reuse process ownership verification.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::DimError;
 use crate::fs_lock::write_bytes_atomic;
-use crate::models::{RUNTIME_LEASE_FILE, RUNTIME_PID_FILE};
+use crate::models::{PROFILE_LOCKS_DIR, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE};
 use crate::time_util::now_rfc3339_utc;
 
 /// Atomic process ownership lease persisted at `<profile_dir>/.runtime-lease.json`.
@@ -310,6 +310,104 @@ pub fn check_profile_lockfile_activity(profile_dir: &Path) -> ProfileLockActivit
     }
 
     ProfileLockActivity::Inactive
+}
+
+/// Short-lived pre-spawn admission claim persisted under `<data_dir>/locks/claim_<id>.json`
+/// while a launcher process spawns and waits for readiness, closing cross-thread and cross-process
+/// TOCTOU windows on `DUPLICATE_ZALO_USER_ID` and `SHARED_EXTERNAL_DB_PATH` without serializing
+/// distinct-profile readiness polling.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LaunchAdmissionClaim {
+    /// OS PID of the coordinator/CLI process performing the launch.
+    pub claimer_pid: u32,
+    /// OS process creation timestamp of `claimer_pid` (anti-PID-reuse).
+    pub claimer_create_time: u64,
+    /// Launching profile 8-hex ID.
+    pub profile_id: String,
+    /// Launching profile display name.
+    pub profile_name: String,
+    /// Launching profile isolated root directory.
+    pub profile_dir: PathBuf,
+    /// Launching profile isolated `ZaloData` directory.
+    pub zalo_data_dir: PathBuf,
+    /// Pre-launch detected or stored `zalo_user_id`, if any.
+    pub zalo_user_id: Option<String>,
+}
+
+/// Constructs and atomically writes `<data_dir>/locks/claim_<profile_id>.json` for the current process.
+pub fn write_launch_admission_claim(
+    data_dir: &Path,
+    profile_id: &str,
+    profile_name: &str,
+    profile_dir: &Path,
+    zalo_data_dir: &Path,
+    zalo_user_id: Option<String>,
+) -> Result<PathBuf, DimError> {
+    let locks_dir = data_dir.join(PROFILE_LOCKS_DIR);
+    fs::create_dir_all(&locks_dir)?;
+    let self_pid = std::process::id();
+    let self_ctime = match query_process_identity(self_pid) {
+        ProcessIdentityProbe::Alive(id) => id.process_create_time,
+        _ => 0,
+    };
+    let clean_id = profile_id.trim().to_ascii_lowercase();
+    let claim = LaunchAdmissionClaim {
+        claimer_pid: self_pid,
+        claimer_create_time: self_ctime,
+        profile_id: clean_id.clone(),
+        profile_name: profile_name.to_owned(),
+        profile_dir: profile_dir.to_path_buf(),
+        zalo_data_dir: zalo_data_dir.to_path_buf(),
+        zalo_user_id,
+    };
+    let claim_path = locks_dir.join(format!("claim_{clean_id}.json"));
+    let mut bytes = serde_json::to_vec(&claim)?;
+    bytes.push(b'\n');
+    write_bytes_atomic(&claim_path, &bytes)?;
+    Ok(claim_path)
+}
+
+/// Reads all currently live `<data_dir>/locks/claim_*.json` entries, pruning stale claims whose
+/// `claimer_pid` has exited or whose `claimer_create_time` no longer matches.
+#[must_use]
+pub fn read_live_launch_admission_claims(data_dir: &Path) -> Vec<LaunchAdmissionClaim> {
+    let locks_dir = data_dir.join(PROFILE_LOCKS_DIR);
+    let Ok(entries) = fs::read_dir(&locks_dir) else {
+        return Vec::new();
+    };
+    let mut live = Vec::new();
+    for entry in entries.flatten() {
+        let name_os = entry.file_name();
+        let Some(name) = name_os.to_str() else {
+            continue;
+        };
+        if !(name.starts_with("claim_") && name.ends_with(".json")) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(claim) = serde_json::from_str::<LaunchAdmissionClaim>(&raw) else {
+            let _ = fs::remove_file(&path);
+            continue;
+        };
+        let is_live = match query_process_identity(claim.claimer_pid) {
+            ProcessIdentityProbe::Alive(ident) => {
+                claim.claimer_create_time == 0
+                    || ident.process_create_time == 0
+                    || ident.process_create_time == claim.claimer_create_time
+            }
+            ProcessIdentityProbe::Indeterminate(_) => true,
+            ProcessIdentityProbe::Dead => false,
+        };
+        if is_live {
+            live.push(claim);
+        } else {
+            let _ = fs::remove_file(&path);
+        }
+    }
+    live
 }
 
 fn is_plausible_managed_exe(exe_path: &str) -> bool {
