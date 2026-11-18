@@ -883,7 +883,17 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
     }
 
     fn send_sigkill(&self, pid: u32) -> Result<bool, DimError> {
-        terminate_host_os_pid(pid)
+        if pid == 0 {
+            return Ok(false);
+        }
+        #[cfg(unix)]
+        {
+            unix_send_sigkill(pid)
+        }
+        #[cfg(windows)]
+        {
+            windows_terminate_pid(pid)
+        }
     }
 
     fn query_windows_for_pids(&self, _pids: &[u32]) -> Vec<WindowInfo> {

@@ -1052,11 +1052,6 @@ impl InstanceLauncher for LinuxPlatformAdapter {
 
         #[cfg(target_os = "linux")]
         {
-            let _ = write_atomic_private_file(
-                &state.zalo_data_dir.join(".quit-signal"),
-                format!("{{\"requested_at\":\"{}\"}}\n", now_rfc3339_utc()).as_bytes(),
-            );
-
             let euid = current_effective_uid();
             let initial_tree = collect_profile_process_tree(
                 Path::new("/proc"),
@@ -1088,6 +1083,13 @@ impl InstanceLauncher for LinuxPlatformAdapter {
 
             let initial_targets = initial_tree.process_ids.clone();
             let initial_count = u32::try_from(initial_targets.len()).unwrap_or(1);
+
+            // Signal graceful quit AFTER snapshotting `initial_tree` (and checking primary protection)
+            // so fast-exiting fixtures cannot disappear from `/proc` before `initial_tree` is collected.
+            let _ = write_atomic_private_file(
+                &state.zalo_data_dir.join(".quit-signal"),
+                format!("{{\"requested_at\":\"{}\"}}\n", now_rfc3339_utc()).as_bytes(),
+            );
 
             // Phase 1: Send graceful SIGTERM strictly to the verified application main process
             // (`initial_tree.main_pid`) so Electron's `before-quit` / `will-quit` flushes SQLite

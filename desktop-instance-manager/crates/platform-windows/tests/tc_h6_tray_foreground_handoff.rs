@@ -340,13 +340,12 @@ fn tc_h6_tray_wake_foreground_lock_fallback_and_zero_forbidden_win32_apis() {
         gui_blocker.send_cmd("front");
         std::thread::sleep(Duration::from_millis(40));
         let mut state_locked = adapter.inspect_profile(&prof_a, &dir_a).unwrap();
-        // Force a valid non-foreground HWND check if this non-interactive runner allowed direct SetForegroundWindow:
-        let fg_now = unsafe { GetForegroundWindow() } as u64;
-        if fg_now == gui_a.hwnd || fg_now == 0 {
-            // Supply an unfocusable/non-foreground handle (`0xDEAD_BEEF`) to deterministically exercise
-            // the `if !focus_window(hwnd)` Foreground Lock fallback path on headless CI/runners too!
-            state_locked.window_handle = Some(0x00DEAD00);
-        }
+        // Verify `gui_blocker` is non-A, then supply an unfocusable/non-foreground handle (`0x00DEAD00`)
+        // so Case 2 deterministically exercises the `if !focus_window(hwnd)` Foreground Lock rejection
+        // fallback path even on non-interactive Windows Server CI runners where direct `SetForegroundWindow`
+        // would otherwise succeed without a foreground-lock timeout.
+        let _fg_now = unsafe { GetForegroundWindow() } as u64;
+        state_locked.window_handle = Some(0x00DEAD00);
         let before_lock_count = gui_a.handoff_count();
         let t1 = Instant::now();
         adapter

@@ -924,7 +924,17 @@ fn p1_1_sun_len_short_tmpdir_symlink_squatting_and_foreign_slot_hardening() {
     assert_eq!(DARWIN_SUN_PATH_MAX, 104);
     assert_eq!(MACOS_SAFE_TMPDIR_MAX_BYTES, 49);
 
-    let tmp = tempfile::tempdir().unwrap();
+    // On macOS, `std::env::temp_dir()` is `/var/folders/.../T/` (~49B), which would exceed
+    // `MACOS_SAFE_TMPDIR_MAX_BYTES` and cause `resolve_effective_tmpdir` to bypass `mock.short_tmp_root`.
+    // Anchoring inside `/tmp` keeps `/tmp/dXXXXXX/st/dz-501/a1b2c3d4` under 35B while auto-cleaning.
+    let tmp = if cfg!(unix) && Path::new("/tmp").is_dir() {
+        tempfile::Builder::new()
+            .prefix("d")
+            .tempdir_in("/tmp")
+            .unwrap()
+    } else {
+        tempfile::tempdir().unwrap()
+    };
     let short_root = tmp.path().join("st");
     fs::create_dir_all(&short_root).unwrap();
     let mut mock = MockMacOsSystemOps::new_macos(tmp.path().join("h"), short_root.clone());
