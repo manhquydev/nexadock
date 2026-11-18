@@ -1,0 +1,262 @@
+{
+    "schema_version":  1,
+    "suite":  "windows-installer-acceptance",
+    "section":  "Section 4 — Installer Acceptance & Host Packaging Readiness",
+    "executed_at_utc":  "2026-11-18T03:52:27.968Z",
+    "duration_ms":  2874,
+    "worktree_branch":  "qa/windows-native-acceptance",
+    "tested_integration_sha":  "cd62c523222cb3a02051347e85313226de8b6964",
+    "worktree_head_sha":  "cd62c523222cb3a02051347e85313226de8b6964",
+    "overall_gate_status":  "NOT_TESTED",
+    "workflow_status":  "AWAITING_INTEGRATION_BUILD",
+    "release_captain_handoff":  {
+                                    "installer_track_status":  "NOT_BUILT_YET (BLOCKED_TOOLCHAIN_AND_RC_SHA)",
+                                    "active_release_blockers":  [
+                                                                    "BLK-01",
+                                                                    "BLK-02",
+                                                                    "BLK-03",
+                                                                    "BLK-04",
+                                                                    "BLK-05",
+                                                                    "BLK-06"
+                                                                ],
+                                    "discovered_installer_bundles_count":  0,
+                                    "observed_raw_executables_not_installers":  [
+                                                                                    {
+                                                                                        "path":  "<USER_HOME>\\AppData\\Local\\Temp\\zalo-qa-win-acceptance-target\\release\\dim-desktop.exe",
+                                                                                        "artifact_kind":  "compiled-executable",
+                                                                                        "is_installer":  false,
+                                                                                        "size_bytes":  22672392,
+                                                                                        "sha256":  "2168cacfba423a9f7012b46040b3998d96cad24bd754b3464d13996bb3e1376d"
+                                                                                    },
+                                                                                    {
+                                                                                        "path":  "<WORKTREE_ROOT>\\zalo\\desktop-instance-manager\\apps\\desktop\\src-tauri\\target\\release\\dim-desktop.exe",
+                                                                                        "artifact_kind":  "compiled-executable",
+                                                                                        "is_installer":  false,
+                                                                                        "size_bytes":  21577450,
+                                                                                        "sha256":  "56fe670d0d4f4cc99e931e3564c741489a51d91f6868dae56462ea55dc4978b6"
+                                                                                    }
+                                                                                ]
+                                },
+    "host_environment":  {
+                             "os_caption":  "Microsoft Windows 11 Pro",
+                             "os_version":  "10.0.26300",
+                             "os_build":  "26300",
+                             "os_architecture":  "64-bit",
+                             "running_as_elevated_admin":  false,
+                             "execution_posture":  "Standard User (asInvoker)",
+                             "smart_app_control":  {
+                                                       "registry_key":  "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy\\VerifiedAndReputablePolicyState",
+                                                       "real_host_value":  0,
+                                                       "effective_evaluated_value":  0,
+                                                       "sac_simulated":  false,
+                                                       "policy_state_label":  "OFF",
+                                                       "policy_modified":  false,
+                                                       "unsigned_installer_behavior_when_enforced":  "BLOCKED_BY_PLATFORM_POLICY"
+                                                   },
+                             "webview2_evergreen":  {
+                                                        "client_guid":  "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+                                                        "installed":  true,
+                                                        "version":  "157.0.4341.46",
+                                                        "binary_path":  "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.46\\msedgewebview2.exe",
+                                                        "registry_entries":  [
+                                                                                 {
+                                                                                     "source":  "HKLM_WOW6432_Clients",
+                                                                                     "registry_key":  "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+                                                                                     "pv":  "157.0.4341.46",
+                                                                                     "eb_webview_dir":  ""
+                                                                                 },
+                                                                                 {
+                                                                                     "source":  "HKLM_WOW6432_ClientState",
+                                                                                     "registry_key":  "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\ClientState\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+                                                                                     "pv":  "157.0.4341.46",
+                                                                                     "eb_webview_dir":  "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\157.0.4341.46"
+                                                                                 },
+                                                                                 {
+                                                                                     "source":  "HKCU_ClientState",
+                                                                                     "registry_key":  "HKCU:\\Software\\Microsoft\\EdgeUpdate\\ClientState\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+                                                                                     "pv":  "",
+                                                                                     "eb_webview_dir":  ""
+                                                                                 }
+                                                                             ]
+                                                    },
+                             "packaging_toolchains":  {
+                                                          "rustc_available":  true,
+                                                          "rustc_version":  "1.100.0",
+                                                          "rustc_host_triple":  "x86_64-pc-windows-gnu",
+                                                          "cargo_available":  true,
+                                                          "msvc_cl_available":  false,
+                                                          "vswhere_present":  false,
+                                                          "nsis_makensis_available":  false,
+                                                          "wix_v3_available":  false,
+                                                          "wix_v4_available":  false,
+                                                          "tauri_cli_available":  false,
+                                                          "signtool_available":  false,
+                                                          "signing_certificate_configured":  false
+                                                      },
+                             "official_vng_zalo":  {
+                                                       "installed_versions":  [
+                                                                                  "Zalo-26.9.10",
+                                                                                  "Zalo-26.10.11",
+                                                                                  "Zalo-26.10.20"
+                                                                              ],
+                                                       "latest_executable":  "<USER_HOME>\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\Zalo.exe",
+                                                       "authenticode_status":  "Valid",
+                                                       "signer_subject":  "CN=VNG GROUP JSC, O=VNG GROUP JSC, S=Ho Chi Minh City, C=VN, SERIALNUMBER=0303490096, OID.2.5.4.15=Private Organization, OID.1.3.6.1.4.1.311.60.2.1.2=Ho Chi Minh City, OID.1.3.6.1.4.1.311.60.2.1.3=VN"
+                                                   }
+                         },
+    "bundle_configuration_audit":  {
+                                       "tauri_conf_path":  "<WORKTREE_ROOT>\\zalo-windows-acceptance\\desktop-instance-manager\\apps\\desktop\\src-tauri\\tauri.conf.json",
+                                       "product_name":  "Multi-Zalo Desktop",
+                                       "version":  "0.1.0",
+                                       "identifier":  "com.multizalodesktop.manager",
+                                       "bundle_active":  true,
+                                       "bundle_targets":  "all",
+                                       "configured_icons":  [
+                                                                "icons/32x32.png",
+                                                                "icons/128x128.png",
+                                                                "icons/128x128@2x.png",
+                                                                "icons/icon.icns",
+                                                                "icons/icon.ico"
+                                                            ],
+                                       "missing_icons":  [
+
+                                                         ],
+                                       "valid_windows_ico_header":  true,
+                                       "has_base_windows_bundle_section":  false,
+                                       "ci_overlay_present":  true,
+                                       "ci_overlay_webview_install_mode":  "downloadBootstrapper",
+                                       "ir003_patch_present":  true,
+                                       "ir006_manifest_patch_present":  true,
+                                       "vng_binaries_in_bundle_inputs_count":  0
+                                   },
+    "candidate_evaluation":  null,
+    "lifecycle_execution":  {
+                                "executed":  false,
+                                "reason":  "No Release Captain NSIS (*-setup.exe) or WiX (*.msi) installer candidate has been built or handed over yet."
+                            },
+    "safety_invariants":  {
+                              "primary_zalo_config_sha256_before":  "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+                              "primary_zalo_config_sha256_after":  "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+                              "primary_zalo_unchanged":  true,
+                              "primary_zalo_running_count_before":  0,
+                              "primary_zalo_running_count_after":  0,
+                              "real_user_profiles_unchanged":  true,
+                              "manager_pids_before":  [
+
+                                                      ],
+                              "manager_pids_after":  [
+
+                                                     ],
+                              "new_orphan_manager_pids":  [
+
+                                                          ],
+                              "zero_orphans":  true,
+                              "smart_app_control_untouched":  true
+                          },
+    "summary_counts":  {
+                           "PASS":  6,
+                           "FAIL":  0,
+                           "BLOCKED":  2,
+                           "NOT_TESTED":  6
+                       },
+    "checks":  [
+                   {
+                       "id":  "INST-01",
+                       "title":  "Official NSIS/MSI Installer Candidate Presence & Gate G2 Classification",
+                       "gate_status":  "NOT_TESTED",
+                       "workflow_status":  "AWAITING_INTEGRATION_BUILD",
+                       "detail":  "0 NSIS/MSI installer artifacts found in bundle targets; Release Captain Track 10 is NOT_BUILT_YET (BLK-04). Raw compiled executables (dim-desktop.exe) are classified is_installer=false and never treated as installers."
+                   },
+                   {
+                       "id":  "INST-02",
+                       "title":  "Bundle Configuration & CI Overlay Audit (tauri.conf.json + IR-003)",
+                       "gate_status":  "PASS",
+                       "workflow_status":  "VERIFIED_STATIC",
+                       "detail":  "productName=\u0027Multi-Zalo Desktop\u0027, version=\u00270.1.0\u0027, identifier=\u0027com.multizalodesktop.manager\u0027, icons valid=True, downloadBootstrapper overlay present=True."
+                   },
+                   {
+                       "id":  "INST-03",
+                       "title":  "Cryptographic SHA-256 & Authenticode Code-Signing Gate (Gate G3)",
+                       "gate_status":  "BLOCKED",
+                       "workflow_status":  "UNSIGNED_DEVELOPMENT_ARTIFACT",
+                       "detail":  "No Authenticode OV/EV or Azure Trusted Signing certificate configured (BLK-06); local/CI candidates default to UNSIGNED_DEVELOPMENT_ARTIFACT."
+                   },
+                   {
+                       "id":  "INST-04",
+                       "title":  "Windows Smart App Control (SAC) Non-Bypass Policy Gate",
+                       "gate_status":  "PASS",
+                       "workflow_status":  "READY",
+                       "detail":  "Smart App Control VerifiedAndReputablePolicyState=0 (OFF) read non-destructively (zero policy mutation). Unsigned installers will immediately return BLOCKED_BY_PLATFORM_POLICY on SAC=1 hosts."
+                   },
+                   {
+                       "id":  "INST-05",
+                       "title":  "WebView2 Evergreen Runtime Host Prerequisite ({F3017226-FE2A-4295-8BDF-00C3A9A7E4C5})",
+                       "gate_status":  "PASS",
+                       "workflow_status":  "VERIFIED_HOST",
+                       "detail":  "WebView2 Evergreen Runtime v157.0.4341.46 installed and msedgewebview2.exe verified on disk."
+                   },
+                   {
+                       "id":  "INST-06",
+                       "title":  "Windows Packaging Toolchain Availability (MSVC, NSIS, WiX, @tauri-apps/cli@2.12.5)",
+                       "gate_status":  "BLOCKED",
+                       "workflow_status":  "DELEGATED_TO_WINDOWS_2022_CI",
+                       "detail":  "Local host runs rustc 1.100.0 (x86_64-pc-windows-gnu) without MSVC cl.exe/link.exe, NSIS makensis.exe, WiX candle/light, or @tauri-apps/cli@2.12.5 (BLK-04); canonical installer build runs on GitHub Actions windows-2022."
+                   },
+                   {
+                       "id":  "INST-07",
+                       "title":  "Zero Bundled Official VNG Zalo Binary Policy (Gate G1)",
+                       "gate_status":  "PASS",
+                       "workflow_status":  "ENFORCED",
+                       "detail":  "0 VNG binaries (Zalo.exe, ZaloCall.exe, app.asar) present in apps/desktop/src-tauri bundle inputs; installer payload scan armed for RC candidate."
+                   },
+                   {
+                       "id":  "INST-08",
+                       "title":  "Sandboxed Per-User Silent Install Lifecycle (asInvoker, Zero UAC)",
+                       "gate_status":  "NOT_TESTED",
+                       "workflow_status":  "AWAITING_INTEGRATION_BUILD",
+                       "detail":  "Awaiting frozen RC SHA and Windows x64 MSVC NSIS/MSI installer build (AWAITING_INTEGRATION_BUILD)."
+                   },
+                   {
+                       "id":  "INST-09",
+                       "title":  "Start Menu & Desktop Shortcut Creation & Target Verification",
+                       "gate_status":  "NOT_TESTED",
+                       "workflow_status":  "AWAITING_INTEGRATION_BUILD",
+                       "detail":  "Awaiting frozen RC SHA and Windows x64 MSVC NSIS/MSI installer build (AWAITING_INTEGRATION_BUILD)."
+                   },
+                   {
+                       "id":  "INST-10",
+                       "title":  "In-Place Update / Upgrade Path Verification",
+                       "gate_status":  "NOT_TESTED",
+                       "workflow_status":  "AWAITING_INTEGRATION_BUILD",
+                       "detail":  "Awaiting frozen RC SHA and Windows x64 MSVC NSIS/MSI installer build (AWAITING_INTEGRATION_BUILD)."
+                   },
+                   {
+                       "id":  "INST-11",
+                       "title":  "User Profile Data Retention Across Upgrade & Uninstall (Zero Profile Deletion)",
+                       "gate_status":  "NOT_TESTED",
+                       "workflow_status":  "AWAITING_INTEGRATION_BUILD",
+                       "detail":  "Host real profile store untouched (unchanged=True); installer upgrade/uninstall retention awaits RC installer build."
+                   },
+                   {
+                       "id":  "INST-12",
+                       "title":  "Clean Silent Uninstall Lifecycle",
+                       "gate_status":  "NOT_TESTED",
+                       "workflow_status":  "AWAITING_INTEGRATION_BUILD",
+                       "detail":  "Awaiting frozen RC SHA and Windows x64 MSVC NSIS/MSI installer build (AWAITING_INTEGRATION_BUILD)."
+                   },
+                   {
+                       "id":  "INST-13",
+                       "title":  "Primary %APPDATA%\\ZaloData & Running Primary Zalo Invariance",
+                       "gate_status":  "PASS",
+                       "workflow_status":  "VERIFIED_INVARIANT",
+                       "detail":  "Primary ZaloData config.json SHA-256 unchanged=True (0 running primary Zalo processes preserved; real MultiZaloDesktop profiles unchanged=True)."
+                   },
+                   {
+                       "id":  "INST-14",
+                       "title":  "Zero Orphan Manager or Installer Processes Post-Check",
+                       "gate_status":  "PASS",
+                       "workflow_status":  "VERIFIED_INVARIANT",
+                       "detail":  "New orphan manager/installer PIDs left behind: 0."
+                   }
+               ]
+}
