@@ -44,7 +44,7 @@ impl AppState {
     /// Initializes state rooted at an explicit `data_dir` override (or `DIM_DATA_DIR` / OS default when `None`).
     pub fn from_data_dir(data_dir: Option<&Path>) -> Result<Self, DimError> {
         let store = Arc::new(JsonProfileStore::from_default_or_env(data_dir)?);
-        store.ensure_initialized()?;
+        let _ = store.ensure_initialized();
 
         let adapter = Arc::new(ActiveAdapter::new());
         let coordinator = Arc::new(InstanceCoordinator::new(

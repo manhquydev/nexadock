@@ -1,6 +1,11 @@
-# Zalo Desktop Multi-Instance Research & Manager Workspace
+# Desktop Instance Manager (Multi-Zalo Desktop)
 
-Workspace nghiên cứu dịch ngược ứng dụng **Zalo Desktop** chính thức bằng **REA (Reverse Engineer Anything)** và phát triển trình quản lý đa phiên cô lập dữ liệu (**Desktop Instance Manager**).
+> **Tuyên bố phi liên kết / Non-Affiliation Notice:** Đây là dự án mã nguồn mở độc lập, **không liên kết, không được tài trợ hay chứng thực bởi VNG Corporation hay Zalo**. `"Zalo"` là nhãn hiệu thuộc sở hữu của VNG Corporation. Kho mã nguồn và các bộ cài đặt **không** chứa, không chỉnh sửa và không phân phối lại bất kỳ nhị phân hay tài nguyên độc quyền nào của VNG — người dùng tự cài đặt Zalo Desktop chính thức từ VNG.  
+> *(An independent open-source project, not affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo. Zero proprietary VNG binaries are bundled or redistributed.)*
+
+**Giấy phép / License:** Mã nguồn phần mềm trong `desktop-instance-manager/` được cấp phép kép theo **MIT OR Apache-2.0** ([`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-APACHE`](LICENSE-APACHE)), kèm thông báo phụ thuộc tại [`desktop-instance-manager/THIRD_PARTY_NOTICES.md`](desktop-instance-manager/THIRD_PARTY_NOTICES.md). Các tệp nhật ký/bằng chứng kiểm thử dưới `**/evidence/**` là tài liệu ghi nhận kiểm thử và nằm ngoài phạm vi cấp phép phần mềm.
+
+Workspace phát triển trình quản lý đa phiên cô lập dữ liệu (**Desktop Instance Manager**) cho **Zalo Desktop**.
 
 ## Primary Workspace — `desktop-instance-manager/`
 
@@ -32,4 +37,3 @@ Phiên bản tiền nhiệm (C#/.NET PoC trên Windows + bộ bằng chứng d�
 - [`multi-zalo-desktop/docs/architecture.md`](multi-zalo-desktop/docs/architecture.md)
 - [`multi-zalo-desktop/docs/security-review.md`](multi-zalo-desktop/docs/security-review.md)
 - [`multi-zalo-desktop/docs/testing-report.md`](multi-zalo-desktop/docs/testing-report.md)
-- [`multi-zalo-desktop/evidence/rea-evidence-summary.json`](multi-zalo-desktop/evidence/rea-evidence-summary.json)

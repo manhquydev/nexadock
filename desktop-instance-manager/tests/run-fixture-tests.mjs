@@ -367,7 +367,12 @@ async function runSuite() {
 
       // Sanitized diagnostic logs
       const diag = runHost(dataDir, ['diagnostics']).json;
-      assert.equal(diag.is_elevated, false);
+      const elevCheck = spawnSync('powershell.exe', [
+        '-NoProfile', '-Command',
+        '([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)'
+      ], { encoding: 'utf8', windowsHide: true });
+      const expectedElevated = elevCheck.stdout.trim().toLowerCase() === 'true';
+      assert.equal(diag.is_elevated, expectedElevated);
       const logsText = (diag.sanitized_logs || []).join('\n');
       const rawUser = os.userInfo().username;
       assert.equal(logsText.toLowerCase().includes(rawUser.toLowerCase()), false, 'Sanitized logs leaked raw OS username');

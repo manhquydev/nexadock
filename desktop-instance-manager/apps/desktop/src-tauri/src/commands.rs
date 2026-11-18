@@ -21,18 +21,42 @@ fn current_user_home() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+#[allow(dead_code)]
+const OFFICIAL_FIXTURE_SHA256_ALLOWLIST: &[&str] = &[
+    // fixtures/cross-platform/xf-fixture.mjs (LF and CRLF)
+    "1f30e1d26d01b69deacf217610ea9c9a30aeed06fd089968f15084eaa2cda9f4",
+    "eca38c7efb3d08191dfddad4e82e99a83066eb40c59919225e5b642753a95281",
+    // fixtures/test-desktop-app/fixture-app.mjs (LF and CRLF)
+    "46d3cb9bafc192bdc31147b8469a89417f7702f0d57d2ade59752f273cc33fbf",
+    "724971c2b15ae45406ece208b2d11e3e7c663b503dc49b609914f06ced7a4aa2",
+];
+
+#[allow(dead_code)]
+fn is_allowlisted_fixture_script(path: &std::path::Path) -> bool {
+    match dim_profile_store::sha256_file(path) {
+        Ok(digest) => OFFICIAL_FIXTURE_SHA256_ALLOWLIST.contains(&digest.as_str()),
+        Err(_) => false,
+    }
+}
+
 fn resolve_tauri_launch_target() -> (Option<PathBuf>, LaunchTarget) {
     if let Some(raw) = std::env::var_os("DIM_NODE_FIXTURE_SCRIPT") {
         let candidate = PathBuf::from(raw);
         if !candidate.as_os_str().is_empty() && validate_directory_input(&candidate).is_ok() {
-            return (
-                Some(candidate.clone()),
-                LaunchTarget::NodeFixture {
-                    node_path: None,
-                    script_path: candidate,
-                    extra_args: Vec::new(),
-                },
-            );
+            #[cfg(not(debug_assertions))]
+            let allowed = is_allowlisted_fixture_script(&candidate);
+            #[cfg(debug_assertions)]
+            let allowed = true;
+            if allowed {
+                return (
+                    Some(candidate.clone()),
+                    LaunchTarget::NodeFixture {
+                        node_path: None,
+                        script_path: candidate,
+                        extra_args: Vec::new(),
+                    },
+                );
+            }
         }
     }
     (
@@ -46,6 +70,11 @@ fn resolve_tauri_launch_target() -> (Option<PathBuf>, LaunchTarget) {
 fn redact_err_text(err: impl std::fmt::Display) -> String {
     let home = current_user_home();
     redact_sensitive_text(&err.to_string(), home.as_deref())
+}
+
+fn redact_dim_err(err: DimError) -> String {
+    let code = err.code();
+    format!("[{code}] {}", redact_err_text(err))
 }
 
 fn join_err_envelope<T: Serialize>(err: impl std::fmt::Display) -> ApiEnvelope<T> {
@@ -133,7 +162,7 @@ pub async fn get_status(
             let installation = app
                 .adapter
                 .discover_installation(None)
-                .map_err(redact_err_text)?;
+                .map_err(redact_dim_err)?;
             serde_json::json!({
                 "valid": installation.is_valid,
                 "mode": "official-zalo",
@@ -143,16 +172,16 @@ pub async fn get_status(
                 "error": installation.error,
             })
         };
-        let primary = app.adapter.inspect_primary().map_err(redact_err_text)?;
-        let records = app.store.list_profiles().map_err(redact_err_text)?;
+        let primary = app.adapter.inspect_primary().map_err(redact_dim_err)?;
+        let records = app.store.list_profiles().map_err(redact_dim_err)?;
 
         let mut profiles = Vec::with_capacity(records.len());
         for rec in records {
-            let dir = app.store.profile_dir_for(&rec).map_err(redact_err_text)?;
+            let dir = app.store.profile_dir_for(&rec).map_err(redact_dim_err)?;
             let rt = app
                 .coordinator
                 .inspect_profile_record(&rec, &dir)
-                .map_err(redact_err_text)?;
+                .map_err(redact_dim_err)?;
             let data_size = if measure_size {
                 Some(rt.disk_usage_bytes)
             } else {
@@ -574,9 +603,44 @@ pub async fn verify_isolation(state: State<'_, AppState>) -> Result<serde_json::
         let report = app
             .coordinator
             .verify_isolation(&*app.adapter, None, fixture_ref)
-            .map_err(redact_err_text)?;
+            .map_err(redact_dim_err)?;
         serde_json::to_value(report).map_err(redact_err_text)
     })
     .await
     .map_err(redact_err_text)?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arbitrary_fixture_script_is_rejected_by_sha256_allowlist() {
+        let dir = std::env::temp_dir().join(format!("dim-cmd-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let arbitrary = dir.join("evil-arbitrary.mjs");
+        fs::write(&arbitrary, "console.log('arbitrary script');\n")
+            .expect("write arbitrary script");
+        assert!(!is_allowlisted_fixture_script(&arbitrary));
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let official_xf = manifest_dir
+            .join("..")
+            .join("..")
+            .join("..")
+            .join("fixtures")
+            .join("cross-platform")
+            .join("xf-fixture.mjs");
+        if official_xf.exists() {
+            assert!(is_allowlisted_fixture_script(&official_xf));
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn redact_dim_err_preserves_error_code_prefix() {
+        let formatted = redact_dim_err(DimError::SchemaError("bad schema_version".to_owned()));
+        assert!(formatted.starts_with("[SCHEMA_ERROR] "));
+    }
 }

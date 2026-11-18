@@ -24,7 +24,7 @@ Kiểm tra trực tiếp phiên `rea` (`rea-agents@6.9.0`, giao thức MCP `2026
 | `inspect_pe_imports` & `inspect_native_exports` | `available` | `zcall_ia32.node` (`zvideocall_node.node`), `win-utils.node`, `file-utilities.node` | `ev_e01e41ea...`, `ev_8c12c7c1...`, `ev_5bf5ad79...`, `ev_6b5285f8...` |
 | `inspect_desktop_application` | `available` | Thư mục cài đặt `Zalo-26.10.20` (`345` file, `132` probed) | `ev_1c421fc5...` (parent `ev_a7236176...`) |
 
-*(Kết hợp với bộ bằng chứng nền tảng đã lưu tại [`../../../../multi-zalo-desktop/evidence/rea-evidence-summary.json`](../../../../multi-zalo-desktop/evidence/rea-evidence-summary.json): `ev_8e05df8e...` Electron fuses, `ev_fce14a1d...` PE hardening, `ev_70919879...` ASAR graph).*
+*(Kết hợp với bộ bằng chứng nền tảng từ phân tích REA `ev_8e05df8e...` Electron fuses, `ev_fce14a1d...` PE hardening, `ev_70919879...` ASAR graph; các tệp `rea-*.json` thô đã gỡ trước khi công khai repo).*
 
 ### 1.2. Nhóm công cụ không khả dụng trên host và ranh giới tuân thủ (`CONFIRMED`)
 

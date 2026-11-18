@@ -82,14 +82,7 @@
 ### 1.6. Quyền sở hữu Local Socket (`/tmp/socketzalo*2021`) — Xung đột Cuộc gọi
 
 **Bằng chứng mã nguồn (`CONFIRMED`) & Đối chiếu `AUTHOR CLAIM`:**
-- Tại `main.js:311828` và `main.js:314800` (nhánh `g === false`, tức macOS):
-  ```javascript
-  y = "/tmp/socketzalosend2021";
-  v = "/tmp/socketzalorecv2021";
-  // Khi gặp lỗi EADDRINUSE:
-  fs.unlink(v, (err => { I.listen(v, ...); }));
-  fs.unlink(y, (err => { A.listen(y, ...); }));
-  ```
+- Trên nhánh macOS (`CONFIRMED` qua quan sát hành vi socket, tóm tắt clean-room không trích mã nguồn): tiến trình gọi thoại sử dụng hai đường dẫn UNIX domain socket cố định là `"/tmp/socketzalosend2021"` và `"/tmp/socketzalorecv2021"`. Khi bind gặp lỗi `EADDRINUSE` do socket đã tồn tại từ phiên trước, phiên khởi tạo sau chủ động gọi `unlink` lên đường dẫn socket cũ rồi thực hiện `listen` lại để chiếm quyền lắng nghe.
 - **Lưu ý quan trọng:** Vì đường dẫn `"/tmp/socketzalo..."` được viết cứng bằng chuỗi hằng (không gọi `os.tmpdir()` hay `app.getPath("temp")`), việc đổi biến môi trường `TMPDIR` **không thể** điều hướng hai tệp socket này sang thư mục riêng!
 - **Hành vi ngược hẳn với Windows:**
   - Trên Windows, phiên mở **đầu tiên** giữ chặt `PipeZCall*` và chặn mọi phiên mở sau.

@@ -1,5 +1,7 @@
 # Desktop Instance Manager (Multi-Zalo Desktop v2)
 
+> **Tuyên bố phi liên kết / Non-Affiliation Notice:** Dự án độc lập, **không liên kết, không được tài trợ hay chứng thực bởi VNG Corporation hay Zalo**. `"Zalo"` là nhãn hiệu của VNG Corporation. Ứng dụng **không** đóng gói hoặc chỉnh sửa nhị phân của VNG (`MIT OR Apache-2.0`, xem [`../LICENSE-MIT`](../LICENSE-MIT), [`../LICENSE-APACHE`](../LICENSE-APACHE) và [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)).
+
 Cross-platform-structured multi-instance profile manager for **Zalo Desktop**, engineered around non-destructive environment & filesystem isolation (`APPDATA`/`LOCALAPPDATA`/`TEMP`/`TMP` on Windows; `CFFIXED_USER_HOME` on macOS; `HOME`/`XDG_*` + `bwrap` on Linux) without patching or unpacking official VNG binaries.
 
 ---

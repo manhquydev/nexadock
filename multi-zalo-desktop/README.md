@@ -19,7 +19,7 @@ multi-zalo-desktop/
 │   ├── security-review.md             # Đánh giá bảo mật, ACL & Smart App Control
 │   ├── compatibility.md             # Tương thích cập nhật Windows, nghiên cứu macOS & Linux
 │   └── testing-report.md              # Ma trận 12 bài kiểm thử thực nghiệm
-├── evidence/                          # Bằng chứng kỹ thuật đã làm sạch (REA JSON + log PoC/IT)
+├── evidence/                          # Bằng chứng kỹ thuật đã làm sạch (log PoC/IT; các tệp rea-*.json thô đã gỡ trước khi công khai)
 ├── src/
 │   ├── core/                          # ProfileModels, ProfileManager, InstanceManager, Diagnostics
 │   ├── platform/                      # WindowsPlatformAdapter, MacOS & Linux research stubs
@@ -27,11 +27,10 @@ multi-zalo-desktop/
 ├── tests/
 │   └── IntegrationTests.ps1           # Bộ kiểm thử tự động ma trận 12 mục + GUI smoke
 ├── scripts/
-│   ├── build.ps1                      # Biên dịch dist/MultiZaloDesktop.exe qua csc.exe
+│   ├── build.ps1                      # Biên dịch dist/MultiZaloDesktop.exe cục bộ qua csc.exe (không commit nhị phân chưa ký vào repo công khai)
 │   ├── run-poc.ps1                    # Chạy Proof of Concept 2 phiên cô lập + kiểm tra Zalo chính
 │   └── run-tests.ps1                  # Chạy IntegrationTests.ps1
 └── dist/
-    ├── MultiZaloDesktop.exe           # Binary biên dịch (dành cho máy cho phép chạy PE chưa ký)
     ├── MultiZaloDesktop.ps1           # Launcher PowerShell đã ký host (tương thích Smart App Control)
     └── MultiZaloDesktop.cmd           # Script mở nhanh (Double-click mở GUI hoặc truyền --cli)
 ```
@@ -45,7 +44,7 @@ multi-zalo-desktop/
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -STA -File ".\dist\MultiZaloDesktop.ps1"
 ```
-*(Nếu hệ thống không bật Windows Smart App Control chặn PE chưa ký, có thể biên dịch và chạy trực tiếp `dist\MultiZaloDesktop.exe`.)*
+*(Nếu hệ thống không bật Windows Smart App Control chặn PE chưa ký, bạn có thể tự biên dịch cục bộ qua `scripts/build.ps1` rồi chạy `dist\MultiZaloDesktop.exe`; tệp nhị phân chưa ký không còn lưu sẵn trên repository công khai.)*
 
 ### Sử dụng qua CLI
 ```powershell
@@ -83,7 +82,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run-tests.ps1"
    - Trong `app.asar/bootstrap.js`, Zalo gọi `require('./main-dist/migration')` trước khi gọi `app.requestSingleInstanceLock()`. File `migration.js` tính `d = path.join(app.getPath("appData"), "ZaloData")` và ghi đè `app.setPath("userData", d)`. Khi mở lần thứ 2 trong cùng môi trường Windows, `app.getPath("appData")` đều trỏ về `%APPDATA%`, dẫn tới `requestSingleInstanceLock()` đụng khóa độc quyền trên `%APPDATA%\ZaloData\lockfile`, chuyển hướng qua `second-instance.js` (ghi `startup.log` và gọi `app.quit()`), còn phiên đầu nhận sự kiện `second-instance` (`main.js:3565794`) để focus cửa sổ cũ. *(Quan sát trực tiếp từ mã nguồn.)*
 
 3. **REA giúp xác minh được những gì?**
-   - REA (`rea-agents` v6.9.0) đã xác minh chứng chỉ số Authenticode (`CN=VNG GROUP JSC`), bảng import PE (`OpenMutexW`, `CreateMutexW`, `CryptProtectData`, `SHGetKnownFolderPath`), cờ bảo vệ PE (`DYNAMIC_BASE`, `NX_COMPAT`, `GUARD_CF`), toàn bộ 7 Electron Fuses (`EnableCookieEncryption=enabled`, `EnableEmbeddedAsarIntegrityValidation=disabled`), cấu trúc `app.asar` (10.869 node, 13.170 file), tài nguyên PE manifest của `ZaloSetup-26.11.12.exe`, và tự báo cáo giới hạn khi `rea-windows-x64.node` bị Windows Application Control chặn. *(Đã lưu Evidence IDs trong `evidence/rea-evidence-summary.json`.)*
+   - REA (`rea-agents` v6.9.0) đã xác minh chứng chỉ số Authenticode (`CN=VNG GROUP JSC`), bảng import PE (`OpenMutexW`, `CreateMutexW`, `CryptProtectData`, `SHGetKnownFolderPath`), cờ bảo vệ PE (`DYNAMIC_BASE`, `NX_COMPAT`, `GUARD_CF`), toàn bộ 7 Electron Fuses (`EnableCookieEncryption=enabled`, `EnableEmbeddedAsarIntegrityValidation=disabled`), cấu trúc `app.asar` (10.869 node, 13.170 file), tài nguyên PE manifest của `ZaloSetup-26.11.12.exe`, và tự báo cáo giới hạn khi `rea-windows-x64.node` bị Windows Application Control chặn. *(Các Evidence ID đã đối chiếu từ bản xuất REA trước khi gỡ bỏ tệp `rea-*.json` khỏi repository công khai.)*
 
 4. **Có thể dùng cơ chế nào để tách các phiên?**
    - **Per-process environment isolation** bằng `CreateProcessW` (`bInheritHandles = false`, `CREATE_UNICODE_ENVIRONMENT`): điều hướng `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`, `HOMEDRIVE`, `HOMEPATH` cho từng tiến trình `Zalo-<ver>\Zalo.exe`, kết hợp pre-seed `zmeta.json` và `migrate-config.json` (`zalopc_m_c: true`), và định danh PID chính xác từng phiên qua khóa `lockfile` bằng Windows Restart Manager (`rstrtmgr.dll`). *(Đã kiểm chứng thực nghiệm thành công.)*

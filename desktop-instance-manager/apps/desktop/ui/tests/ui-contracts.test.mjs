@@ -28,6 +28,7 @@ const i18nJs = fs.readFileSync(path.join(uiDir, 'i18n', 'index.js'), 'utf8');
 
 test('HTML adheres to Modern Web Guidance, native radio groups, & CSP rules', () => {
   assert.match(html, /<meta\s+name="color-scheme"\s+content="light dark">/i);
+  assert.match(html, /<meta\s+name="text-scale"\s+content="scale">/i);
   assert.match(html, /<script\s+src="\.\/theme-init\.js"><\/script>/i);
   assert.doesNotMatch(html, /\brole="dialog"/i, 'Native <dialog> must not have role="dialog"');
   assert.doesNotMatch(html, /\baria-modal=/i, 'Native <dialog> must not have aria-modal');
@@ -46,6 +47,7 @@ test('CSS adheres to Modern Web Guidance & Quiet Workspace rules', () => {
   assert.doesNotMatch(css, /linear-gradient|radial-gradient|conic-gradient/i, 'Quiet Workspace forbids flashy gradients');
   assert.doesNotMatch(css, /backdrop-filter/i, 'Quiet Workspace forbids glassmorphism');
   assert.doesNotMatch(css, /@import\s+url\(|https?:\/\//i, 'No remote fonts or URLs in CSS');
+  assert.doesNotMatch(css, /\bfont-size\s*:\s*\d+(?:\.\d+)?px\b/i, 'All CSS font-size rules must use rem/em to respect OS text scaling');
 });
 
 test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forbids innerHTML', () => {

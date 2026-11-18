@@ -173,9 +173,14 @@ export async function apiCall(route, method = 'GET', body = null, tauriCmd = nul
       updateConnectionBadge('tauri', true);
       return result;
     } catch (err) {
-      updateConnectionBadge('tauri', false);
-      const tauriErr = new Error(typeof err === 'string' ? err : err?.message || t('errors.HOST_EXEC_FAILED'));
-      tauriErr.errorCode = 'HOST_EXEC_FAILED';
+      const rawMsg = typeof err === 'string' ? err : err?.message || t('errors.HOST_EXEC_FAILED');
+      const codeMatch = rawMsg.match(/^\[([A-Z0-9_]+)\]\s*(.*)$/s);
+      const errorCode = codeMatch ? codeMatch[1] : 'HOST_EXEC_FAILED';
+      const cleanMsg = codeMatch ? codeMatch[2] : rawMsg;
+      const isDataOrAppError = Boolean(codeMatch) && errorCode !== 'HOST_EXEC_FAILED' && errorCode !== 'PROCESS_ERROR';
+      updateConnectionBadge('tauri', isDataOrAppError);
+      const tauriErr = new Error(cleanMsg || t('errors.HOST_EXEC_FAILED'));
+      tauriErr.errorCode = errorCode;
       throw tauriErr;
     }
   }
@@ -1294,8 +1299,10 @@ export async function refreshAll({ isVerify = false } = {}) {
     }
   } catch (err) {
     if (seq !== state.refreshSeq) return;
-    updateConnectionBadge(state.connectionMode || 'bridge', false);
-    showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
+    const errCode = err?.errorCode || 'HOST_EXEC_FAILED';
+    const isInfraErr = errCode === 'HOST_EXEC_FAILED' || errCode === 'HOST_TIMEOUT' || errCode === 'UNAUTHORIZED';
+    updateConnectionBadge(state.connectionMode || 'bridge', !isInfraErr);
+    showErrorBanner(errCode, err?.message || '');
   } finally {
     state.pendingGlobalActions.delete(key);
     renderAll();
@@ -1709,7 +1716,8 @@ function wireDialogsAndFallbacks() {
     try {
       const res = await apiCall('/api/backups/restore', 'POST', { backupDir, name }, 'restore_backup', { backupDir, name });
       if (res && res.ok === false) {
-        showErrorBanner(res.error_code, res.message);
+        const restoreErrCode = res.error_code === 'BACKUP_ERROR' ? 'RESTORE_ERROR' : res.error_code;
+        showErrorBanner(restoreErrCode, res.message);
         await refreshAll();
       } else {
         showKeyBanner('messages.backupRestored', {}, 'success');

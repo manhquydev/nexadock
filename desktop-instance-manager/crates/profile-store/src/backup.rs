@@ -657,7 +657,8 @@ fn normalize_rel_path(rel: &Path) -> String {
         .join("/")
 }
 
-fn sha256_file(path: &Path) -> Result<String, DimError> {
+/// Computes the lowercase hex SHA-256 digest of a file.
+pub fn sha256_file(path: &Path) -> Result<String, DimError> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 65_536];

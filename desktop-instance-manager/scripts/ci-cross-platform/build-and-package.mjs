@@ -85,8 +85,9 @@ function buildPackagingEnv(baseEnv = process.env) {
     .join(path.delimiter);
 
   const env = { ...augmented, [pathKey]: mergedPath };
-  if (process.platform === 'linux' && !env.APPIMAGE_EXTRACT_AND_RUN) {
-    env.APPIMAGE_EXTRACT_AND_RUN = '1';
+  if (process.platform === 'linux') {
+    if (!env.APPIMAGE_EXTRACT_AND_RUN) env.APPIMAGE_EXTRACT_AND_RUN = '1';
+    if (!env.NO_STRIP) env.NO_STRIP = 'true';
   }
   return env;
 }
@@ -569,7 +570,7 @@ export function runBuildAndPackage(opts) {
     console.error(`[build-and-package] FATAL ZERO-VNG-BINARY POLICY VIOLATION: ${vngViolations.join(', ')}`);
     return { exitCode: 2, summary: finalSummary };
   }
-  if (opts.requireBundler && bundleStatus !== 'SUCCEEDED') {
+  if (opts.requireBundler && opts.bundles !== 'none' && bundleStatus !== 'SUCCEEDED') {
     return { exitCode: 1, summary: finalSummary };
   }
   return { exitCode: 0, summary: finalSummary };

@@ -46,44 +46,14 @@ Kiểm tra `inspect_pe_imports` (`ev_83087efa...`) và giải mã offset chuỗi
 - Nếu mutex chưa tồn tại, stub gọi `CreateMutexW(NULL, FALSE, L"ZaloStubExecutable")` (`FF 15 1C 90 42 00`), rồi tìm thư mục `\Zalo-*` (`VA 0x435C90`), ghi log vào `%APPDATA%\ZaloData\log.log` (`VA 0x436080` + `0x436088`), gọi `CreateProcessW` (`FF 15 24 90 42 00`), chờ `WaitForInputIdle(hProcess, 5000)`, và giải phóng mutex bằng `ReleaseMutex` (`FF 15 28 90 42 00`).
 - **Kết luận quan trọng**: `ZaloStubExecutable` chỉ là mutex bảo vệ quá trình khởi động ngắn hạn (~vài trăm ms đến tối đa 5 giây) của chính stub launcher — **nó KHÔNG phải mutex giữ phiên chạy suốt đời của Zalo Desktop**. Nếu khởi chạy trực tiếp `Zalo-<ver>\Zalo.exe`, mutex này thậm chí không được tạo.
 
-### 2.2. Tầng 2: Electron `bootstrap.js` & `migration.js`
+### 2.2. Tầng 2: Luồng Di Chuyển `userData` & Khóa Đơn Phiên Electron
 
-Đoạn mã gốc trích trực tiếp từ `app.asar/bootstrap.js` (756 bytes):
-```javascript
-function bootstrap() {
-  require('./libs/perf-tracing/runtime');
-  perf.record(perf.STARTUP);
-  require('./main-dist/migration');
-  perf.record(perf.MIGRATION_DONE);
-
-  const isCompactApp = process.argv.some(e => e.startsWith('--launch-compact-app'));
-  if (isCompactApp) {
-    if (require('electron').app.requestSingleInstanceLock()) {
-      return handleEntryCompactApp();
-    } else {
-      require('./main-dist/second-instance');
-    }
-  }
-
-  if (require('electron').app.requestSingleInstanceLock()) {
-    perf.record(perf.MAIN_SCRIPT);
-    require('./main-dist/main');
-  } else {
-    require('./main-dist/second-instance');
-  }
-}
-```
-
-Tại `main-dist/migration.js` (offset `600654..605000`):
-```javascript
-p = path.join(app.getPath("appData"), o.appFolderOld); // "ZaloApp"
-let d = path.join(app.getPath("appData"), o.appFolder); // "ZaloData"
-...
-app.setPath("userData", d);
-```
-**Hệ quả trực tiếp:**
-- Việc `migration.js` gọi `app.setPath("userData", path.join(app.getPath("appData"), "ZaloData"))` **trước** `app.requestSingleInstanceLock()` khiến tham số dòng lệnh `--user-data-dir=...` của Chromium bị ghi đè hoàn toàn nếu `appData` không thay đổi.
-- Hàm `app.requestSingleInstanceLock()` của Electron 22 sử dụng cơ chế `ProcessSingleton` của Chromium trên Windows: mở khóa độc quyền (exclusive file handle `FileShare.None`) trên tệp `<userData>\lockfile`, kèm cửa sổ ẩn thông báo (`Chrome_MessageWindow`) để chuyển tiếp tham số dòng lệnh cho tiến trình đang giữ khóa.
+Qua kiểm tra tĩnh cấu trúc khởi động Electron (clean-room specification, không sao chép mã nguồn độc quyền):
+- Trong pha khởi tạo sớm (`migration`), tiến trình đọc đường dẫn thư mục ứng dụng mặc định (`app.getPath("appData")`), ánh xạ sang thư mục dữ liệu `"ZaloData"` (thay cho thư mục cũ `"ZaloApp"`) và gọi `app.setPath("userData", <appData>/ZaloData)` **trước** khi kiểm tra khóa đơn phiên (`app.requestSingleInstanceLock()`).
+- Khi mở ở chế độ thông thường hoặc compact (`--launch-compact-app`), luồng khởi động chỉ tiếp tục chạy cửa sổ chính khi `requestSingleInstanceLock()` trả về `true`; nếu không lấy được khóa, tiến trình chuyển sang luồng `second-instance`.
+- **Hệ quả trực tiếp:**
+  - Việc gọi `app.setPath("userData", <appData>/ZaloData)` **trước** `app.requestSingleInstanceLock()` khiến tham số dòng lệnh `--user-data-dir=...` của Chromium bị ghi đè hoàn toàn nếu biến môi trường quyết định `appData` không thay đổi.
+  - Hàm `app.requestSingleInstanceLock()` của Electron 22 sử dụng cơ chế `ProcessSingleton` của Chromium trên Windows: mở khóa độc quyền (exclusive file handle `FileShare.None`) trên tệp `<userData>\lockfile`, kèm cửa sổ ẩn thông báo (`Chrome_MessageWindow`) để chuyển tiếp tham số dòng lệnh cho tiến trình đang giữ khóa.
 
 ### 2.3. Tầng 3: `second-instance.js` và `main.js`
 

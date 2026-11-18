@@ -258,17 +258,20 @@ namespace MultiZaloDesktop.Platform
             {
                 X509Certificate cert = X509Certificate.CreateFromSignedFile(info.ElectronExePath);
                 info.SignerSubject = cert.Subject;
-                info.AuthenticodeStatus = (!string.IsNullOrEmpty(cert.Subject) && cert.Subject.IndexOf("VNG", StringComparison.OrdinalIgnoreCase) >= 0)
+                bool hasVngSubject = !string.IsNullOrEmpty(cert.Subject)
+                    && cert.Subject.IndexOf("VNG", StringComparison.OrdinalIgnoreCase) >= 0;
+                info.AuthenticodeStatus = hasVngSubject
                     ? "Signed (VNG)"
-                    : "Signed";
+                    : "Signed (Non-VNG)";
+                info.IsValid = hasVngSubject;
             }
             catch (Exception ex)
             {
                 info.AuthenticodeStatus = "Unverified (" + ex.Message + ")";
                 info.SignerSubject = string.Empty;
+                info.IsValid = false;
             }
 
-            info.IsValid = true;
             return info;
         }
 

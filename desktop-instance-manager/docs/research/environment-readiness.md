@@ -55,7 +55,7 @@ Windows `Microsoft-Windows-CodeIntegrity/Operational` logs confirm WDAC/SAC poli
 
 ### Direct Enforcement Observations
 1. **Unsigned Locally Compiled PE Blocked When SAC=1**:
-   - Running the historical unsigned .NET executable [`multi-zalo-desktop/dist/MultiZaloDesktop.exe`](../../../multi-zalo-desktop/dist/MultiZaloDesktop.exe) (`Authenticode Status = NotSigned`) failed immediately at OS loader level when `VerifiedAndReputablePolicyState = 1`:
+   - Running the historical unsigned .NET executable `multi-zalo-desktop/dist/MultiZaloDesktop.exe` (`Authenticode Status = NotSigned`; removed from the public repo prior to release, buildable locally via `scripts/build.ps1`) failed immediately at OS loader level when `VerifiedAndReputablePolicyState = 1`:
      > `Program 'MultiZaloDesktop.exe' failed to run: An Application Control policy has blocked this file`
 2. **Unsigned Native Addon Blocked (`rea-windows-x64.node`)**:
    - Calling REA's `analyze_javascript_application` failed with `capability_unavailable` (Evidence ID `ev_65a72c27603cd5f817368a4390e8a3b9d8d9ed1bf6592ecf0f57c4adfdc7ee4b`, recorded in [`multi-zalo-desktop/docs/research/rea-capabilities.md`](../../../multi-zalo-desktop/docs/research/rea-capabilities.md)):
@@ -85,7 +85,7 @@ Direct inspection of `ak` CLI and `%USERPROFILE%\.agentkit\`:
 
 ## 5. REA MCP (`rea-agents` v6.9.0) Capabilities & Gaps
 
-Verified from [`multi-zalo-desktop/evidence/rea-binary-session.json`](../../../multi-zalo-desktop/evidence/rea-binary-session.json) and [`multi-zalo-desktop/evidence/rea-evidence-summary.json`](../../../multi-zalo-desktop/evidence/rea-evidence-summary.json):
+Verified from `rea-agents` session inspection (historical `rea-*.json` raw exports were removed from the public repository prior to release per `PUB-SEC-10`):
 
 - **Server Identity**: `rea-agents` `v6.9.0`, MCP SDK `2.3.1`, negotiated protocol `2026-07-28`, exposing `255` MCP tools, `196` CLI commands, `6` MCP prompts.
 - **Working Built-In Capabilities (Verified on Zalo Artifacts)**:
@@ -108,7 +108,7 @@ Verified from [`multi-zalo-desktop/evidence/rea-binary-session.json`](../../../m
 
 ### 6.1. Official Zalo Artifacts Observed on Host
 
-All measurements below come from [`multi-zalo-desktop/evidence/rea-evidence-summary.json`](../../../multi-zalo-desktop/evidence/rea-evidence-summary.json), [`multi-zalo-desktop/docs/research/zalo-desktop-analysis.md`](../../../multi-zalo-desktop/docs/research/zalo-desktop-analysis.md), and direct read-only inspection of `%LOCALAPPDATA%\Programs\Zalo`:
+All measurements below come from static binary analysis (`rea-agents` / PE inspection), [`multi-zalo-desktop/docs/research/zalo-desktop-analysis.md`](../../../multi-zalo-desktop/docs/research/zalo-desktop-analysis.md), and direct read-only inspection of `%LOCALAPPDATA%\Programs\Zalo`:
 
 | Component | Path | Size (bytes) | SHA-256 | Authenticode Signer |
 | :--- | :--- | ---: | :--- | :--- |

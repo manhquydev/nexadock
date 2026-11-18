@@ -4255,11 +4255,12 @@ namespace DesktopInstanceManager.Host
             catch (Exception ex)
             {
                 string msg = ex.Message ?? "Unhandled error";
+                bool isIo = (ex is UnauthorizedAccessException) || (ex is System.IO.IOException);
                 string code = msg.StartsWith("PATH_TRAVERSAL", StringComparison.Ordinal) ? "PATH_TRAVERSAL"
                     : msg.StartsWith("PROTECTED_PRIMARY_PATH", StringComparison.Ordinal) ? "PROTECTED_PRIMARY_PATH"
                     : msg.StartsWith("JSON_ERROR", StringComparison.Ordinal) ? "JSON_ERROR"
                     : msg.StartsWith("SCHEMA_ERROR", StringComparison.Ordinal) ? "SCHEMA_ERROR"
-                    : msg.StartsWith("IO_ERROR", StringComparison.Ordinal) ? "IO_ERROR"
+                    : (msg.StartsWith("IO_ERROR", StringComparison.Ordinal) || isIo) ? "IO_ERROR"
                     : "UNHANDLED_EXCEPTION";
                 output = Fail(code, msg);
             }
@@ -4298,11 +4299,13 @@ try {
     exit $exitCode
 }
 catch {
-    $errMsg = $_.Exception.Message
-    if ($_.Exception.InnerException) {
-        $errMsg = $_.Exception.InnerException.Message
+    $inner = $_.Exception
+    if ($inner.InnerException) {
+        $inner = $inner.InnerException
     }
-    $code = if ($errMsg -like "PATH_TRAVERSAL*") { "PATH_TRAVERSAL" } elseif ($errMsg -like "PROTECTED_PRIMARY_PATH*") { "PROTECTED_PRIMARY_PATH" } elseif ($errMsg -like "JSON_ERROR*") { "JSON_ERROR" } elseif ($errMsg -like "SCHEMA_ERROR*") { "SCHEMA_ERROR" } elseif ($errMsg -like "IO_ERROR*") { "IO_ERROR" } else { "INIT_FAILED" }
+    $errMsg = $inner.Message
+    $isIo = ($inner -is [System.UnauthorizedAccessException]) -or ($inner -is [System.IO.IOException])
+    $code = if ($errMsg -like "PATH_TRAVERSAL*") { "PATH_TRAVERSAL" } elseif ($errMsg -like "PROTECTED_PRIMARY_PATH*") { "PROTECTED_PRIMARY_PATH" } elseif ($errMsg -like "JSON_ERROR*") { "JSON_ERROR" } elseif ($errMsg -like "SCHEMA_ERROR*") { "SCHEMA_ERROR" } elseif (($errMsg -like "IO_ERROR*") -or $isIo) { "IO_ERROR" } else { "INIT_FAILED" }
     $errObj = [ordered]@{
         ok = $false
         error_code = $code
