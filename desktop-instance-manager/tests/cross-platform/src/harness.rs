@@ -801,6 +801,18 @@ fn collect_pids_from_profile_artifacts(profile_dir: &Path, out: &mut Vec<u32>) {
         }
     }
 
+    if let Ok(raw) = fs::read_to_string(profile_dir.join(".runtime-lease.json")) {
+        if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+            if let Some(pid) = v
+                .get("pid")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+            {
+                push_pid(pid);
+            }
+        }
+    }
+
     let zdirs = [
         profile_dir.join("AppData").join("Roaming").join("ZaloData"),
         profile_dir

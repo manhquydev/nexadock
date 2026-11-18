@@ -13,8 +13,9 @@ use dim_core::{
     ensure_not_primary_zalo_path, generate_profile_id, now_rfc3339_utc, resolve_data_dir,
     resolve_safe_child, validate_directory_input, validate_profile_name, verify_runtime_lease,
     write_bytes_atomic, AdvisoryFileLock, DimError, LeaseVerification, ProfileLockActivity,
-    ProfileRecord, ProfileStore, ProfilesDocument, DEFAULT_ADVISORY_LOCK_TIMEOUT,
-    PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION, PROFILE_OP_LOCK_FILE, ZALO_PROFILE_ID_FILE,
+    ProfileRecord, ProfileStore, ProfilesDocument, VerifiedDeletionState,
+    DEFAULT_ADVISORY_LOCK_TIMEOUT, PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION,
+    PROFILE_OP_LOCK_FILE, ZALO_PROFILE_ID_FILE,
 };
 use serde::de::Error as _;
 
@@ -151,15 +152,16 @@ impl JsonProfileStore {
         })
     }
 
-    /// Deletes a profile after enforcing `confirm`, caller-observed `is_running`, AND independent
-    /// backend runtime ownership checks (`.dim-profile.lock`, `.runtime-lease.json`, `lockfile`,
-    /// `SingletonLock`, `.runtime-pid`), canonical `<data_dir>/Profiles` path containment,
+    /// Deletes a profile after enforcing `confirm`, explicit [`VerifiedDeletionState::ConfirmedStopped`]
+    /// runtime proof (rejecting `Starting`, `Running`, `Stopping`, and indeterminate `Unknown`),
+    /// AND independent backend runtime ownership checks (`.dim-profile.lock`, `.runtime-lease.json`,
+    /// `lockfile`, `SingletonLock`, `.runtime-pid`), canonical `<data_dir>/Profiles` path containment,
     /// `PROTECTED_PRIMARY_PATH` exclusion, and verified two-phase reparse-point unlinking.
     pub fn delete_profile_with_guard(
         &self,
         id_or_name: &str,
         confirm: bool,
-        is_running: bool,
+        deletion_state: VerifiedDeletionState,
         unlink_junctions: &dyn Fn(&Path) -> Result<usize, DimError>,
     ) -> Result<(), DimError> {
         if !confirm {
@@ -167,8 +169,10 @@ impl JsonProfileStore {
                 "deleting a profile requires explicit confirmation (--confirm)".to_owned(),
             ));
         }
-        if is_running {
-            return Err(DimError::ProfileRunning(id_or_name.to_owned()));
+        if let VerifiedDeletionState::NotSafeToDelete(ownership) = deletion_state {
+            return Err(DimError::ProfileRunning(format!(
+                "refused to delete profile '{id_or_name}': runtime ownership state is {ownership:?} (ConfirmedStopped required)"
+            )));
         }
 
         self.with_store_locks(|store| {
@@ -476,11 +480,21 @@ impl ProfileStore for JsonProfileStore {
         })
     }
 
-    fn delete_profile(&self, id_or_name: &str, confirm: bool) -> Result<(), DimError> {
-        // `delete_profile_with_guard` independently verifies `.dim-profile.lock`,
-        // `.runtime-lease.json`, `lockfile`, `SingletonLock`, and `.runtime-pid` ownership
-        // before unlinking any files or modifying `profiles.json`.
-        self.delete_profile_with_guard(id_or_name, confirm, false, &unlink_reparse_points_safe)
+    fn delete_profile_verified(
+        &self,
+        id_or_name: &str,
+        confirm: bool,
+        deletion_state: VerifiedDeletionState,
+    ) -> Result<(), DimError> {
+        // `delete_profile_with_guard` enforces `VerifiedDeletionState::ConfirmedStopped` AND
+        // independently verifies `.dim-profile.lock`, `.runtime-lease.json`, `lockfile`,
+        // `SingletonLock`, and `.runtime-pid` ownership before unlinking files or modifying `profiles.json`.
+        self.delete_profile_with_guard(
+            id_or_name,
+            confirm,
+            deletion_state,
+            &unlink_reparse_points_safe,
+        )
     }
 
     fn update_last_launched(

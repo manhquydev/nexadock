@@ -13,7 +13,7 @@ use dim_core::{
     ensure_not_primary_zalo_path, now_rfc3339_utc, AdvisoryFileLock, ApplicationLocator, DimError,
     InstanceLauncher, InstanceMonitor, IsolationCheckItem, IsolationVerificationReport,
     LaunchTarget, PlatformCapabilities, PlatformKind, ProfileLifecycleState, ProfileRecord,
-    ProfileRuntimeState, ProfileStore, RecoveryManager, SupportStatus,
+    ProfileRuntimeState, ProfileStore, RecoveryManager, SupportStatus, VerifiedDeletionState,
     DEFAULT_ADVISORY_LOCK_TIMEOUT, PROFILE_OP_LOCK_FILE,
 };
 use dim_profile_store::{is_symlink_or_reparse, verify_profile_id_marker, JsonProfileStore};
@@ -551,11 +551,12 @@ where
             let fresh_profile = self.store.get_profile(&profile.id)?;
             let profile_dir = self.store.profile_dir_for(&fresh_profile)?;
             let state = self.adapter.inspect_profile(&fresh_profile, &profile_dir)?;
+            let deletion_state = VerifiedDeletionState::from_runtime_state(&state);
 
             self.store.delete_profile_with_guard(
                 &fresh_profile.id,
                 confirm,
-                state.running || state.lifecycle_state() != ProfileLifecycleState::Stopped,
+                deletion_state,
                 &|dir| self.adapter.unlink_profile_junctions(dir),
             )
         })();

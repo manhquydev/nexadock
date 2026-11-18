@@ -854,9 +854,13 @@ fn lc_08_concurrent_launch_stop_race() -> Result<CaseSuccess, String> {
         || persisted_store_profiles != expected_store_profiles
         || !race_bystander_metadata_present;
 
-    // If Coordinator lacked per-profile launch serialization (`rejected_collisions >= 2`) OR
+    let unique_returned_pids: HashSet<u32> = returned_pids.iter().copied().collect();
+    let launch_race_failed =
+        rejected_collisions > 0 || returned_pids.len() != 4 || unique_returned_pids.len() != 1;
+
+    // If Coordinator lacked per-profile launch serialization (`launch_race_failed`) OR
     // `JsonProfileStore` lacked cross-instance locking / unique temp staging (`store_tmp_race_failed`):
-    if rejected_collisions >= 2 || store_tmp_race_failed {
+    if launch_race_failed || store_tmp_race_failed {
         return Ok(CaseSuccess::defect(
             "DEFECT-04",
             &[

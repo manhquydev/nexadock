@@ -45,6 +45,8 @@ fn suite_01_process_lifecycle_matrix() {
     let outcomes = lifecycle::run_lifecycle_suite(0x2026_1117);
     assert_eq!(outcomes.len(), 9);
     assert_no_unexpected_failures(&outcomes);
+    #[cfg(target_os = "windows")]
+    assert_release_gate_clean("Suite 01 Lifecycle (LC-01..LC-09)", &outcomes);
 }
 
 #[test]
@@ -52,6 +54,7 @@ fn suite_02_profile_management_matrix() {
     let outcomes = profile_mgmt::run_profile_management_suite();
     assert_eq!(outcomes.len(), 8);
     assert_no_unexpected_failures(&outcomes);
+    assert_release_gate_clean("Suite 02 Profile Management (PM-01..PM-08)", &outcomes);
 }
 
 #[test]
@@ -59,6 +62,7 @@ fn suite_03_data_safety_matrix() {
     let outcomes = data_safety::run_data_safety_suite(0x2026_1117);
     assert_eq!(outcomes.len(), 8);
     assert_no_unexpected_failures(&outcomes);
+    assert_release_gate_clean("Suite 03 Data Safety (DS-01..DS-08)", &outcomes);
 }
 
 #[test]
@@ -68,6 +72,8 @@ fn suite_04_reliability_matrix_fast_ci() {
     let outcomes = reliability::run_reliability_suite(25, 0x2026_1117);
     assert_eq!(outcomes.len(), 8);
     assert_no_unexpected_failures(&outcomes);
+    #[cfg(target_os = "windows")]
+    assert_release_gate_clean("Suite 04 Reliability (REL-01..REL-08)", &outcomes);
 }
 
 #[test]
@@ -82,6 +88,7 @@ fn suite_06_adapter_and_cli_contracts_matrix() {
     let outcomes = adapter_contracts::run_adapter_contract_suite();
     assert_eq!(outcomes.len(), 10);
     assert_no_unexpected_failures(&outcomes);
+    assert_release_gate_clean("Suite 06 Adapter & CLI Contracts (CT-01..CT-10)", &outcomes);
 }
 
 #[test]
