@@ -375,3 +375,79 @@ fn verified_deletion_state_and_forged_stopped_defense_in_depth() {
     assert!(!pdir.exists());
     assert!(store.list_profiles().unwrap().is_empty());
 }
+
+#[test]
+fn legacy_storage_version_profiles_json_compat_and_fail_closed_guards() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data_dir = tmp.path().join("legacy-compat");
+    let store = JsonProfileStore::new(data_dir.clone()).unwrap();
+    store.ensure_initialized().unwrap();
+
+    let metadata_path = store.metadata_path().to_path_buf();
+
+    // 1. Legacy fail-closed cases must preserve original bytes untouched.
+    let fail_cases: &[(&[u8], &str)] = &[
+        (
+            br#"{"StorageVersion": 99, "Profiles": []}"#,
+            "SCHEMA_ERROR",
+        ),
+        (
+            br#"{"StorageVersion": "1", "Profiles": []}"#,
+            "SCHEMA_ERROR",
+        ),
+        (br#"{"StorageVersion": 1}"#, "JSON_ERROR"),
+        (
+            br#"{"StorageVersion": 1, "Profiles": "not-an-array"}"#,
+            "JSON_ERROR",
+        ),
+    ];
+
+    for (payload, expected_code) in fail_cases {
+        fs::write(&metadata_path, payload).unwrap();
+        assert_eq!(store.list_profiles().unwrap_err().code(), *expected_code);
+        assert_eq!(fs::read(&metadata_path).unwrap(), *payload);
+    }
+
+    // 2. Valid legacy StorageVersion: 1 (including UTF-8 BOM and null Notes/LastLaunchedAt)
+    //    loads cleanly and upgrades atomically to schema_version: 1 on the next write.
+    let legacy_payload = concat!(
+        "\u{FEFF}",
+        r#"{
+  "StorageVersion": 1,
+  "Profiles": [
+    {
+      "Id": "433977a4",
+      "Name": "Tai khoan moi",
+      "DirectoryName": "tai-khoan-moi_433977a4",
+      "CreatedAt": "2026-11-17T13:41:07.2150771Z",
+      "LastLaunchedAt": "2026-11-17T13:53:55.0105152Z",
+      "Notes": ""
+    },
+    {
+      "Id": "8f0cd61b",
+      "Name": "Tai khoan moi 2",
+      "DirectoryName": "tai-khoan-moi-2_8f0cd61b",
+      "CreatedAt": "2026-11-17T13:54:01.9135907Z",
+      "LastLaunchedAt": null,
+      "Notes": null
+    }
+  ]
+}"#
+    );
+    fs::write(&metadata_path, legacy_payload.as_bytes()).unwrap();
+
+    let profiles = store.list_profiles().unwrap();
+    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles[0].id, "433977a4");
+    assert_eq!(profiles[0].directory_name, "tai-khoan-moi_433977a4");
+    assert_eq!(profiles[1].id, "8f0cd61b");
+    assert_eq!(profiles[1].last_launched_at, None);
+    assert_eq!(profiles[1].notes, "");
+
+    // Trigger a write (rename) and verify the file is upgraded to canonical `schema_version: 1`.
+    store.rename_profile("8f0cd61b", "Tai khoan da doi ten").unwrap();
+    let upgraded_raw = fs::read_to_string(&metadata_path).unwrap();
+    let upgraded_json: serde_json::Value = serde_json::from_str(&upgraded_raw).unwrap();
+    assert_eq!(upgraded_json["schema_version"], 1);
+    assert_eq!(upgraded_json["profiles"][1]["name"], "Tai khoan da doi ten");
+}

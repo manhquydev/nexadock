@@ -362,8 +362,9 @@ impl JsonProfileStore {
         let raw_text = String::from_utf8(raw_bytes).map_err(|e| {
             corrupt_profiles_json_error(&self.metadata_path, &format!("invalid UTF-8 bytes ({e})"))
         })?;
+        let raw_text = raw_text.strip_prefix('\u{FEFF}').unwrap_or(&raw_text);
 
-        let val: serde_json::Value = serde_json::from_str(&raw_text).map_err(|e| {
+        let val: serde_json::Value = serde_json::from_str(raw_text).map_err(|e| {
             corrupt_profiles_json_error(&self.metadata_path, &format!("invalid JSON syntax ({e})"))
         })?;
 
@@ -374,34 +375,38 @@ impl JsonProfileStore {
             ));
         };
 
-        let Some(schema_val) = obj.get("schema_version") else {
-            return Err(DimError::SchemaError(format!(
-                "missing 'schema_version' in '{}'; original file preserved untouched for recovery",
-                self.metadata_path.display()
-            )));
-        };
+        if let Some(schema_val) = obj.get("schema_version") {
+            let Some(version_u64) = schema_val.as_u64() else {
+                return Err(DimError::SchemaError(format!(
+                    "invalid non-integer 'schema_version' in '{}'; original file preserved untouched for recovery",
+                    self.metadata_path.display()
+                )));
+            };
 
-        let Some(version_u64) = schema_val.as_u64() else {
-            return Err(DimError::SchemaError(format!(
-                "invalid non-integer 'schema_version' in '{}'; original file preserved untouched for recovery",
-                self.metadata_path.display()
-            )));
-        };
+            if version_u64 != u64::from(PROFILES_SCHEMA_VERSION) {
+                return Err(DimError::SchemaError(format!(
+                    "unsupported profiles.json schema_version {version_u64} in '{}' (expected {PROFILES_SCHEMA_VERSION}); original file preserved untouched for recovery",
+                    self.metadata_path.display()
+                )));
+            }
 
-        if version_u64 != u64::from(PROFILES_SCHEMA_VERSION) {
-            return Err(DimError::SchemaError(format!(
-                "unsupported profiles.json schema_version {version_u64} in '{}' (expected {PROFILES_SCHEMA_VERSION}); original file preserved untouched for recovery",
-                self.metadata_path.display()
-            )));
+            let doc: ProfilesDocument = serde_json::from_value(val).map_err(|e| {
+                corrupt_profiles_json_error(
+                    &self.metadata_path,
+                    &format!("malformed profile record schema ({e})"),
+                )
+            })?;
+            return Ok(doc);
         }
 
-        let doc: ProfilesDocument = serde_json::from_value(val).map_err(|e| {
-            corrupt_profiles_json_error(
-                &self.metadata_path,
-                &format!("malformed profile record schema ({e})"),
-            )
-        })?;
-        Ok(doc)
+        if obj.contains_key("StorageVersion") {
+            return parse_legacy_profiles_document(&self.metadata_path, val);
+        }
+
+        Err(DimError::SchemaError(format!(
+            "missing 'schema_version' in '{}'; original file preserved untouched for recovery",
+            self.metadata_path.display()
+        )))
     }
 
     fn write_document_atomic_locked(&self, doc: &ProfilesDocument) -> Result<(), DimError> {
@@ -790,4 +795,78 @@ fn find_profile_index(profiles: &[ProfileRecord], needle: &str) -> Option<usize>
                 .iter()
                 .position(|p| profile_names_eq_case_insensitive(&p.name, trimmed))
         })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct LegacyProfileRecord {
+    id: String,
+    name: String,
+    directory_name: String,
+    created_at: String,
+    #[serde(default)]
+    last_launched_at: Option<String>,
+    #[serde(default)]
+    zalo_user_id: Option<String>,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct LegacyProfilesDocument {
+    #[allow(dead_code)]
+    storage_version: u32,
+    profiles: Vec<LegacyProfileRecord>,
+}
+
+/// Parses a legacy `multi-zalo-desktop` (`StorageVersion: 1`, `Profiles: [...]`) store document
+/// into the canonical `ProfilesDocument` (`schema_version: 1`) without mutating the file on read.
+fn parse_legacy_profiles_document(
+    metadata_path: &Path,
+    val: serde_json::Value,
+) -> Result<ProfilesDocument, DimError> {
+    let Some(storage_val) = val.get("StorageVersion") else {
+        return Err(DimError::SchemaError(format!(
+            "missing 'schema_version' in '{}'; original file preserved untouched for recovery",
+            metadata_path.display()
+        )));
+    };
+    let Some(version_u64) = storage_val.as_u64() else {
+        return Err(DimError::SchemaError(format!(
+            "invalid non-integer 'StorageVersion' in '{}'; original file preserved untouched for recovery",
+            metadata_path.display()
+        )));
+    };
+
+    if version_u64 != u64::from(PROFILES_SCHEMA_VERSION) {
+        return Err(DimError::SchemaError(format!(
+            "unsupported legacy profiles.json StorageVersion {version_u64} in '{}' (expected {PROFILES_SCHEMA_VERSION}); original file preserved untouched for recovery",
+            metadata_path.display()
+        )));
+    }
+
+    let legacy_doc: LegacyProfilesDocument = serde_json::from_value(val).map_err(|e| {
+        corrupt_profiles_json_error(
+            metadata_path,
+            &format!("malformed legacy profile record schema ({e})"),
+        )
+    })?;
+
+    Ok(ProfilesDocument {
+        schema_version: PROFILES_SCHEMA_VERSION,
+        profiles: legacy_doc
+            .profiles
+            .into_iter()
+            .map(|p| ProfileRecord {
+                id: p.id,
+                name: p.name,
+                directory_name: p.directory_name,
+                created_at: p.created_at,
+                last_launched_at: p.last_launched_at,
+                zalo_user_id: p.zalo_user_id,
+                notes: p.notes.unwrap_or_default(),
+            })
+            .collect(),
+    })
 }
