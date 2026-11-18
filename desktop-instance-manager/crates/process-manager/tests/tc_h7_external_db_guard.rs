@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 

@@ -344,7 +344,7 @@ pub fn resolve_effective_tmpdir(
     #[cfg(not(unix))]
     let base_root = default_base;
 
-    ops.ensure_private_dir(&base_root)?;
+    ensure_short_tmp_base_root(ops, &base_root)?;
 
     let user_root = base_root.join(&user_slot_name);
     ensure_strict_private_tmp_slot(ops, &user_root)?;
@@ -894,6 +894,50 @@ pub fn normalize_macos_unicode_key(input: &str) -> String {
         }
     }
     decomposed.into_iter().collect()
+}
+
+fn ensure_short_tmp_base_root(ops: &dyn MacOsSystemOps, base_root: &Path) -> Result<(), DimError> {
+    if base_root == Path::new("/tmp") || base_root == Path::new("/private/tmp") {
+        let meta = fs::symlink_metadata(base_root).map_err(|e| {
+            DimError::Io(std::io::Error::new(
+                e.kind(),
+                format!(
+                    "failed to stat system short tmp root '{}': {e}",
+                    base_root.display()
+                ),
+            ))
+        })?;
+        if meta.file_type().is_symlink() {
+            if base_root != Path::new("/tmp") {
+                return Err(DimError::PathTraversal(format!(
+                    "refusing unexpected symlinked short tmp root '{}'",
+                    base_root.display()
+                )));
+            }
+            let target = fs::read_link(base_root)?;
+            if target != Path::new("private/tmp") && target != Path::new("/private/tmp") {
+                return Err(DimError::PathTraversal(format!(
+                    "refusing '/tmp' symlink pointing to unexpected target '{}'",
+                    target.display()
+                )));
+            }
+            let real_meta = fs::symlink_metadata(Path::new("/private/tmp"))?;
+            if is_symlink_or_reparse(&real_meta) || !real_meta.is_dir() {
+                return Err(DimError::PathTraversal(
+                    "system '/private/tmp' must be a real directory".to_owned(),
+                ));
+            }
+            return Ok(());
+        }
+        if !meta.is_dir() {
+            return Err(DimError::PathTraversal(format!(
+                "system short tmp root '{}' is not a directory",
+                base_root.display()
+            )));
+        }
+        return Ok(());
+    }
+    ops.ensure_private_dir(base_root)
 }
 
 fn ensure_strict_private_tmp_slot(ops: &dyn MacOsSystemOps, slot: &Path) -> Result<(), DimError> {

@@ -197,6 +197,25 @@ fn wait_for_file(path: &Path, timeout_ms: u64) -> bool {
     path.exists()
 }
 
+fn wait_child_bounded(
+    child: &mut Child,
+    timeout_ms: u64,
+    context: &str,
+) -> std::process::ExitStatus {
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("timed out after {timeout_ms}ms waiting for child process ({context})");
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 1. Application discovery & ELF/AppImage provenance
 // ---------------------------------------------------------------------------
@@ -713,6 +732,8 @@ fn test_07_safe_graceful_shutdown_leaves_sibling_running() {
     let z_b = linux_zalo_data_dir(&dir_b);
     assert!(wait_for_file(&z_a.join("lockfile"), 4_000));
     assert!(wait_for_file(&z_b.join("lockfile"), 4_000));
+    assert!(wait_for_file(&z_a.join("launch-state.json"), 4_000));
+    assert!(wait_for_file(&z_b.join("launch-state.json"), 4_000));
 
     // Request graceful shutdown on Profile A ONLY.
     fs::write(z_a.join(".quit-signal"), "{\"requested_at\":\"now\"}\n").unwrap();
@@ -760,7 +781,7 @@ fn test_08_crash_simulation_and_stale_lock_recovery() {
         &["--crash", "--crash-delay-ms=60", "--user-id=849333444"],
     );
     if let Some(ref mut c) = crash_child.0 {
-        let status = c.wait().unwrap();
+        let status = wait_child_bounded(c, 5_000, "test_08_crash_simulation");
         assert!(!status.success(), "simulated crash must exit non-zero");
     }
 
@@ -1685,9 +1706,7 @@ process.exit(0);
 
     let mut launcher_child = cmd.spawn().expect("intermediate launcher must spawn");
     let launcher_os_pid = launcher_child.id();
-    let launcher_status = launcher_child
-        .wait()
-        .expect("intermediate launcher must exit cleanly");
+    let launcher_status = wait_child_bounded(&mut launcher_child, 5_000, "regression_01_launcher");
     assert!(
         launcher_status.success(),
         "short-lived launcher must exit with status 0"
@@ -1846,7 +1865,7 @@ fn regression_02_manager_graceful_shutdown_and_bwrap_tree_ordering() {
             unsafe {
                 assert_eq!(libc::kill(pid, libc::SIGTERM), 0);
             }
-            let status = c.wait().unwrap();
+            let status = wait_child_bounded(c, 5_000, "regression_02_sigterm");
             assert!(status.success(), "fixture must exit 0 on SIGTERM");
         }
         assert!(!z_sig.join("lockfile").exists());
@@ -2265,7 +2284,7 @@ fn regression_04_stale_lockfile_and_singleton_lock_recovery() {
 
     fs::write(zdir.join(".quit-signal"), "{\"requested_at\":\"now\"}\n").unwrap();
     if let Some(ref mut c) = recovered.0 {
-        let _ = c.wait().unwrap();
+        let _ = wait_child_bounded(c, 5_000, "regression_04_recovered");
     }
     assert!(!zdir.join("lockfile").exists());
     assert!(fs::symlink_metadata(zdir.join("SingletonLock")).is_err());
@@ -2710,7 +2729,7 @@ fn regression_07_home_xdg_isolation_and_hostile_env_stripping() {
 
     fs::write(zdir.join(".quit-signal"), "{\"requested_at\":\"now\"}\n").unwrap();
     if let Some(ref mut c) = guard.0 {
-        let _ = c.wait();
+        let _ = wait_child_bounded(c, 5_000, "regression_07_quit");
     }
 }
 
@@ -3811,7 +3830,7 @@ fn regression_14_restart_persistence_across_graceful_stop_and_relaunch() {
     // Graceful stop of Launch #1.
     fs::write(zdir.join(".quit-signal"), "{\"requested_at\":\"now\"}\n").unwrap();
     if let Some(ref mut c1) = run1.0 {
-        let status = c1.wait().unwrap();
+        let status = wait_child_bounded(c1, 5_000, "regression_14_run1");
         assert!(status.success());
     }
     assert!(!zdir.join("lockfile").exists());
@@ -3876,7 +3895,7 @@ fn regression_14_restart_persistence_across_graceful_stop_and_relaunch() {
     // Cleanly stop Launch #2.
     fs::write(zdir.join(".quit-signal"), "{\"requested_at\":\"now\"}\n").unwrap();
     if let Some(ref mut c2) = run2.0 {
-        let status = c2.wait().unwrap();
+        let status = wait_child_bounded(c2, 5_000, "regression_14_run2");
         assert!(status.success());
     }
     assert!(!zdir.join("lockfile").exists());

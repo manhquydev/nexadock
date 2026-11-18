@@ -18,6 +18,7 @@ jobs:
   rust-workspace:
     name: Rust fmt, check, clippy, and unit tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -51,12 +52,22 @@ jobs:
       - name: Run Clippy with warnings denied
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      - name: Run workspace unit tests
-        run: cargo test --workspace --all-targets --locked
+      - name: Compile workspace test binaries
+        timeout-minutes: 10
+        run: cargo test --workspace --all-targets --locked --no-run
+
+      - name: Run core, profile-store, process-manager & fixture unit tests
+        timeout-minutes: 5
+        run: cargo test -p dim-core -p dim-profile-store -p dim-process-manager -p dim-test-fixture --all-targets --locked -- --test-threads=1
+
+      - name: Run platform adapter unit & integration tests
+        timeout-minutes: 8
+        run: cargo test -p dim-platform-windows -p dim-platform-macos -p dim-platform-linux --all-targets --locked -- --test-threads=1
 
   cargo-deny:
     name: Dependency licenses & security advisories (cargo-deny)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -80,6 +91,7 @@ jobs:
   node-and-windows-integration:
     name: Node.js, PowerShell & Rust parity tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -142,6 +154,7 @@ jobs:
   tauri-desktop-check:
     name: Tauri desktop crate check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -170,5 +183,10 @@ jobs:
       - name: Clippy Tauri desktop crate
         run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- -D warnings
 
-      - name: Test Tauri desktop crate
-        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+      - name: Compile Tauri desktop test binary
+        timeout-minutes: 10
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --no-run
+
+      - name: Run Tauri desktop unit & concurrency tests
+        timeout-minutes: 5
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- --nocapture --test-threads=1

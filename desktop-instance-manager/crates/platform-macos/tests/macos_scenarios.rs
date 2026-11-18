@@ -1267,17 +1267,26 @@ fn p1_3_all_four_macos_14_window_activation_and_zero_tcc_cases() {
 
 #[test]
 fn scenario_7_concurrent_duplicate_launch_guard_blocks_parallel_race() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+
     let tmp = tempfile::tempdir().unwrap();
-    let barrier = Arc::new(Barrier::new(2));
-    let b_for_cmd = Arc::clone(&barrier);
+    let (entered_tx, entered_rx) = mpsc::sync_channel::<()>(1);
+    let (release_tx, release_rx) = mpsc::sync_channel::<()>(1);
+    let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
+    let first_open = Arc::new(AtomicBool::new(true));
 
     let app = create_synthetic_zalo_app(tmp.path(), &make_macho_universal2_fat(), false);
     let mock = Arc::new(
         MockMacOsSystemOps::new_macos(tmp.path().join("home"), tmp.path().join("stmp"))
             .with_command_handler(Arc::new(move |prog, _args, _| {
-                if prog.to_string_lossy().ends_with("/open") {
-                    let _ = b_for_cmd.wait();
-                    std::thread::sleep(Duration::from_millis(80));
+                if prog.to_string_lossy().ends_with("/open")
+                    && first_open.swap(false, Ordering::SeqCst)
+                {
+                    let _ = entered_tx.send(());
+                    if let Ok(rx) = release_rx.lock() {
+                        let _ = rx.recv_timeout(Duration::from_secs(5));
+                    }
                 }
                 Ok(CommandOutput {
                     status_code: Some(0),
@@ -1305,8 +1314,11 @@ fn scenario_7_concurrent_duplicate_launch_guard_blocks_parallel_race() {
         let t1 = target.clone();
         let h1 = s.spawn(move || a1.launch(&t1, &p1, &d1));
 
-        let _ = barrier.wait();
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("first launch thread must reach /usr/bin/open within 5s");
         let r2 = adapter.launch(&target, &prof, &pdir);
+        let _ = release_tx.send(());
         let r1 = h1.join().unwrap();
         (r1, r2)
     });

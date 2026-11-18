@@ -107,15 +107,14 @@ mod tests {
     use dim_core::LaunchTarget;
 
     fn fixture_script_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("..")
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .expect("resolve workspace root from src-tauri CARGO_MANIFEST_DIR")
             .join("fixtures")
             .join("cross-platform")
             .join("xf-fixture.mjs")
-            .canonicalize()
-            .expect("canonicalize xf-fixture.mjs")
     }
 
     fn temp_sandbox_dir(prefix: &str) -> PathBuf {

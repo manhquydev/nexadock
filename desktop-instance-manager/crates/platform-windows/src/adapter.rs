@@ -3,21 +3,27 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[cfg(windows)]
 use dim_core::{
-    build_runtime_lease, detect_zalo_user_id, remove_runtime_lease, verify_runtime_lease,
-    write_runtime_lease, ApplicationInstallation, ApplicationLocator, DimError, InstanceLauncher,
-    InstanceMonitor, LaunchTarget, LeaseVerification, PlatformCapabilities,
-    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileLifecycleState,
-    ProfileRecord, ProfileRuntimeState, SupportStatus, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
+    build_runtime_lease, remove_runtime_lease, verify_runtime_lease, write_runtime_lease,
+    LeaseVerification, ProfileLifecycleState, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
+};
+use dim_core::{
+    detect_zalo_user_id, ApplicationInstallation, ApplicationLocator, DimError, InstanceLauncher,
+    InstanceMonitor, LaunchTarget, PlatformCapabilities, PlatformCapabilityReport, PlatformKind,
+    PrimaryInstanceStatus, ProfileRecord, ProfileRuntimeState, SupportStatus,
 };
 use dim_profile_store::unlink_reparse_points_safe;
 
 #[cfg(not(windows))]
 use crate::layout::has_pe_authenticode_table;
+#[cfg(windows)]
 use crate::layout::{
-    build_isolated_env_map, build_windows_command_line, compare_versions,
-    encode_windows_env_block_utf16, ensure_windows_profile_layout, is_appdata_redirected,
-    parse_version_parts, windows_zalo_data_dir,
+    build_isolated_env_map, build_windows_command_line, encode_windows_env_block_utf16,
+};
+use crate::layout::{
+    compare_versions, ensure_windows_profile_layout, is_appdata_redirected, parse_version_parts,
+    windows_zalo_data_dir,
 };
 
 /// Windows 10/11 platform adapter using per-process `CreateProcessW` environment redirection
@@ -97,16 +103,17 @@ impl WindowsPlatformAdapter {
                 Ok((exe, args, work_dir))
             }
             LaunchTarget::CustomExecutable { path, args } => {
-                if !path.exists() {
+                let clean_path = strip_windows_verbatim_prefix(path);
+                if !clean_path.exists() {
                     return Err(DimError::InstallNotFound(format!(
                         "custom executable not found: {}",
-                        path.display()
+                        clean_path.display()
                     )));
                 }
                 if self.require_authenticode_trust {
-                    verify_windows_binary_or_err(path, None)?;
+                    verify_windows_binary_or_err(&clean_path, None)?;
                 }
-                let work_dir = path
+                let work_dir = clean_path
                     .parent()
                     .map(Path::to_path_buf)
                     .unwrap_or_else(|| zalo_data_dir.to_path_buf());
@@ -117,28 +124,29 @@ impl WindowsPlatformAdapter {
                     full_args.push(format!("--user-data-dir={}", zalo_data_dir.display()));
                 }
                 full_args.extend(extra_override.iter().cloned());
-                Ok((path.clone(), full_args, work_dir))
+                Ok((clean_path, full_args, work_dir))
             }
             LaunchTarget::NodeFixture {
                 node_path,
                 script_path,
                 extra_args,
             } => {
-                if !script_path.exists() {
+                let clean_script = strip_windows_verbatim_prefix(script_path);
+                if !clean_script.exists() {
                     return Err(DimError::InstallNotFound(format!(
                         "fixture script not found: {}",
-                        script_path.display()
+                        clean_script.display()
                     )));
                 }
                 let node_exe = resolve_node_executable(node_path.as_deref())?;
                 if self.require_authenticode_trust {
                     verify_windows_binary_or_err(&node_exe, None)?;
                 }
-                let work_dir = script_path
+                let work_dir = clean_script
                     .parent()
                     .map(Path::to_path_buf)
                     .unwrap_or_else(|| zalo_data_dir.to_path_buf());
-                let mut full_args = vec![script_path.to_string_lossy().into_owned()];
+                let mut full_args = vec![clean_script.to_string_lossy().into_owned()];
                 full_args.extend(extra_args.iter().cloned());
                 full_args.extend(extra_override.iter().cloned());
                 Ok((node_exe, full_args, work_dir))
@@ -700,7 +708,7 @@ impl InstanceLauncher for WindowsPlatformAdapter {
             let lockfile = zalo_data.join("lockfile");
             let quit_signal = zalo_data.join(".quit-signal");
             let poll_budget_ms = match target {
-                LaunchTarget::NodeFixture { .. } | LaunchTarget::CustomExecutable { .. } => 2_500,
+                LaunchTarget::NodeFixture { .. } | LaunchTarget::CustomExecutable { .. } => 10_000,
                 LaunchTarget::OfficialZalo { .. } => 1_500,
             };
             let deadline =
@@ -1045,6 +1053,17 @@ fn wait_for_lock_release(lockfile: &Path) {
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: &Path) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        if !rest.starts_with(r"UNC\") && !rest.starts_with(r"unc\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path.to_path_buf()
 }
 
 #[cfg(windows)]
