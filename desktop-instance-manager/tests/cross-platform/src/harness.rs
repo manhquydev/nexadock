@@ -326,18 +326,15 @@ pub fn is_protected_baseline_report_path(path: &Path) -> bool {
         "metrics-benchmark-windows.json",
         "defect-reproductions.json",
     ];
-    let Some(fname) = path.file_name().and_then(|n| n.to_str()) else {
-        return false;
-    };
-    if !FROZEN_FILES.iter().any(|f| f.eq_ignore_ascii_case(fname)) {
-        return false;
-    }
     let normalized = path
         .to_string_lossy()
         .replace('\\', "/")
         .to_ascii_lowercase();
-    normalized.contains("plans/reports/reliability/")
-        || path.parent().is_none_or(|p| p.as_os_str().is_empty())
+    let fname = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
+    if !FROZEN_FILES.iter().any(|f| f.eq_ignore_ascii_case(fname)) {
+        return false;
+    }
+    normalized.contains("plans/reports/reliability/") || !normalized.contains('/')
 }
 
 /// Identifies known C1 baseline defect cases that transitioned to `PASS` (`FIXED_CANDIDATE`).

@@ -180,26 +180,44 @@ jobs:
           node-version: "22"
 
       - name: Install Ubuntu 24.04 LTS Tauri, Xvfb & packaging build dependencies
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            pkg-config \
-            curl \
-            wget \
-            libssl-dev \
-            libxdo-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            file \
-            binutils \
-            dpkg-dev \
-            libfuse2t64 \
-            xdg-utils \
-            desktop-file-utils \
-            xvfb
+          APT_OPTS=(
+            -o Acquire::Retries=5
+            -o Acquire::http::Timeout=20
+            -o Acquire::https::Timeout=20
+            -o Acquire::http::Pipeline-Depth=0
+            -o Dpkg::Options::="--force-confdef"
+            -o Dpkg::Options::="--force-confold"
+          )
+          for attempt in 1 2 3; do
+            if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" update && \
+               sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
+                 build-essential \
+                 pkg-config \
+                 curl \
+                 wget \
+                 libssl-dev \
+                 libxdo-dev \
+                 libwebkit2gtk-4.1-dev \
+                 libayatana-appindicator3-dev \
+                 librsvg2-dev \
+                 patchelf \
+                 file \
+                 binutils \
+                 dpkg-dev \
+                 libfuse2t64 \
+                 xdg-utils \
+                 desktop-file-utils \
+                 xvfb; then
+              break
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              exit 1
+            fi
+            sudo apt-get clean
+            sleep 5
+          done
 
       - name: Install Rust stable toolchain (native x86_64-unknown-linux-gnu)
         uses: dtolnay/rust-toolchain@stable
