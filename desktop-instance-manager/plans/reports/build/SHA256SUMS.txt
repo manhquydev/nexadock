@@ -1,0 +1,3 @@
+093c28961bba7ba0d43595bad21783da096a8269266642b389e2699e9491dd29  apps/desktop/src-tauri/target/x86_64-pc-windows-gnu/release/dim-desktop.exe
+473941b7efd87bc2a9c089d20172b564c056a700af34accd30aae67450d9d8bd  target/x86_64-pc-windows-gnu/release/dim-cli.exe
+a383eda161e4bfe80c6fbb1150b3a0e400ba1bbb024f6bd595384313f45ee82d  target/x86_64-pc-windows-gnu/release/dim-test-fixture.exe

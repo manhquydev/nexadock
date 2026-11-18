@@ -1,14 +1,18 @@
-//! Crash recovery for stale lockfiles and orphaned signal files.
+//! Crash recovery for stale lockfiles, orphaned signal files, and dead runtime leases.
 
 use std::fs;
 use std::path::Path;
 
-use dim_core::{DimError, ProfileRecord, ProfileRuntimeState, RecoveryManager, RecoveryReport};
+use dim_core::{
+    check_profile_lockfile_activity, verify_runtime_lease, DimError, LeaseVerification,
+    ProfileLockActivity, ProfileRecord, ProfileRuntimeState, RecoveryManager, RecoveryReport,
+    RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
+};
 
 const STALE_DATA_DIR_ARTIFACTS: &[&str] =
     &["lockfile", "SingletonLock", ".quit-signal", ".focus-signal"];
 
-/// Safely cleans up stale lockfiles and runtime hints after an abnormal instance termination.
+/// Safely cleans up stale lockfiles, signals, and dead runtime leases after an abnormal termination.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StaleLockRecoveryManager;
 
@@ -19,9 +23,27 @@ impl RecoveryManager for StaleLockRecoveryManager {
         profile_dir: &Path,
         state: &ProfileRuntimeState,
     ) -> Result<RecoveryReport, DimError> {
-        if state.running {
+        if state.running || state.lifecycle_state().is_active() {
             return Err(DimError::ProfileRunning(format!(
-                "{} ({}) is still alive; refusing lockfile cleanup",
+                "{} ({}) is active ({}); refusing lockfile cleanup",
+                profile.name,
+                profile.id,
+                state.lifecycle_state().as_str()
+            )));
+        }
+
+        // Defense-in-depth: independently verify no live lease or OS-locked lockfile is held!
+        if let LeaseVerification::VerifiedLive(lease) =
+            verify_runtime_lease(profile_dir, &profile.id, &[])
+        {
+            return Err(DimError::ProfileRunning(format!(
+                "{} ({}) has a verified live runtime lease (PID {}); refusing lockfile cleanup",
+                profile.name, profile.id, lease.pid
+            )));
+        }
+        if check_profile_lockfile_activity(profile_dir) == ProfileLockActivity::Active {
+            return Err(DimError::ProfileRunning(format!(
+                "{} ({}) has an active or OS-locked lockfile; refusing lockfile cleanup",
                 profile.name, profile.id
             )));
         }
@@ -35,15 +57,17 @@ impl RecoveryManager for StaleLockRecoveryManager {
             }
         }
 
-        let runtime_pid = profile_dir.join(".runtime-pid");
-        if remove_if_present_no_follow(&runtime_pid)? {
-            removed.push(runtime_pid.display().to_string());
+        for hint_name in [RUNTIME_LEASE_FILE, RUNTIME_PID_FILE] {
+            let hint_path = profile_dir.join(hint_name);
+            if remove_if_present_no_follow(&hint_path)? {
+                removed.push(hint_path.display().to_string());
+            }
         }
 
         let recovered = !removed.is_empty();
         let summary = if recovered {
             format!(
-                "Removed {} stale lock/signal artifact(s) for profile '{}'",
+                "Removed {} stale lock/lease/signal artifact(s) for profile '{}'",
                 removed.len(),
                 profile.name
             )

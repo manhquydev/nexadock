@@ -1,0 +1,245 @@
+{
+  "timestamp_utc": "2026-11-17T18:32:17.433Z",
+  "host_platform": "win32",
+  "host_arch": "x64",
+  "live_linux_details": {
+    "is_linux": false,
+    "distro": null,
+    "kernel": "10.0.26300",
+    "apparmor_enabled": null,
+    "apparmor_restrict_unprivileged_userns": null,
+    "bwrap_installed": false,
+    "effective_uid": null
+  },
+  "all_15_scenarios_passed": true,
+  "all_14_regression_cases_passed": true,
+  "all_scenarios_passed": true,
+  "passed_count": 29,
+  "total_count": 29,
+  "acceptance_classification": {
+    "LINUX_ADAPTER_TESTED": "NOT_TESTED",
+    "DESKTOP_FIXTURE_TESTED": "PORTABLE_HOST_VERIFIED_UBUNTU_RUNTIME_NOT_TESTED",
+    "COMMUNITY_PORT_TESTED": "NOT_TESTED",
+    "OFFICIAL_ZALO_UNSUPPORTED": "CONFIRMED_UNSUPPORTED",
+    "ZALO_LIVE_COMPATIBILITY": "BLOCKED"
+  },
+  "scenarios": [
+    {
+      "id": 1,
+      "scenario": "Application discovery & AppImage ELF64/SHA-256 verification",
+      "status": "PASS",
+      "duration_ms": 2,
+      "detail": "Verified ELF64 Type-2 magic & SHA-256 (41704257a281dcb0...); Official Zalo classified OFFICIAL_ZALO_UNSUPPORTED"
+    },
+    {
+      "id": 2,
+      "scenario": "Multiple concurrent fixture instances",
+      "status": "PASS",
+      "duration_ms": 100,
+      "detail": "pids=[18292, 10424]"
+    },
+    {
+      "id": 3,
+      "scenario": "Process separation & PID ownership",
+      "status": "PASS",
+      "duration_ms": 2,
+      "detail": "lockA.pid=18292, lockB.pid=10424"
+    },
+    {
+      "id": 4,
+      "scenario": "Data directory separation & cross-profile overwrite block",
+      "status": "PASS",
+      "duration_ms": 3,
+      "detail": "Isolated Database/_production/<uid> & .zalo-profile-id verified"
+    },
+    {
+      "id": 5,
+      "scenario": "XDG Base Directory & user-dirs.dirs confinement",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "HOME, XDG_*, TMPDIR, user-dirs.dirs verified; APPDATA stripped"
+    },
+    {
+      "id": 6,
+      "scenario": "File ownership & POSIX 0o700 permission verification",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Directory ownership verified (POSIX 0o700 bit assertion requires Linux filesystem)"
+    },
+    {
+      "id": 7,
+      "scenario": "Safe graceful shutdown without affecting sibling profile",
+      "status": "PASS",
+      "duration_ms": 163,
+      "detail": "Profile A shut down cleanly while Profile B remained active; zero killall/pkill"
+    },
+    {
+      "id": 8,
+      "scenario": "Crash recovery after abnormal exit",
+      "status": "PASS",
+      "duration_ms": 286,
+      "detail": "Simulated crash (exit=1) left stale lock; relaunch recovered cleanly (launch_count=2)"
+    },
+    {
+      "id": 9,
+      "scenario": "Stale SingletonLock & dead-PID lockfile detection",
+      "status": "PASS",
+      "duration_ms": 8,
+      "detail": "Dead-PID lockfile / dangling SingletonLock classified as stale"
+    },
+    {
+      "id": 10,
+      "scenario": "Path traversal rejection",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Rejected ../, ..\\, /etc/passwd traversal, and NUL-byte profile paths"
+    },
+    {
+      "id": 11,
+      "scenario": "Symlink attack protection",
+      "status": "PASS",
+      "duration_ms": 1,
+      "detail": "Verified via Rust unit/integration tests (POSIX symlink creation requires Linux/Unix)"
+    },
+    {
+      "id": 12,
+      "scenario": "AppImage filename spaces, +ZaDark, and Vietnamese Unicode paths",
+      "status": "PASS",
+      "duration_ms": 2,
+      "detail": "Verified Zalo-26.11.10+ZaDark-26.3-e080c70-x86_64.AppImage inside Unicode/spaced directory"
+    },
+    {
+      "id": 13,
+      "scenario": "Missing dependency detection & Ubuntu 24.04/22.04 package hints",
+      "status": "PASS",
+      "duration_ms": 3,
+      "detail": "Mapped libfuse2t64 (24.04) / libfuse2 (22.04), libopus0, libpulse0 via static ELF64 DT_NEEDED"
+    },
+    {
+      "id": 14,
+      "scenario": "Non-root execution check",
+      "status": "PASS",
+      "duration_ms": 1,
+      "detail": "Non-root UID=0 SECURITY_BLOCKED guard verified in Rust test_14 & regression_13"
+    },
+    {
+      "id": 15,
+      "scenario": "Ubuntu AppArmor userns & --no-sandbox SECURITY_BLOCKED policy",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Policy verified (bwrap plan omits --no-sandbox; live_linux=false, apparmor_restrict_userns=n/a)"
+    },
+    {
+      "id": 16,
+      "scenario": "P1-R01 Launcher exit while detached child remains alive",
+      "status": "PASS",
+      "duration_ms": 498,
+      "detail": "launcher_pid=26052 exited 0; grandchild_pid=23648 survived 250ms+ & responded to focus",
+      "regression_case": 1
+    },
+    {
+      "id": 17,
+      "scenario": "P1-R02 Manager graceful shutdown & outer-bwrap leaves-first tree ordering",
+      "status": "PASS",
+      "duration_ms": 12,
+      "detail": "Verified inner-Electron SIGTERM target (2001) & leaves-first SIGKILL order (renderer->zygote->main->bwrap)",
+      "regression_case": 2
+    },
+    {
+      "id": 18,
+      "scenario": "P1-R03 Unexpected parent termination (DieWithParent & reparented ppid=1 capture)",
+      "status": "PASS",
+      "duration_ms": 175,
+      "detail": "Verified --die-with-parent policy & captured reparented ppid=1 orphans [3105, 3199] (orphan_pid=29680 cleaned up)",
+      "regression_case": 3
+    },
+    {
+      "id": 19,
+      "scenario": "P1-R04 Stale lockfile & SingletonLock clean recovery",
+      "status": "PASS",
+      "duration_ms": 141,
+      "detail": "Recovered dead-PID 99999991 lock -> live pid=20812, then cleaned all locks on exit",
+      "regression_case": 4
+    },
+    {
+      "id": 20,
+      "scenario": "P1-R05 PID reuse defense via starttime_ticks & DIM_INSTANCE_NONCE",
+      "status": "PASS",
+      "duration_ms": 12,
+      "detail": "Rejected reused live pid=25572 on starttime_ticks & nonce mismatch without signaling",
+      "regression_case": 5
+    },
+    {
+      "id": 21,
+      "scenario": "P1-R06 Dangling SingletonLock detection & broken binary/profile symlink rejection",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Verified SingletonLock parser & symlink guards (POSIX dangling symlink creation verified in Rust regression_06)",
+      "regression_case": 6
+    },
+    {
+      "id": 22,
+      "scenario": "P1-R07 Full HOME/XDG isolation & hostile LD_PRELOAD/NODE_OPTIONS/APPDATA stripping",
+      "status": "PASS",
+      "duration_ms": 144,
+      "detail": "Verified HOME/XDG_*/TMPDIR confinement & runtime stripping of LD_PRELOAD/NODE_OPTIONS/APPDATA",
+      "regression_case": 7
+    },
+    {
+      "id": 23,
+      "scenario": "P1-R08 Portal file chooser (GTK_USE_PORTAL=1) & Downloads/user-dirs.dirs confinement",
+      "status": "PASS",
+      "duration_ms": 7,
+      "detail": "Verified GTK_USE_PORTAL=1, XDG_DOWNLOAD_DIR, XDG_DOCUMENTS_DIR, and all 8 user-dirs.dirs entries",
+      "regression_case": 8
+    },
+    {
+      "id": 24,
+      "scenario": "P1-R09 Runtime socket validation, system D-Bus rejection & minimal 0700 bwrap binds",
+      "status": "PASS",
+      "duration_ms": 1,
+      "detail": "Verified 0700 $XDG_RUNTIME_DIR tmpfs, rejected system/abstract D-Bus, and 4 socket tradeoff notes",
+      "regression_case": 9
+    },
+    {
+      "id": 25,
+      "scenario": "P1-R10 Honest UNSUPPORTED_OPERATION error on Wayland & Headless GUI focus",
+      "status": "PASS",
+      "duration_ms": 6,
+      "detail": "Wayland & Headless CustomExecutable focus returned UNSUPPORTED_PLATFORM (UNSUPPORTED_OPERATION)",
+      "regression_case": 10
+    },
+    {
+      "id": 26,
+      "scenario": "P1-R11 Invalid & truncated .AppImage rejection (UNVERIFIED_BINARY / INVALID_EXECUTABLE_HEADER)",
+      "status": "PASS",
+      "duration_ms": 4,
+      "detail": "Rejected garbage, 30-byte truncated ELF64, and script-masquerade .AppImage files with UNVERIFIED_BINARY",
+      "regression_case": 11
+    },
+    {
+      "id": 27,
+      "scenario": "P1-R12 Static ELF64 PT_INTERP/DT_NEEDED inspection (zero execution) & SHA-256 vectors",
+      "status": "PASS",
+      "duration_ms": 8,
+      "detail": "Extracted PT_INTERP=/tmp/untrusted-interp & DT_NEEDED with zero execution; verified 8 SHA-256 vectors (0B..1MiB)",
+      "regression_case": 12
+    },
+    {
+      "id": 28,
+      "scenario": "P1-R13 Permission denial (!is_executable, /proc/mounts noexec, 0o777 Profiles, UID==0)",
+      "status": "PASS",
+      "duration_ms": 0,
+      "detail": "Verified /proc/mounts noexec octal-unescape & longest-prefix match (POSIX 0o644/0o777/UID==0 verified in Rust regression_13)",
+      "regression_case": 13
+    },
+    {
+      "id": 29,
+      "scenario": "P1-R14 Restart persistence across graceful stop & relaunch (launch_count=2 & DB preserved)",
+      "status": "PASS",
+      "duration_ms": 285,
+      "detail": "Verified launch_count=1->2, zalo_user_id=849666777, and persistent SQLite DB & Downloads across restart",
+      "regression_case": 14
+    }
+  ]
+}

@@ -65,15 +65,17 @@ impl FileBackupManager {
         }
         Ok(())
     }
-}
 
-impl BackupManager for FileBackupManager {
-    fn backup_profile(
+    /// Creates an offline atomic backup, rejecting profiles whose `config.json` configures
+    /// `db_path.location` / `resource.location.path` outside `profile_dir` unless
+    /// `allow_external_db_omit` is explicitly `true` (`IR-WIN-04` / `F-CORE-01`).
+    pub fn backup_profile_with_options(
         &self,
         profile: &ProfileRecord,
         profile_dir: &Path,
         dest_dir: Option<&Path>,
         is_running: bool,
+        allow_external_db_omit: bool,
     ) -> Result<BackupResult, DimError> {
         if is_running {
             return Err(DimError::ProfileRunning(format!(
@@ -84,8 +86,19 @@ impl BackupManager for FileBackupManager {
         if !profile_dir.exists() {
             return Err(DimError::BackupError(format!(
                 "source profile directory does not exist: {}",
-                profile_dir.display()
+                profile.name
             )));
+        }
+
+        let external_paths = dim_core::external_paths_for_profile_all_layouts(profile_dir);
+        if !external_paths.is_empty() && !allow_external_db_omit {
+            return Err(DimError::ExternalDbOutsideProfile {
+                profile_name: profile.name.clone(),
+                external_paths: external_paths
+                    .into_iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
+            });
         }
 
         if let Some(custom_dest) = dest_dir {
@@ -133,6 +146,9 @@ impl BackupManager for FileBackupManager {
             }
         };
 
+        let detected_uid =
+            detect_zalo_user_id_all_layouts(profile_dir).or_else(|| profile.zalo_user_id.clone());
+
         let manifest = BackupManifest {
             schema_version: BACKUP_SCHEMA_VERSION,
             backup_id,
@@ -140,14 +156,20 @@ impl BackupManager for FileBackupManager {
             source_profile_id: profile.id.clone(),
             source_profile_name: profile.name.clone(),
             source_directory_name: profile.directory_name.clone(),
-            zalo_user_id: profile.zalo_user_id.clone(),
+            zalo_user_id: detected_uid,
             file_count: files.len() as u64,
             total_bytes,
             files,
         };
 
+        let omitted_strs: Vec<String> = external_paths
+            .into_iter()
+            .map(|p| p.display().to_string())
+            .collect();
         let manifest_tmp = partial_dir.join("backup.json");
-        if let Err(err) = write_manifest_synced(&manifest_tmp, &manifest) {
+        if let Err(err) =
+            write_manifest_synced_with_omissions(&manifest_tmp, &manifest, &omitted_strs)
+        {
             let _ = fs::remove_dir_all(&partial_dir);
             return Err(err);
         }
@@ -162,6 +184,18 @@ impl BackupManager for FileBackupManager {
             backup_dir: final_dir,
             manifest,
         })
+    }
+}
+
+impl BackupManager for FileBackupManager {
+    fn backup_profile(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        dest_dir: Option<&Path>,
+        is_running: bool,
+    ) -> Result<BackupResult, DimError> {
+        self.backup_profile_with_options(profile, profile_dir, dest_dir, is_running, false)
     }
 
     fn verify_backup(&self, backup_dir: &Path) -> Result<BackupManifest, DimError> {
@@ -336,13 +370,8 @@ impl BackupManager for FileBackupManager {
             return Err(DimError::Io(err));
         }
 
-        let detected_uid = detect_zalo_user_id(
-            &dest_profile_dir
-                .join("AppData")
-                .join("Roaming")
-                .join("ZaloData"),
-        )
-        .or(manifest.zalo_user_id);
+        let detected_uid =
+            detect_zalo_user_id_all_layouts(&dest_profile_dir).or(manifest.zalo_user_id);
 
         let record = ProfileRecord {
             id: new_id,
@@ -388,7 +417,8 @@ pub fn sweep_abandoned_staging_dirs(root: &Path, max_age: Duration) -> Result<us
         let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
         let age = now.duration_since(modified).unwrap_or(Duration::ZERO);
         if age >= max_age {
-            let _ = unlink_reparse_points_safe(&path);
+            let _ = unlink_reparse_points_safe(&path)?;
+            crate::store::verify_zero_reparse_points_remaining(&path)?;
             fs::remove_dir_all(&path)?;
             swept += 1;
         }
@@ -403,7 +433,10 @@ fn choose_unique_restored_name(
 ) -> Result<String, DimError> {
     if let Some(name) = requested {
         let valid = validate_profile_name(name)?;
-        if existing.iter().any(|p| p.name.eq_ignore_ascii_case(&valid)) {
+        if existing
+            .iter()
+            .any(|p| crate::store::profile_names_eq_case_insensitive(&p.name, &valid))
+        {
             return Err(DimError::DuplicateProfileName(valid));
         }
         return Ok(valid);
@@ -413,7 +446,7 @@ fn choose_unique_restored_name(
     let base_trimmed: String = base.chars().take(dim_core::MAX_PROFILE_NAME_LEN).collect();
     if !existing
         .iter()
-        .any(|p| p.name.eq_ignore_ascii_case(&base_trimmed))
+        .any(|p| crate::store::profile_names_eq_case_insensitive(&p.name, &base_trimmed))
     {
         return Ok(base_trimmed);
     }
@@ -425,7 +458,7 @@ fn choose_unique_restored_name(
         let candidate = format!("{prefix}{suffix}");
         if !existing
             .iter()
-            .any(|p| p.name.eq_ignore_ascii_case(&candidate))
+            .any(|p| crate::store::profile_names_eq_case_insensitive(&p.name, &candidate))
         {
             return Ok(candidate);
         }
@@ -434,6 +467,23 @@ fn choose_unique_restored_name(
     Err(DimError::RestoreError(
         "could not allocate unique restored profile name".to_owned(),
     ))
+}
+
+fn detect_zalo_user_id_all_layouts(profile_dir: &Path) -> Option<String> {
+    let candidates = [
+        profile_dir.join("AppData").join("Roaming").join("ZaloData"),
+        profile_dir
+            .join("Library")
+            .join("Application Support")
+            .join("ZaloData"),
+        profile_dir.join(".config").join("ZaloData"),
+    ];
+    for dir in &candidates {
+        if let Some(uid) = detect_zalo_user_id(dir) {
+            return Some(uid);
+        }
+    }
+    None
 }
 
 fn rewrite_profile_identity_markers(profile_dir: &Path, new_id: &str) -> Result<(), DimError> {
@@ -453,16 +503,39 @@ fn rewrite_profile_identity_markers(profile_dir: &Path, new_id: &str) -> Result<
         }
     }
     if !updated_any {
-        write_profile_id_marker(
-            &profile_dir.join("AppData").join("Roaming").join("ZaloData"),
-            new_id,
-        )?;
+        #[cfg(target_os = "macos")]
+        let default_zdir = profile_dir
+            .join("Library")
+            .join("Application Support")
+            .join("ZaloData");
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        let default_zdir = profile_dir.join(".config").join("ZaloData");
+        #[cfg(target_os = "windows")]
+        let default_zdir = profile_dir.join("AppData").join("Roaming").join("ZaloData");
+        write_profile_id_marker(&default_zdir, new_id)?;
     }
     Ok(())
 }
 
-fn write_manifest_synced(path: &Path, manifest: &BackupManifest) -> Result<(), DimError> {
-    let json = serde_json::to_string_pretty(manifest)?;
+fn write_manifest_synced_with_omissions(
+    path: &Path,
+    manifest: &BackupManifest,
+    omitted_external_paths: &[String],
+) -> Result<(), DimError> {
+    let mut val = serde_json::to_value(manifest)?;
+    if !omitted_external_paths.is_empty() {
+        if let Some(obj) = val.as_object_mut() {
+            obj.insert(
+                "external_db_omitted".to_owned(),
+                serde_json::Value::Bool(true),
+            );
+            obj.insert(
+                "omitted_external_paths".to_owned(),
+                serde_json::to_value(omitted_external_paths)?,
+            );
+        }
+    }
+    let json = serde_json::to_string_pretty(&val)?;
     let mut f = File::create(path)?;
     f.write_all(json.as_bytes())?;
     f.write_all(b"\n")?;
@@ -564,7 +637,13 @@ fn should_skip_backup_rel(rel: &Path) -> bool {
     let file_name = rel.file_name().and_then(|s| s.to_str()).unwrap_or_default();
     matches!(
         file_name,
-        "lockfile" | "SingletonLock" | ".quit-signal" | ".focus-signal" | ".runtime-pid"
+        "lockfile"
+            | "SingletonLock"
+            | ".quit-signal"
+            | ".focus-signal"
+            | ".runtime-pid"
+            | ".runtime-lease.json"
+            | ".dim-profile.lock"
     ) || norm == "AppData/Local/Temp"
         || norm.starts_with("AppData/Local/Temp/")
         || norm == "tmp"
@@ -578,7 +657,8 @@ fn normalize_rel_path(rel: &Path) -> String {
         .join("/")
 }
 
-fn sha256_file(path: &Path) -> Result<String, DimError> {
+/// Computes the lowercase hex SHA-256 digest of a file.
+pub fn sha256_file(path: &Path) -> Result<String, DimError> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 65_536];

@@ -4,11 +4,11 @@ pub mod backup;
 pub mod store;
 
 pub use backup::{
-    sweep_abandoned_staging_dirs, DiskSpaceProbe, FileBackupManager, STAGING_MAX_AGE,
+    sha256_file, sweep_abandoned_staging_dirs, DiskSpaceProbe, FileBackupManager, STAGING_MAX_AGE,
 };
 pub use store::{
     is_symlink_or_reparse, unlink_reparse_points_safe, verify_profile_id_marker,
-    write_profile_id_marker, JsonProfileStore,
+    verify_zero_reparse_points_remaining, write_profile_id_marker, JsonProfileStore,
 };
 
 #[cfg(test)]

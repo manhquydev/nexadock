@@ -1,0 +1,161 @@
+{
+  "ok": true,
+  "executed_at_utc": "2026-11-18T12:09:50.560Z",
+  "platform": "win32",
+  "node_version": "v26.13.1",
+  "tauri_binary": "apps/desktop/src-tauri/target/release/dim-desktop.exe",
+  "fixture_script": "fixtures/cross-platform/xf-fixture.mjs",
+  "isolated_data_dir": "<TEMP_E2E_ROOT>/dim-data",
+  "real_tauri_ipc_verified": true,
+  "total_steps": 12,
+  "passed_steps": 12,
+  "failed_steps": 0,
+  "steps": [
+    {
+      "step": 1,
+      "name": "Launch compiled dim-desktop.exe Win32 + WebView2 process",
+      "status": "PASS",
+      "details": {
+        "binary_kind": "release",
+        "app_pid_alive": true,
+        "webview_origin": "http://tauri.localhost",
+        "has_tauri_internals": true,
+        "default_lang": "vi"
+      }
+    },
+    {
+      "step": 2,
+      "name": "Verify real Tauri IPC (get_status, get_diagnostics, verify_isolation)",
+      "status": "PASS",
+      "details": {
+        "platform": "windows",
+        "installation_mode": "node-fixture",
+        "primary_zalo_running": false,
+        "primary_protected_pid_count": 0,
+        "isolation_checks_passed": [
+          "ApplicationDiscovery:PASS",
+          "PrimaryZaloDataSeparation:PASS",
+          "DistinctProfilePathsAndMarkers:PASS",
+          "DistinctProcessOwnership:PASS",
+          "DistinctZaloUserIds:PASS",
+          "RestrictiveNtfsAcls:PASS",
+          "FolderRedirectionCheck:PASS"
+        ],
+        "diagnostics_matrix_rows": 4
+      }
+    },
+    {
+      "step": 3,
+      "name": "Create isolated profile via Account Dock UI",
+      "status": "PASS",
+      "details": {
+        "profile_id": "ff374aa2",
+        "directory_name": "duc-e2e-tauri-that_ff374aa2",
+        "dom_card_rendered": true
+      }
+    },
+    {
+      "step": 4,
+      "name": "Rename profile and preserve directory_name + identity color",
+      "status": "PASS",
+      "details": {
+        "profile_id": "ff374aa2",
+        "new_name": "Đức — Tauri Đã Đổi Tên",
+        "preserved_directory_name": "duc-e2e-tauri-that_ff374aa2"
+      }
+    },
+    {
+      "step": 5,
+      "name": "Launch isolated fixture instance via Tauri coordinator",
+      "status": "PASS",
+      "details": {
+        "profile_id": "ff374aa2",
+        "running": true,
+        "lifecycle_state": "running",
+        "fixture_pid_alive": true,
+        "detected_zalo_user_id": "2168617"
+      }
+    },
+    {
+      "step": 6,
+      "name": "Focus running instance and verify fixture focus handoff",
+      "status": "PASS",
+      "details": {
+        "profile_id": "ff374aa2",
+        "focus_count": 1
+      }
+    },
+    {
+      "step": 7,
+      "name": "Stop running instance cleanly and verify zero orphan PIDs or leases",
+      "status": "PASS",
+      "details": {
+        "profile_id": "ff374aa2",
+        "clean_shutdown": true,
+        "pid_terminated": true,
+        "runtime_lease_removed": true
+      }
+    },
+    {
+      "step": 8,
+      "name": "Create offline atomic SHA-256 backup via Tauri IPC",
+      "status": "PASS",
+      "details": {
+        "backup_id": "f937147b",
+        "backup_name": "duc-tauri-da-doi-ten_20261118T120943Z",
+        "file_count": 13,
+        "total_bytes": 4440
+      }
+    },
+    {
+      "step": 9,
+      "name": "Restore verified backup into a new isolated profile",
+      "status": "PASS",
+      "details": {
+        "source_profile_id": "ff374aa2",
+        "restored_profile_id": "baed01f4",
+        "restored_directory_name": "duc-khoi-phuc-e2e_baed01f4",
+        "total_profiles": 2
+      }
+    },
+    {
+      "step": 10,
+      "name": "Delete profile with confirmation and verify directory removal + survivor intact",
+      "status": "PASS",
+      "details": {
+        "deleted_profile_id": "baed01f4",
+        "deleted_dir_removed": true,
+        "survivor_profile_id": "ff374aa2"
+      }
+    },
+    {
+      "step": 11,
+      "name": "Restart dim-desktop.exe and verify profile, UID, color, theme, and locale persistence",
+      "status": "PASS",
+      "details": {
+        "restarted_new_process": true,
+        "persisted_theme": "dark",
+        "persisted_lang": "en",
+        "persisted_avatar_token": "var(--id-coral)",
+        "persisted_profile_name": "Đức — Tauri Đã Đổi Tên",
+        "persisted_zalo_user_id": "2168617",
+        "persisted_backup_count": 1
+      }
+    },
+    {
+      "step": 12,
+      "name": "Verify Tauri IPC error guards (DUPLICATE_NAME, INVALID_NAME, PROFILE_RUNNING, CONFIRM_REQUIRED, stop_all_profiles)",
+      "status": "PASS",
+      "details": {
+        "duplicate_unicode_name_code": "DUPLICATE_NAME",
+        "invalid_empty_name_code": "INVALID_NAME",
+        "invalid_too_long_name_code": "INVALID_NAME",
+        "delete_while_running_code": "PROFILE_RUNNING",
+        "delete_without_confirm_code": "CONFIRM_REQUIRED",
+        "stop_all_profiles_ok": true,
+        "stopped_profiles_count": 1,
+        "webview_runtime_errors": 0
+      }
+    }
+  ]
+}

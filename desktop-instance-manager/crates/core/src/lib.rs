@@ -1,6 +1,8 @@
 //! Core domain types, traits, path-traversal guards, and identity checks for `MultiZaloDesktop`.
 
 pub mod error;
+pub mod fs_lock;
+pub mod lease;
 pub mod models;
 pub mod path_guard;
 pub mod sanitize;
@@ -10,13 +12,26 @@ pub mod traits;
 pub mod zalo_identity;
 
 pub use error::{DimError, OperationOutcome};
+pub use fs_lock::{
+    clean_stale_temp_files, is_existing_lock_contended, launch_admission_lock_path,
+    profile_lock_file_path, remove_dir_with_retry, unique_temp_file_path, write_bytes_atomic,
+    AdvisoryFileLock, DEFAULT_ADVISORY_LOCK_TIMEOUT,
+};
+pub use lease::{
+    build_runtime_lease, check_profile_lockfile_activity, query_process_identity,
+    read_live_launch_admission_claims, remove_runtime_lease, verify_runtime_lease,
+    write_launch_admission_claim, write_runtime_lease, LaunchAdmissionClaim, LeaseVerification,
+    ProcessIdentity, ProcessIdentityProbe, ProfileLockActivity, RuntimeLease,
+};
 pub use models::{
     resolve_data_dir, resolve_data_dir_for_platform, ApplicationInstallation, BackupFileEntry,
     BackupManifest, BackupResult, IsolationCheckItem, IsolationVerificationReport, LaunchTarget,
-    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileRecord,
-    ProfileRuntimeState, ProfilesDocument, RecoveryReport, SupportStatus, APP_DIR_NAME,
-    BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, MIN_FREE_DISK_BYTES, PROFILES_SCHEMA_VERSION,
-    ZALO_PROFILE_ID_FILE,
+    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileLifecycleState,
+    ProfileRecord, ProfileRuntimeState, ProfilesDocument, RecoveryReport, RuntimeOwnershipState,
+    RuntimeStatus, SupportStatus, VerifiedDeletionState, APP_DIR_NAME, BACKUP_SCHEMA_VERSION,
+    DIM_DATA_DIR_ENV, LAUNCH_ADMISSION_LOCK_FILE, MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE,
+    PROFILES_SCHEMA_VERSION, PROFILE_LOCKS_DIR, PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE,
+    RUNTIME_PID_FILE, ZALO_PROFILE_ID_FILE,
 };
 pub use path_guard::{
     check_disk_space_bytes, ensure_min_free_disk_space, ensure_not_primary_zalo_path,
@@ -35,7 +50,10 @@ pub use traits::{
     ProfileStore, RecoveryManager,
 };
 pub use zalo_identity::{
-    check_duplicate_zalo_user_id, detect_zalo_user_id, is_valid_zalo_user_id, MIN_ZALO_USER_ID_LEN,
+    check_duplicate_zalo_user_id, detect_zalo_user_id, external_paths_for_profile_all_layouts,
+    external_paths_outside_profile, is_path_truly_contained_in_profile, is_valid_zalo_user_id,
+    paths_overlap_or_equal, read_configured_external_paths, resolve_effective_path,
+    ConfiguredExternalPaths, MIN_ZALO_USER_ID_LEN,
 };
 
 #[cfg(test)]

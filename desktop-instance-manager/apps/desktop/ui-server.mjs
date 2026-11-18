@@ -370,8 +370,41 @@ export function createUiServer(options = {}) {
 
       if (pathname === '/api/backups/restore' && method === 'POST') {
         const body = await readJsonBody(req);
+        const rawBackupDir = String(body.backupDir || '').trim();
+        if (!allowCustomBackupDest && (path.isAbsolute(rawBackupDir) || /^[a-zA-Z]:/.test(rawBackupDir) || rawBackupDir.startsWith('\\\\'))) {
+          const baseDataDir = hostOptions.dataDir || path.join(process.env.LOCALAPPDATA || os.homedir(), 'MultiZaloDesktop');
+          const backupsRoot = path.resolve(baseDataDir, 'Backups');
+          let canonRoot = backupsRoot;
+          try {
+            canonRoot = fs.realpathSync(backupsRoot);
+          } catch {
+            // Backups root may not exist yet; canonical comparison fails closed below if target escapes.
+          }
+          let canonTarget;
+          try {
+            canonTarget = fs.realpathSync(path.resolve(rawBackupDir));
+          } catch {
+            sendJson(res, 400, {
+              ok: false,
+              error_code: 'PATH_TRAVERSAL',
+              message: 'Backup directory must exist inside managed Backups root'
+            });
+            return;
+          }
+          const rootNorm = process.platform === 'win32' ? canonRoot.toLowerCase() : canonRoot;
+          const targetNorm = process.platform === 'win32' ? canonTarget.toLowerCase() : canonTarget;
+          const insideRoot = targetNorm.startsWith(`${rootNorm}${path.sep}`);
+          if (!insideRoot) {
+            sendJson(res, 400, {
+              ok: false,
+              error_code: 'PATH_TRAVERSAL',
+              message: 'Backup directory escapes managed Backups root'
+            });
+            return;
+          }
+        }
         const flags = body.name ? ['--name', String(body.name)] : [];
-        const out = await enqueueMutation(() => runHostCli(['restore', String(body.backupDir || '')], hostOptions, flags));
+        const out = await enqueueMutation(() => runHostCli(['restore', rawBackupDir], hostOptions, flags));
         sendJson(res, out.statusCode, out.payload);
         return;
       }

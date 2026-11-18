@@ -87,6 +87,27 @@ pub enum DimError {
     #[error("backup error: {0}")]
     BackupError(String),
 
+    /// Another running profile or protected primary Zalo instance already uses the same external DB/resource directory.
+    #[error("external Zalo storage path '{path}' is already used by '{conflicting_owner}'")]
+    SharedExternalDbPath {
+        /// Conflicting external DB or resource path.
+        path: String,
+        /// Running profile or protected primary instance owning the path.
+        conflicting_owner: String,
+    },
+
+    /// Profile configures `db_path.location` / `resource.location.path` outside `<profile_dir>`, so an unacknowledged backup would omit external message data.
+    #[error(
+        "profile '{profile_name}' stores Zalo database/resources outside its isolated directory ({}); pass explicit external-DB omission acknowledgement to back up profile-local files only",
+        external_paths.join(", ")
+    )]
+    ExternalDbOutsideProfile {
+        /// Source profile display name.
+        profile_name: String,
+        /// Resolved external storage paths outside `<profile_dir>`.
+        external_paths: Vec<String>,
+    },
+
     /// Backup restore failed.
     #[error("restore error: {0}")]
     RestoreError(String),
@@ -94,6 +115,10 @@ pub enum DimError {
     /// Process launch, focus, or shutdown failed.
     #[error("process operation failed: {0}")]
     ProcessError(String),
+
+    /// Managed process failed to start or crashed during startup before reaching readiness.
+    #[error("launch failed: {0}")]
+    LaunchFailed(String),
 
     /// Stored metadata schema is unsupported or corrupt.
     #[error("schema error: {0}")]
@@ -133,8 +158,11 @@ impl DimError {
             Self::NotRunning(_) => "NOT_RUNNING",
             Self::UnsupportedPlatform(_) => "UNSUPPORTED_PLATFORM",
             Self::BackupError(_) => "BACKUP_ERROR",
+            Self::SharedExternalDbPath { .. } => "SHARED_EXTERNAL_DB_PATH",
+            Self::ExternalDbOutsideProfile { .. } => "EXTERNAL_DB_OUTSIDE_PROFILE",
             Self::RestoreError(_) => "RESTORE_ERROR",
             Self::ProcessError(_) => "PROCESS_ERROR",
+            Self::LaunchFailed(_) => "LAUNCH_FAILED",
             Self::SchemaError(_) => "SCHEMA_ERROR",
             Self::ConfirmationRequired(_) => "CONFIRM_REQUIRED",
             Self::Io(_) => "IO_ERROR",

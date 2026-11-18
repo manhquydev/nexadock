@@ -1,0 +1,758 @@
+{
+  "schemaVersion": 1,
+  "track": "native-tauri-smoke",
+  "section": "Section 3 — Native Tauri WebView2 vs Browser Mock & Modern Web Guidance Audit",
+  "testedIntegrationSha": "cd62c523222cb3a02051347e85313226de8b6964",
+  "priorAuditedSha": "004ab7cd1b31f8dd9c0e1d9bdd659d8f6920df5d",
+  "verifiedClosedFromPriorAudit": [
+    {
+      "id": "IR-NAT-01",
+      "closedInSha": "bff0674444496bc057ba42fcc26c4c5b2d93dd7b",
+      "verifiedInSha": "cd62c523222cb3a02051347e85313226de8b6964",
+      "detail": "Account Dock card now renders dedicated recoveryRequired badge (\"Cần mở lại để khôi phục\" / \"Reopen to recover\") and disables offline Backup/Delete menu items when lifecycle_state === \"recovery_required\"."
+    },
+    {
+      "id": "IR-NAT-02",
+      "closedInSha": "bff0674444496bc057ba42fcc26c4c5b2d93dd7b",
+      "verifiedInSha": "cd62c523222cb3a02051347e85313226de8b6964",
+      "detail": "Tauri commands::launch_profile, focus_profile, and get_status now honor DIM_NODE_FIXTURE_SCRIPT for direct WebView2 IPC fixture launch and focus."
+    }
+  ],
+  "startedAtUtc": "2026-11-18T03:51:49.881Z",
+  "completedAtUtc": "2026-11-18T03:52:20.266Z",
+  "totalDurationMs": 30384.94,
+  "overall_gate_status": "PASS",
+  "workflow_status": "COMPLETED",
+  "candidate_markers": [
+    "UNSIGNED_DEVELOPMENT_ARTIFACT",
+    "AWAITING_INTEGRATION_BUILD",
+    "AWAITING_MANUAL_L3"
+  ],
+  "summary_counts": {
+    "PASS": 11,
+    "FAIL": 0,
+    "BLOCKED": 0,
+    "NOT_TESTED": 1
+  },
+  "environment": {
+    "osCaption": "Microsoft Windows 11 Pro",
+    "osVersion": "10.0.26300",
+    "osBuild": "26300",
+    "webview2EvergreenVersion": "157.0.4341.46",
+    "smartAppControlState": 0,
+    "smartAppControlModified": false,
+    "nodeVersion": "v26.13.1"
+  },
+  "candidateBinary": {
+    "exePath": "<TEMP_DIR>/zalo-qa-win-acceptance-target\\release\\dim-desktop.exe",
+    "sha256": "2168cacfba423a9f7012b46040b3998d96cad24bd754b3464d13996bb3e1376d",
+    "sizeBytes": 22672392,
+    "isInstaller": false,
+    "signingPosture": "UNSIGNED_DEVELOPMENT_ARTIFACT",
+    "companionCliPath": "<TEMP_DIR>/zalo-qa-win-acceptance-target\\release\\dim-cli.exe",
+    "companionCliSha256": "6d741ddc3fa5cbfe89b4c9c0cbb19a18fbc4597d7cc52cabcf6aec5026f89008",
+    "coldStartAndShutdownBenchmark": {
+      "cdpReadyMs": 750.25,
+      "hwndReadyMs": 1668.99,
+      "domInteractiveMs": 1670.11,
+      "gracefulShutdownMs": 463.24,
+      "exitCode": 0,
+      "nativeWindow": {
+        "found": true,
+        "hwnd": 52495764,
+        "title": "Multi-Zalo Desktop - Instance Manager",
+        "visible": true,
+        "minimized": false,
+        "dpi": 120,
+        "windowWidth": 1174,
+        "windowHeight": 818,
+        "clientWidth": 1160,
+        "clientHeight": 780
+      },
+      "orphanWebView2Count": 0
+    }
+  },
+  "surfaceSeparation": {
+    "browserMock": {
+      "executed": true,
+      "durationMs": 1141.34,
+      "surfaceKind": "BROWSER_MOCK_STATIC_HTTP_PREVIEW",
+      "originPattern": "http://127.0.0.1:<ephemeral_port>",
+      "observedOrigin": "http://127.0.0.1:49415",
+      "hasTauriInternals": false,
+      "hasGlobalTauri": false,
+      "fellBackToHttpFetch": true,
+      "httpFetchRoutesHit": [
+        "/api/status",
+        "/api/backups",
+        "/api/verify-isolation",
+        "/api/diagnostics"
+      ],
+      "connectionPillVisible": true,
+      "connectionPillText": "Chưa kết nối",
+      "bannerVisible": true,
+      "bannerText": "Không thể kết nối với ứng dụng. Thử lại.",
+      "technicalDetailsCollapsedByDefault": true,
+      "whatBrowserMockCannotProve": [
+        "WebView2 Evergreen runtime discovery and native Win32 HWND window creation/DPI geometry",
+        "Tauri 2 IPC serialization (window.__TAURI_INTERNALS__.invoke) and Rust AppState concurrency",
+        "Real JsonProfileStore atomic persistence, NTFS ACL checks, and Windows Restart Manager lockfile ownership",
+        "Manager process crash survival and .runtime-lease.json reconciliation across dim-desktop.exe restarts"
+      ]
+    },
+    "nativeTauri": {
+      "surfaceKind": "NATIVE_TAURI_WEBVIEW2_EXE",
+      "origin": "http://tauri.localhost",
+      "ipcTransport": "window.__TAURI_INTERNALS__.invoke -> Rust tauri::Builder invoke_handler (13 commands)",
+      "dataStore": "Rust JsonProfileStore + WindowsPlatformAdapter (CreateProcessW + Restart Manager rstrtmgr.dll)"
+    }
+  },
+  "modernWebGuidanceAudit": [
+    {
+      "id": "dialog",
+      "query": "confirmation modal dialog",
+      "verbatimQuotes": [
+        "DON'T add role=\"dialog\", aria-modal, a focus trap, inert toggling or an Esc handler.",
+        "put autofocus on the safe action (such as Cancel or Keep) in a destructive confirmation.",
+        "without them, scrolling over the backdrop or inside the dialog scrolls the page behind it",
+        "read dialog.returnValue in a close listener to learn which button was used, then reset it with dialog.returnValue = ''"
+      ],
+      "appliedCheckIds": [
+        "NT-04",
+        "NT-05"
+      ],
+      "auditRule": "Verified all 5 native <dialog> modals open via showModal() (:modal top-layer), omit redundant role/aria-modal, reset returnValue to \"\" on close, autofocus Cancel in #delete-profile-dialog, and apply overscroll-behavior: contain on dialog:modal and dialog::backdrop without locking html/body overflow."
+    },
+    {
+      "id": "platform-controls-dismiss-dialog",
+      "query": "confirmation modal dialog",
+      "verbatimQuotes": [
+        "When opened in a modal state, a dialog without the `closedby` attribute responds to close requests the same as explicitly setting the `closedby` attribute to `closerequest`."
+      ],
+      "appliedCheckIds": [
+        "NT-04",
+        "NT-05"
+      ],
+      "auditRule": "Verified native modal dialogs opened with showModal() / command=\"show-modal\" dismiss cleanly via real Escape key events (closerequest default) while preserving destructive-action safety on #delete-profile-dialog."
+    },
+    {
+      "id": "accessibility",
+      "query": "keyboard focus navigation",
+      "verbatimQuotes": [
+        "Never apply `tabindex=\"1\"` (or any value > 0) to elements, as doing so imposes a tab order on the page that bears no resemblance to the intended or expected tab order.",
+        "When using `outline: none;` to suppress the browser native focus indicator, provide an equivalent custom focus indicator that has a contrast ratio of at least `3:1` against adjacent content"
+      ],
+      "appliedCheckIds": [
+        "NT-04",
+        "NT-09"
+      ],
+      "auditRule": "Verified semantic landmarks (<header>, <nav aria-label>, single <main tabindex=\"-1\">), skip link, zero positive tabindex values, zero focusable controls inside aria-hidden subtrees, programmatic <label for> associations, dynamic <html lang> / <title> updates, and >= 3:1 focus-visible outline contrast."
+    },
+    {
+      "id": "natural-interactions",
+      "query": "keyboard focus navigation",
+      "verbatimQuotes": [
+        "Use `:focus-visible` so keyboard users always see a clear focus ring, without showing it on mouse clicks."
+      ],
+      "appliedCheckIds": [
+        "NT-04",
+        "NT-05"
+      ],
+      "auditRule": "Verified :focus-visible 2px solid outline across interactive controls, full keyboard operability (Tab, Enter, Space, ArrowDown/ArrowUp/Escape on popover overflow menus), and @media (prefers-reduced-motion: reduce) support."
+    },
+    {
+      "id": "dark-mode",
+      "query": "dark mode color scheme",
+      "verbatimQuotes": [
+        "Apply the `color-scheme` property to the `html` element or the `:root` pseudo-class. Browsers specifically look to the root element to determine the theme for the entire viewport—including the root scrollbars and the initial \"canvas\" background."
+      ],
+      "appliedCheckIds": [
+        "NT-08"
+      ],
+      "auditRule": "Verified <meta name=\"color-scheme\" content=\"light dark\"> in <head>, color-scheme: light dark on :root, light-dark() token pairs, and live matchMedia(\"(prefers-color-scheme: dark)\") change handling."
+    },
+    {
+      "id": "dark-mode-toggle",
+      "query": "dark mode color scheme",
+      "verbatimQuotes": [
+        "**DO NOT** hardcode `color-scheme: light` or `color-scheme: dark` as the root default; the base declaration MUST stay `light dark`."
+      ],
+      "appliedCheckIds": [
+        "NT-08"
+      ],
+      "auditRule": "Verified synchronous theme-init.js in <head> prevents FOUC, :root:has(> head > meta[name=\"color-scheme\"]) synchronizes CSS color-scheme, and Settings exposes explicit System / Light / Dark radio options with current OS theme hint."
+    },
+    {
+      "id": "color",
+      "query": "dark mode color scheme",
+      "verbatimQuotes": [
+        "Maintain 4.5:1 for normal text and 3:1 for large text (at least 24px, or at least 18.66px bold) or icons",
+        "Do not denote success/errors ONLY with color. Use icons or text (WCAG 1.4.1 Use of Color)."
+      ],
+      "appliedCheckIds": [
+        "NT-08"
+      ],
+      "auditRule": "Measured WCAG 2.2 relative luminance contrast ratios across resolved Light & Dark tokens (>= 4.5:1 text, >= 4.5:1 across all 8 curated --id-* avatar swatches against #ffffff, >= 3.0:1 UI boundaries/focus rings), plus shape+text state indicators and @media (forced-colors: active) fallbacks."
+    },
+    {
+      "id": "css-layout",
+      "query": "responsive container layout",
+      "verbatimQuotes": [
+        "Set `min-inline-size: 0` (or `min-width: 0`) on flex items that contain long unbreakable content (URLs, code, long strings) — flex items won't shrink below their content size by default, causing overflow.",
+        "Don't use `100vw` for full-width layout — it ignores scrollbar width and causes horizontal overflow."
+      ],
+      "appliedCheckIds": [
+        "NT-11"
+      ],
+      "auditRule": "Verified zero horizontal overflow (scrollWidth <= clientWidth), min-width: 0 shrinkage on long Vietnamese account titles, single-column grid collapse (< 720px), static topbar unpinning on compact heights, and unclipped CTAs at 800x600, 640x560, and 420x540."
+    },
+    {
+      "id": "respect-os-text-scale",
+      "query": "responsive container layout",
+      "verbatimQuotes": [
+        "Do not set a custom font size on `:root` or `html`.",
+        "Text MUST remain readable and content MUST remain visible without overlap, clipping, or horizontal scrolling."
+      ],
+      "appliedCheckIds": [
+        "NT-10"
+      ],
+      "auditRule": "Verified layout reflow without overlap/clipping/horizontal scroll across 100%, 125%, 150%, and 200% Windows DPI scaling + 200% page zoom, and flagged html, body { font-size: 14px } fixed-px root typography as non-blocking UX/CSS polish request IR-NAT-03."
+    }
+  ],
+  "checks": [
+    {
+      "id": "NT-01",
+      "number": 1,
+      "title": "WebView2 runtime availability & native window creation + clean exit (0 orphans)",
+      "gate_status": "PASS",
+      "durationMs": 2133.35,
+      "evidence": {
+        "webview2EvergreenVersion": "157.0.4341.46",
+        "webview2BrowserProduct": "Edg/157.0.4341.46",
+        "webview2UserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0",
+        "coldLaunchCdpReadyMs": 750.25,
+        "relaunchTimingsMs": null,
+        "gracefulShutdownMs": 414.5,
+        "exitCode": 0,
+        "orphanManagedProcesses": 0,
+        "orphanWebView2Processes": 0,
+        "coldLaunchHwndReadyMs": 1668.99,
+        "coldLaunchDomInteractiveMs": 1670.11,
+        "nativeWindowGeometry": {
+          "found": true,
+          "hwnd": 52495764,
+          "title": "Multi-Zalo Desktop - Instance Manager",
+          "visible": true,
+          "minimized": false,
+          "dpi": 120,
+          "windowWidth": 1174,
+          "windowHeight": 818,
+          "clientWidth": 1160,
+          "clientHeight": 780
+        }
+      }
+    },
+    {
+      "id": "NT-02",
+      "number": 2,
+      "title": "Tauri IPC (window.__TAURI_INTERNALS__ / invoke vs browser fallback detection)",
+      "gate_status": "PASS",
+      "durationMs": 40.25,
+      "evidence": {
+        "nativeOrigin": "http://tauri.localhost",
+        "hasTauriInternalsInvoke": true,
+        "hasGlobalTauriInvoke": true,
+        "settingsConnectionLabel": "Ứng dụngMulti-ZaloPhiên bản0.1.0Hệ điều hànhwindowsTrạng thái kết nốiĐã kết nối (Ứng dụng máy tính)",
+        "ipcLatenciesMs": {
+          "getStatusMs": 17,
+          "getDiagnosticsMs": 2.6,
+          "verifyIsolationMs": 16.6,
+          "listBackupsMs": 0.8
+        },
+        "browserMockOrigin": "http://127.0.0.1:49415",
+        "browserMockHasTauriInternals": false,
+        "browserMockDisconnectedPill": "Chưa kết nối"
+      }
+    },
+    {
+      "id": "NT-03",
+      "number": 3,
+      "title": "Frontend loading, CSP enforcement & Account Dock initial render",
+      "gate_status": "PASS",
+      "durationMs": 72.8,
+      "evidence": {
+        "documentTitle": "Multi-Zalo — Tài khoản",
+        "htmlLang": "vi",
+        "stylesheetsLoaded": 1,
+        "inlineScriptBlockedByCsp": true,
+        "cspViolation": {
+          "violatedDirective": "script-src-elem",
+          "blockedURI": "inline"
+        },
+        "emptyStateVisible": true,
+        "emptyTitle": "Dùng nhiều tài khoản Zalo trên một máy",
+        "emptyCtaVisible": true,
+        "profilesListHiddenWhenEmpty": true,
+        "searchHiddenUnderTwoAccounts": true,
+        "primarySectionVisible": true,
+        "primaryHeading": "Zalo đang dùng trên máy",
+        "primaryStateText": "Đã đóng · Tài khoản Zalo gốc của máy luôn được giữ nguyên",
+        "primaryInteractiveButtonCount": 0
+      }
+    },
+    {
+      "id": "NT-04",
+      "number": 4,
+      "title": "Keyboard navigation (Tab order, :focus-visible, Space/Enter, Escape dismiss, modal focus containment)",
+      "gate_status": "PASS",
+      "durationMs": 1194.32,
+      "evidence": {
+        "landmarksAndLabels": {
+          "hasHeaderLandmark": true,
+          "hasLabeledNav": true,
+          "mainCount": 1,
+          "mainHasMinusOneTabIndex": true,
+          "hasSkipLink": true,
+          "positiveTabindexCount": 0,
+          "focusableInsideAriaHiddenCount": 0,
+          "unlabeledInputCount": 0
+        },
+        "sequentialTabSample": [
+          "a.skip-link",
+          "btn-brand-home",
+          "button:Tài khoản",
+          "button:Sao lưu",
+          "button:Cài đặt",
+          "btn-nav-help",
+          "btn-open-create",
+          "btn-refresh",
+          "btn-empty-create"
+        ],
+        "focusVisibleIndicator": {
+          "tag": "button",
+          "id": "btn-open-create",
+          "className": "btn btn-primary btn-sm",
+          "text": "Thêm tài khoản",
+          "matchesFocusVisible": true,
+          "outlineStyle": "solid",
+          "outlineWidth": "1.6px",
+          "outlineColor": "rgb(15, 108, 189)",
+          "parentBg": "rgb(255, 255, 255)",
+          "focusOutlineContrast": 5.38
+        },
+        "modalKeyboardOpen": {
+          "open": true,
+          "isModalTopLayer": true,
+          "initialFocusId": "create-profile-name"
+        },
+        "modalFocusTrapEscapedCount": 0,
+        "modalVisitedControlCount": 6,
+        "modalAfterEscape": {
+          "open": false,
+          "returnValue": "",
+          "restoredFocusId": "btn-open-create"
+        },
+        "overflowMenuKeyboard": {
+          "popoverOpen": true,
+          "activeRole": "menuitem",
+          "focusRestoredOnEsc": true
+        }
+      }
+    },
+    {
+      "id": "NT-05",
+      "number": 5,
+      "title": "Native/DOM <dialog> modals (add account, rename, backup/restore, delete confirmation)",
+      "gate_status": "PASS",
+      "durationMs": 1960.08,
+      "evidence": {
+        "staticModalSemantics": {
+          "dialogs": [
+            {
+              "id": "create-profile-dialog",
+              "exists": true,
+              "hasRedundantRoleDialog": false,
+              "hasRedundantAriaModal": false,
+              "labelledByTargetExists": true
+            },
+            {
+              "id": "rename-profile-dialog",
+              "exists": true,
+              "hasRedundantRoleDialog": false,
+              "hasRedundantAriaModal": false,
+              "labelledByTargetExists": true
+            },
+            {
+              "id": "delete-profile-dialog",
+              "exists": true,
+              "hasRedundantRoleDialog": false,
+              "hasRedundantAriaModal": false,
+              "labelledByTargetExists": true
+            },
+            {
+              "id": "restore-backup-dialog",
+              "exists": true,
+              "hasRedundantRoleDialog": false,
+              "hasRedundantAriaModal": false,
+              "labelledByTargetExists": true
+            },
+            {
+              "id": "profile-details-dialog",
+              "exists": true,
+              "hasRedundantRoleDialog": false,
+              "hasRedundantAriaModal": false,
+              "labelledByTargetExists": true
+            }
+          ],
+          "deleteCancelHasAutofocus": true,
+          "hasModalOverscrollRule": true,
+          "hasBackdropOverscrollRule": true
+        },
+        "addAccountStep2": {
+          "step2Title": "Không gian \"Đức — Công việc QA\" đã sẵn sàng",
+          "focusedIdInStep2": "btn-create-launch",
+          "htmlBodyOverflowUnchanged": true
+        },
+        "renameModal": {
+          "isModal": true,
+          "returnValueAfterClose": ""
+        },
+        "restoreModal": {
+          "isModal": true,
+          "returnValueAfterClose": ""
+        },
+        "deleteConfirmation": {
+          "isModal": true,
+          "initialFocusedValue": "cancel",
+          "warningText": "Thao tác này sẽ xóa toàn bộ dữ liệu cục bộ của tài khoản \"Khôi phục Tạm QA\" khỏi Multi-Zalo. Hãy sao lưu trước nếu cần giữ lại lịch sử trên máy.",
+          "profileCountAfterEscDismiss": 3,
+          "profileCountAfterConfirmDelete": 2
+        }
+      }
+    },
+    {
+      "id": "NT-06",
+      "number": 6,
+      "title": "Window focus & multi-window handoff behavior (sandbox multi-instance + single-account stop; L3 live Zalo noted)",
+      "gate_status": "PASS",
+      "durationMs": 2906.09,
+      "evidence": {
+        "concurrentSandboxPids": [
+          20996,
+          22788
+        ],
+        "dualRunningUi": {
+          "topbarSummary": "Đang mở 2 cửa sổ",
+          "runningCardsCount": 2,
+          "primaryButtons": [
+            "Chuyển đến",
+            "Chuyển đến"
+          ],
+          "stopButtonsCount": 2
+        },
+        "isolatedSecondInstanceFocusSignal": {
+          "targetProfileSignaled": true,
+          "siblingProfileUntouched": true
+        },
+        "singleAccountStopFromTauriUi": {
+          "stoppedProfileExited": true,
+          "siblingProfileSurvived": true
+        },
+        "officialZaloLiveTwoWindowHandoff": "AWAITING_MANUAL_L3",
+        "tauriNativeFixtureEnvHookVerified": true
+      }
+    },
+    {
+      "id": "NT-07",
+      "number": 7,
+      "title": "System tray honest verification (tauri.conf.json / Cargo.toml / src-tauri)",
+      "gate_status": "NOT_TESTED",
+      "durationMs": 1,
+      "evidence": {
+        "tauriConfHasTrayIcon": false,
+        "cargoHasTrayFeature": false,
+        "mainRsUsesTrayIconBuilder": false,
+        "implementedInV010Mvp": false,
+        "closeWindowBehavior": "Closing dim-desktop.exe exits the manager cleanly (exit code 0) without terminating running isolated Zalo profile windows; relaunching reconciles active sessions via .runtime-lease.json."
+      }
+    },
+    {
+      "id": "NT-08",
+      "number": 8,
+      "title": "Light / Dark mode (prefers-color-scheme, FOUC-free toggle & WCAG 2.2 AA contrast)",
+      "gate_status": "PASS",
+      "durationMs": 350.99,
+      "evidence": {
+        "metaColorScheme": "light dark",
+        "foucPreventionHeadScripts": [
+          {
+            "src": "./theme-init.js",
+            "type": "classic-blocking",
+            "defer": false,
+            "async": false
+          }
+        ],
+        "forcedColorsSupported": true,
+        "systemThemeDynamicLabelLight": "Theo hệ thống (Sáng)",
+        "systemThemeDynamicLabelDark": "Theo hệ thống (Tối)",
+        "pinnedDarkOverride": {
+          "dataTheme": "dark",
+          "metaContent": "dark",
+          "computedColorScheme": "dark",
+          "savedStorage": "dark"
+        },
+        "wcagContrastLight": {
+          "textPrimaryOnSurface": 17.6,
+          "textPrimaryOnApp": 16.28,
+          "textSecondaryOnSurface": 6.84,
+          "textMutedOnSurface": 4.71,
+          "primaryBtnTextOnAccent": 5.38,
+          "focusRingAccentOnSurface": 5.38,
+          "okStatusText": 4.99,
+          "warnStatusText": 5.89,
+          "dangerStatusText": 6.01
+        },
+        "wcagContrastDark": {
+          "textPrimaryOnSurface": 14.89,
+          "textPrimaryOnApp": 16.3,
+          "textSecondaryOnSurface": 7.74,
+          "textMutedOnSurface": 5.26,
+          "primaryBtnTextOnAccent": 6.68,
+          "focusRingAccentOnSurface": 6.03,
+          "okStatusText": 8.27,
+          "warnStatusText": 8.99,
+          "dangerStatusText": 6.12
+        },
+        "avatarPaletteContrastOnWhite": {
+          "blue": 6.7,
+          "teal": 5.47,
+          "green": 5.02,
+          "amber": 5.02,
+          "coral": 6.29,
+          "plum": 6.98,
+          "indigo": 7.9,
+          "slate": 7.58
+        }
+      }
+    },
+    {
+      "id": "NT-09",
+      "number": 9,
+      "title": "Tiếng Việt (vi-VN) / English (en-US) completeness & zero raw technical jargon in user views",
+      "gate_status": "PASS",
+      "durationMs": 57.93,
+      "evidence": {
+        "viLeafKeyCount": 275,
+        "enLeafKeyCount": 275,
+        "missingInEn": [],
+        "missingInVi": [],
+        "viNormalViewAudit": {
+          "htmlLang": "vi",
+          "documentTitle": "Multi-Zalo — Tài khoản",
+          "jargonLeaks": [],
+          "accountNamesPreserved": true
+        },
+        "enNormalViewAudit": {
+          "htmlLang": "en",
+          "documentTitle": "Multi-Zalo — Accounts",
+          "jargonLeaks": [],
+          "accountNamesPreserved": true
+        }
+      }
+    },
+    {
+      "id": "NT-10",
+      "number": 10,
+      "title": "HiDPI & Windows scaling (100%, 125%, 150%, 200% DPR + 200% zoom reflow & CSS audit)",
+      "gate_status": "PASS",
+      "durationMs": 446.51,
+      "evidence": {
+        "hostNativeDevicePixelRatio": 1.25,
+        "dpiScalingMatrix": [
+          {
+            "scaleLabel": "100%",
+            "deviceScaleFactor": 1,
+            "reportedDpr": 1.0000000149011612,
+            "innerWidth": 1160,
+            "innerHeight": 780,
+            "scrollWidth": 1160,
+            "clientWidth": 1160,
+            "horizontalOverflowPx": 0,
+            "createBtnClipped": false,
+            "createBtnHeight": 32,
+            "anyCardBtnClipped": false,
+            "minButtonHeightPx": 32
+          },
+          {
+            "scaleLabel": "125%",
+            "deviceScaleFactor": 1.25,
+            "reportedDpr": 1.25,
+            "innerWidth": 928,
+            "innerHeight": 624,
+            "scrollWidth": 928,
+            "clientWidth": 928,
+            "horizontalOverflowPx": 0,
+            "createBtnClipped": false,
+            "createBtnHeight": 32,
+            "anyCardBtnClipped": false,
+            "minButtonHeightPx": 32
+          },
+          {
+            "scaleLabel": "150%",
+            "deviceScaleFactor": 1.5,
+            "reportedDpr": 1.5000000596046448,
+            "innerWidth": 774,
+            "innerHeight": 520,
+            "scrollWidth": 774,
+            "clientWidth": 774,
+            "horizontalOverflowPx": 0,
+            "createBtnClipped": false,
+            "createBtnHeight": 32,
+            "anyCardBtnClipped": false,
+            "minButtonHeightPx": 32
+          },
+          {
+            "scaleLabel": "200%",
+            "deviceScaleFactor": 2,
+            "reportedDpr": 2.0000000298023224,
+            "innerWidth": 800,
+            "innerHeight": 600,
+            "scrollWidth": 800,
+            "clientWidth": 800,
+            "horizontalOverflowPx": 0,
+            "createBtnClipped": false,
+            "createBtnHeight": 32,
+            "anyCardBtnClipped": false,
+            "minButtonHeightPx": 32
+          }
+        ],
+        "zoomAndRootFontAudit": {
+          "zoom200HorizontalOverflowPx": 0,
+          "hasTextScaleMeta": false,
+          "rootFontSizeRuleUsesFixedPx": true
+        }
+      }
+    },
+    {
+      "id": "NT-11",
+      "number": 11,
+      "title": "Small window (<= 800x600, 640x560 & 420x540 min-size overflow, CTA & Account Dock usability)",
+      "gate_status": "PASS",
+      "durationMs": 4015.36,
+      "evidence": {
+        "testedViewports": [
+          {
+            "target": "800x600 (<=800x600 acceptance target)",
+            "win32MoveOk": true,
+            "viewport": "800x600",
+            "horizontalOverflowPx": 0,
+            "gridColumnCount": 2,
+            "topbarPosition": "sticky",
+            "addAccountCtaUnclipped": true,
+            "allCardButtonsUnclipped": true,
+            "modalFitsViewport": true
+          },
+          {
+            "target": "640x560 (<720px single-column breakpoint)",
+            "win32MoveOk": true,
+            "viewport": "640x560",
+            "horizontalOverflowPx": 0,
+            "gridColumnCount": 1,
+            "topbarPosition": "static",
+            "addAccountCtaUnclipped": true,
+            "allCardButtonsUnclipped": true,
+            "modalFitsViewport": true
+          },
+          {
+            "target": "420x540 (tauri.conf.json minWidth x minHeight)",
+            "win32MoveOk": true,
+            "viewport": "420x540",
+            "horizontalOverflowPx": 0,
+            "gridColumnCount": 1,
+            "topbarPosition": "static",
+            "addAccountCtaUnclipped": true,
+            "allCardButtonsUnclipped": true,
+            "modalFitsViewport": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "NT-12",
+      "number": 12,
+      "title": "Manager crash recovery (kill manager while fixture running -> relaunch lease reconciliation & recoveryRequired audit)",
+      "gate_status": "PASS",
+      "durationMs": 5970.51,
+      "evidence": {
+        "managerKillDurationMs": 239.56,
+        "fixtureSurvivedManagerCrash": true,
+        "primaryZaloUntouchedDuringCrash": true,
+        "relaunchReconciliation": {
+          "reconciledRunning": true,
+          "reconciledLifecycleState": "running",
+          "reconciledMainPid": 20996,
+          "cardShowsRunningClass": true,
+          "cardStateText": "Cửa sổ đang mở",
+          "cardPrimaryAction": "Chuyển đến"
+        },
+        "deadFixtureStaleLockDetection": {
+          "running": false,
+          "lifecycleState": "stopped",
+          "staleLockfileDetected": true,
+          "autoCleanedOnNextLaunch": true
+        },
+        "corruptedLeaseRecoveryRequiredAudit": {
+          "backendLifecycleState": "recovery_required",
+          "backendStatusLabel": "Recovery Required",
+          "backendBlockedBackupWhenUnclean": true,
+          "backendBackupErrorCode": "PROFILE_RUNNING",
+          "backendBlockedDeleteWhenUnclean": true,
+          "backendDeleteErrorCode": "PROFILE_RUNNING",
+          "cardRenderedStateVi": "Cần mở lại để khôi phục",
+          "cardRenderedStateEn": "Reopen to recover",
+          "hasDedicatedRecoveryBadge": true,
+          "offlineMenuActionsDisabledWhenUnclean": true
+        },
+        "cleanStopViaTauriIpcAfterRecovery": true
+      }
+    }
+  ],
+  "integrationRequests": [
+    {
+      "id": "IR-NAT-03",
+      "severity": "P3",
+      "component": "apps/desktop/ui/{index.html,styles.css}",
+      "statusAtCd62c52": "NON_BLOCKING_POLISH",
+      "remediatedInIntegrationCommit": null,
+      "summary": "Windows DPI scaling (100%-200% DPR) and 200% page zoom reflow pass with 0px horizontal overflow, but styles.css declares html, body { font-size: 14px } in fixed px without <meta name=\"text-scale\" content=\"scale\">. Recommend migrating typography tokens to browser-inherited rem per modern-web-guidance (respect-os-text-scale)."
+    }
+  ],
+  "screenshots": [
+    "evidence/screenshots/01-empty-account-dock-light.png",
+    "evidence/screenshots/02-add-account-step2-dialog.png",
+    "evidence/screenshots/03-delete-confirmation-dialog.png",
+    "evidence/screenshots/04-account-dock-dark-mode.png",
+    "evidence/screenshots/05-small-window-800x600.png",
+    "evidence/screenshots/06-recovery-required-badge.png"
+  ],
+  "hostSafety": {
+    "passed": true,
+    "primaryZaloInvariance": {
+      "passed": true,
+      "configExistsBefore": true,
+      "configExistsAfter": true,
+      "configExistsUnchanged": true,
+      "configSha256Before": "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+      "configSha256After": "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+      "configSha256Identical": true,
+      "primaryProcessCountBefore": 0,
+      "primaryProcessCountAfter": 0,
+      "missingPrimaryPids": []
+    },
+    "orphanProcessCheck": {
+      "clean": true,
+      "orphanCount": 0,
+      "orphans": []
+    }
+  }
+}

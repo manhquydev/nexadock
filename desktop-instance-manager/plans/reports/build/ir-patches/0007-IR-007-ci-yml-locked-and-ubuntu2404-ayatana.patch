@@ -1,0 +1,72 @@
+From 6b0b0efe26b186a4a114980e88e5220b3a6df807 Mon Sep 17 00:00:00 2001
+From: Multi-Zalo Build Engineering <build@multizalodesktop.local>
+Date: Wed, 18 Nov 2026 01:06:53 +0700
+Subject: [PATCH] ci(workflows): enforce --locked, dual lockfile cache key, and
+ Ubuntu 24.04 Ayatana package (IR-007)
+
+Update .github/workflows/ci.yml to hash src-tauri/Cargo.lock in cache key, replace libappindicator3-dev with libayatana-appindicator3-dev, and pass --locked to all cargo invocations.
+---
+ .github/workflows/ci.yml | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index e08bd0f..c00d0b1 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -40,19 +40,19 @@ jobs:
+             ~/.cargo/registry/cache/
+             ~/.cargo/git/db/
+             desktop-instance-manager/target/
+-          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock') }}
++          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
+ 
+       - name: Check formatting
+         run: cargo fmt --all -- --check
+ 
+       - name: Type-check workspace
+-        run: cargo check --workspace --all-targets
++        run: cargo check --workspace --all-targets --locked
+ 
+       - name: Run Clippy with warnings denied
+-        run: cargo clippy --workspace --all-targets -- -D warnings
++        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+ 
+       - name: Run workspace unit tests
+-        run: cargo test --workspace --all-targets
++        run: cargo test --workspace --all-targets --locked
+ 
+   cargo-deny:
+     name: Dependency licenses & security advisories (cargo-deny)
+@@ -123,7 +123,7 @@ jobs:
+ 
+       - name: Build native dim-cli for contract parity tests
+         if: runner.os == 'Windows'
+-        run: cargo build -p dim-test-fixture --bin dim-cli --release
++        run: cargo build -p dim-test-fixture --bin dim-cli --release --locked
+ 
+       - name: Run Windows PowerShell + UI integration suite
+         if: runner.os == 'Windows'
+@@ -157,16 +157,16 @@ jobs:
+         if: runner.os == 'Linux'
+         run: |
+           sudo apt-get update
+-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
++          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+ 
+       - name: Format-check Tauri desktop crate
+         run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+ 
+       - name: Check Tauri desktop crate
+-        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
++        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+ 
+       - name: Clippy Tauri desktop crate
+-        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
++        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- -D warnings
+ 
+       - name: Test Tauri desktop crate
+-        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
++        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+-- 
+2.56.1.windows.1
+

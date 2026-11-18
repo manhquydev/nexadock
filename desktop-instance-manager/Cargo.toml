@@ -27,12 +27,12 @@ sha2 = "0.10"
 libc = "0.2"
 tempfile = "3.14"
 
-dim-core = { path = "crates/core" }
-dim-profile-store = { path = "crates/profile-store" }
-dim-process-manager = { path = "crates/process-manager" }
-dim-platform-windows = { path = "crates/platform-windows" }
-dim-platform-macos = { path = "crates/platform-macos" }
-dim-platform-linux = { path = "crates/platform-linux" }
+dim-core = { path = "crates/core", version = "0.1.0" }
+dim-profile-store = { path = "crates/profile-store", version = "0.1.0" }
+dim-process-manager = { path = "crates/process-manager", version = "0.1.0" }
+dim-platform-windows = { path = "crates/platform-windows", version = "0.1.0" }
+dim-platform-macos = { path = "crates/platform-macos", version = "0.1.0" }
+dim-platform-linux = { path = "crates/platform-linux", version = "0.1.0" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

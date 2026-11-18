@@ -5,7 +5,10 @@ pub mod guard;
 pub mod recovery;
 
 pub use coordinator::InstanceCoordinator;
-pub use guard::{GracefulQuitSequence, PrimaryProtectionGuard, DEFAULT_GRACEFUL_QUIT_TIMEOUT_MS};
+pub use guard::{
+    ExternalStorageGuard, GracefulQuitSequence, PrimaryProtectionGuard, RunningProfileStorageRef,
+    DEFAULT_GRACEFUL_QUIT_TIMEOUT_MS,
+};
 pub use recovery::StaleLockRecoveryManager;
 
 #[cfg(test)]

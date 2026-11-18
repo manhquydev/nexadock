@@ -3,7 +3,6 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use dim_core::{
     ensure_not_primary_zalo_path, redact_sensitive_text, resolve_safe_child,
@@ -11,50 +10,10 @@ use dim_core::{
     InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities, PlatformKind,
     ProfileStore,
 };
-use dim_process_manager::InstanceCoordinator;
-use dim_profile_store::{FileBackupManager, JsonProfileStore};
 use serde::Serialize;
 use tauri::State;
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-use dim_platform_linux::LinuxPlatformAdapter as ActiveAdapter;
-#[cfg(target_os = "macos")]
-use dim_platform_macos::MacOsPlatformAdapter as ActiveAdapter;
-#[cfg(target_os = "windows")]
-use dim_platform_windows::WindowsPlatformAdapter as ActiveAdapter;
-
-/// Shared application state managed by Tauri.
-pub struct AppState {
-    pub store: Arc<JsonProfileStore>,
-    pub adapter: Arc<ActiveAdapter>,
-    pub coordinator: InstanceCoordinator<ActiveAdapter>,
-    pub backups: FileBackupManager,
-    pub op_lock: Mutex<()>,
-}
-
-impl AppState {
-    /// Initializes store, platform adapter, coordinator, and backup manager from `DIM_DATA_DIR` or OS defaults.
-    pub fn initialize() -> Result<Self, DimError> {
-        let store = Arc::new(JsonProfileStore::from_default_or_env(None)?);
-        store.ensure_initialized()?;
-
-        let adapter = Arc::new(ActiveAdapter::new());
-        let coordinator = InstanceCoordinator::new(Arc::clone(&store), Arc::clone(&adapter));
-
-        let adapter_for_probe = Arc::clone(&adapter);
-        let backups = FileBackupManager::new(Arc::clone(&store)).with_disk_space_probe(Arc::new(
-            move |path| adapter_for_probe.free_disk_bytes(path),
-        ));
-
-        Ok(Self {
-            store,
-            adapter,
-            coordinator,
-            backups,
-            op_lock: Mutex::new(()),
-        })
-    }
-}
+pub use crate::state::AppState;
 
 fn current_user_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
@@ -62,9 +21,66 @@ fn current_user_home() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+#[allow(dead_code)]
+const OFFICIAL_FIXTURE_SHA256_ALLOWLIST: &[&str] = &[
+    // fixtures/cross-platform/xf-fixture.mjs (LF and CRLF)
+    "1f30e1d26d01b69deacf217610ea9c9a30aeed06fd089968f15084eaa2cda9f4",
+    "eca38c7efb3d08191dfddad4e82e99a83066eb40c59919225e5b642753a95281",
+    // fixtures/test-desktop-app/fixture-app.mjs (LF and CRLF)
+    "46d3cb9bafc192bdc31147b8469a89417f7702f0d57d2ade59752f273cc33fbf",
+    "724971c2b15ae45406ece208b2d11e3e7c663b503dc49b609914f06ced7a4aa2",
+];
+
+#[allow(dead_code)]
+fn is_allowlisted_fixture_script(path: &std::path::Path) -> bool {
+    match dim_profile_store::sha256_file(path) {
+        Ok(digest) => OFFICIAL_FIXTURE_SHA256_ALLOWLIST.contains(&digest.as_str()),
+        Err(_) => false,
+    }
+}
+
+fn resolve_tauri_launch_target() -> (Option<PathBuf>, LaunchTarget) {
+    if let Some(raw) = std::env::var_os("DIM_NODE_FIXTURE_SCRIPT") {
+        let candidate = PathBuf::from(raw);
+        if !candidate.as_os_str().is_empty() && validate_directory_input(&candidate).is_ok() {
+            #[cfg(not(debug_assertions))]
+            let allowed = is_allowlisted_fixture_script(&candidate);
+            #[cfg(debug_assertions)]
+            let allowed = true;
+            if allowed {
+                return (
+                    Some(candidate.clone()),
+                    LaunchTarget::NodeFixture {
+                        node_path: None,
+                        script_path: candidate,
+                        extra_args: Vec::new(),
+                    },
+                );
+            }
+        }
+    }
+    (
+        None,
+        LaunchTarget::OfficialZalo {
+            custom_install_root: None,
+        },
+    )
+}
+
 fn redact_err_text(err: impl std::fmt::Display) -> String {
     let home = current_user_home();
     redact_sensitive_text(&err.to_string(), home.as_deref())
+}
+
+fn redact_dim_err(err: DimError) -> String {
+    let code = err.code();
+    format!("[{code}] {}", redact_err_text(err))
+}
+
+fn join_err_envelope<T: Serialize>(err: impl std::fmt::Display) -> ApiEnvelope<T> {
+    ApiEnvelope::err(&DimError::ProcessError(format!(
+        "background command worker failed: {err}"
+    )))
 }
 
 #[derive(Debug, Serialize)]
@@ -124,206 +140,253 @@ pub struct StatusResponse {
 }
 
 #[tauri::command]
-pub fn get_status(
+pub async fn get_status(
     state: State<'_, AppState>,
     with_size: Option<bool>,
 ) -> Result<StatusResponse, String> {
-    let measure_size = with_size.unwrap_or(false);
-    let installation = state
-        .adapter
-        .discover_installation(None)
-        .map_err(redact_err_text)?;
-    let primary = state.adapter.inspect_primary().map_err(redact_err_text)?;
-    let records = state.store.list_profiles().map_err(redact_err_text)?;
-
-    let mut profiles = Vec::with_capacity(records.len());
-    for rec in records {
-        let dir = state.store.profile_dir_for(&rec).map_err(redact_err_text)?;
-        let rt = state
-            .adapter
-            .inspect_profile(&rec, &dir)
-            .map_err(redact_err_text)?;
-        let data_size = if measure_size {
-            Some(rt.disk_usage_bytes)
+    let app = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let measure_size = with_size.unwrap_or(false);
+        let (fixture_script_opt, _) = resolve_tauri_launch_target();
+        let installation_json = if let Some(ref script_path) = fixture_script_opt {
+            let exists = script_path.exists();
+            serde_json::json!({
+                "valid": exists,
+                "mode": "node-fixture",
+                "version": "xf-fixture-1.0.0",
+                "authenticode_status": if exists { "Signed (Node.js Fixture)" } else { "Missing Fixture" },
+                "signer_subject": serde_json::Value::Null,
+                "error": if exists { serde_json::Value::Null } else { serde_json::json!("Fixture script not found") },
+            })
         } else {
-            None
+            let installation = app
+                .adapter
+                .discover_installation(None)
+                .map_err(redact_dim_err)?;
+            serde_json::json!({
+                "valid": installation.is_valid,
+                "mode": "official-zalo",
+                "version": installation.version,
+                "authenticode_status": installation.signature_status,
+                "signer_subject": installation.signer_subject,
+                "error": installation.error,
+            })
         };
-        profiles.push(serde_json::json!({
-            "id": rec.id,
-            "name": rec.name,
-            "directory_name": rec.directory_name,
-            "created_at": rec.created_at,
-            "last_launched_at": rec.last_launched_at,
-            "zalo_user_id": rt.detected_zalo_user_id.or(rec.zalo_user_id),
-            "notes": rec.notes,
-            "running": rt.running,
-            "main_pid": rt.main_pid,
-            "process_count": rt.process_count,
-            "window_handle": rt.window_handle.unwrap_or(0),
-            "window_title": rt.window_title,
-            "total_working_set_bytes": rt.working_set_bytes,
-            "data_size_bytes": data_size,
-            "stale_lockfile_detected": rt.stale_lock_detected,
-        }));
-    }
+        let primary = app.adapter.inspect_primary().map_err(redact_dim_err)?;
+        let records = app.store.list_profiles().map_err(redact_dim_err)?;
 
-    Ok(StatusResponse {
-        ok: true,
-        platform: state.adapter.platform().as_str().to_owned(),
-        data_dir: state.store.data_dir().display().to_string(),
-        installation: serde_json::json!({
-            "valid": installation.is_valid,
-            "mode": "official-zalo",
-            "version": installation.version,
-            "authenticode_status": installation.signature_status,
-            "signer_subject": installation.signer_subject,
-            "error": installation.error,
-        }),
-        primary_zalo: serde_json::json!({
-            "is_running": primary.running,
-            "locking_pids": primary.protected_pids,
-            "process_count": primary.process_count,
-            "total_working_set_bytes": primary.working_set_bytes,
-            "zalo_user_id": primary.detected_zalo_user_id,
-        }),
-        profiles,
+        let mut profiles = Vec::with_capacity(records.len());
+        for rec in records {
+            let dir = app.store.profile_dir_for(&rec).map_err(redact_dim_err)?;
+            let rt = app
+                .coordinator
+                .inspect_profile_record(&rec, &dir)
+                .map_err(redact_dim_err)?;
+            let data_size = if measure_size {
+                Some(rt.disk_usage_bytes)
+            } else {
+                None
+            };
+            let lifecycle_state = rt.lifecycle_state();
+            profiles.push(serde_json::json!({
+                "id": rec.id,
+                "name": rec.name,
+                "directory_name": rec.directory_name,
+                "created_at": rec.created_at,
+                "last_launched_at": rec.last_launched_at,
+                "zalo_user_id": rt.detected_zalo_user_id.or(rec.zalo_user_id),
+                "notes": rec.notes,
+                "running": rt.running,
+                "lifecycle_state": lifecycle_state,
+                "status_label": rt.status_label,
+                "main_pid": rt.main_pid,
+                "process_count": rt.process_count,
+                "window_handle": rt.window_handle.unwrap_or(0),
+                "window_title": rt.window_title,
+                "total_working_set_bytes": rt.working_set_bytes,
+                "data_size_bytes": data_size,
+                "stale_lockfile_detected": rt.stale_lock_detected,
+            }));
+        }
+
+        Ok(StatusResponse {
+            ok: true,
+            platform: app.adapter.platform().as_str().to_owned(),
+            data_dir: app.store.data_dir().display().to_string(),
+            installation: installation_json,
+            primary_zalo: serde_json::json!({
+                "is_running": primary.running,
+                "locking_pids": primary.protected_pids,
+                "process_count": primary.process_count,
+                "total_working_set_bytes": primary.working_set_bytes,
+                "zalo_user_id": primary.detected_zalo_user_id,
+            }),
+            profiles,
+        })
     })
-}
-
-fn acquire_op_lock(state: &AppState) -> Result<std::sync::MutexGuard<'_, ()>, DimError> {
-    state
-        .op_lock
-        .lock()
-        .map_err(|_| DimError::Io(std::io::Error::other("operation mutex poisoned")))
+    .await
+    .map_err(redact_err_text)?
 }
 
 #[tauri::command]
-pub fn create_profile(
+pub async fn create_profile(
     state: State<'_, AppState>,
     name: String,
     notes: Option<String>,
-) -> ApiEnvelope<dim_core::ProfileRecord> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    match state
-        .store
-        .create_profile(&name, notes.as_deref().unwrap_or(""))
-    {
-        Ok(rec) => {
-            if let Ok(dir) = state.store.profile_dir_for(&rec) {
-                let _ = state.adapter.ensure_profile_layout(&rec, &dir);
+) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app
+            .store
+            .create_profile(&name, notes.as_deref().unwrap_or(""))
+        {
+            Ok(rec) => {
+                if let Ok(dir) = app.store.profile_dir_for(&rec) {
+                    let _ = app.adapter.ensure_profile_layout(&rec, &dir);
+                }
+                ApiEnvelope::ok(format!("Created profile '{}'.", rec.name), rec)
             }
-            ApiEnvelope::ok(format!("Created profile '{}'.", rec.name), rec)
+            Err(err) => ApiEnvelope::err(&err),
         }
-        Err(err) => ApiEnvelope::err(&err),
-    }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn rename_profile(
+pub async fn rename_profile(
     state: State<'_, AppState>,
     id: String,
     new_name: String,
-) -> ApiEnvelope<dim_core::ProfileRecord> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    match state.store.rename_profile(&id, &new_name) {
-        Ok(rec) => ApiEnvelope::ok(format!("Renamed profile to '{}'.", rec.name), rec),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app.store.rename_profile(&id, &new_name) {
+            Ok(rec) => ApiEnvelope::ok(format!("Renamed profile to '{}'.", rec.name), rec),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn delete_profile(
+pub async fn delete_profile(
     state: State<'_, AppState>,
     id: String,
     confirm: Option<bool>,
-) -> ApiEnvelope<serde_json::Value> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    match state
-        .coordinator
-        .delete_profile(&id, confirm.unwrap_or(false))
-    {
-        Ok(()) => ApiEnvelope::ok(
-            "Deleted profile.",
-            serde_json::json!({ "deleted_profile_id": id }),
-        ),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app
+            .coordinator
+            .delete_profile(&id, confirm.unwrap_or(false))
+        {
+            Ok(()) => ApiEnvelope::ok(
+                "Deleted profile.",
+                serde_json::json!({ "deleted_profile_id": id }),
+            ),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn launch_profile(
+pub async fn launch_profile(
     state: State<'_, AppState>,
     id: String,
-) -> ApiEnvelope<dim_core::ProfileRuntimeState> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    let target = LaunchTarget::OfficialZalo {
-        custom_install_root: None,
-    };
-    match state.coordinator.launch_profile(&id, &target) {
-        Ok(rt) => ApiEnvelope::ok("Launched profile.", rt),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<dim_core::ProfileRuntimeState>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let (_, target) = resolve_tauri_launch_target();
+        match app.coordinator.launch_profile(&id, &target) {
+            Ok(rt) => ApiEnvelope::ok("Launched profile.", rt),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn focus_profile(
+pub async fn focus_profile(
     state: State<'_, AppState>,
     id: String,
-) -> ApiEnvelope<dim_core::ProfileRuntimeState> {
-    let target = LaunchTarget::OfficialZalo {
-        custom_install_root: None,
-    };
-    match state.coordinator.focus_profile(&id, &target) {
-        Ok(rt) => ApiEnvelope::ok("Focused profile.", rt),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<dim_core::ProfileRuntimeState>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let (_, target) = resolve_tauri_launch_target();
+        match app.coordinator.focus_profile(&id, &target) {
+            Ok(rt) => ApiEnvelope::ok("Focused profile.", rt),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
-pub fn stop_profile(state: State<'_, AppState>, id: String) -> ApiEnvelope<u32> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    match state.coordinator.stop_profile(&id) {
-        Ok(count) => ApiEnvelope::ok("Stopped profile.", count),
-        Err(err) => ApiEnvelope::err(&err),
-    }
-}
-
-#[tauri::command]
-pub fn backup_profile(
+pub async fn stop_profile(
     state: State<'_, AppState>,
     id: String,
-) -> ApiEnvelope<dim_core::BackupResult> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    let result = (|| -> Result<dim_core::BackupResult, DimError> {
-        let profile = state.store.get_profile(&id)?;
-        let dir = state.store.profile_dir_for(&profile)?;
-        let rt = state.adapter.inspect_profile(&profile, &dir)?;
-        state
-            .backups
-            .backup_profile(&profile, &dir, None, rt.running)
-    })();
-    match result {
-        Ok(bk) => ApiEnvelope::ok("Created offline atomic backup.", bk),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+) -> Result<ApiEnvelope<u32>, String> {
+    let app = state.inner().clone();
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || match app.coordinator.stop_profile(&id) {
+            Ok(count) => ApiEnvelope::ok("Stopped profile.", count),
+            Err(err) => ApiEnvelope::err(&err),
+        })
+        .await
+        .unwrap_or_else(join_err_envelope),
+    )
+}
+
+#[tauri::command]
+pub async fn stop_all_profiles(
+    state: State<'_, AppState>,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app.coordinator.stop_all_secondary_profiles() {
+            Ok(stopped) => {
+                let items: Vec<serde_json::Value> = stopped
+                    .iter()
+                    .map(|(pid, count)| {
+                        serde_json::json!({ "profile_id": pid, "terminated_process_count": count })
+                    })
+                    .collect();
+                ApiEnvelope::ok(
+                    format!("Stopped {} secondary profile(s).", items.len()),
+                    serde_json::json!({
+                        "stopped_profiles_count": items.len(),
+                        "stopped_profiles": items,
+                    }),
+                )
+            }
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
+}
+
+#[tauri::command]
+pub async fn backup_profile(
+    state: State<'_, AppState>,
+    id: String,
+    allow_external_db_omit: Option<bool>,
+) -> Result<ApiEnvelope<dim_core::BackupResult>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match app.backup_profile_synchronized(&id, allow_external_db_omit.unwrap_or(false)) {
+            Ok(bk) => ApiEnvelope::ok("Created offline atomic backup.", bk),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
@@ -366,58 +429,59 @@ pub fn list_backups(state: State<'_, AppState>) -> BackupsResponse {
 }
 
 #[tauri::command]
-pub fn restore_backup(
+pub async fn restore_backup(
     state: State<'_, AppState>,
     backup_dir: String,
     name: Option<String>,
-) -> ApiEnvelope<dim_core::ProfileRecord> {
-    let _op = match acquire_op_lock(&state) {
-        Ok(g) => g,
-        Err(err) => return ApiEnvelope::err(&err),
-    };
-    let trimmed_dir = backup_dir.trim();
-    let candidate = PathBuf::from(trimmed_dir);
-    if let Err(err) = validate_directory_input(&candidate) {
-        return ApiEnvelope::err(&err);
-    }
-
-    let backups_root = state.store.backups_dir();
-    let resolved_dir = if candidate.is_absolute() {
-        let Ok(canon_root) = fs::canonicalize(backups_root) else {
-            return ApiEnvelope::err(&DimError::PathTraversal(
-                "backups root unavailable".to_owned(),
-            ));
-        };
-        let Ok(canon_cand) = fs::canonicalize(&candidate) else {
-            return ApiEnvelope::err(&DimError::PathTraversal(
-                "backup directory must exist inside managed Backups root".to_owned(),
-            ));
-        };
-        if !canon_cand.starts_with(&canon_root) || canon_cand == canon_root {
-            return ApiEnvelope::err(&DimError::PathTraversal(
-                "backup directory escapes managed Backups root".to_owned(),
-            ));
+) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
+    let app = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let trimmed_dir = backup_dir.trim();
+        let candidate = PathBuf::from(trimmed_dir);
+        if let Err(err) = validate_directory_input(&candidate) {
+            return ApiEnvelope::err(&err);
         }
-        canon_cand
-    } else {
-        match resolve_safe_child(backups_root, trimmed_dir) {
-            Ok(p) => p,
-            Err(err) => return ApiEnvelope::err(&err),
+
+        let backups_root = app.store.backups_dir();
+        let resolved_dir = if candidate.is_absolute() {
+            let Ok(canon_root) = fs::canonicalize(backups_root) else {
+                return ApiEnvelope::err(&DimError::PathTraversal(
+                    "backups root unavailable".to_owned(),
+                ));
+            };
+            let Ok(canon_cand) = fs::canonicalize(&candidate) else {
+                return ApiEnvelope::err(&DimError::PathTraversal(
+                    "backup directory must exist inside managed Backups root".to_owned(),
+                ));
+            };
+            if !canon_cand.starts_with(&canon_root) || canon_cand == canon_root {
+                return ApiEnvelope::err(&DimError::PathTraversal(
+                    "backup directory escapes managed Backups root".to_owned(),
+                ));
+            }
+            canon_cand
+        } else {
+            match resolve_safe_child(backups_root, trimmed_dir) {
+                Ok(p) => p,
+                Err(err) => return ApiEnvelope::err(&err),
+            }
+        };
+
+        if let Err(err) = ensure_not_primary_zalo_path(&resolved_dir) {
+            return ApiEnvelope::err(&err);
         }
-    };
 
-    if let Err(err) = ensure_not_primary_zalo_path(&resolved_dir) {
-        return ApiEnvelope::err(&err);
-    }
-
-    let trimmed = name.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    match state
-        .backups
-        .restore_backup_as_new_profile(&resolved_dir, trimmed)
-    {
-        Ok(rec) => ApiEnvelope::ok(format!("Restored backup into '{}'.", rec.name), rec),
-        Err(err) => ApiEnvelope::err(&err),
-    }
+        let trimmed = name.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        match app
+            .backups
+            .restore_backup_as_new_profile(&resolved_dir, trimmed)
+        {
+            Ok(rec) => ApiEnvelope::ok(format!("Restored backup into '{}'.", rec.name), rec),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
 }
 
 #[tauri::command]
@@ -432,13 +496,62 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, 
     let profiles_acl_safe = state
         .adapter
         .check_profiles_acl_safe(state.store.profiles_dir());
-    let platform_status = match caps.overall_status {
-        dim_core::SupportStatus::SupportedAndTested => "SUPPORTED_AND_TESTED",
-        dim_core::SupportStatus::PartiallySupported => "PARTIALLY_SUPPORTED",
-        dim_core::SupportStatus::Experimental => "EXPERIMENTAL",
-        dim_core::SupportStatus::Blocked => "BLOCKED",
-        dim_core::SupportStatus::Unsupported => "UNSUPPORTED",
-        dim_core::SupportStatus::NotTested => "NOT_TESTED",
+    let format_status = |s: dim_core::SupportStatus| -> &'static str {
+        match s {
+            dim_core::SupportStatus::SupportedAndTested => "SUPPORTED_AND_TESTED",
+            dim_core::SupportStatus::PartiallySupported => "PARTIALLY_SUPPORTED",
+            dim_core::SupportStatus::Experimental => "EXPERIMENTAL",
+            dim_core::SupportStatus::Blocked => "BLOCKED",
+            dim_core::SupportStatus::Unsupported => "UNSUPPORTED",
+            dim_core::SupportStatus::NotTested => "NOT_TESTED",
+        }
+    };
+    let platform_status = format_status(caps.overall_status);
+    let live_limits = caps.limitations.join("; ");
+    let win_row = if caps.platform == PlatformKind::Windows {
+        serde_json::json!({
+            "platform": "Windows 10/11",
+            "status": platform_status,
+            "strategy": "Native Rust core + CreateProcessW USERPROFILE/APPDATA/TEMP isolation",
+            "limits": live_limits,
+        })
+    } else {
+        serde_json::json!({
+            "platform": "Windows 10/11",
+            "status": "PARTIALLY_SUPPORTED",
+            "strategy": "Native Rust core + CreateProcessW USERPROFILE/APPDATA/TEMP isolation",
+            "limits": "Concurrent calls limited by PipeZCallRecv/PipeZCallSend; prefer in-app notiWin over shared com.vng.zalo Action Center toast.",
+        })
+    };
+    let mac_row = if caps.platform == PlatformKind::MacOs {
+        serde_json::json!({
+            "platform": "macOS (Apple Silicon & Intel)",
+            "status": platform_status,
+            "strategy": "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>",
+            "limits": live_limits,
+        })
+    } else {
+        serde_json::json!({
+            "platform": "macOS (Apple Silicon & Intel)",
+            "status": "NOT_TESTED",
+            "strategy": "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>",
+            "limits": "Requires physical Mac verification; /tmp/socketzalorecv2021 call socket conflict.",
+        })
+    };
+    let linux_appimage_row = if caps.platform == PlatformKind::Linux {
+        serde_json::json!({
+            "platform": "Ubuntu LTS (Fixture / Local AppImage)",
+            "status": format_status(caps.appimage_status.unwrap_or(caps.overall_status)),
+            "strategy": "XDG_CONFIG_HOME / HOME / optional bwrap",
+            "limits": live_limits,
+        })
+    } else {
+        serde_json::json!({
+            "platform": "Ubuntu LTS (Fixture / Local AppImage)",
+            "status": "EXPERIMENTAL",
+            "strategy": "XDG_CONFIG_HOME / HOME / optional bwrap",
+            "limits": "On Ubuntu 24.04+, configure an AppArmor userns profile in /etc/apparmor.d/ for local AppImages (never pass --no-sandbox); never bundle proprietary VNG app.asar.",
+        })
     };
     let user_home = current_user_home();
     let sanitized_logs: Vec<String> = caps
@@ -463,44 +576,71 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, 
             "warning": redacted_redir,
         },
         "platform_support_matrix": [
-            {
-                "platform": match caps.platform {
-                    PlatformKind::Windows => "Windows 10/11",
-                    PlatformKind::MacOs => "macOS (Apple Silicon & Intel)",
-                    PlatformKind::Linux => "Ubuntu / Linux",
-                },
-                "status": platform_status,
-                "strategy": "Native Rust core + OS process isolation",
-                "limits": caps.limitations.join("; "),
-            },
-            {
-                "platform": "macOS (Apple Silicon & Intel)",
-                "status": "NOT_TESTED",
-                "strategy": "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>",
-                "limits": "Requires physical Mac verification; /tmp/socketzalorecv2021 call socket conflict.",
-            },
+            win_row,
+            mac_row,
             {
                 "platform": "Ubuntu LTS (Official Zalo)",
                 "status": "UNSUPPORTED",
                 "strategy": "No official VNG Linux desktop build exists",
                 "limits": "Official VNG Linux package does not exist.",
             },
-            {
-                "platform": "Ubuntu LTS (Fixture / Local AppImage)",
-                "status": "EXPERIMENTAL",
-                "strategy": "XDG_CONFIG_HOME / HOME / optional bwrap",
-                "limits": "Ubuntu 24.04 AppArmor may require --no-sandbox on local AppImages; never bundle proprietary VNG app.asar.",
-            }
+            linux_appimage_row,
         ],
         "sanitized_logs": sanitized_logs,
     }))
 }
 
 #[tauri::command]
-pub fn verify_isolation(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let report = state
-        .coordinator
-        .verify_isolation(&*state.adapter, None, None)
-        .map_err(redact_err_text)?;
-    serde_json::to_value(report).map_err(redact_err_text)
+pub async fn verify_isolation(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let app = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (fixture_opt, target) = resolve_tauri_launch_target();
+        let fixture_ref = if fixture_opt.is_some() {
+            Some(&target)
+        } else {
+            None
+        };
+        let report = app
+            .coordinator
+            .verify_isolation(&*app.adapter, None, fixture_ref)
+            .map_err(redact_dim_err)?;
+        serde_json::to_value(report).map_err(redact_err_text)
+    })
+    .await
+    .map_err(redact_err_text)?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arbitrary_fixture_script_is_rejected_by_sha256_allowlist() {
+        let dir = std::env::temp_dir().join(format!("dim-cmd-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let arbitrary = dir.join("evil-arbitrary.mjs");
+        fs::write(&arbitrary, "console.log('arbitrary script');\n")
+            .expect("write arbitrary script");
+        assert!(!is_allowlisted_fixture_script(&arbitrary));
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let official_xf = manifest_dir
+            .join("..")
+            .join("..")
+            .join("..")
+            .join("fixtures")
+            .join("cross-platform")
+            .join("xf-fixture.mjs");
+        if official_xf.exists() {
+            assert!(is_allowlisted_fixture_script(&official_xf));
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn redact_dim_err_preserves_error_code_prefix() {
+        let formatted = redact_dim_err(DimError::SchemaError("bad schema_version".to_owned()));
+        assert!(formatted.starts_with("[SCHEMA_ERROR] "));
+    }
 }

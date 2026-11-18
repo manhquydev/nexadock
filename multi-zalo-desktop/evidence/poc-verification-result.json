@@ -1,9 +1,9 @@
 ﻿{
     "executed_at_utc":  "2026-11-17T04:31:36.8008542Z",
-    "storage_root":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_PoC",
+    "storage_root":  "<USERPROFILE>\\AppData\\Local\\MultiZaloDesktop_PoC",
     "baseline_primary_zalo":  {
-                                  "ZaloDataPath":  "C:\\Users\\manhquy\\AppData\\Roaming\\ZaloData",
-                                  "LockfilePath":  "C:\\Users\\manhquy\\AppData\\Roaming\\ZaloData\\lockfile",
+                                  "ZaloDataPath":  "<USERPROFILE>\\AppData\\Roaming\\ZaloData",
+                                  "LockfilePath":  "<USERPROFILE>\\AppData\\Roaming\\ZaloData\\lockfile",
                                   "IsRunning":  true,
                                   "LockingPids":  [
                                                       12980
@@ -15,22 +15,22 @@
     "concurrent_status":  {
                               "TimestampUtc":  "2026-11-17T04:31:20.6425105Z",
                               "Platform":  "windows",
-                              "StorageRoot":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_PoC",
+                              "StorageRoot":  "<USERPROFILE>\\AppData\\Local\\MultiZaloDesktop_PoC",
                               "Installation":  {
                                                    "IsValid":  true,
-                                                   "InstallRoot":  "C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo",
-                                                   "StubExePath":  "C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo\\Zalo.exe",
+                                                   "InstallRoot":  "<USERPROFILE>\\AppData\\Local\\Programs\\Zalo",
+                                                   "StubExePath":  "<USERPROFILE>\\AppData\\Local\\Programs\\Zalo\\Zalo.exe",
                                                    "VersionDirName":  "Zalo-26.10.20",
                                                    "Version":  "26.10.20",
-                                                   "ElectronExePath":  "C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\Zalo.exe",
-                                                   "AppAsarPath":  "C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\resources\\app.asar",
+                                                   "ElectronExePath":  "<USERPROFILE>\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\Zalo.exe",
+                                                   "AppAsarPath":  "<USERPROFILE>\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\resources\\app.asar",
                                                    "AuthenticodeStatus":  "Signed (VNG)",
                                                    "SignerSubject":  "CN=VNG GROUP JSC, O=VNG GROUP JSC, S=Ho Chi Minh City, C=VN, SERIALNUMBER=0303490096, OID.2.5.4.15=Private Organization, OID.1.3.6.1.4.1.311.60.2.1.2=Ho Chi Minh City, OID.1.3.6.1.4.1.311.60.2.1.3=VN",
                                                    "Error":  null
                                                },
                               "PrimaryZalo":  {
-                                                  "ZaloDataPath":  "C:\\Users\\manhquy\\AppData\\Roaming\\ZaloData",
-                                                  "LockfilePath":  "C:\\Users\\manhquy\\AppData\\Roaming\\ZaloData\\lockfile",
+                                                  "ZaloDataPath":  "<USERPROFILE>\\AppData\\Roaming\\ZaloData",
+                                                  "LockfilePath":  "<USERPROFILE>\\AppData\\Roaming\\ZaloData\\lockfile",
                                                   "IsRunning":  true,
                                                   "LockingPids":  [
                                                                       12980
@@ -43,9 +43,9 @@
                                                {
                                                    "ProfileId":  "209c1e58",
                                                    "ProfileName":  "PoC Account A",
-                                                   "ProfilePath":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-a_209c1e58",
-                                                   "ZaloDataPath":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-a_209c1e58\\AppData\\Roaming\\ZaloData",
-                                                   "LockfilePath":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-a_209c1e58\\AppData\\Roaming\\ZaloData\\lockfile",
+                                                   "ProfilePath":  "<USERPROFILE>\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-a_209c1e58",
+                                                   "ZaloDataPath":  "<USERPROFILE>\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-a_209c1e58\\AppData\\Roaming\\ZaloData",
+                                                   "LockfilePath":  "<USERPROFILE>\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-a_209c1e58\\AppData\\Roaming\\ZaloData\\lockfile",
                                                    "IsRunning":  true,
                                                    "MainPid":  15228,
                                                    "ProcessCount":  9,
@@ -71,9 +71,9 @@
                                                {
                                                    "ProfileId":  "7d0de500",
                                                    "ProfileName":  "PoC Account B",
-                                                   "ProfilePath":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-b_7d0de500",
-                                                   "ZaloDataPath":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-b_7d0de500\\AppData\\Roaming\\ZaloData",
-                                                   "LockfilePath":  "C:\\Users\\manhquy\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-b_7d0de500\\AppData\\Roaming\\ZaloData\\lockfile",
+                                                   "ProfilePath":  "<USERPROFILE>\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-b_7d0de500",
+                                                   "ZaloDataPath":  "<USERPROFILE>\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-b_7d0de500\\AppData\\Roaming\\ZaloData",
+                                                   "LockfilePath":  "<USERPROFILE>\\AppData\\Local\\MultiZaloDesktop_PoC\\Profiles\\poc-account-b_7d0de500\\AppData\\Roaming\\ZaloData\\lockfile",
                                                    "IsRunning":  true,
                                                    "MainPid":  14368,
                                                    "ProcessCount":  9,
@@ -105,12 +105,12 @@
                                                   {
                                                       "CheckName":  "OfficialZaloInstallation",
                                                       "Passed":  true,
-                                                      "Detail":  "Version=26.10.20, Exe=C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\Zalo.exe, Auth=Signed (VNG)"
+                                                      "Detail":  "Version=26.10.20, Exe=<USERPROFILE>\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\Zalo.exe, Auth=Signed (VNG)"
                                                   },
                                                   {
                                                       "CheckName":  "PrimaryZaloDataSeparation",
                                                       "Passed":  true,
-                                                      "Detail":  "All managed profiles reside strictly outside primary C:\\Users\\manhquy\\AppData\\Roaming\\ZaloData"
+                                                      "Detail":  "All managed profiles reside strictly outside primary <USERPROFILE>\\AppData\\Roaming\\ZaloData"
                                                   },
                                                   {
                                                       "CheckName":  "DistinctProfilePaths",

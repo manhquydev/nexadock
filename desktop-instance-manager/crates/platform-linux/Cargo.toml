@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+publish = false
 description = "Linux platform adapter: Unsupported for official VNG Zalo Desktop; Experimental XDG/HOME/bwrap isolation for local AppImage and test fixture"
 
 [lints]

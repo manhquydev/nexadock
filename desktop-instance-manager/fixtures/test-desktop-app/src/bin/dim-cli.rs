@@ -28,6 +28,7 @@ struct CliFlags {
     node_fixture: bool,
     with_size: bool,
     confirm: bool,
+    allow_external_db_omit: bool,
     crash: bool,
     crash_delay_ms: Option<u64>,
     dest: Option<PathBuf>,
@@ -81,6 +82,7 @@ fn parse_args<I: Iterator<Item = String>>(iter: I) -> CliFlags {
         node_fixture: false,
         with_size: false,
         confirm: false,
+        allow_external_db_omit: false,
         crash: false,
         crash_delay_ms: None,
         dest: None,
@@ -117,6 +119,9 @@ fn parse_args<I: Iterator<Item = String>>(iter: I) -> CliFlags {
             "--node-fixture" => flags.node_fixture = true,
             "--with-size" => flags.with_size = true,
             "--confirm" => flags.confirm = true,
+            "--allow-external-db-omit" | "--allow-incomplete-external-db" => {
+                flags.allow_external_db_omit = true;
+            }
             "--crash" => flags.crash = true,
             "--crash-delay-ms" if i + 1 < args.len() => {
                 i += 1;
@@ -234,6 +239,7 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
                     "profile_id": rt.profile_id,
                     "pid": rt.main_pid,
                     "running": rt.running,
+                    "lifecycle_state": rt.lifecycle_state().as_str(),
                     "crash_recovered": crash_recovered,
                     "zalo_data_dir": rt.zalo_data_dir,
                     "detected_zalo_user_id": rt.detected_zalo_user_id,
@@ -270,6 +276,20 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
                 }),
             ))
         }
+        "stop-all" => {
+            let stopped = coordinator.stop_all_secondary_profiles()?;
+            let items: Vec<Value> = stopped
+                .iter()
+                .map(|(pid, count)| json!({ "profile_id": pid, "terminated_process_count": count }))
+                .collect();
+            Ok(envelope_ok(
+                format!("Stopped {} secondary profile(s).", items.len()),
+                json!({
+                    "stopped_profiles_count": items.len(),
+                    "stopped_profiles": items,
+                }),
+            ))
+        }
         "backup" => {
             let id = flags
                 .positional
@@ -278,7 +298,15 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
             let profile = store.get_profile(id)?;
             let dir = store.profile_dir_for(&profile)?;
             let rt = adapter.inspect_profile(&profile, &dir)?;
-            let bk = backups.backup_profile(&profile, &dir, flags.dest.as_deref(), rt.running)?;
+            let external_omitted =
+                !dim_core::external_paths_for_profile_all_layouts(&dir).is_empty();
+            let bk = backups.backup_profile_with_options(
+                &profile,
+                &dir,
+                flags.dest.as_deref(),
+                rt.running,
+                flags.allow_external_db_omit,
+            )?;
             let backup_name = bk
                 .backup_dir
                 .file_name()
@@ -293,6 +321,7 @@ fn execute(flags: CliFlags) -> Result<Value, DimError> {
                     "manifest_path": bk.manifest_path,
                     "file_count": bk.manifest.file_count,
                     "total_bytes": bk.manifest.total_bytes,
+                    "external_db_omitted": external_omitted,
                 }),
             ))
         }
@@ -395,6 +424,7 @@ fn cmd_status(
     for rec in records {
         let dir = store.profile_dir_for(&rec)?;
         let rt = adapter.inspect_profile(&rec, &dir)?;
+        let lifecycle_state = rt.lifecycle_state().as_str();
         let mut obj = json!({
             "id": rec.id,
             "name": rec.name,
@@ -404,6 +434,7 @@ fn cmd_status(
             "zalo_user_id": rt.detected_zalo_user_id.or(rec.zalo_user_id),
             "notes": rec.notes,
             "running": rt.running,
+            "lifecycle_state": lifecycle_state,
             "main_pid": rt.main_pid,
             "process_ids": rt.process_ids,
             "process_count": rt.process_count,
@@ -565,6 +596,53 @@ fn cmd_diagnostics(store: &JsonProfileStore, adapter: &ActiveAdapter) -> Result<
         .as_deref()
         .map(|s| redact_sensitive_text(s, user_home.as_deref()));
 
+    let live_limits = caps.limitations.join("; ");
+    let win_row = if caps.platform == PlatformKind::Windows {
+        json!({
+            "platform": "Windows 10/11",
+            "status": format_support_status(caps.overall_status),
+            "strategy": "Native Rust core + CreateProcessW USERPROFILE/APPDATA/TEMP isolation",
+            "limits": live_limits,
+        })
+    } else {
+        json!({
+            "platform": "Windows 10/11",
+            "status": "PARTIALLY_SUPPORTED",
+            "strategy": "Native Rust core + CreateProcessW USERPROFILE/APPDATA/TEMP isolation",
+            "limits": "Concurrent calls limited by PipeZCallRecv/PipeZCallSend; prefer in-app notiWin over shared com.vng.zalo Action Center toast.",
+        })
+    };
+    let mac_row = if caps.platform == PlatformKind::MacOs {
+        json!({
+            "platform": "macOS (Apple Silicon & Intel)",
+            "status": format_support_status(caps.overall_status),
+            "strategy": "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>",
+            "limits": live_limits,
+        })
+    } else {
+        json!({
+            "platform": "macOS (Apple Silicon & Intel)",
+            "status": "NOT_TESTED",
+            "strategy": "open -n -a /Applications/Zalo.app --env CFFIXED_USER_HOME=<profile_home>",
+            "limits": "Requires physical Mac verification; /tmp/socketzalorecv2021 call socket conflict.",
+        })
+    };
+    let linux_appimage_row = if caps.platform == PlatformKind::Linux {
+        json!({
+            "platform": "Ubuntu LTS (Fixture / Local AppImage)",
+            "status": format_support_status(caps.appimage_status.unwrap_or(caps.overall_status)),
+            "strategy": "XDG_CONFIG_HOME / HOME / optional bwrap",
+            "limits": live_limits,
+        })
+    } else {
+        json!({
+            "platform": "Ubuntu LTS (Fixture / Local AppImage)",
+            "status": "EXPERIMENTAL",
+            "strategy": "XDG_CONFIG_HOME / HOME / optional bwrap",
+            "limits": "On Ubuntu 24.04+, configure an AppArmor userns profile in /etc/apparmor.d/ for local AppImages (never disable Chromium sandboxing); never bundle proprietary VNG app.asar.",
+        })
+    };
+
     Ok(json!({
         "ok": true,
         "timestamp_utc": now_rfc3339_utc(),
@@ -578,16 +656,15 @@ fn cmd_diagnostics(store: &JsonProfileStore, adapter: &ActiveAdapter) -> Result<
         "disk_free_ok": free >= MIN_FREE_DISK_BYTES,
         "profiles_acl_safe": adapter.check_profiles_acl_safe(store.profiles_dir()),
         "platform_support_matrix": [
+            win_row,
+            mac_row,
             {
-                "platform": match caps.platform {
-                    PlatformKind::Windows => "Windows 10/11",
-                    PlatformKind::MacOs => "macOS (Apple Silicon & Intel)",
-                    PlatformKind::Linux => "Ubuntu / Linux",
-                },
-                "status": format_support_status(caps.overall_status),
-                "strategy": "Native Rust core + OS process isolation",
-                "limits": caps.limitations.join("; "),
-            }
+                "platform": "Ubuntu LTS (Official Zalo)",
+                "status": "UNSUPPORTED",
+                "strategy": "No official VNG Linux desktop build exists",
+                "limits": "Official VNG Linux package does not exist.",
+            },
+            linux_appimage_row,
         ],
         "sanitized_logs": sanitized_logs,
     }))

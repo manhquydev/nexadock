@@ -42,7 +42,7 @@ All official binaries carry Authenticode signature `CN=VNG GROUP JSC, O=VNG GROU
 | `%LOCALAPPDATA%\Programs\Zalo\Zalo-26.10.20\Update.exe` | 833,576 | `b8a83bdceb1cf136d44f7a3d00ab7d0cffd2c49b17a3a7babda3fc12579da6b7` | Host baseline |
 | `%LOCALAPPDATA%\Programs\Zalo\Zalo-26.10.20\plugins\capture\ZaloCall.exe` | 19,588,136 | `fbe5594b6d5c8c9c9213ed0621b80e8e89c55329c7de04771d1ccff86171b2f9` | Host baseline |
 | `%LOCALAPPDATA%\Programs\Zalo\Zalo-26.10.20\plugins\capture\ZaloCap.exe` | 5,488,240 | `ab2301a00d7eb79ea9a2440c5ff144a13b068932277b38dced9b4cfecb35f1a6` | Host baseline |
-| `ZaloSetup-26.11.12.exe` (archived installer evidence) | 213,516,168 | `dddef07c11683561c6abe19c07bbc6202214136325d6b4b39311587a16a15eb8` | [`rea-evidence-summary.json`](../../../multi-zalo-desktop/evidence/rea-evidence-summary.json) |
+| `ZaloSetup-26.11.12.exe` (archived installer evidence) | 213,516,168 | `dddef07c11683561c6abe19c07bbc6202214136325d6b4b39311587a16a15eb8` | Historical REA static verification *(raw JSON removed per `PUB-SEC-10`)* |
 
 ---
 

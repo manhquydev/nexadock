@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+publish = false
 description = "Windows 10/11 platform adapter: Zalo discovery, Folder Redirection check, CreateProcessW env isolation, Restart Manager PID tracking, and junction-safe cleanup"
 
 [lints]
@@ -12,8 +13,10 @@ workspace = true
 [dependencies]
 dim-core = { workspace = true }
 dim-profile-store = { workspace = true }
-dim-process-manager = { workspace = true }
 serde_json = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+dim-process-manager = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

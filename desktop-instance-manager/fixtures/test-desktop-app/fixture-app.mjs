@@ -53,12 +53,15 @@ function resolveAppDataDir() {
   if (process.env.APPDATA && process.env.APPDATA.trim().length > 0) {
     return process.env.APPDATA.trim();
   }
-  if (process.platform === 'darwin') {
-    const home = process.env.CFFIXED_USER_HOME || process.env.HOME || os.homedir();
-    return path.join(home, 'Library', 'Application Support');
+  if (process.env.CFFIXED_USER_HOME && process.env.CFFIXED_USER_HOME.trim().length > 0) {
+    return path.join(process.env.CFFIXED_USER_HOME.trim(), 'Library', 'Application Support');
   }
   if (process.env.XDG_CONFIG_HOME && process.env.XDG_CONFIG_HOME.trim().length > 0) {
     return process.env.XDG_CONFIG_HOME.trim();
+  }
+  if (process.platform === 'darwin') {
+    const home = process.env.HOME || os.homedir();
+    return path.join(home, 'Library', 'Application Support');
   }
   const home = process.env.HOME || process.env.USERPROFILE || os.homedir();
   return path.join(home, '.config');

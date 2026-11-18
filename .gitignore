@@ -1,5 +1,7 @@
 # External cloned repository (managed separately)
 rea/
+.rea/
+**/rea-session*.json
 
 # Rust / Cargo build artifacts
 target/
@@ -15,7 +17,70 @@ node_modules/
 .env.*
 !.env.example
 
-# Logs & OS files
+# Signing keys & certificates (never commit credentials)
+*.pem
+*.key
+*.pfx
+*.p12
+*.cer
+*.crt
+*.der
+*.jks
+*.keystore
+*.tauri.key
+.tauri/
+
+# Reverse-engineering dumps & proprietary archives (never commit)
+*.asar
+*.jsc
+*.pdb
+*.dmp
+*.idb
+*.i64
+
+# Compiled installers & third-party binaries
+*.exe
+*.dll
+*.msi
+*.dmg
+*.pkg
+*.deb
+*.AppImage
+*.rpm
+dist/
+Programs/
+Zalo*.exe
+ZaloCall.exe
+ZaloCap.exe
+ZaviMeet.exe
+zocr-host.exe
+
+# Runtime session data & archives (never commit user data)
+ZaloData/
+MultiZaloDesktop*/
+Profiles/
+Partitions/
+Local State
+Cookies
+Cookies-journal
+*.ldb
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+*.zip
+
+# Logs, temp & OS files
 *.log
+*.bak
+*.old
+*.orig
+*.tmp
+*.swp
+*~
+Desktop.ini
 .DS_Store
 Thumbs.db

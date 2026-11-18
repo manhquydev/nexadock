@@ -6,7 +6,7 @@ use crate::error::DimError;
 use crate::models::{
     ApplicationInstallation, BackupManifest, BackupResult, LaunchTarget, PlatformCapabilityReport,
     PlatformKind, PrimaryInstanceStatus, ProfileRecord, ProfileRuntimeState, ProfilesDocument,
-    RecoveryReport,
+    RecoveryReport, VerifiedDeletionState,
 };
 
 /// Discovers target desktop applications and validates their binary metadata/signatures.
@@ -35,8 +35,26 @@ pub trait ProfileStore {
     /// Renames a profile's display label without breaking running directory isolation.
     fn rename_profile(&self, id_or_name: &str, new_name: &str) -> Result<ProfileRecord, DimError>;
 
-    /// Deletes a profile after explicit confirmation and safe junction/symlink unlinking.
-    fn delete_profile(&self, id_or_name: &str, confirm: bool) -> Result<(), DimError>;
+    /// Deletes a profile only when `confirm` is `true`, `deletion_state` is
+    /// [`VerifiedDeletionState::ConfirmedStopped`] (rejecting `Starting`, `Running`, `Stopping`,
+    /// and indeterminate `Unknown`/`RecoveryRequired` states), AND independent backend OS lock,
+    /// runtime lease, marker, path-containment, and two-phase reparse-unlink checks all pass.
+    fn delete_profile_verified(
+        &self,
+        id_or_name: &str,
+        confirm: bool,
+        deletion_state: VerifiedDeletionState,
+    ) -> Result<(), DimError>;
+
+    /// Deletes a profile after explicit confirmation, independent backend OS lock/lease/marker
+    /// verification, and two-phase reparse-point unlinking.
+    ///
+    /// Implementations MUST NOT trust callers blindly: even when invoked directly without an
+    /// `InstanceCoordinator` inspection, the store MUST independently verify `.dim-profile.lock`,
+    /// `.runtime-lease.json`, and `lockfile` / `SingletonLock` ownership before touching disk.
+    fn delete_profile(&self, id_or_name: &str, confirm: bool) -> Result<(), DimError> {
+        self.delete_profile_verified(id_or_name, confirm, VerifiedDeletionState::ConfirmedStopped)
+    }
 
     /// Updates `last_launched_at` and optionally detected `zalo_user_id`.
     fn update_last_launched(

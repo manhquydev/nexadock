@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "suite": "windows-native-user-acceptance-and-installation-lab",
+  "worktreeBranch": "qa/windows-native-acceptance",
+  "testedIntegrationSha": "cd62c523222cb3a02051347e85313226de8b6964",
+  "startedAtUtc": "2026-11-18T03:49:08.969Z",
+  "completedAtUtc": "2026-11-18T03:52:41.623Z",
+  "totalDurationMs": 212656.71,
+  "overallAutomationGateStatus": "PASS",
+  "candidateWorkflowMarkers": [
+    "AWAITING_INTEGRATION_BUILD",
+    "AWAITING_MANUAL_L3"
+  ],
+  "compiledCandidateBinaries": {
+    "cargoTargetDir": "<TEMP_DIR>/zalo-qa-win-acceptance-target",
+    "isInstaller": false,
+    "signingPosture": "UNSIGNED_DEVELOPMENT_ARTIFACT",
+    "dimCliPresent": true,
+    "dimDesktopPresent": true,
+    "dimTestFixturePresent": true
+  },
+  "hostSafetyGate": {
+    "passed": true,
+    "primaryZaloInvariance": {
+      "passed": true,
+      "configExistsBefore": true,
+      "configExistsAfter": true,
+      "configExistsUnchanged": true,
+      "configSha256Before": "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+      "configSha256After": "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+      "configSha256Identical": true,
+      "primaryProcessCountBefore": 0,
+      "primaryProcessCountAfter": 0,
+      "missingPrimaryPids": []
+    },
+    "orphanProcessGate": {
+      "clean": true,
+      "orphanCount": 0,
+      "orphans": []
+    },
+    "smartAppControlModified": false,
+    "piiAndDeliverablesAudit": {
+      "checkedCount": 10,
+      "checkedFiles": [
+        "evidence/installer-env-audit.json",
+        "evidence/journeys-and-errors-report.json",
+        "evidence/native-tauri-smoke-report.json",
+        "docs/qa/windows/acceptance-matrix.md",
+        "docs/qa/windows/user-journeys.md",
+        "docs/qa/windows/native-smoke-test-report.md",
+        "docs/qa/windows/installer-validation.md",
+        "docs/qa/windows/l3-manual-test-checklist.md",
+        "docs/qa/windows/product-acceptance-verdict.md",
+        "docs/qa/windows/integration-requests.md"
+      ],
+      "missingDocs": [],
+      "piiClean": true,
+      "piiViolations": []
+    }
+  },
+  "aggregateCheckCounts": {
+    "PASS": 43,
+    "FAIL": 0,
+    "BLOCKED": 2,
+    "NOT_TESTED": 15
+  },
+  "failedTracks": [],
+  "tracks": [
+    {
+      "id": "journeys-and-errors",
+      "section": "Section 2 — First Launch, Account Management (10), Daily Usage (6) & Error Handling (7)",
+      "script": "journeys-and-errors.mjs",
+      "evidenceFile": "evidence\\journeys-and-errors-report.json",
+      "scriptExists": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 154465.19,
+      "gateStatus": "PASS",
+      "workflowStatus": "COMPLETED",
+      "counts": {
+        "PASS": 26,
+        "FAIL": 0,
+        "BLOCKED": 0,
+        "NOT_TESTED": 0
+      },
+      "safety": {
+        "primaryZaloUnchanged": true,
+        "zeroOrphansAfterTrack": true,
+        "orphanCount": 0,
+        "orphans": []
+      },
+      "stderrPreview": "(node:34680) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)"
+    },
+    {
+      "id": "native-tauri-smoke",
+      "section": "Section 3 — Native Tauri WebView2 vs Browser Mock & Modern Web Guidance",
+      "script": "native-tauri-smoke.mjs",
+      "evidenceFile": "evidence\\native-tauri-smoke-report.json",
+      "scriptExists": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 34083.09,
+      "gateStatus": "PASS",
+      "workflowStatus": "COMPLETED",
+      "counts": {
+        "PASS": 11,
+        "FAIL": 0,
+        "BLOCKED": 0,
+        "NOT_TESTED": 1
+      },
+      "safety": {
+        "primaryZaloUnchanged": true,
+        "zeroOrphansAfterTrack": true,
+        "orphanCount": 0,
+        "orphans": []
+      },
+      "stderrPreview": ""
+    },
+    {
+      "id": "installer-sandbox-check",
+      "section": "Section 4 — Windows Installer Acceptance, Authenticode & Smart App Control Gate",
+      "script": "installer-sandbox-check.ps1",
+      "evidenceFile": "evidence\\installer-env-audit.json",
+      "scriptExists": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 4266.4,
+      "gateStatus": "NOT_TESTED",
+      "workflowStatus": "AWAITING_INTEGRATION_BUILD",
+      "counts": {
+        "PASS": 6,
+        "FAIL": 0,
+        "BLOCKED": 2,
+        "NOT_TESTED": 6
+      },
+      "safety": {
+        "primaryZaloUnchanged": true,
+        "zeroOrphansAfterTrack": true,
+        "orphanCount": 0,
+        "orphans": []
+      },
+      "stderrPreview": ""
+    },
+    {
+      "id": "l3-guided-acceptance",
+      "section": "Section 5 — L3 Real 2-Account Zalo QR Acceptance (Non-Interactive Gate Check)",
+      "script": "run-l3-guided-acceptance.ps1",
+      "evidenceFile": null,
+      "scriptExists": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 2566.13,
+      "gateStatus": "NOT_TESTED",
+      "workflowStatus": "AWAITING_MANUAL_L3",
+      "counts": {
+        "PASS": 0,
+        "FAIL": 0,
+        "BLOCKED": 0,
+        "NOT_TESTED": 8
+      },
+      "safety": {
+        "primaryZaloUnchanged": true,
+        "zeroOrphansAfterTrack": true,
+        "orphanCount": 0,
+        "orphans": []
+      },
+      "stderrPreview": ""
+    }
+  ]
+}

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+publish = false
 description = "Atomic profiles.json persistence, profile identity markers, and verified offline backup/restore for MultiZaloDesktop"
 
 [lints]

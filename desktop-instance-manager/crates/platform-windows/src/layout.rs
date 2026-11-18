@@ -21,11 +21,19 @@ pub fn ensure_windows_profile_layout(
     let local_temp = profile_dir.join("AppData").join("Local").join("Temp");
     let documents = profile_dir.join("Documents").join("Zalo Received Files");
     let desktop = profile_dir.join("Desktop");
+    let downloads = profile_dir.join("Downloads");
+    let pictures = profile_dir.join("Pictures");
+    let videos = profile_dir.join("Videos");
+    let music = profile_dir.join("Music");
 
     fs::create_dir_all(&media_dir)?;
     fs::create_dir_all(&local_temp)?;
     fs::create_dir_all(&documents)?;
-    fs::create_dir_all(&desktop)?;
+    for user_dir in [&desktop, &downloads, &pictures, &videos, &music] {
+        if fs::symlink_metadata(user_dir).is_err() {
+            fs::create_dir_all(user_dir)?;
+        }
+    }
 
     let zmeta = roaming.join("zmeta.json");
     if !zmeta.exists() {
@@ -43,6 +51,101 @@ pub fn ensure_windows_profile_layout(
     }
 
     Ok(())
+}
+
+/// Opt-in helper linking `<profile_dir>\Downloads` and/or `<profile_dir>\Desktop` to a host profile
+/// directory via NTFS directory junctions on Windows (or symlinks on POSIX), while strictly keeping
+/// `<profile_dir>\Documents\Zalo Received Files` as an isolated physical per-profile directory (`IR-WIN-03`).
+pub fn configure_windows_host_folder_links(
+    profile_dir: &Path,
+    real_user_profile: &Path,
+    link_downloads: bool,
+    link_desktop: bool,
+) -> Result<(), DimError> {
+    // Always enforce physical per-profile `Documents\Zalo Received Files` (never a reparse point!).
+    let docs_root = profile_dir.join("Documents");
+    if let Ok(meta) = fs::symlink_metadata(&docs_root) {
+        if dim_profile_store::is_symlink_or_reparse(&meta) {
+            return Err(DimError::PathTraversal(
+                "Documents directory inside isolated profile must never be a symlink or junction"
+                    .to_owned(),
+            ));
+        }
+    }
+    let received_dir = docs_root.join("Zalo Received Files");
+    if let Ok(meta) = fs::symlink_metadata(&received_dir) {
+        if dim_profile_store::is_symlink_or_reparse(&meta) {
+            return Err(DimError::PathTraversal(
+                "Documents\\Zalo Received Files must never be a symlink or junction".to_owned(),
+            ));
+        }
+    }
+    fs::create_dir_all(&received_dir)?;
+
+    for (folder_name, enabled) in [("Downloads", link_downloads), ("Desktop", link_desktop)] {
+        if !enabled {
+            continue;
+        }
+        let host_target = real_user_profile.join(folder_name);
+        if !host_target.is_dir() {
+            return Err(DimError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!(
+                    "host folder target '{}' does not exist",
+                    host_target.display()
+                ),
+            )));
+        }
+        let link_path = profile_dir.join(folder_name);
+        if let Ok(meta) = fs::symlink_metadata(&link_path) {
+            if dim_profile_store::is_symlink_or_reparse(&meta) {
+                let _ = fs::remove_dir(&link_path).or_else(|_| fs::remove_file(&link_path));
+            } else if meta.is_dir() {
+                // Only replace an empty default directory; refuse if user already placed files in it.
+                if fs::read_dir(&link_path)?.next().is_some() {
+                    return Err(DimError::Io(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        format!(
+                            "cannot replace non-empty profile folder '{}' with host link",
+                            link_path.display()
+                        ),
+                    )));
+                }
+                fs::remove_dir(&link_path)?;
+            }
+        }
+        create_dir_junction_or_symlink(&link_path, &host_target)?;
+    }
+
+    Ok(())
+}
+
+fn create_dir_junction_or_symlink(link_path: &Path, target_dir: &Path) -> Result<(), DimError> {
+    #[cfg(windows)]
+    {
+        let status = std::process::Command::new("cmd.exe")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link_path)
+            .arg(target_dir)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?;
+        if !status.success() {
+            return Err(DimError::Io(std::io::Error::other(format!(
+                "mklink /J failed linking '{}' -> '{}'",
+                link_path.display(),
+                target_dir.display()
+            ))));
+        }
+        Ok(())
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target_dir, link_path)?;
+        Ok(())
+    }
 }
 
 /// Returns the isolated `ZaloData` path for a Windows profile directory.

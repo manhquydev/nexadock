@@ -1,8 +1,12 @@
-//! Primary Zalo Desktop protection guard and platform graceful-shutdown policy descriptors.
+//! Primary Zalo Desktop protection guard, external DB/resource collision guard (`IR-WIN-04`),
+//! and platform graceful-shutdown policy descriptors.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use dim_core::{DimError, PlatformKind, PrimaryInstanceStatus, ProfileRuntimeState};
+use dim_core::{
+    external_paths_outside_profile, paths_overlap_or_equal, read_configured_external_paths,
+    resolve_effective_path, DimError, PlatformKind, PrimaryInstanceStatus, ProfileRuntimeState,
+};
 
 /// Default timeout in milliseconds to wait for graceful quit before targeted tree cleanup.
 pub const DEFAULT_GRACEFUL_QUIT_TIMEOUT_MS: u64 = 3_500;
@@ -76,17 +80,109 @@ impl PrimaryProtectionGuard {
     }
 }
 
-fn paths_conflict(a: &Path, b: &Path) -> bool {
-    if a == b {
-        return true;
+/// Active running profile descriptor supplied to [`ExternalStorageGuard::ensure_no_shared_external_paths`].
+#[derive(Debug, Clone)]
+pub struct RunningProfileStorageRef {
+    /// Human-readable owner label (e.g. `"Account Beta (a1b2c3d4)"`).
+    pub owner_label: String,
+    /// Isolated `<profile_dir>`.
+    pub profile_dir: PathBuf,
+    /// Isolated `<zalo_data_dir>`.
+    pub zalo_data_dir: PathBuf,
+}
+
+/// Guards concurrent `launch_profile` against two active profiles (or a secondary profile and primary
+/// Zalo Desktop) sharing the same external `db_path.location` or `resource.location.path` (`IR-WIN-04` / `F-CORE-01`).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ExternalStorageGuard;
+
+impl ExternalStorageGuard {
+    /// Verifies that `target`'s configured external `db_path.location` and `resource.location.path`
+    /// do not overlap with any running profile's storage or any protected primary `ZaloData` storage.
+    pub fn ensure_no_shared_external_paths(
+        target_profile_dir: &Path,
+        target_zalo_data_dir: &Path,
+        running_others: &[RunningProfileStorageRef],
+        protected_primary_zalo_dirs: &[PathBuf],
+    ) -> Result<(), DimError> {
+        let target_ext = external_paths_outside_profile(target_profile_dir, target_zalo_data_dir);
+        let resolved_target_profile =
+            resolve_effective_path(target_profile_dir, target_profile_dir);
+
+        // 1. Check against all currently running secondary profiles.
+        for other in running_others {
+            let other_ext =
+                external_paths_outside_profile(&other.profile_dir, &other.zalo_data_dir);
+            let resolved_other_profile =
+                resolve_effective_path(&other.profile_dir, &other.profile_dir);
+
+            for t_path in &target_ext {
+                if paths_overlap_or_equal(t_path, &resolved_other_profile) {
+                    return Err(DimError::SharedExternalDbPath {
+                        path: t_path.display().to_string(),
+                        conflicting_owner: other.owner_label.clone(),
+                    });
+                }
+                for o_path in &other_ext {
+                    if paths_overlap_or_equal(t_path, o_path) {
+                        return Err(DimError::SharedExternalDbPath {
+                            path: t_path.display().to_string(),
+                            conflicting_owner: other.owner_label.clone(),
+                        });
+                    }
+                }
+            }
+
+            //Symmetric check: if an already-running profile configured an external path pointing inside `target_profile_dir`!
+            for o_path in &other_ext {
+                if paths_overlap_or_equal(o_path, &resolved_target_profile) {
+                    return Err(DimError::SharedExternalDbPath {
+                        path: o_path.display().to_string(),
+                        conflicting_owner: other.owner_label.clone(),
+                    });
+                }
+            }
+        }
+
+        // 2. Check against protected primary ZaloData directories & their configured external paths (even when primary is stopped!).
+        if !target_ext.is_empty() {
+            for prim_zalo_dir in protected_primary_zalo_dirs {
+                let resolved_prim = resolve_effective_path(prim_zalo_dir, prim_zalo_dir);
+                let prim_cfg = read_configured_external_paths(prim_zalo_dir);
+                let mut prim_paths = vec![resolved_prim];
+                for raw_p in [prim_cfg.db_location, prim_cfg.resource_location]
+                    .into_iter()
+                    .flatten()
+                {
+                    prim_paths.push(resolve_effective_path(prim_zalo_dir, &raw_p));
+                }
+
+                for t_path in &target_ext {
+                    for p_path in &prim_paths {
+                        if paths_overlap_or_equal(t_path, p_path) {
+                            return Err(DimError::SharedExternalDbPath {
+                                path: t_path.display().to_string(),
+                                conflicting_owner: "Primary Zalo Desktop".to_owned(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
+}
+
+fn paths_conflict(a: &Path, b: &Path) -> bool {
     #[cfg(windows)]
     {
-        a.to_string_lossy()
-            .eq_ignore_ascii_case(&b.to_string_lossy())
+        a == b
+            || a.to_string_lossy()
+                .eq_ignore_ascii_case(&b.to_string_lossy())
     }
     #[cfg(not(windows))]
     {
-        false
+        a == b
     }
 }

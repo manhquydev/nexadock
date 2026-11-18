@@ -1,0 +1,499 @@
+{
+  "schemaVersion": 1,
+  "suite": "windows-journeys-and-errors",
+  "generatedAtUtc": "2026-11-18T03:51:46.488Z",
+  "durationMs": 154024.42,
+  "candidateCommitSha": "cd62c523222cb3a02051347e85313226de8b6964",
+  "overallStatus": "PASS",
+  "executionSurfaces": {
+    "uiDomSurface": "Browser Bridge Mode (apps/desktop/ui-server.mjs + real Microsoft Edge Chromium DOM; window.__TAURI_INTERNALS__ absent — Native Tauri WebView2 IPC verified separately in native-tauri-smoke.mjs)",
+    "rustBackendSurface": "Native Rust dim-cli.exe (<TEMP_DIR>/zalo-qa-win-acceptance-target\\release\\dim-cli.exe)",
+    "ps1BackendSurface": "Signed-Host PowerShell bridge (<WORKTREE_ROOT>/zalo-windows-acceptance\\desktop-instance-manager\\scripts\\dim-host.ps1)",
+    "fixtureTarget": "fixtures/test-desktop-app/fixture-app.mjs (zero destructive actions on real Zalo)"
+  },
+  "summary": {
+    "totalChecks": 26,
+    "passedChecks": 26,
+    "failedChecks": 0,
+    "bySection": {
+      "firstLaunch": {
+        "total": 3,
+        "passed": 3
+      },
+      "accountManagement": {
+        "total": 10,
+        "passed": 10
+      },
+      "dailyUsage": {
+        "total": 6,
+        "passed": 6
+      },
+      "errorHandling": {
+        "total": 7,
+        "passed": 7
+      }
+    }
+  },
+  "hostSafetyGates": {
+    "primaryZaloInvariance": {
+      "passed": true,
+      "configExistsBefore": true,
+      "configExistsAfter": true,
+      "configExistsUnchanged": true,
+      "configSha256Before": "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+      "configSha256After": "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+      "configSha256Identical": true,
+      "primaryProcessCountBefore": 0,
+      "primaryProcessCountAfter": 0,
+      "missingPrimaryPids": []
+    },
+    "orphanProcessAudit": {
+      "clean": true,
+      "orphanCount": 0,
+      "orphans": []
+    }
+  },
+  "sections": {
+    "firstLaunch": [
+      {
+        "id": "FL-01",
+        "title": "Clean empty state on first launch with protected read-only Primary Zalo indicator",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "initialRenderMs": 4120.44,
+          "lang": "vi",
+          "topbarSummary": "Chưa có cửa sổ nào đang mở",
+          "emptyVisible": true,
+          "listHidden": true,
+          "searchHiddenWhenZeroAccounts": true,
+          "bannerHidden": true,
+          "primaryCardVisible": true,
+          "primaryActionButtonsCount": 0
+        },
+        "notes": []
+      },
+      {
+        "id": "FL-02",
+        "title": "Account Dock visibility & non-technical onboarding clarity (2-step space mental model)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "emptyTitleVi": "Dùng nhiều tài khoản Zalo trên một máy",
+          "emptyHintVi": "Tạo một không gian riêng để mở và đăng nhập thêm tài khoản Zalo có sẵn mà không cần đăng xuất.",
+          "emptyCtaLabelVi": "Thêm tài khoản",
+          "dialogTitleVi": "Thêm tài khoản Zalo",
+          "dialogSubtitleVi": "Tạo không gian Zalo riêng trên máy. Bạn sẽ tự đăng nhập tài khoản Zalo có sẵn trong Zalo Desktop — ứng dụng không tạo tài khoản mới và không lưu mật khẩu hay mã OTP.",
+          "suggestionChipsVi": [
+            "Cá nhân",
+            "Công việc",
+            "Giảng dạy",
+            "Bán hàng"
+          ],
+          "colorSwatchCount": 8
+        },
+        "notes": []
+      },
+      {
+        "id": "FL-03",
+        "title": "Zero requirement for user to know PID, IPC, runtime leases, or lockfiles",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "leakedJargonVi": false,
+          "leakedJargonEn": false,
+          "progressiveDisclosureInDetailsDialog": true
+        },
+        "notes": []
+      }
+    ],
+    "accountManagement": [
+      {
+        "id": "AM-01",
+        "title": "Add account (2-step guided flow + isolated profile directory & .zalo-profile-id marker)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "createdCount": 2,
+          "step2Title": "Không gian \"Công việc — Kinh doanh\" đã sẵn sàng",
+          "step2Ctas": [
+            "Mở Zalo để đăng nhập",
+            "Để sau"
+          ],
+          "marker1Matches": true
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-02",
+        "title": "Set account name (Vietnamese Unicode preserved in UI; ASCII slug on NTFS)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "displayName": "Công việc — Kinh doanh",
+          "directorySlug": "cong-viec-kinh-doanh_efa8effa",
+          "searchVisibleAtTwoAccounts": true
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-03",
+        "title": "Choose color badge (visual avatar swatch + initials rendered distinctly per account)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "account1Avatar": {
+            "initials": "CD",
+            "colorVar": "var(--id-coral)"
+          },
+          "account2Avatar": {
+            "initials": "CĐ",
+            "colorVar": "var(--id-teal)"
+          }
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-04",
+        "title": "Open Zalo (concurrent isolated fixture instances with distinct PIDs and user IDs)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "dualLaunchDurationMs": 15674.23,
+          "topbarSummary": "Đang mở 2 cửa sổ",
+          "account1": {
+            "running": true,
+            "pid": 2996,
+            "zaloUserId": "8771483"
+          },
+          "account2": {
+            "running": true,
+            "pid": 22788,
+            "zaloUserId": "9287069"
+          }
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-05",
+        "title": "Switch / focus window (routes focus signal exclusively to target account)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "rustFocusOk": true,
+          "account1FocusCountBefore": 0,
+          "account1FocusCountAfter": 2,
+          "account2WronglyFocused": false
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-06",
+        "title": "Close 1 account independently without closing other open account or primary Zalo",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "account1Running": false,
+          "account2StillRunning": true,
+          "account2PidUnchanged": true
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-07",
+        "title": "Rename account (updates display name & initials while preserving directory and color)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "newName": "Công việc VIP",
+          "bannerTextVi": "Đã đổi tên.",
+          "colorPreserved": "var(--id-coral)"
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-08",
+        "title": "Backup account (disabled with clear hint while open; atomic SHA-256 manifest when closed)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "runningBackupDisabledHintVi": "Đóng Zalo trước",
+          "verifiedBackupCount": 1,
+          "fileCount": 8,
+          "partialStagingLeftovers": 0
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-09",
+        "title": "Restore account (non-destructively creates a new profile without overwriting existing accounts)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "totalProfilesAfterRestore": 3,
+          "sourceProfilePreserved": true,
+          "restoredProfileName": "Công việc Khôi phục",
+          "inheritedSourceColor": "var(--id-coral)"
+        },
+        "notes": []
+      },
+      {
+        "id": "AM-10",
+        "title": "Delete test profile (confirmation warning defaults focus to Cancel; removes only target profile)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "warningTextVi": "Thao tác này sẽ xóa toàn bộ dữ liệu cục bộ của tài khoản \"Công việc Khôi phục\" khỏi Multi-Zalo. Hãy sao lưu trước nếu cần giữ lại lịch sử trên máy.",
+          "defaultFocusedButton": "cancel",
+          "remainingProfileCount": 2,
+          "runningAccount2Untouched": true
+        },
+        "notes": []
+      }
+    ],
+    "dailyUsage": [
+      {
+        "id": "DU-01",
+        "title": "Reopen manager cleanly without errors or state loss",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "reopenRenderMs": 3083.15,
+          "restoredAccountCount": 2,
+          "bannerHidden": true
+        },
+        "notes": []
+      },
+      {
+        "id": "DU-02",
+        "title": "Restore live running & closed account states accurately across manager restart",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "topbarSummary": "Đang mở 1 cửa sổ",
+          "account1": {
+            "name": "Công việc VIP",
+            "running": false,
+            "label": "Đã đóng"
+          },
+          "account2": {
+            "name": "Cá nhân — Gia đình",
+            "running": true,
+            "label": "Cửa sổ đang mở"
+          }
+        },
+        "notes": []
+      },
+      {
+        "id": "DU-03",
+        "title": "Never open wrong account (isolated APPDATA/ZaloData & non-overlapping session IDs)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "account1LaunchCountDelta": 1,
+          "account2LaunchCountDelta": 0,
+          "distinctUserIds": true
+        },
+        "notes": []
+      },
+      {
+        "id": "DU-04",
+        "title": "Never close or overwrite primary Zalo (PROTECTED_PRIMARY_PATH + PID invariance)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "secondaryStoppedCount": 2,
+          "rustPrimaryPathErrorCode": "PROTECTED_PRIMARY_PATH",
+          "ps1PrimaryPathErrorCode": "PROTECTED_PRIMARY_PATH",
+          "primaryInvariance": {
+            "passed": true,
+            "configExistsBefore": true,
+            "configExistsAfter": true,
+            "configExistsUnchanged": true,
+            "configSha256Before": "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+            "configSha256After": "be8077e13b0f59e6976a7baa549b836a46569ca397f2bdf5d3e0f3a46be07734",
+            "configSha256Identical": true,
+            "primaryProcessCountBefore": 0,
+            "primaryProcessCountAfter": 0,
+            "missingPrimaryPids": []
+          }
+        },
+        "notes": []
+      },
+      {
+        "id": "DU-05",
+        "title": "Retain chosen account color badges across rename and manager restart",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "account1ColorAfterReopen": "var(--id-coral)",
+          "account2ColorAfterReopen": "var(--id-teal)",
+          "storageMechanism": "WebView/Browser localStorage (multi-zalo.accountColors) + deterministic hash fallback"
+        },
+        "notes": [
+          "UX note: Color badge mapping lives in WebView localStorage rather than profiles.json/backup.json; persists across restarts on the same host WebView profile, while cross-machine backup imports fall back to deterministic ID color."
+        ]
+      },
+      {
+        "id": "DU-06",
+        "title": "Zero technical popups, native browser alerts, or uncaught UI exceptions during daily usage",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "jsDialogsOpenedCount": 0,
+          "uncaughtExceptionsCount": 0,
+          "consoleErrorsCount": 0
+        },
+        "notes": []
+      }
+    ],
+    "errorHandling": [
+      {
+        "id": "ERR-01",
+        "title": "Zalo executable missing (proactive install alert + INSTALL_NOT_FOUND plain guidance)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "rustErrorCode": "INSTALL_NOT_FOUND",
+          "ps1ErrorCode": "INSTALL_NOT_FOUND",
+          "proactiveAlertVi": "Không tìm thấy Zalo trên máy. Hãy cài đặt Zalo Desktop để mở tài khoản.",
+          "uiBannerVi": "Không tìm thấy Zalo trên máy. Hãy cài đặt Zalo Desktop trước.",
+          "uiBannerEn": "Zalo Desktop was not found on this computer. Please install Zalo first.",
+          "technicalDetailsCollapsedByDefault": true
+        },
+        "notes": []
+      },
+      {
+        "id": "ERR-02",
+        "title": "Backend unresponsive / timeout (HTTP 504 HOST_TIMEOUT & disconnected HOST_EXEC_FAILED recovery UI)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "timeoutBannerVi": "Thao tác phản hồi quá lâu. Hãy thử lại sau giây lát.",
+          "timeoutBannerEn": "The app took too long to respond. Please try again in a moment.",
+          "disconnectedBannerVi": "Không thể kết nối với ứng dụng. Thử lại.",
+          "disconnectedBannerEn": "Could not connect to the app. Try again.",
+          "connectionIndicatorVi": "Chưa kết nối"
+        },
+        "notes": []
+      },
+      {
+        "id": "ERR-03",
+        "title": "Insufficient directory permissions (NTFS write-deny handled safely without crash; IO_ERROR guidance)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "rustErrorCode": "IO_ERROR",
+          "ps1ErrorCode": "UNHANDLED_EXCEPTION",
+          "rustUiGuidanceVi": "Không thể đọc hoặc ghi dữ liệu trên ổ đĩa. Hãy kiểm tra dung lượng trống và quyền truy cập.",
+          "rustUiGuidanceEn": "Could not read or write files on disk. Check free disk space and folder permissions.",
+          "ps1UiGuidanceVi": "Đã xảy ra sự cố. Thử lại hoặc xem chi tiết kỹ thuật.",
+          "ps1UiGuidanceEn": "Something went wrong. Try again or check technical details."
+        },
+        "notes": [
+          "Backend parity note: dim-cli.exe returns IO_ERROR (specific disk/permission guidance), whereas dim-host.ps1 returns UNHANDLED_EXCEPTION (mapped to generic fallback errors.UNKNOWN in UI). Recommend mapping UnauthorizedAccessException/IOException to IO_ERROR in dim-host.ps1."
+        ]
+      },
+      {
+        "id": "ERR-04",
+        "title": "Account already open (blocks duplicate logged-in Zalo account across windows with DUPLICATE_ZALO_USER_ID)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "rustErrorCode": "DUPLICATE_ZALO_USER_ID",
+          "ps1ErrorCode": "DUPLICATE_ZALO_USER_ID",
+          "uiBannerVi": "Tài khoản Zalo này đang được mở ở một cửa sổ khác.",
+          "uiBannerEn": "This Zalo account is already open in another window."
+        },
+        "notes": []
+      },
+      {
+        "id": "ERR-05",
+        "title": "Backup failure (PROFILE_RUNNING, EXTERNAL_DB_OUTSIDE_PROFILE, and BACKUP_ERROR handled cleanly with zero .partial residue)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "whileRunningCodes": {
+            "rust": "PROFILE_RUNNING",
+            "ps1": "PROFILE_RUNNING",
+            "vi": "Hãy đóng Zalo trước khi thực hiện thao tác này.",
+            "en": "Close Zalo before doing this."
+          },
+          "externalDbCodes": {
+            "rust": "EXTERNAL_DB_OUTSIDE_PROFILE",
+            "ps1": "EXTERNAL_DB_OUTSIDE_PROFILE",
+            "vi": "Tài khoản này đang đặt thư mục tin nhắn Zalo ở ổ đĩa ngoài Multi-Zalo, nên sao lưu tự động tạm dừng để tránh thiếu dữ liệu.",
+            "en": "This account stores Zalo messages in an external folder outside Multi-Zalo, so standard backup is paused to protect your history."
+          },
+          "genericBackupErrorCopy": {
+            "vi": "Không thể sao lưu khi Zalo đang mở hoặc thư mục đang bận.",
+            "en": "Cannot back up while Zalo is open or the folder is busy."
+          }
+        },
+        "notes": []
+      },
+      {
+        "id": "ERR-06",
+        "title": "Insufficient disk space preflight (5 GiB + payload threshold aborts before copying bytes)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "rustErrorCode": "INSUFFICIENT_DISK_SPACE",
+          "rustPreflightMs": 56.5,
+          "ps1ErrorCode": "INSUFFICIENT_DISK_SPACE",
+          "ps1PreflightMs": 2942.57,
+          "uiBannerVi": "Ổ đĩa không đủ dung lượng trống.",
+          "uiBannerEn": "Not enough free disk space."
+        },
+        "notes": []
+      },
+      {
+        "id": "ERR-07",
+        "title": "Corrupted profiles.json & tampered backup archive (fail-closed, zero overwrite of corrupted store, SHA-256 restore guard)",
+        "status": "PASS",
+        "passed": true,
+        "evidence": {
+          "corruptedProfilesJsonPreservedUnmodified": true,
+          "corruptedJsonCodes": {
+            "rust": "JSON_ERROR",
+            "ps1": "JSON_ERROR",
+            "vi": "Dữ liệu phản hồi không đúng định dạng. Hãy thử làm mới lại.",
+            "en": "Received an invalid data response. Please try refreshing."
+          },
+          "unsupportedSchemaCodes": {
+            "rust": "SCHEMA_ERROR",
+            "ps1": "SCHEMA_ERROR",
+            "vi": "Dữ liệu cấu hình tài khoản bị lỗi định dạng. Hãy mở Kiểm tra sự cố trong Cài đặt.",
+            "en": "Account configuration data could not be read. Open Troubleshoot in Settings."
+          },
+          "tamperedBackupRestoreCodes": {
+            "rust": "BACKUP_ERROR",
+            "ps1": "BACKUP_ERROR",
+            "vi": "Không thể sao lưu khi Zalo đang mở hoặc thư mục đang bận.",
+            "en": "Cannot back up while Zalo is open or the folder is busy."
+          }
+        },
+        "notes": [
+          "UX note: When restore fails with BACKUP_ERROR (tampered/corrupted archive), errors.BACKUP_ERROR copy says \"Cannot back up while Zalo is open or the folder is busy\" rather than mentioning backup integrity/restore verification."
+        ]
+      }
+    ]
+  },
+  "uxObservationsForIntegrationRequests": [
+    {
+      "id": "OBS-COLOR-PERSISTENCE",
+      "severity": "P3",
+      "summary": "Account color badges persist in WebView localStorage (multi-zalo.accountColors) across restarts on the same machine, but are not stored in profiles.json or backup.json."
+    },
+    {
+      "id": "OBS-PS1-ACL-ERROR-CODE",
+      "severity": "P2",
+      "summary": "When NTFS write permissions are denied, native Rust dim-cli/dim-desktop returns IO_ERROR (specific permission guidance), whereas dim-host.ps1 returns UNHANDLED_EXCEPTION (generic fallback message)."
+    },
+    {
+      "id": "OBS-RESTORE-CORRUPT-COPY",
+      "severity": "P3",
+      "summary": "Tampered backup restore returns BACKUP_ERROR (safe SHA-256 rejection, zero .restore-* residue), whose UI string focuses on backup-while-open rather than corrupted backup archive."
+    }
+  ]
+}

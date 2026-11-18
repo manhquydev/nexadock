@@ -1,0 +1,22 @@
+{
+  "bundle": {
+    "active": true,
+    "category": "Utility",
+    "shortDescription": "Isolated multi-instance desktop profile manager for Zalo (zero VNG binaries bundled)",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "linux": {
+      "deb": {
+        "section": "utils",
+        "priority": "optional"
+      }
+    }
+  }
+}

@@ -1,10 +1,10 @@
 # Nghiên Cứu REA (Reverse Engineer Anything) & Khả Năng Hoạt Động Trên Windows
 
 **Phiên bản REA đã kiểm chứng:** `rea-agents` v6.9.0  
-**Đường dẫn cài đặt:** `C:\Users\manhquy\AppData\Roaming\npm\node_modules\rea-agents\scripts\rea.mjs`  
-**Repository cục bộ:** `c:\Users\manhquy\Downloads\zalo\rea` (`https://github.com/morluto/rea`)  
+**Đường dẫn cài đặt:** `%APPDATA%\npm\node_modules\rea-agents\scripts\rea.mjs`  
+**Repository cục bộ:** `<REPO_ROOT>\rea` (`https://github.com/morluto/rea`)  
 **Giao thức MCP:** `2026-07-28` (`255` công cụ MCP, `196` lệnh CLI)  
-**Bằng chứng phiên REA:** [`evidence/rea-binary-session.json`](../evidence/rea-binary-session.json)
+**Ghi chú bằng chứng REA:** Các mã Evidence `ev_*` bên dưới được trích xuất trực tiếp từ phiên REA; các tệp JSON thô (`rea-*.json`) đã được dọn khỏi repository công khai trước phát hành (`PUB-SEC-10`).
 
 ---
 
@@ -26,7 +26,7 @@ Qua kiểm chứng thực tế trên máy Windows 11 x64 với Zalo Desktop, cá
 
 | Công cụ REA | Provider | Chức năng trên Windows PE / Electron | Bằng chứng đã chạy |
 | :--- | :--- | :--- | :--- |
-| `binary_session` | Built-in | Kiểm tra trạng thái MCP, inventory 255 tool và tình trạng các provider | [`rea-binary-session.json`](../evidence/rea-binary-session.json) |
+| `binary_session` | Built-in | Kiểm tra trạng thái MCP, inventory 255 tool và tình trạng các provider | *(Đã tóm tắt tại mục 3 bên dưới)* |
 | `inspect_pe_certificates` | `rea-pe-certificates` | Giải mã bảng `WIN_CERTIFICATE` (PKCS#7 `signedData`, issuer, subject, serial, thời hạn) | `ev_e417c46d...`, `ev_ab238d25...`, `ev_817da2b6...` |
 | `inspect_pe_imports` | `rea-pe-imports` | Trích xuất Import Directory, Delay-load Import, IAT/ILT RVA và `imphash` | `ev_095e339d...`, `ev_83087efa...`, `ev_522de365...` |
 | `inspect_binary_hardening` | `rea-binary-hardening` | Kiểm tra cờ `DllCharacteristics` (`DYNAMIC_BASE`, `NX_COMPAT`, `GUARD_CF`, `NO_SEH`, `FORCE_INTEGRITY`) và sự hiện diện của bảng Security/Debug | `ev_94316f7b...`, `ev_9f9733b6...`, `ev_fce14a1d...` |
@@ -49,7 +49,7 @@ Không giả định REA hỗ trợ toàn bộ thao tác trên Windows; quá tr�
    - **Hệ quả**: Không thể dùng `analyze_javascript_application` qua MCP trên host Windows đang bật chính sách kiểm soát ứng dụng này. Do đó, việc kiểm tra chi tiết bên trong `app.asar` (`bootstrap.js`, `main-dist/migration.js`, `main-dist/main.js`, `main-dist/second-instance.js`) được thực hiện bằng công cụ đọc cấu trúc ASAR cục bộ an toàn (chỉ đọc header JSON và byte offset chuẩn của Electron ASAR, không thực thi mã target).
 
 2. **Chưa cấu hình Disassembler / Decompiler gốc (`not_configured` / `unsupported_host`)**:
-   - Theo [`rea-binary-session.json`](../evidence/rea-binary-session.json):
+   - Theo ghi nhận từ `binary_session` (đã dọn `rea-binary-session.json` trước phát hành):
      - `ghidra`: unavailable (`not_configured` — chưa thiết lập `GHIDRA_INSTALL_DIR` trỏ đến Ghidra 12.x >= 12.1).
      - `ida`: unavailable (`not_configured` — chưa cấu hình `REA_IDA_MCP_CONFIG`).
      - `kuna`: unavailable (`not_configured` — chưa cấu hình `REA_KUNA_COMMAND`).

@@ -18,6 +18,7 @@ jobs:
   rust-workspace:
     name: Rust fmt, check, clippy, and unit tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -40,23 +41,33 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             desktop-instance-manager/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop-instance-manager/**/Cargo.toml', 'desktop-instance-manager/Cargo.lock', 'desktop-instance-manager/apps/desktop/src-tauri/Cargo.lock') }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Type-check workspace
-        run: cargo check --workspace --all-targets
+        run: cargo check --workspace --all-targets --locked
 
       - name: Run Clippy with warnings denied
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      - name: Run workspace unit tests
-        run: cargo test --workspace --all-targets
+      - name: Compile workspace test binaries
+        timeout-minutes: 10
+        run: cargo test --workspace --all-targets --locked --no-run
+
+      - name: Run core, profile-store, process-manager & fixture unit tests
+        timeout-minutes: 5
+        run: cargo test -p dim-core -p dim-profile-store -p dim-process-manager -p dim-test-fixture --all-targets --locked -- --test-threads=1
+
+      - name: Run platform adapter unit & integration tests
+        timeout-minutes: 8
+        run: cargo test -p dim-platform-windows -p dim-platform-macos -p dim-platform-linux --all-targets --locked -- --test-threads=1
 
   cargo-deny:
     name: Dependency licenses & security advisories (cargo-deny)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -67,6 +78,7 @@ jobs:
           command: check
           manifest-path: desktop-instance-manager/Cargo.toml
           arguments: --all-features --locked
+          command-arguments: ""
 
       - name: Run cargo-deny check (Tauri desktop crate)
         uses: EmbarkStudios/cargo-deny-action@v2
@@ -74,10 +86,12 @@ jobs:
           command: check
           manifest-path: desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml
           arguments: --all-features --locked
+          command-arguments: ""
 
   node-and-windows-integration:
     name: Node.js, PowerShell & Rust parity tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -123,7 +137,7 @@ jobs:
 
       - name: Build native dim-cli for contract parity tests
         if: runner.os == 'Windows'
-        run: cargo build -p dim-test-fixture --bin dim-cli --release
+        run: cargo build -p dim-test-fixture --bin dim-cli --release --locked
 
       - name: Run Windows PowerShell + UI integration suite
         if: runner.os == 'Windows'
@@ -140,6 +154,7 @@ jobs:
   tauri-desktop-check:
     name: Tauri desktop crate check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -157,16 +172,21 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Format-check Tauri desktop crate
         run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
 
       - name: Check Tauri desktop crate
-        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
 
       - name: Clippy Tauri desktop crate
-        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- -D warnings
 
-      - name: Test Tauri desktop crate
-        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - name: Compile Tauri desktop test binary
+        timeout-minutes: 10
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --no-run
+
+      - name: Run Tauri desktop unit & concurrency tests
+        timeout-minutes: 5
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- --nocapture --test-threads=1

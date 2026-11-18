@@ -1,0 +1,57 @@
+From de49c28ad94177d6d096c625ad916b07f75b2ecc Mon Sep 17 00:00:00 2001
+From: Multi-Zalo Build Engineering <build@multizalodesktop.local>
+Date: Wed, 18 Nov 2026 01:06:50 +0700
+Subject: [PATCH] build(icons): add valid macOS icon.icns and 128x128@2x.png
+ bundle assets (IR-002)
+
+Add Apple Icon Image (icns magic 69636e73 with ic07 128x128 + ic08 256x256 PNG chunks) and 256x256 RGBA 128x128@2x.png, and register both in tauri.conf.json bundle.icon.
+---
+ .../apps/desktop/src-tauri/icons/128x128@2x.png  | Bin 0 -> 716 bytes
+ .../apps/desktop/src-tauri/icons/icon.icns       | Bin 0 -> 1142 bytes
+ .../apps/desktop/src-tauri/tauri.conf.json       |   2 ++
+ 3 files changed, 2 insertions(+)
+ create mode 100644 desktop-instance-manager/apps/desktop/src-tauri/icons/128x128@2x.png
+ create mode 100644 desktop-instance-manager/apps/desktop/src-tauri/icons/icon.icns
+
+diff --git a/desktop-instance-manager/apps/desktop/src-tauri/icons/128x128@2x.png b/desktop-instance-manager/apps/desktop/src-tauri/icons/128x128@2x.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..70a983ffe1b29b703cd0c9f1e6a6be97210a9570
+GIT binary patch
+literal 716
+zcmeAS@N?(olHy`uVBq!ia0y~yU<5K5893O0R7}x|GzJEy$(}BbAr-gYUNK~3P~bUo
+zfa?HP)rO{!I|1T6e|XasoU_i<Hu|VCNiZZZIDBEql6?@&#=w>U<RK^pA&_hXBT$GE
+zMgyY+gG2)(GDQtzksONTY>HhA_AHunL5`;|5TM$TgBRp#rN-fH@PXTm43<0$JPZa5
+b3SP`dwBmOce98O)Or;E-u6{1-oD!M<>k?+B
+
+literal 0
+HcmV?d00001
+
+diff --git a/desktop-instance-manager/apps/desktop/src-tauri/icons/icon.icns b/desktop-instance-manager/apps/desktop/src-tauri/icons/icon.icns
+new file mode 100644
+index 0000000000000000000000000000000000000000..54645f4c071174e0abe800381298bdf52ace410b
+GIT binary patch
+literal 1142
+zcmc~y&MRhMU@6N?HZW&kV4T$%;OEZECB?<Sz`*P2;SvO-8$g(Y4M-lgOFRu!6zS>W
+z7*a9k?IlCO1_yxy2ZS3$zw8lR@`#N^;la$4Vz-x{ka_;~g6VGNA14_$=Q;5Rq&HYF
+zACXiz$56=DVeBx6@zJOdT1eEgEjY<gsDEqY^cV76=_$alX7F_Nb6Mw<&;*Pb3kC+J
+zE0{6E2vo($0FIfMq7`XCMU%lXbL;IDLq-M#o+Agi4sca%XbQO#AkOoLH(kLw>r8E<
+zk1CS{Ljr@t7ltg^2f=I%YzaUff>ICy$u=+og(zV(FiJ2;G%zAl)G!vwp-9fA*tKBK
+xqB$4jcnSjnsvS9aL9SM69Nq>WxXs95$-}_IV8Ec@#e767es{r_%pb^U8UVX=?qC1_
+
+literal 0
+HcmV?d00001
+
+diff --git a/desktop-instance-manager/apps/desktop/src-tauri/tauri.conf.json b/desktop-instance-manager/apps/desktop/src-tauri/tauri.conf.json
+index d0d3147..645b495 100644
+--- a/desktop-instance-manager/apps/desktop/src-tauri/tauri.conf.json
++++ b/desktop-instance-manager/apps/desktop/src-tauri/tauri.conf.json
+@@ -29,4 +29,6 @@
+       "icons/32x32.png",
+       "icons/128x128.png",
++      "icons/128x128@2x.png",
++      "icons/icon.icns",
+       "icons/icon.ico"
+     ]
+-- 
+2.56.1.windows.1
+
