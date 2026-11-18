@@ -916,22 +916,19 @@ pub fn evaluate_appimage_preflight(
 
     // Resolve static ELF64 DT_NEEDED missing shared libraries against `fs_root` when system lib dirs exist.
     let mut missing_libs = report.missing_libraries.clone();
-    if missing_libs.is_empty() {
-        if let Some(elf_meta) = &report.elf_dynamic {
-            let has_linux_lib_tree = join_under_root(fs_root, "lib").is_dir()
-                || join_under_root(fs_root, "usr/lib").is_dir()
-                || join_under_root(fs_root, "lib64").is_dir();
-            if has_linux_lib_tree {
-                let elf_origin_bin = if report.format == BinaryFormatKind::ExtractedAppDir
-                    && binary_path.join("zalo").is_file()
-                {
-                    binary_path.join("zalo")
-                } else {
-                    report.path.clone()
-                };
-                missing_libs =
-                    resolve_elf64_missing_libraries_at(elf_meta, &elf_origin_bin, fs_root);
-            }
+    if let Some(elf_meta) = &report.elf_dynamic {
+        let has_linux_lib_tree = join_under_root(fs_root, "lib").is_dir()
+            || join_under_root(fs_root, "usr/lib").is_dir()
+            || join_under_root(fs_root, "lib64").is_dir();
+        if has_linux_lib_tree {
+            let elf_origin_bin = if report.format == BinaryFormatKind::ExtractedAppDir
+                && binary_path.join("zalo").is_file()
+            {
+                binary_path.join("zalo")
+            } else {
+                report.path.clone()
+            };
+            missing_libs = resolve_elf64_missing_libraries_at(elf_meta, &elf_origin_bin, fs_root);
         }
     }
 

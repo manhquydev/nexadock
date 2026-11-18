@@ -897,6 +897,7 @@ pub fn normalize_macos_unicode_key(input: &str) -> String {
 }
 
 fn ensure_short_tmp_base_root(ops: &dyn MacOsSystemOps, base_root: &Path) -> Result<(), DimError> {
+    #[cfg(unix)]
     if base_root == Path::new("/tmp") || base_root == Path::new("/private/tmp") {
         let meta = fs::symlink_metadata(base_root).map_err(|e| {
             DimError::Io(std::io::Error::new(

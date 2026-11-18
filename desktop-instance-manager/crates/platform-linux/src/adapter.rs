@@ -279,7 +279,7 @@ impl ApplicationLocator for LinuxPlatformAdapter {
             validate_directory_input(custom)?;
             ensure_not_primary_zalo_path(custom)?;
 
-            if custom.exists() {
+            if custom.exists() || fs::symlink_metadata(custom).is_ok() {
                 let report = inspect_user_binary(custom, self.pinned_sha256.as_deref())?;
                 if let Some(block) = &report.security_block {
                     return Ok(ApplicationInstallation {
