@@ -62,5 +62,5 @@ echo "=== [Ubuntu Host] 4/4 Executing Cross-Platform Reliability & Contract Suit
   --cycles "${CYCLES}" \
   --metrics-runs "${METRICS_RUNS}" \
   --seed "${SEED}" \
-  "${BASELINE_ARGS[@]}" \
+  "${BASELINE_ARGS[@]+"${BASELINE_ARGS[@]}"}" \
   "$@"
