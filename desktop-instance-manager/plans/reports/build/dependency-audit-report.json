@@ -122,7 +122,7 @@
     "licenses_passed": true,
     "license_audit": {
       "mode": "CARGO_METADATA_LOCKED",
-      "cargo_binary": "C:\\Users\\manhquy\\.cargo\\bin\\cargo.exe",
+      "cargo_binary": "<USERPROFILE>\\.cargo\\bin\\cargo.exe",
       "evaluated_packages_count": 439,
       "license_violations": [],
       "license_distribution": {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  resolveAccountState,
   resolveIsolationCheckResult,
   getAccountInitials,
   getAccountColorId,
@@ -119,6 +120,34 @@ test('resolveIsolationCheckResult never converts NOT_TESTED, BLOCKED, or UNKNOWN
   assert.equal(resolveIsolationCheckResult({ passed: true }).raw, 'PASS');
   assert.equal(resolveIsolationCheckResult({ passed: false }).raw, 'FAIL');
   assert.equal(resolveIsolationCheckResult({}).raw, 'UNKNOWN');
+});
+
+test('resolveAccountState maps all ProfileLifecycleState values accurately in vi-VN and en-US', () => {
+  setLocale('en-US');
+  assert.deepEqual(resolveAccountState({ id: 'p1', running: false, lifecycle_state: 'stopped' }), {
+    label: 'Closed',
+    kind: 'stopped'
+  });
+  assert.deepEqual(resolveAccountState({ id: 'p1', running: true, lifecycle_state: 'starting' }), {
+    label: 'Opening Zalo...',
+    kind: 'pending'
+  });
+  assert.deepEqual(resolveAccountState({ id: 'p1', running: true, lifecycle_state: 'running' }), {
+    label: 'Window open',
+    kind: 'running'
+  });
+  assert.deepEqual(resolveAccountState({ id: 'p1', running: true, lifecycle_state: 'stopping' }), {
+    label: 'Closing Zalo...',
+    kind: 'pending'
+  });
+  assert.deepEqual(resolveAccountState({ id: 'p1', running: false, lifecycle_state: 'RecoveryRequired' }), {
+    label: 'Reopen to recover',
+    kind: 'error'
+  });
+  setLocale('vi-VN');
+  assert.equal(resolveAccountState({ id: 'p1', running: true, lifecycle_state: 'starting' }).label, 'Đang mở ứng dụng...');
+  assert.equal(resolveAccountState({ id: 'p1', running: true, lifecycle_state: 'stopping' }).label, 'Đang đóng ứng dụng...');
+  assert.equal(resolveAccountState({ id: 'p1', running: false, lifecycle_state: 'recovery_required' }).label, 'Cần mở lại để khôi phục');
 });
 
 test('getAccountInitials derives clean initials for single and multi-word Vietnamese names', () => {

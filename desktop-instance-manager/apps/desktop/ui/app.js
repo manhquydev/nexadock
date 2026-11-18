@@ -456,13 +456,34 @@ function appendKvRow(dl, keyLabel, valueText) {
   dl.appendChild(dd);
 }
 
+function normalizeLifecycleState(prof) {
+  if (!prof || prof.lifecycle_state == null) return '';
+  return String(prof.lifecycle_state)
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase();
+}
+
+function isProfileActiveOrUnclean(prof) {
+  const lc = normalizeLifecycleState(prof);
+  return Boolean(prof?.running)
+    || lc === 'starting'
+    || lc === 'running'
+    || lc === 'stopping'
+    || lc === 'recovery_required';
+}
+
 export function resolveAccountState(prof) {
-  const pendingAction = state.pendingProfileActions.get(prof.id);
+  const pendingAction = prof?.id ? state.pendingProfileActions.get(prof.id) : null;
   if (pendingAction === 'launch') return { label: t('accounts.states.starting'), kind: 'pending' };
   if (pendingAction === 'stop') return { label: t('accounts.states.stopping'), kind: 'pending' };
   if (prof?.error) return { label: t('accounts.states.error'), kind: 'error' };
-  if (prof?.running === true) return { label: t('accounts.states.running'), kind: 'running' };
-  if (prof?.running === false) return { label: t('accounts.states.stopped'), kind: 'stopped' };
+  const lc = normalizeLifecycleState(prof);
+  if (lc === 'starting') return { label: t('accounts.states.starting'), kind: 'pending' };
+  if (lc === 'stopping') return { label: t('accounts.states.stopping'), kind: 'pending' };
+  if (lc === 'recovery_required') return { label: t('accounts.states.recoveryRequired'), kind: 'error' };
+  if (lc === 'running' || prof?.running === true) return { label: t('accounts.states.running'), kind: 'running' };
+  if (lc === 'stopped' || prof?.running === false) return { label: t('accounts.states.stopped'), kind: 'stopped' };
   return { label: t('accounts.states.unknown'), kind: 'unknown' };
 }
 
@@ -715,17 +736,18 @@ function buildOverflowMenu(prof, isPending) {
     menuList.appendChild(item);
   };
 
+  const blockOfflineOps = isProfileActiveOrUnclean(prof);
   addMenuItem(t('accounts.actions.rename'), () => openRenameDialog(prof));
   addMenuItem(
     t('accounts.actions.backup'),
     () => runProfileAction('backup', prof),
-    { disabled: Boolean(prof.running), hint: t('accounts.actions.closeFirstHint') }
+    { disabled: blockOfflineOps, hint: t('accounts.actions.closeFirstHint') }
   );
   addMenuItem(t('accounts.actions.details'), () => openDetailsDialog(prof));
   addMenuItem(
     t('accounts.actions.delete'),
     () => openDeleteDialog(prof),
-    { disabled: Boolean(prof.running), danger: true, hint: t('accounts.actions.closeFirstHint') }
+    { disabled: blockOfflineOps, danger: true, hint: t('accounts.actions.closeFirstHint') }
   );
 
   menuWrap.appendChild(moreBtn);
@@ -844,18 +866,26 @@ function renderProfiles() {
     const secondaryActions = document.createElement('div');
     secondaryActions.className = 'account-actions-secondary';
 
-    if (prof.running) {
+    const lcState = normalizeLifecycleState(prof);
+    const isActiveLifecycle = Boolean(prof.running) || lcState === 'starting' || lcState === 'running' || lcState === 'stopping';
+    if (isActiveLifecycle) {
       primaryActions.appendChild(makeButton(
         t('accounts.actions.focus'),
         'btn-primary',
         () => runProfileAction('focus', prof),
-        { disabled: isPending, ariaLabel: t('accounts.actions.focusAria', { name: prof.name }) }
+        {
+          disabled: isPending || lcState === 'starting' || lcState === 'stopping',
+          ariaLabel: t('accounts.actions.focusAria', { name: prof.name })
+        }
       ));
       secondaryActions.appendChild(makeButton(
         t('accounts.actions.stop'),
         'btn-subtle-danger',
         () => runProfileAction('stop', prof),
-        { disabled: isPending, ariaLabel: t('accounts.actions.stopAria', { name: prof.name }) }
+        {
+          disabled: isPending || lcState === 'stopping',
+          ariaLabel: t('accounts.actions.stopAria', { name: prof.name })
+        }
       ));
     } else {
       primaryActions.appendChild(makeButton(

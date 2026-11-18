@@ -284,10 +284,25 @@ function readJsonSafe(filePath, fallback = null) {
   }
 }
 
+function sleepSyncMs(ms) {
+  try {
+    const sab = new SharedArrayBuffer(4);
+    Atomics.wait(new Int32Array(sab), 0, 0, ms);
+  } catch {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      // Short fallback spin if SharedArrayBuffer is unavailable.
+    }
+  }
+}
+
 function writeBytesAtomic(filePath, buf) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const base = path.basename(filePath);
-  const tmp = path.join(path.dirname(filePath), `.${base}.tmp.${process.pid}`);
+  const tmp = path.join(
+    path.dirname(filePath),
+    `.${base}.tmp.${process.pid}.${Math.random().toString(16).slice(2, 8)}`
+  );
   const fd = fs.openSync(tmp, 'w');
   try {
     fs.writeSync(fd, buf);
@@ -295,7 +310,27 @@ function writeBytesAtomic(filePath, buf) {
   } finally {
     fs.closeSync(fd);
   }
-  fs.renameSync(tmp, filePath);
+  const maxAttempts = process.platform === 'win32' ? 20 : 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      fs.renameSync(tmp, filePath);
+      return;
+    } catch (err) {
+      const transientWinLock =
+        process.platform === 'win32' &&
+        err &&
+        (err.code === 'EPERM' || err.code === 'EACCES' || err.code === 'EBUSY');
+      if (!transientWinLock || attempt === maxAttempts) {
+        try {
+          fs.unlinkSync(tmp);
+        } catch {
+          // Ignore cleanup error.
+        }
+        throw err;
+      }
+      sleepSyncMs(Math.min(25, attempt * 3));
+    }
+  }
 }
 
 function writeJsonAtomic(filePath, value) {
@@ -480,7 +515,15 @@ async function main() {
     process.exit(0);
   }
 
-  // 5. Acquire live open OS file handle on `lockfile`
+  // 5. Clear any stale pre-lock signals BEFORE publishing `lockfile` readiness, then acquire held OS lock
+  for (const sig of [quitSignalPath, focusSignalPath]) {
+    try {
+      if (fs.existsSync(sig)) fs.unlinkSync(sig);
+    } catch {
+      // Ignore.
+    }
+  }
+
   const lockRecord = {
     pid: process.pid,
     instance_id: cfg.instanceId,
@@ -504,14 +547,6 @@ async function main() {
     process.exit(2);
   }
   let heldLockFd = lockAcquired.fd;
-
-  for (const sig of [quitSignalPath, focusSignalPath]) {
-    try {
-      if (fs.existsSync(sig)) fs.unlinkSync(sig);
-    } catch {
-      // Ignore.
-    }
-  }
 
   // 6. Spawn child worker processes if requested
   const children = [];

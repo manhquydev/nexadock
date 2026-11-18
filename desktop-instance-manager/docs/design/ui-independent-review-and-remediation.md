@@ -2,7 +2,7 @@
 
 ## 1. Baseline & Scope
 - **Baseline Commit**: `39ff5c7` on branch `feat/ui-vi-en-quiet-workspace`
-- **Worktree**: `C:/Users/manhquy/Downloads/zalo-ui-worktree/desktop-instance-manager/`
+- **Worktree**: `<WORKTREE_ROOT>/zalo-ui-worktree/desktop-instance-manager/`
 - **Scope**: `apps/desktop/ui/**` and `docs/design/**` only. Zero backend, Rust, Tauri, PowerShell, or CI files modified.
 
 ## 2. Review Findings & Disposition (P0 / P1 / P2)

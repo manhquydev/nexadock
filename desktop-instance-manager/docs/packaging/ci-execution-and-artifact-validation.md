@@ -56,7 +56,7 @@ Every enabled OS job executes all **7 native stages** sequentially:
      & "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow
      ```
   2. **Pre-Flight Private-Repo Compute Budget Check:** Check remaining monthly GitHub Free `$12.00 USD/month` Actions credit in GitHub Web UI (`Settings -> Billing & licensing`).
-  3. **Fast-Forward Sync `main` (`a5feb4a`) to `origin/main`:** `git -C C:/Users/manhquy/Downloads/zalo push origin main`
+  3. **Fast-Forward Sync `main` (`a5feb4a`) to `origin/main`:** `git -C <REPO_ROOT> push origin main`
   4. **Push Feature Branch & Merge Reviewed PR to `main`:** Push `build/cross-platform-distribution` (optionally after `git am` of approved `ir-patches/0001..0007`) and merge cleanly into `main`.
   5. **Verify Workflow Registration:** `gh workflow list --repo manhquydev/zalo`
   6. **Phased `workflow_dispatch` Run:** Dispatch Phase A (`enable_ubuntu=true`, `enable_windows=true`, macOS `false`, ~$0.246) before opting into Phase B (`enable_macos_arm64=true`, `enable_macos_intel=true`, ~$1.80).
@@ -69,7 +69,7 @@ Every enabled OS job executes all **7 native stages** sequentially:
 - **Read-Only Empirical Evidence ([`ci-baseline-and-github-audit.md`](../../plans/reports/build/ci-baseline-and-github-audit.md)):**
   1. `git ls-remote origin` -> `origin/main` is at `8cf47035f0f06bd97cc99aff80d81fb10b103af8` (initial commit where `ci.yml` lived under nested `desktop-instance-manager/.github/workflows/`, ignored by GitHub). Local `main` (`a5feb4a`) is `ahead 1` unpushed.
   2. `gh api repos/manhquydev/zalo/actions/workflows` -> `{"total_count": 0, "workflows": []}`; `gh run list --repo manhquydev/zalo` -> `0` runs.
-  3. `git config --show-origin --get-regexp credential` -> `C:/Users/manhquy/.gitconfig` binds `credential.https://github.com.helper` to `!'C:\Program Files\GitHub CLI\gh.exe' auth git-credential`.
+  3. `git config --show-origin --get-regexp credential` -> `<USERPROFILE>/.gitconfig` binds `credential.https://github.com.helper` to `!'C:\Program Files\GitHub CLI\gh.exe' auth git-credential`.
   4. `gh auth status` & `gh api -i user` -> `X-Oauth-Scopes: gist, read:org, repo` (**missing `'workflow'`** -> status `AWAITING_USER_AUTHORIZATION`; GitHub rejects pushing `.github/workflows/*.yml` until `gh auth refresh -h github.com -s workflow` is authorized).
 
 ---
@@ -163,7 +163,7 @@ Verified from official GitHub Actions billing docs (`docs.github.com/.../about-b
 
 ## 11. Configurations Requiring Upstream Integration (`ir-patches/0001..0007`)
 
-Shared manifests remain untouched on `build/cross-platform-distribution` while 5 sibling worktrees (`feat/ui-vi-en-quiet-workspace`, `feat/macos-multi-instance`, `feat/ubuntu-multi-instance`, `test/cross-platform-reliability`, `research/desktop-compatibility`) are active (`0` direct file collisions verified in [`integration-requests.md`](../../plans/reports/build/integration-requests.md)). All **7 standalone atomic patches** pass `git -C C:/Users/manhquy/Downloads/zalo apply --check` both individually and sequentially (`exit 0`):
+Shared manifests remain untouched on `build/cross-platform-distribution` while 5 sibling worktrees (`feat/ui-vi-en-quiet-workspace`, `feat/macos-multi-instance`, `feat/ubuntu-multi-instance`, `test/cross-platform-reliability`, `research/desktop-compatibility`) are active (`0` direct file collisions verified in [`integration-requests.md`](../../plans/reports/build/integration-requests.md)). All **7 standalone atomic patches** pass `git -C <REPO_ROOT> apply --check` both individually and sequentially (`exit 0`):
 
 | Patch File (`plans/reports/build/ir-patches/`) | IR | Target File(s) | Single-Concern Scope | `git apply --check` |
 | :--- | :---: | :--- | :--- | :---: |

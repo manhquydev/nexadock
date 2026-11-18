@@ -166,7 +166,7 @@ Before promoting any Windows binary or installer beyond `UNSIGNED_DEVELOPMENT_AR
 
 ## 7. Verified Atomic Integration Patches (`plans/reports/build/ir-patches/`)
 
-All 7 upstream configuration enhancements are packaged as standalone single-concern `git format-patch` files in [`plans/reports/build/ir-patches/`](../../plans/reports/build/ir-patches/) (verified `git -C C:/Users/manhquy/Downloads/zalo apply --check` **`exit 0`** both individually and sequentially across all 6 active worktrees — full audit in [`integration-requests.md`](../../plans/reports/build/integration-requests.md)):
+All 7 upstream configuration enhancements are packaged as standalone single-concern `git format-patch` files in [`plans/reports/build/ir-patches/`](../../plans/reports/build/ir-patches/) (verified `git -C <REPO_ROOT> apply --check` **`exit 0`** both individually and sequentially across all 6 active worktrees — full audit in [`integration-requests.md`](../../plans/reports/build/integration-requests.md)):
 
 | Atomic Patch File | Severity | Windows & Cross-Platform Impact |
 | :--- | :---: | :--- |

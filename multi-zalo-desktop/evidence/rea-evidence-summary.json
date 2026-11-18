@@ -9,7 +9,7 @@
     "artifacts":  [
                       {
                           "role":  "Official Installer",
-                          "path":  "C:\\Users\\manhquy\\Downloads\\Programs\\ZaloSetup-26.11.12.exe",
+                          "path":  "<WORKTREE_ROOT>\\Programs\\ZaloSetup-26.11.12.exe",
                           "bytes":  213516168,
                           "sha256":  "dddef07c11683561c6abe19c07bbc6202214136325d6b4b39311587a16a15eb8",
                           "authenticode_subject":  "CN=VNG GROUP JSC, O=VNG GROUP JSC, S=Ho Chi Minh City, C=VN",
@@ -22,7 +22,7 @@
                       },
                       {
                           "role":  "Installed Stub Launcher",
-                          "path":  "C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo\\Zalo.exe",
+                          "path":  "<USERPROFILE>\\AppData\\Local\\Programs\\Zalo\\Zalo.exe",
                           "bytes":  790568,
                           "sha256":  "7295232c89f9a041e35253afa80787989eae9a91895f1847ebd92c78bb4195a2",
                           "authenticode_subject":  "CN=VNG GROUP JSC, O=VNG GROUP JSC, S=Ho Chi Minh City, C=VN",
@@ -36,7 +36,7 @@
                       },
                       {
                           "role":  "Installed Electron Main Binary (26.10.20)",
-                          "path":  "C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\Zalo.exe",
+                          "path":  "<USERPROFILE>\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\Zalo.exe",
                           "bytes":  136638504,
                           "sha256":  "75dc85559079ec2037d511a312b704b44ca3293e74da1900ccfe84e6299cac3e",
                           "electron_version":  "22.3.9",
@@ -50,7 +50,7 @@
                       },
                       {
                           "role":  "Installed Electron ASAR Bundle (26.10.20)",
-                          "path":  "C:\\Users\\manhquy\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\resources\\app.asar",
+                          "path":  "<USERPROFILE>\\AppData\\Local\\Programs\\Zalo\\Zalo-26.10.20\\resources\\app.asar",
                           "bytes":  177728582,
                           "sha256":  "d83256230e5d1d4483c2411f71936c3dc1562fb8a885fd8752cab17d229201e6",
                           "rea_evidence_ids":  [

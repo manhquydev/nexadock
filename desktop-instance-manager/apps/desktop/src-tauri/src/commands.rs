@@ -21,6 +21,28 @@ fn current_user_home() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn resolve_tauri_launch_target() -> (Option<PathBuf>, LaunchTarget) {
+    if let Some(raw) = std::env::var_os("DIM_NODE_FIXTURE_SCRIPT") {
+        let candidate = PathBuf::from(raw);
+        if !candidate.as_os_str().is_empty() && validate_directory_input(&candidate).is_ok() {
+            return (
+                Some(candidate.clone()),
+                LaunchTarget::NodeFixture {
+                    node_path: None,
+                    script_path: candidate,
+                    extra_args: Vec::new(),
+                },
+            );
+        }
+    }
+    (
+        None,
+        LaunchTarget::OfficialZalo {
+            custom_install_root: None,
+        },
+    )
+}
+
 fn redact_err_text(err: impl std::fmt::Display) -> String {
     let home = current_user_home();
     redact_sensitive_text(&err.to_string(), home.as_deref())
@@ -96,10 +118,31 @@ pub async fn get_status(
     let app = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let measure_size = with_size.unwrap_or(false);
-        let installation = app
-            .adapter
-            .discover_installation(None)
-            .map_err(redact_err_text)?;
+        let (fixture_script_opt, _) = resolve_tauri_launch_target();
+        let installation_json = if let Some(ref script_path) = fixture_script_opt {
+            let exists = script_path.exists();
+            serde_json::json!({
+                "valid": exists,
+                "mode": "node-fixture",
+                "version": "xf-fixture-1.0.0",
+                "authenticode_status": if exists { "Signed (Node.js Fixture)" } else { "Missing Fixture" },
+                "signer_subject": serde_json::Value::Null,
+                "error": if exists { serde_json::Value::Null } else { serde_json::json!("Fixture script not found") },
+            })
+        } else {
+            let installation = app
+                .adapter
+                .discover_installation(None)
+                .map_err(redact_err_text)?;
+            serde_json::json!({
+                "valid": installation.is_valid,
+                "mode": "official-zalo",
+                "version": installation.version,
+                "authenticode_status": installation.signature_status,
+                "signer_subject": installation.signer_subject,
+                "error": installation.error,
+            })
+        };
         let primary = app.adapter.inspect_primary().map_err(redact_err_text)?;
         let records = app.store.list_profiles().map_err(redact_err_text)?;
 
@@ -141,14 +184,7 @@ pub async fn get_status(
             ok: true,
             platform: app.adapter.platform().as_str().to_owned(),
             data_dir: app.store.data_dir().display().to_string(),
-            installation: serde_json::json!({
-                "valid": installation.is_valid,
-                "mode": "official-zalo",
-                "version": installation.version,
-                "authenticode_status": installation.signature_status,
-                "signer_subject": installation.signer_subject,
-                "error": installation.error,
-            }),
+            installation: installation_json,
             primary_zalo: serde_json::json!({
                 "is_running": primary.running,
                 "locking_pids": primary.protected_pids,
@@ -235,9 +271,7 @@ pub async fn launch_profile(
 ) -> Result<ApiEnvelope<dim_core::ProfileRuntimeState>, String> {
     let app = state.inner().clone();
     Ok(tauri::async_runtime::spawn_blocking(move || {
-        let target = LaunchTarget::OfficialZalo {
-            custom_install_root: None,
-        };
+        let (_, target) = resolve_tauri_launch_target();
         match app.coordinator.launch_profile(&id, &target) {
             Ok(rt) => ApiEnvelope::ok("Launched profile.", rt),
             Err(err) => ApiEnvelope::err(&err),
@@ -254,9 +288,7 @@ pub async fn focus_profile(
 ) -> Result<ApiEnvelope<dim_core::ProfileRuntimeState>, String> {
     let app = state.inner().clone();
     Ok(tauri::async_runtime::spawn_blocking(move || {
-        let target = LaunchTarget::OfficialZalo {
-            custom_install_root: None,
-        };
+        let (_, target) = resolve_tauri_launch_target();
         match app.coordinator.focus_profile(&id, &target) {
             Ok(rt) => ApiEnvelope::ok("Focused profile.", rt),
             Err(err) => ApiEnvelope::err(&err),
@@ -533,9 +565,15 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, 
 pub async fn verify_isolation(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let app = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let (fixture_opt, target) = resolve_tauri_launch_target();
+        let fixture_ref = if fixture_opt.is_some() {
+            Some(&target)
+        } else {
+            None
+        };
         let report = app
             .coordinator
-            .verify_isolation(&*app.adapter, None, None)
+            .verify_isolation(&*app.adapter, None, fixture_ref)
             .map_err(redact_err_text)?;
         serde_json::to_value(report).map_err(redact_err_text)
     })

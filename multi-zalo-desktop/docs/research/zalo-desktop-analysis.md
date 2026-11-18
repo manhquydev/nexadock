@@ -8,7 +8,7 @@ Báo cáo này tổng hợp bằng chứng tĩnh thu thập trực tiếp từ b
 
 | Thành phần | Đường dẫn | Kích thước (bytes) | Phiên bản | Kiến trúc | SHA-256 | Chữ ký Authenticode | Bằng chứng REA |
 | :--- | :--- | ---: | :--- | :--- | :--- | :--- | :--- |
-| Bộ cài đặt chính thức | `C:\Users\manhquy\Downloads\Programs\ZaloSetup-26.11.12.exe` | `213.516.168` | `26.11.12.3564` | PE32 (`x86`) | `dddef07c11683561c6abe19c07bbc6202214136325d6b4b39311587a16a15eb8` | Valid — `CN=VNG GROUP JSC` (Serial `033b7444b0d9c6403783620bcc5f4caf`) | `ev_e417c46d...`, `ev_095e339d...` |
+| Bộ cài đặt chính thức | `<USERPROFILE>\Downloads\Programs\ZaloSetup-26.11.12.exe` | `213.516.168` | `26.11.12.3564` | PE32 (`x86`) | `dddef07c11683561c6abe19c07bbc6202214136325d6b4b39311587a16a15eb8` | Valid — `CN=VNG GROUP JSC` (Serial `033b7444b0d9c6403783620bcc5f4caf`) | `ev_e417c46d...`, `ev_095e339d...` |
 | Stub Launcher gốc | `%LOCALAPPDATA%\Programs\Zalo\Zalo.exe` | `790.568` | `1.0.0.0` (`ZaloStubExecutable`) | PE32 (`x86`) | `7295232c89f9a041e35253afa80787989eae9a91895f1847ebd92c78bb4195a2` | Valid — `CN=VNG GROUP JSC` | `ev_ab238d25...`, `ev_83087efa...` |
 | Electron Main Binary | `%LOCALAPPDATA%\Programs\Zalo\Zalo-26.10.20\Zalo.exe` | `136.638.504` | `26.10.20.3253` | PE32 (`x86`, chạy trên WOW64) | `75dc85559079ec2037d511a312b704b44ca3293e74da1900ccfe84e6299cac3e` | Valid — `CN=VNG GROUP JSC` | `ev_8e05df8e...`, `ev_817da2b6...` |
 | Gói ứng dụng Electron | `%LOCALAPPDATA%\Programs\Zalo\Zalo-26.10.20\resources\app.asar` | `177.728.582` | `26.10.20` | ASAR Archive | `d83256230e5d1d4483c2411f71936c3dc1562fb8a885fd8752cab17d229201e6` | N/A (gói dữ liệu JS/Assets) | `ev_70919879...`, `ev_98cf05ba...` |

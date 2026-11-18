@@ -4,7 +4,7 @@
 **Branch:** `build/cross-platform-distribution` (Base Commit on `main`: `a5feb4a520798064c1508c26fe4c4ac17a3a03cf`)  
 **Scope Boundary:** Per Mission E2 worktree isolation rules, shared manifests (`Cargo.toml`, `Cargo.lock`, `deny.toml`, `apps/desktop/src-tauri/Cargo.toml`, `apps/desktop/src-tauri/tauri.conf.json`), application icons (`apps/desktop/src-tauri/icons/*`), and `.github/workflows/ci.yml` remain **untouched** in the `build/cross-platform-distribution` branch index while parallel sibling worktrees remain active. Instead:
 1. CI packaging blockers (`IR-002`, `IR-003`, `IR-004`) are mitigated non-destructively at build time via [`scripts/ci-cross-platform/tauri-ci-bundle-overlay.json`](../../../scripts/ci-cross-platform/tauri-ci-bundle-overlay.json), [`scripts/ci-cross-platform/assets/icon.icns`](../../../scripts/ci-cross-platform/assets/icon.icns), [`scripts/ci-cross-platform/assets/128x128@2x.png`](../../../scripts/ci-cross-platform/assets/128x128@2x.png), and pinned `@tauri-apps/cli@2.12.5` + `cargo --locked` in `build-and-package.mjs`.
-2. Every upstream repository change (`IR-001` through `IR-007`) is delivered as a **small, standalone, single-concern `git format-patch` file** under [`ir-patches/`](./ir-patches/), verified read-only via `git -C C:/Users/manhquy/Downloads/zalo apply --check` both **individually** and **sequentially across all 7 patches**.
+2. Every upstream repository change (`IR-001` through `IR-007`) is delivered as a **small, standalone, single-concern `git format-patch` file** under [`ir-patches/`](./ir-patches/), verified read-only via `git -C <REPO_ROOT> apply --check` both **individually** and **sequentially across all 7 patches**.
 
 ---
 
@@ -14,12 +14,12 @@ Read-only inspection (`git worktree list` and `git diff --name-only $(git merge-
 
 | Active Worktree Path | Branch & HEAD | Merge-Base with `main` | Files Modified by Sibling Branch | Direct Overlap with `IR-001`..`IR-007` Target Files? | Integration Ordering Note |
 | :--- | :--- | :--- | :--- | :---: | :--- |
-| `C:/Users/manhquy/Downloads/zalo` | `main` (`a5feb4a`) | `a5feb4a` | *(clean — 0 dirty files)* | **None** | Baseline target for `git apply --check` |
-| `C:/Users/manhquy/Downloads/zalo-ui-worktree` | `feat/ui-vi-en-quiet-workspace` (`0f87302`) | `8cf4703` | `apps/desktop/ui/**`, `docs/design/**` (`35` files) | **0 files** | Rebase/merge onto `a5feb4a` before or after IR patches without conflict |
-| `C:/Users/manhquy/Downloads/zalo-macos-worktree` | `feat/macos-multi-instance` (`fb2abcf`) | `a5feb4a` | `crates/platform-macos/**`, `docs/platform/macos/**`, `plans/reports/macos/**`, `tests/platform-macos/**` (`17` files) | **0 files** | Orthogonal to `Cargo.toml` root, `src-tauri/`, and `ci.yml` |
-| `C:/Users/manhquy/Downloads/zalo-ubuntu-worktree` | `feat/ubuntu-multi-instance` (`9a10a9f`) | `a5feb4a` | `crates/platform-linux/**`, `docs/platform/ubuntu/**`, `plans/reports/ubuntu/**`, `tests/platform-linux/**` (`16` files) | **0 files** | Orthogonal to `Cargo.toml` root, `src-tauri/`, and `ci.yml` |
-| `C:/Users/manhquy/Downloads/zalo-cross-platform-tests` | `test/cross-platform-reliability` (`a214355`) | `a5feb4a` | `fixtures/cross-platform/**`, `tests/cross-platform/**`, `docs/testing/cross-platform/**`, `plans/reports/reliability/**` (`36` files) | **0 files** | Its handoff doc proposes optional root `Cargo.toml`/`ci.yml` wiring; apply `0001`/`0006`/`0007` cleanly first |
-| `C:/Users/manhquy/Downloads/zalo-compatibility-research` | `research/desktop-compatibility` (`bf08f10`) | `a5feb4a` | `docs/research/compatibility/**`, `plans/reports/compatibility/**` (`6` files) | **0 files** | Documentation-only branch |
+| `<REPO_ROOT>` | `main` (`a5feb4a`) | `a5feb4a` | *(clean — 0 dirty files)* | **None** | Baseline target for `git apply --check` |
+| `<WORKTREE_ROOT>/zalo-ui-worktree` | `feat/ui-vi-en-quiet-workspace` (`0f87302`) | `8cf4703` | `apps/desktop/ui/**`, `docs/design/**` (`35` files) | **0 files** | Rebase/merge onto `a5feb4a` before or after IR patches without conflict |
+| `<WORKTREE_ROOT>/zalo-macos-worktree` | `feat/macos-multi-instance` (`fb2abcf`) | `a5feb4a` | `crates/platform-macos/**`, `docs/platform/macos/**`, `plans/reports/macos/**`, `tests/platform-macos/**` (`17` files) | **0 files** | Orthogonal to `Cargo.toml` root, `src-tauri/`, and `ci.yml` |
+| `<WORKTREE_ROOT>/zalo-ubuntu-worktree` | `feat/ubuntu-multi-instance` (`9a10a9f`) | `a5feb4a` | `crates/platform-linux/**`, `docs/platform/ubuntu/**`, `plans/reports/ubuntu/**`, `tests/platform-linux/**` (`16` files) | **0 files** | Orthogonal to `Cargo.toml` root, `src-tauri/`, and `ci.yml` |
+| `<WORKTREE_ROOT>/zalo-cross-platform-tests` | `test/cross-platform-reliability` (`a214355`) | `a5feb4a` | `fixtures/cross-platform/**`, `tests/cross-platform/**`, `docs/testing/cross-platform/**`, `plans/reports/reliability/**` (`36` files) | **0 files** | Its handoff doc proposes optional root `Cargo.toml`/`ci.yml` wiring; apply `0001`/`0006`/`0007` cleanly first |
+| `<WORKTREE_ROOT>/zalo-compatibility-research` | `research/desktop-compatibility` (`bf08f10`) | `a5feb4a` | `docs/research/compatibility/**`, `plans/reports/compatibility/**` (`6` files) | **0 files** | Documentation-only branch |
 
 ---
 
@@ -41,11 +41,11 @@ Every patch below was generated from clean `a5feb4a520798064c1508c26fe4c4ac17a3a
 
 ```powershell
 # Read-only verification against main (already executed & verified 0 errors):
-git -C C:/Users/manhquy/Downloads/zalo apply --check `
-  C:/Users/manhquy/Downloads/zalo-cross-platform-build/desktop-instance-manager/plans/reports/build/ir-patches/*.patch
+git -C <REPO_ROOT> apply --check `
+  <WORKTREE_ROOT>/zalo-cross-platform-build/desktop-instance-manager/plans/reports/build/ir-patches/*.patch
 
 # Apply as individual reviewable commits on an integration branch when authorized:
-git am C:/Users/manhquy/Downloads/zalo-cross-platform-build/desktop-instance-manager/plans/reports/build/ir-patches/*.patch
+git am <WORKTREE_ROOT>/zalo-cross-platform-build/desktop-instance-manager/plans/reports/build/ir-patches/*.patch
 ```
 
 ---

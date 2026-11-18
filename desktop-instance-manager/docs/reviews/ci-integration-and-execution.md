@@ -50,7 +50,7 @@
 1. **Interactive OAuth Scope Authorization:** Run `& "C:\Program Files\GitHub CLI\gh.exe" auth refresh -h github.com -s workflow` in an interactive user terminal and confirm `workflow` appears in `gh auth status`.
 2. **Pre-Flight Compute Budget Check:** Inspect remaining monthly GitHub Free `$12.00 USD/month` Actions credit in the GitHub Web UI (`Settings -> Billing & licensing`).
 3. **Secret & PII Diff Gate:** Re-verify `git diff origin/main..integration/reliability-hardening` contains zero secrets, tokens, or local user home paths (`0` matches verified at `20d1729`).
-4. **Fast-Forward Baseline `main`:** Push verified local `main` (`a5feb4a`) to `origin/main` (`git -C C:/Users/manhquy/Downloads/zalo push origin main`).
+4. **Fast-Forward Baseline `main`:** Push verified local `main` (`a5feb4a`) to `origin/main` (`git -C <REPO_ROOT> push origin main`).
 5. **Push Integration Branch & Open Reviewed PR:** Push `integration/reliability-hardening` (`git push -u origin integration/reliability-hardening`) and open a reviewed Pull Request targeting `main`.
 6. **Merge PR & Confirm Registration:** Merge into `main` (without `--force`) and verify registration via `gh workflow list --repo manhquydev/zalo`.
 7. **Wave 1 Dispatch (Ubuntu 24.04 + Windows 2022 MSVC):** Trigger `gh workflow run cross-platform-validation.yml --repo manhquydev/zalo --ref main -f enable_ubuntu=true -f enable_windows=true -f enable_macos_arm64=false -f enable_macos_intel=false -f bundles=all` (`$0.246` `ESTIMATED_PRE_RUN`).

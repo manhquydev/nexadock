@@ -1,7 +1,7 @@
 # macOS Native Runtime Validation & Safety Hardening Report (Mission A2 — Stage 2)
 
 **Agent:** `macos-author`  
-**Worktree:** `C:/Users/manhquy/Downloads/zalo-macos-worktree`  
+**Worktree:** `<WORKTREE_ROOT>/zalo-macos-worktree`  
 **Branch:** `feat/macos-multi-instance`  
 **Date:** `2026-11-18+07:00`
 
@@ -12,7 +12,7 @@
 - **Repository Baseline (`main`):** `a5feb4a520798064c1508c26fe4c4ac17a3a03cf`
 - **Stage 1 Commit (`Mission A`):** `fb2abcfc419c56b9579eee124a3a169697ec2740`
 - **Stage 2 Commit (`Mission A2`):** `862822433a833f277004ffb5511c5bdbe28c6b09`
-- **Stage 2-Delta Commit (`C2`/`D2`/`E2` & `67b7447` Integration Alignment `HEAD`):** Top commit on `feat/macos-multi-instance` directly parenting `862822433a833f277004ffb5511c5bdbe28c6b09` (`git -C C:/Users/manhquy/Downloads/zalo-macos-worktree rev-parse HEAD`; exact SHA reported on the swarm board at handoff).
+- **Stage 2-Delta Commit (`C2`/`D2`/`E2` & `67b7447` Integration Alignment `HEAD`):** Top commit on `feat/macos-multi-instance` directly parenting `862822433a833f277004ffb5511c5bdbe28c6b09` (`git -C <WORKTREE_ROOT>/zalo-macos-worktree rev-parse HEAD`; exact SHA reported on the swarm board at handoff).
 - **`Cargo.lock` & `crates/platform-macos/Cargo.toml` Diff:** **Zero bytes changed (`100%` untouched; `0` `git merge-tree` conflicts with `zalo-integration` @ `67b7447`).**
 
 ---

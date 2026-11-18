@@ -1,7 +1,7 @@
 # macOS Multi-Instance Test & Verification Evidence Report (Stage 2 Hardened)
 
 **Date (UTC):** `2026-11-17` (`2026-11-18+07:00`)  
-**Worktree:** `C:/Users/manhquy/Downloads/zalo-macos-worktree`  
+**Worktree:** `<WORKTREE_ROOT>/zalo-macos-worktree`  
 **Branch:** `feat/macos-multi-instance` (baseline `main` = `a5feb4a520798064c1508c26fe4c4ac17a3a03cf`)  
 **Host Environment:** Windows x64 (`rustc 1.100.0`, `cargo 1.100.0`, `clippy 0.1.100`, `node v26.13.1`, installed cross-targets `aarch64-apple-darwin` & `x86_64-apple-darwin`)  
 **6-State Verification Summary:**

@@ -159,6 +159,20 @@ fn suite_07_controlled_regression_filter_and_mode_contracts() {
 }
 
 #[test]
+#[ignore = "Internal single-process helper invoked by XP-WIN-03 under multi-threaded cargo test"]
+fn xp_win_03_isolated_subprocess_entry() {
+    let filter = CaseSelectionFilter {
+        suite: "cross-platform".to_owned(),
+        priority: PriorityFilter::All,
+        case_ids: vec!["XP-WIN-03".to_owned()],
+    };
+    let outcomes = run_filtered_suites(&filter, 10, 0x2026_1117);
+    assert_eq!(outcomes.len(), 1);
+    assert_no_unexpected_failures(&outcomes);
+    assert_release_gate_clean("XP-WIN-03 isolated subprocess", &outcomes);
+}
+
+#[test]
 #[ignore = "Mandatory P0 post-fix release gate: fails if any P0 case (LC-07, LC-08, PM-08, CT-10) reproduces a defect or fails"]
 fn release_gate_p0_mandatory() {
     let filter = CaseSelectionFilter {

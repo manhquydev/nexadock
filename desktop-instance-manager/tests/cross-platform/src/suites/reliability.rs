@@ -131,7 +131,14 @@ fn rel_01_ten_coordinator_restart_cycles(seed: u64) -> Result<CaseSuccess, Strin
             .launch_profile(&prof.id, &target)
             .map_err(|e| format!("cycle {cycle} launch failed: {e}"))?;
         let dl = Instant::now() + Duration::from_secs(4);
-        while Instant::now() < dl && !zdata.join("fixture-state.json").exists() {
+        while Instant::now() < dl {
+            let booted_this_cycle = fs::read_to_string(zdata.join("fixture-state.json"))
+                .ok()
+                .and_then(|raw| serde_json::from_str::<FixturePersistentState>(&raw).ok())
+                .is_some_and(|st| st.boot_sequence >= cycle);
+            if booted_this_cycle {
+                break;
+            }
             thread::sleep(Duration::from_millis(10));
         }
         let live = sandbox

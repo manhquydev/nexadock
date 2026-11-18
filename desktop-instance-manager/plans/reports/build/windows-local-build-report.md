@@ -1,7 +1,7 @@
 # Windows Local Build, Native Runtime Fixture & Packaging Verification Report
 
 **Report ID:** `DIM-WIN-BUILD-20261118-E2`  
-**Worktree:** `C:/Users/manhquy/Downloads/zalo-cross-platform-build/desktop-instance-manager`  
+**Worktree:** `<WORKTREE_ROOT>/zalo-cross-platform-build/desktop-instance-manager`  
 **Branch & Commit:** `build/cross-platform-distribution` @ `ac0df10c795208d983a2fb8d03f95ff627adf59c` (Base `main` @ `a5feb4a520798064c1508c26fe4c4ac17a3a03cf`)  
 **Host Operating System:** Microsoft Windows 11 Pro (`10.0.26300`, 64-bit `AMD64`/`x86_64`), Standard Non-Elevated Session (`asInvoker`)  
 **Canonical Production/CI Target:** `x86_64-pc-windows-msvc` (GitHub Actions `windows-2022`)  
@@ -45,7 +45,7 @@ Even with the Rust `std` target installed, linking `x86_64-pc-windows-msvc` requ
 
 ## 2. Formatting, `--locked` Static Analysis, Unit Tests & Native Runtime Fixture Execution
 
-All commands executed inside `C:/Users/manhquy/Downloads/zalo-cross-platform-build/desktop-instance-manager` with `--locked` enforced on every Cargo check/clippy/test/build invocation (`build-and-package.mjs --target x86_64-pc-windows-gnu --bundles all`). Zero modifications occurred to `Cargo.lock` (`41` packages) or `apps/desktop/src-tauri/Cargo.lock` (`434` packages).
+All commands executed inside `<WORKTREE_ROOT>/zalo-cross-platform-build/desktop-instance-manager` with `--locked` enforced on every Cargo check/clippy/test/build invocation (`build-and-package.mjs --target x86_64-pc-windows-gnu --bundles all`). Zero modifications occurred to `Cargo.lock` (`41` packages) or `apps/desktop/src-tauri/Cargo.lock` (`434` packages).
 
 | Stage | Exact Command | Exit Code | Duration | Verified Outcome |
 | :--- | :--- | :---: | ---: | :--- |
@@ -126,4 +126,4 @@ All three compiled executables embed `requestedExecutionLevel level="asInvoker" 
 2. **Real Vulnerability Advisory Scan (`dependency-audit-report.json`):**
    - Verified via live `cargo-deny 0.21.0` against `rustsec/advisory-db` @ `233155b4025b854c68a4b199c0e32d7fd53291a2`: **`0` vulnerabilities, `0` yanked crates, `0` banned crates, `0` SPDX license violations** across both lockfiles (`439` unique crates), strictly separated across all 7 supply-chain dimensions.
 3. **Atomic Integration Patch Series (`ir-patches/0001..0007*.patch`):**
-   - All 7 single-concern patches documented in [`integration-requests.md`](./integration-requests.md) passed `git -C C:/Users/manhquy/Downloads/zalo apply --check` both individually and sequentially (`exit 0`), leaving `main` and shared files in `build/cross-platform-distribution` completely untouched.
+   - All 7 single-concern patches documented in [`integration-requests.md`](./integration-requests.md) passed `git -C <REPO_ROOT> apply --check` both individually and sequentially (`exit 0`), leaving `main` and shared files in `build/cross-platform-distribution` completely untouched.

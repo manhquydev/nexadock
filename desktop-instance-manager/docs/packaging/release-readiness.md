@@ -65,7 +65,7 @@ Recorded in [`artifact-validation-manifest.json`](../../plans/reports/build/arti
 
 ## 4. Verified Atomic Integration Patches (`plans/reports/build/ir-patches/`)
 
-All **7 standalone single-concern patches** in [`plans/reports/build/integration-requests.md`](../../plans/reports/build/integration-requests.md) pass `git -C C:/Users/manhquy/Downloads/zalo apply --check` both individually and sequentially (`exit 0`), with **`0` file overlaps** across all 6 active worktrees (`main`, `feat/ui-vi-en-quiet-workspace`, `feat/macos-multi-instance`, `feat/ubuntu-multi-instance`, `test/cross-platform-reliability`, `research/desktop-compatibility`):
+All **7 standalone single-concern patches** in [`plans/reports/build/integration-requests.md`](../../plans/reports/build/integration-requests.md) pass `git -C <REPO_ROOT> apply --check` both individually and sequentially (`exit 0`), with **`0` file overlaps** across all 6 active worktrees (`main`, `feat/ui-vi-en-quiet-workspace`, `feat/macos-multi-instance`, `feat/ubuntu-multi-instance`, `test/cross-platform-reliability`, `research/desktop-compatibility`):
 
 | Patch File (`plans/reports/build/ir-patches/`) | IR & Severity | Target File(s) | Summary & CI Mitigation Status |
 | :--- | :--- | :--- | :--- |

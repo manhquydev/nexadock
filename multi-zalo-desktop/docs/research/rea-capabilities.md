@@ -1,8 +1,8 @@
 # Nghiên Cứu REA (Reverse Engineer Anything) & Khả Năng Hoạt Động Trên Windows
 
 **Phiên bản REA đã kiểm chứng:** `rea-agents` v6.9.0  
-**Đường dẫn cài đặt:** `C:\Users\manhquy\AppData\Roaming\npm\node_modules\rea-agents\scripts\rea.mjs`  
-**Repository cục bộ:** `c:\Users\manhquy\Downloads\zalo\rea` (`https://github.com/morluto/rea`)  
+**Đường dẫn cài đặt:** `%APPDATA%\npm\node_modules\rea-agents\scripts\rea.mjs`  
+**Repository cục bộ:** `<REPO_ROOT>\rea` (`https://github.com/morluto/rea`)  
 **Giao thức MCP:** `2026-07-28` (`255` công cụ MCP, `196` lệnh CLI)  
 **Bằng chứng phiên REA:** [`evidence/rea-binary-session.json`](../evidence/rea-binary-session.json)
 

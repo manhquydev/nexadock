@@ -217,9 +217,7 @@ pub struct BwrapSandboxPlan {
 pub fn generate_instance_nonce() -> String {
     let mut random_bytes = [0u8; 16];
     if let Ok(mut file) = fs::File::open("/dev/urandom") {
-        if file.read_exact(&mut random_bytes).is_ok()
-            && random_bytes.iter().any(|&b| b != 0)
-        {
+        if file.read_exact(&mut random_bytes).is_ok() && random_bytes.iter().any(|&b| b != 0) {
             let mut hex = String::with_capacity(32);
             for byte in random_bytes {
                 use std::fmt::Write as _;
@@ -486,7 +484,10 @@ pub fn parse_dbus_session_socket_path(dbus_address: &str) -> Option<PathBuf> {
 #[must_use]
 pub fn parse_x11_display_socket_path(display: &str) -> Option<PathBuf> {
     let trimmed = display.trim();
-    if trimmed.is_empty() || trimmed.contains('\0') || trimmed.contains('/') || trimmed.contains('\\')
+    if trimmed.is_empty()
+        || trimmed.contains('\0')
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
     {
         return None;
     }
@@ -801,7 +802,10 @@ pub fn plan_bwrap_desktop_sandbox(
             if !path_equals_opt_str(&wl_sock, real_home.as_deref()) && endpoint_exists(&wl_sock) {
                 push_ro_bind_try(&mut args, &wl_sock);
                 bound_endpoints.push(wl_sock);
-                push_unique_surface(&mut exposed_surfaces, DesktopSocketSurface::WaylandCompositor);
+                push_unique_surface(
+                    &mut exposed_surfaces,
+                    DesktopSocketSurface::WaylandCompositor,
+                );
             }
         }
     }
@@ -845,8 +849,7 @@ pub fn plan_bwrap_desktop_sandbox(
         if !path_equals_opt_str(&dbus_sock, real_home.as_deref()) && endpoint_exists(&dbus_sock) {
             push_ro_bind_try(&mut args, &dbus_sock);
             if explicit_dbus_env.is_none() {
-                synthesized_dbus_addr =
-                    Some(format!("unix:path={}", dbus_sock.to_string_lossy()));
+                synthesized_dbus_addr = Some(format!("unix:path={}", dbus_sock.to_string_lossy()));
             }
             bound_endpoints.push(dbus_sock);
             push_unique_surface(&mut exposed_surfaces, DesktopSocketSurface::SessionDbus);
@@ -881,7 +884,10 @@ pub fn plan_bwrap_desktop_sandbox(
             }
             push_ro_bind_try(&mut args, &pulse_sock);
             bound_endpoints.push(pulse_sock);
-            push_unique_surface(&mut exposed_surfaces, DesktopSocketSurface::PulseAudioServer);
+            push_unique_surface(
+                &mut exposed_surfaces,
+                DesktopSocketSurface::PulseAudioServer,
+            );
         }
     }
 
@@ -963,7 +969,10 @@ pub fn plan_bwrap_desktop_sandbox(
         ]);
     }
 
-    if let Some(pid_id) = options.profile_id.filter(|s| !s.is_empty() && !s.contains('\0')) {
+    if let Some(pid_id) = options
+        .profile_id
+        .filter(|s| !s.is_empty() && !s.contains('\0'))
+    {
         args.extend([
             "--setenv".to_owned(),
             DIM_PROFILE_ID_ENV.to_owned(),
@@ -1177,7 +1186,18 @@ fn is_broad_forbidden_bind_dir(trimmed_path: &str) -> bool {
     let p = trimmed_path.trim_end_matches('/');
     matches!(
         p,
-        "" | "/" | "/dev" | "/proc" | "/sys" | "/etc" | "/home" | "/root" | "/run" | "/var" | "/var/run" | "/tmp" | "/tmp/.X11-unix"
+        "" | "/"
+            | "/dev"
+            | "/proc"
+            | "/sys"
+            | "/etc"
+            | "/home"
+            | "/root"
+            | "/run"
+            | "/var"
+            | "/var/run"
+            | "/tmp"
+            | "/tmp/.X11-unix"
     ) || p.starts_with("/dev/")
         || p.starts_with("/proc/")
         || p.starts_with("/sys/")
@@ -1264,9 +1284,7 @@ pub(crate) fn write_atomic_private_file(path: &Path, content: &[u8]) -> Result<(
     reject_if_symlink(path)?;
     let tmp_name = format!(
         ".{}.tmp.{}",
-        path.file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("state"),
+        path.file_name().and_then(|s| s.to_str()).unwrap_or("state"),
         std::process::id()
     );
     let tmp_path = path.with_file_name(tmp_name);

@@ -1,7 +1,7 @@
 # CI Baseline, Runner Architecture & GitHub Blocker / Billing Audit Report
 
 **Mission:** AGENT MISSION E / E2 — Multi-Zalo Cross-Platform Build & Distribution  
-**Worktree:** `C:/Users/manhquy/Downloads/zalo-cross-platform-build` (`build/cross-platform-distribution`)  
+**Worktree:** `<WORKTREE_ROOT>/zalo-cross-platform-build` (`build/cross-platform-distribution`)  
 **Baseline `main` Commit:** `a5feb4a520798064c1508c26fe4c4ac17a3a03cf` (`a5feb4a`)  
 **Remote `origin/main` Commit:** `8cf47035f0f06bd97cc99aff80d81fb10b103af8` (`8cf4703`, local `main` is `ahead 1`)  
 **Workflow File:** [`.github/workflows/cross-platform-validation.yml`](../../../../.github/workflows/cross-platform-validation.yml)  
@@ -71,9 +71,9 @@ All checks below were executed strictly read-only on `2026-11-18` (zero pushes, 
 
 ### 3.2 Git HTTPS Credential Helper Chain (`git config --show-origin --get-regexp credential`)
 ```text
-file:C:/Users/manhquy/AppData/Local/Microsoft/WinGet/Packages/Git.MinGit_Microsoft.Winget.Source_8wekyb3d8bbwe/etc/gitconfig	credential.helper manager
-file:C:/Users/manhquy/.gitconfig	credential.https://github.com.helper 
-file:C:/Users/manhquy/.gitconfig	credential.https://github.com.helper !'C:\Program Files\GitHub CLI\gh.exe' auth git-credential
+file:<USERPROFILE>/AppData/Local/Microsoft/WinGet/Packages/Git.MinGit_Microsoft.Winget.Source_8wekyb3d8bbwe/etc/gitconfig	credential.helper manager
+file:<USERPROFILE>/.gitconfig	credential.https://github.com.helper 
+file:<USERPROFILE>/.gitconfig	credential.https://github.com.helper !'C:\Program Files\GitHub CLI\gh.exe' auth git-credential
 ```
 - **Proof:** User-level `~/.gitconfig` resets `credential.https://github.com.helper` and routes all `https://github.com` Git pushes exclusively through `C:\Program Files\GitHub CLI\gh.exe auth git-credential`.
 
@@ -134,12 +134,12 @@ Because interactive browser/device OAuth consent is required to add `workflow` s
    Verify remaining monthly GitHub Free `$12.00 USD/month` Actions compute credit in the GitHub Web UI (`Settings -> Billing & licensing`) before triggering builds.
 3. **Sync Verified Baseline `main` (`a5feb4a`) to `origin/main` (Fast-Forward Only):**
    ```powershell
-   git -C "C:/Users/manhquy/Downloads/zalo" push origin main
+   git -C "<REPO_ROOT>" push origin main
    ```
 4. **Register `cross-platform-validation.yml` on Default Branch (`main`) via Reviewed PR:**
    Push `build/cross-platform-distribution`, open a reviewed PR into `main` (after applying approved atomic `ir-patches/0001..0007` if desired), and merge cleanly without `--force`:
    ```powershell
-   git -C "C:/Users/manhquy/Downloads/zalo-cross-platform-build" push -u origin build/cross-platform-distribution
+   git -C "<WORKTREE_ROOT>/zalo-cross-platform-build" push -u origin build/cross-platform-distribution
    & "C:\Program Files\GitHub CLI\gh.exe" pr create --base main --head build/cross-platform-distribution --title "ci(packaging): add native cross-platform validation workflow and packaging docs"
    ```
 5. **Confirm Remote Workflow Registration on `main`:**

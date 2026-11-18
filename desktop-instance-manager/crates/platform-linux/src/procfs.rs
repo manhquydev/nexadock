@@ -312,7 +312,9 @@ pub fn read_runtime_pid_hint(profile_dir: &Path) -> Option<RuntimePidHint> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned);
-    let starttime_ticks = val.get("starttime_ticks").and_then(serde_json::Value::as_u64);
+    let starttime_ticks = val
+        .get("starttime_ticks")
+        .and_then(serde_json::Value::as_u64);
 
     Some(RuntimePidHint {
         pid,
@@ -505,8 +507,8 @@ pub fn collect_profile_process_tree(
         if expected_uid.is_some_and(|exp_u| entry.uid.is_some_and(|act_u| act_u != exp_u)) {
             continue;
         }
-        let matches_tag = entry_profile_id(entry)
-            .is_some_and(|id| id.eq_ignore_ascii_case(profile_id));
+        let matches_tag =
+            entry_profile_id(entry).is_some_and(|id| id.eq_ignore_ascii_case(profile_id));
         if !matches_tag {
             continue;
         }
@@ -680,7 +682,7 @@ pub fn parse_wmctrl_windows_for_pids(
         }
         let raw_hex = wid_hex
             .strip_prefix("0x")
-            .or_else(|| wid_hex.strip_prefix("0X") )
+            .or_else(|| wid_hex.strip_prefix("0X"))
             .unwrap_or(wid_hex);
         let Ok(window_id) = u64::from_str_radix(raw_hex, 16) else {
             continue;

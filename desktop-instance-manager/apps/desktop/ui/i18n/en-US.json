@@ -42,6 +42,7 @@
       "stopped": "Closed",
       "starting": "Opening Zalo...",
       "stopping": "Closing Zalo...",
+      "recoveryRequired": "Reopen to recover",
       "unknown": "Unknown",
       "error": "Issue",
       "loginNotVerified": "Sign-in not verified"

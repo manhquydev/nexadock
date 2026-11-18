@@ -83,9 +83,7 @@ impl AppState {
 
         let profile = self.store.get_profile(&initial_profile.id)?;
         let dir = self.store.profile_dir_for(&profile)?;
-        let rt = self
-            .coordinator
-            .inspect_profile_record(&profile, &dir)?;
+        let rt = self.coordinator.inspect_profile_record(&profile, &dir)?;
         let is_active_or_unclean =
             rt.running || rt.lifecycle_state() != ProfileLifecycleState::Stopped;
         self.backups.backup_profile_with_options(

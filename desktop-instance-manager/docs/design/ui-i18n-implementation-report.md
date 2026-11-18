@@ -1,7 +1,7 @@
 # Multi-Zalo Desktop — Quiet Workspace UI & vi-VN/en-US Localization Report
 
 ## 1. Scope & Workspace Compliance
-- **Branch**: `feat/ui-vi-en-quiet-workspace` (worktree `C:/Users/manhquy/Downloads/zalo-ui-worktree/desktop-instance-manager/`)
+- **Branch**: `feat/ui-vi-en-quiet-workspace` (worktree `<WORKTREE_ROOT>/zalo-ui-worktree/desktop-instance-manager/`)
 - **Modified / Created Files**:
   - `apps/desktop/ui/index.html`
   - `apps/desktop/ui/styles.css`

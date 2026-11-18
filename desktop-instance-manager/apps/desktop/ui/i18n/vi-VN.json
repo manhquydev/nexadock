@@ -42,6 +42,7 @@
       "stopped": "Đã đóng",
       "starting": "Đang mở ứng dụng...",
       "stopping": "Đang đóng ứng dụng...",
+      "recoveryRequired": "Cần mở lại để khôi phục",
       "unknown": "Chưa xác định",
       "error": "Có sự cố",
       "loginNotVerified": "Chưa xác minh đăng nhập"

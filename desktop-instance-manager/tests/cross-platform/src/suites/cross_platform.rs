@@ -354,6 +354,46 @@ fn xp_win_03_no_handle_inheritance() -> Result<CaseSuccess, String> {
     {
         use std::os::windows::fs::OpenOptionsExt;
 
+        // Under multi-threaded `cargo test` (`integration_entry`), sibling suites concurrently spawn
+        // `powershell.exe` / `dim-cli.exe` via `std::process::Command::output()` (`bInheritHandles=TRUE`
+        // for piped stdio), which would inherit any process-wide `bInheritHandle=1` handle opened in the
+        // shared test-runner process. Re-exec inside a dedicated single-threaded subprocess when running
+        // under `integration_entry` so ONLY `WindowsPlatformAdapter::launch` runs while `raw_handle` is open.
+        if std::env::var_os("DIM_XP_WIN_03_SINGLE_PROCESS").is_none() {
+            if let Ok(cur_exe) = std::env::current_exe() {
+                let exe_stem = cur_exe
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if exe_stem.starts_with("integration_entry") {
+                    let out = Command::new(&cur_exe)
+                        .env("DIM_XP_WIN_03_SINGLE_PROCESS", "1")
+                        .args([
+                            "--exact",
+                            "xp_win_03_isolated_subprocess_entry",
+                            "--ignored",
+                            "--nocapture",
+                        ])
+                        .stdin(Stdio::null())
+                        .output()
+                        .map_err(|e| format!("failed spawning isolated XP-WIN-03 helper: {e}"))?;
+                    if !out.status.success() {
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        return Err(format!(
+                            "isolated XP-WIN-03 subprocess failed (status={}): {stdout} {stderr}",
+                            out.status
+                        ));
+                    }
+                    return Ok(CaseSuccess::pass(json!({
+                        "parent_inheritable_handle_blocked_by_bInheritHandles_false": true,
+                        "isolated_subprocess_verified": true,
+                    })));
+                }
+            }
+        }
+
         let mut sandbox = IsolatedSandbox::new()?;
         let parent_secret = sandbox.root().join("parent-exclusive-handle.dat");
 
