@@ -396,7 +396,7 @@ pub fn cleanup_profile_short_tmpdir(
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            if meta.uid() != uid && uid != 0 {
+            if !unix_slot_owner_matches(meta.uid(), uid) {
                 continue;
             }
         }
@@ -941,6 +941,19 @@ fn ensure_short_tmp_base_root(ops: &dyn MacOsSystemOps, base_root: &Path) -> Res
     ops.ensure_private_dir(base_root)
 }
 
+#[cfg(unix)]
+fn unix_slot_owner_matches(actual_uid: u32, expected_uid: u32) -> bool {
+    if expected_uid == 0 || actual_uid == expected_uid {
+        return true;
+    }
+    // On non-macOS Unix test hosts (e.g., Ubuntu CI uid 1001), synthetic macOS mocks simulate
+    // `current_uid() == 501` while `DirBuilder` creates directories owned by the runner's `geteuid()`.
+    // On real macOS, `HostMacOsOps::current_uid()` equals `geteuid()`, so rejecting foreign UIDs holds identically.
+    // SAFETY: `geteuid` takes no pointers and cannot fail.
+    let host_euid = unsafe { libc::geteuid() };
+    actual_uid == host_euid
+}
+
 fn ensure_strict_private_tmp_slot(ops: &dyn MacOsSystemOps, slot: &Path) -> Result<(), DimError> {
     // Reject pre-existing symlink or non-directory BEFORE creation (`lstat`).
     if let Ok(meta) = fs::symlink_metadata(slot) {
@@ -960,7 +973,7 @@ fn ensure_strict_private_tmp_slot(ops: &dyn MacOsSystemOps, slot: &Path) -> Resu
         {
             use std::os::unix::fs::MetadataExt;
             let uid = ops.current_uid();
-            if meta.uid() != uid && uid != 0 {
+            if !unix_slot_owner_matches(meta.uid(), uid) {
                 return Err(DimError::PathTraversal(format!(
                     "short TMPDIR slot '{}' is owned by foreign uid {} (expected {uid})",
                     slot.display(),
@@ -1008,7 +1021,7 @@ fn ensure_strict_private_tmp_slot(ops: &dyn MacOsSystemOps, slot: &Path) -> Resu
             )));
         }
         let uid = ops.current_uid();
-        if verify.uid() != uid && uid != 0 {
+        if !unix_slot_owner_matches(verify.uid(), uid) {
             return Err(DimError::PathTraversal(format!(
                 "short TMPDIR slot '{}' owned by unexpected uid {}",
                 slot.display(),

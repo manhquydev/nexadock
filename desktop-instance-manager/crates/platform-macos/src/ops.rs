@@ -484,7 +484,7 @@ impl HostFixtureMacOsOps {
         Self {
             simulated_home,
             short_tmp_root,
-            uid: 501,
+            uid: NativeMacOsSystemOps.current_uid(),
             elevated: false,
             free_bytes_override: Mutex::new(None),
             tracked_processes: Mutex::new(HashMap::new()),
