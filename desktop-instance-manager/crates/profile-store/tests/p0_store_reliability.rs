@@ -387,10 +387,7 @@ fn legacy_storage_version_profiles_json_compat_and_fail_closed_guards() {
 
     // 1. Legacy fail-closed cases must preserve original bytes untouched.
     let fail_cases: &[(&[u8], &str)] = &[
-        (
-            br#"{"StorageVersion": 99, "Profiles": []}"#,
-            "SCHEMA_ERROR",
-        ),
+        (br#"{"StorageVersion": 99, "Profiles": []}"#, "SCHEMA_ERROR"),
         (
             br#"{"StorageVersion": "1", "Profiles": []}"#,
             "SCHEMA_ERROR",
@@ -445,7 +442,9 @@ fn legacy_storage_version_profiles_json_compat_and_fail_closed_guards() {
     assert_eq!(profiles[1].notes, "");
 
     // Trigger a write (rename) and verify the file is upgraded to canonical `schema_version: 1`.
-    store.rename_profile("8f0cd61b", "Tai khoan da doi ten").unwrap();
+    store
+        .rename_profile("8f0cd61b", "Tai khoan da doi ten")
+        .unwrap();
     let upgraded_raw = fs::read_to_string(&metadata_path).unwrap();
     let upgraded_json: serde_json::Value = serde_json::from_str(&upgraded_raw).unwrap();
     assert_eq!(upgraded_json["schema_version"], 1);
