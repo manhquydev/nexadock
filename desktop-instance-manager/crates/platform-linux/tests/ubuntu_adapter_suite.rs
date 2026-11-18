@@ -291,24 +291,34 @@ fn test_02_multiple_fixture_instances_concurrent_runtime() {
     let _c1 = spawn_linux_env_fixture(&p1, &dir1, &["--user-id=849000111", "--stay-ms=8000"]);
     let _c2 = spawn_linux_env_fixture(&p2, &dir2, &["--user-id=849000222", "--stay-ms=8000"]);
 
-    let lock1 = linux_zalo_data_dir(&dir1).join("lockfile");
-    let lock2 = linux_zalo_data_dir(&dir2).join("lockfile");
-    assert!(wait_for_file(&lock1, 4_000), "profile 1 lockfile missing");
-    assert!(wait_for_file(&lock2, 4_000), "profile 2 lockfile missing");
+    let zdir1 = linux_zalo_data_dir(&dir1);
+    let zdir2 = linux_zalo_data_dir(&dir2);
+    let lock1 = zdir1.join("lockfile");
+    let lock2 = zdir2.join("lockfile");
+    assert!(wait_for_file(&lock1, 5_000), "profile 1 lockfile missing");
+    assert!(wait_for_file(&lock2, 5_000), "profile 2 lockfile missing");
+    assert!(
+        wait_for_file(&zdir1.join("launch-state.json"), 5_000),
+        "profile 1 launch-state.json missing"
+    );
+    assert!(
+        wait_for_file(&zdir2.join("launch-state.json"), 5_000),
+        "profile 2 launch-state.json missing"
+    );
 
-    let pid1 = dim_platform_linux::read_linux_pid(&linux_zalo_data_dir(&dir1)).unwrap();
-    let pid2 = dim_platform_linux::read_linux_pid(&linux_zalo_data_dir(&dir2)).unwrap();
+    let pid1 = dim_platform_linux::read_linux_pid(&zdir1).unwrap();
+    let pid2 = dim_platform_linux::read_linux_pid(&zdir2).unwrap();
     assert_ne!(
         pid1, pid2,
         "concurrent instances must have distinct OS PIDs"
     );
 
     assert_eq!(
-        dim_core::detect_zalo_user_id(&linux_zalo_data_dir(&dir1)).as_deref(),
+        dim_core::detect_zalo_user_id(&zdir1).as_deref(),
         Some("849000111")
     );
     assert_eq!(
-        dim_core::detect_zalo_user_id(&linux_zalo_data_dir(&dir2)).as_deref(),
+        dim_core::detect_zalo_user_id(&zdir2).as_deref(),
         Some("849000222")
     );
 

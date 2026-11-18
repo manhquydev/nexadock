@@ -175,16 +175,14 @@ impl ExternalStorageGuard {
 }
 
 fn paths_conflict(a: &Path, b: &Path) -> bool {
-    if a == b {
-        return true;
-    }
     #[cfg(windows)]
     {
-        a.to_string_lossy()
-            .eq_ignore_ascii_case(&b.to_string_lossy())
+        a == b
+            || a.to_string_lossy()
+                .eq_ignore_ascii_case(&b.to_string_lossy())
     }
     #[cfg(not(windows))]
     {
-        false
+        a == b
     }
 }

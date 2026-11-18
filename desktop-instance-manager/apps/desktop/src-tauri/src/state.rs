@@ -114,6 +114,8 @@ mod tests {
             .join("fixtures")
             .join("cross-platform")
             .join("xf-fixture.mjs")
+            .canonicalize()
+            .expect("canonicalize xf-fixture.mjs")
     }
 
     fn temp_sandbox_dir(prefix: &str) -> PathBuf {
