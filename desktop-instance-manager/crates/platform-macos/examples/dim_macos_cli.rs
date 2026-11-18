@@ -355,8 +355,9 @@ fn run_cli(args: CliArgs) -> Result<Value, DimError> {
             let rec = store.get_profile(id)?;
             let pdir = store.profile_dir_for(&rec)?;
             let rt = adapter.inspect_profile(&rec, &pdir)?;
+            let deletion_state = dim_core::VerifiedDeletionState::from_runtime_state(&rt);
             let unlinked = std::cell::Cell::new(0usize);
-            store.delete_profile_with_guard(id, args.confirm, rt.running, &|dir| {
+            store.delete_profile_with_guard(id, args.confirm, deletion_state, &|dir| {
                 let count = adapter.unlink_profile_junctions(dir)?;
                 unlinked.set(count);
                 Ok(count)

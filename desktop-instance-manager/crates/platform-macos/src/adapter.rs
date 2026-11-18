@@ -414,8 +414,14 @@ impl InstanceMonitor for MacOsPlatformAdapter {
         let detected_uid = detect_zalo_user_id(&zalo_data);
         let disk_usage_bytes = compute_profile_disk_usage_bytes(profile_dir);
 
+        let has_lock_artifact = fs::symlink_metadata(zalo_data.join("SingletonLock")).is_ok()
+            || fs::symlink_metadata(zalo_data.join("lockfile")).is_ok();
         let status_label = if running {
-            "Running".to_owned()
+            if has_lock_artifact {
+                "Running".to_owned()
+            } else {
+                "Starting".to_owned()
+            }
         } else if tree.stale_lock_detected {
             "Stopped (Stale Lock)".to_owned()
         } else {

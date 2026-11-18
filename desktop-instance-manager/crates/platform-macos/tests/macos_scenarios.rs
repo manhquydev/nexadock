@@ -1415,9 +1415,12 @@ fn scenario_10_11_12_13_symlink_unlink_unicode_nfc_nfd_path_max_and_permissions(
     }
 
     store
-        .delete_profile_with_guard(&p_link.id, true, false, &|dir| {
-            adapter.unlink_profile_junctions(dir)
-        })
+        .delete_profile_with_guard(
+            &p_link.id,
+            true,
+            dim_core::VerifiedDeletionState::ConfirmedStopped,
+            &|dir| adapter.unlink_profile_junctions(dir),
+        )
         .unwrap();
     assert!(!d_link.exists());
     assert_eq!(fs::read_to_string(&sentinel).unwrap(), "HOST_DATA_INTACT");
