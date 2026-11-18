@@ -638,10 +638,10 @@ jobs:
           if-no-files-found: error
 
   macos-arm64-build:
-    name: "3. macOS Apple Silicon (arm64) Native Build, Runtime Fixture & Bundle"
+    name: "3. macOS 15 Apple Silicon (arm64) Native Build, Runtime Fixture & Bundle"
     needs: [rust-workspace-validation, dependency-audit]
     if: ${{ inputs.enable_macos_arm64 }}
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 25
     steps:
       - name: Checkout repository
