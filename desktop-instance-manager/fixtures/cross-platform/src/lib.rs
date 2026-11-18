@@ -784,6 +784,19 @@ pub fn is_os_pid_alive(pid: u32) -> bool {
     }
     #[cfg(unix)]
     {
+        #[cfg(target_os = "linux")]
+        if let Ok(stat_raw) = fs::read_to_string(format!("/proc/{pid}/stat")) {
+            if let Some(rparen) = stat_raw.rfind(')') {
+                if let Some(state_ch) = stat_raw
+                    .get(rparen + 1..)
+                    .and_then(|rest| rest.trim_start().chars().next())
+                {
+                    if matches!(state_ch, 'Z' | 'X') {
+                        return false;
+                    }
+                }
+            }
+        }
         let Ok(raw) = libc::pid_t::try_from(pid) else {
             return false;
         };

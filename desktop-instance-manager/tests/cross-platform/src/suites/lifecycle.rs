@@ -514,7 +514,21 @@ fn lc_05_relaunch_after_crash() -> Result<CaseSuccess, String> {
         .coordinator
         .launch_profile(&prof.id, &normal_target)
         .map_err(|e| e.to_string())?;
-    thread::sleep(Duration::from_millis(150));
+    let state_path = st_relaunch.zalo_data_dir.join("fixture-state.json");
+    let state_deadline = Instant::now() + Duration::from_millis(2000);
+    let mut fstate: Option<FixturePersistentState> = None;
+    while Instant::now() < state_deadline {
+        if let Ok(raw) = fs::read_to_string(&state_path) {
+            if let Ok(parsed) = serde_json::from_str::<FixturePersistentState>(&raw) {
+                if parsed.boot_sequence >= 2 {
+                    fstate = Some(parsed);
+                    break;
+                }
+                fstate = Some(parsed);
+            }
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
     let st_live = sandbox
         .coordinator
         .inspect_profile(&prof.id)
@@ -526,10 +540,13 @@ fn lc_05_relaunch_after_crash() -> Result<CaseSuccess, String> {
         return Err("profile failed to relaunch after crash recovery".to_owned());
     }
 
-    let state_raw = fs::read_to_string(st_live.zalo_data_dir.join("fixture-state.json"))
-        .map_err(|e| e.to_string())?;
-    let fstate: FixturePersistentState =
-        serde_json::from_str(&state_raw).map_err(|e| e.to_string())?;
+    let fstate = match fstate {
+        Some(s) if s.boot_sequence >= 2 => s,
+        _ => {
+            let state_raw = fs::read_to_string(&state_path).map_err(|e| e.to_string())?;
+            serde_json::from_str(&state_raw).map_err(|e| e.to_string())?
+        }
+    };
 
     sandbox
         .coordinator

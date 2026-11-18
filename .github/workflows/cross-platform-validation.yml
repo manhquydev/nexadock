@@ -357,7 +357,7 @@ jobs:
           cargo build --manifest-path fixtures/cross-platform/Cargo.toml --release --locked
           cargo build -p dim-test-fixture --bin dim-cli --release --locked
           HOME="${C2_TMP}/home" XDG_CONFIG_HOME="${C2_TMP}/xdg-config" \
-            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
+            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked -- --test-threads=1
           HOME="${C2_TMP}/home" XDG_CONFIG_HOME="${C2_TMP}/xdg-config" \
             node tests/cross-platform/scripts/run-all.mjs \
               --cycles 10 \
@@ -570,7 +570,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $env:APPDATA = "$c2Tmp\appdata"
             $env:LOCALAPPDATA = "$c2Tmp\localappdata"
-            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
+            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked -- --test-threads=1
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             node tests/cross-platform/scripts/run-all.mjs `
               --cycles 10 `
@@ -751,7 +751,7 @@ jobs:
           cargo build --manifest-path fixtures/cross-platform/Cargo.toml --release --locked
           cargo build -p dim-test-fixture --bin dim-cli --release --locked
           HOME="${C2_TMP}/home" \
-            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
+            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked -- --test-threads=1
           HOME="${C2_TMP}/home" \
             node tests/cross-platform/scripts/run-all.mjs \
               --cycles 10 \
@@ -937,7 +937,7 @@ jobs:
           cargo build --manifest-path fixtures/cross-platform/Cargo.toml --release --locked
           cargo build -p dim-test-fixture --bin dim-cli --release --locked
           HOME="${C2_TMP}/home" \
-            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked
+            cargo test --manifest-path tests/cross-platform/Cargo.toml --locked -- --test-threads=1
           HOME="${C2_TMP}/home" \
             node tests/cross-platform/scripts/run-all.mjs \
               --cycles 10 \
