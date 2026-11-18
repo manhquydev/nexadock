@@ -436,7 +436,11 @@ impl PlatformCapabilities for LinuxPlatformAdapter {
 
         // Surface explicit sandbox socket security-tradeoff notes for active host surfaces.
         if probe.display_session == DisplaySessionKind::X11 {
-            diagnostics.push(DesktopSocketSurface::X11Server.security_tradeoff_note().to_owned());
+            diagnostics.push(
+                DesktopSocketSurface::X11Server
+                    .security_tradeoff_note()
+                    .to_owned(),
+            );
         }
         diagnostics.push(
             DesktopSocketSurface::SessionDbus
@@ -621,8 +625,8 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             let singleton_present = fs::symlink_metadata(&singleton_lock).is_ok();
             let fixture_present = fs::symlink_metadata(&fixture_lock).is_ok();
             let runtime_hint_present = fs::symlink_metadata(&runtime_pid_file).is_ok();
-            let stale =
-                tree.main_pid.is_none() && (singleton_present || fixture_present || runtime_hint_present);
+            let stale = tree.main_pid.is_none()
+                && (singleton_present || fixture_present || runtime_hint_present);
             let lockfile_path = if singleton_present || (!fixture_present && !runtime_hint_present)
             {
                 singleton_lock
@@ -650,7 +654,11 @@ impl InstanceMonitor for LinuxPlatformAdapter {
                 detected_zalo_user_id: detected_uid,
                 disk_usage_bytes,
                 status_label: if tree.main_pid.is_some() {
-                    "Running".to_owned()
+                    if singleton_present || fixture_present {
+                        "Running".to_owned()
+                    } else {
+                        "Starting".to_owned()
+                    }
                 } else if stale {
                     "Stopped (Stale Lock)".to_owned()
                 } else {
@@ -674,8 +682,8 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             let singleton_present = fs::symlink_metadata(&singleton_lock).is_ok();
             let fixture_present = fs::symlink_metadata(&fixture_lock).is_ok();
             let runtime_hint_present = fs::symlink_metadata(&runtime_pid_file).is_ok();
-            let stale =
-                tree.main_pid.is_none() && (singleton_present || fixture_present || runtime_hint_present);
+            let stale = tree.main_pid.is_none()
+                && (singleton_present || fixture_present || runtime_hint_present);
             let lockfile_path = if singleton_present || (!fixture_present && !runtime_hint_present)
             {
                 singleton_lock
@@ -709,7 +717,11 @@ impl InstanceMonitor for LinuxPlatformAdapter {
                 detected_zalo_user_id: detected_uid,
                 disk_usage_bytes,
                 status_label: if tree.main_pid.is_some() {
-                    "Running".to_owned()
+                    if singleton_present || fixture_present {
+                        "Running".to_owned()
+                    } else {
+                        "Starting".to_owned()
+                    }
                 } else if stale {
                     "Stopped (Stale Lock)".to_owned()
                 } else {
@@ -719,7 +731,13 @@ impl InstanceMonitor for LinuxPlatformAdapter {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = (profile, singleton_lock, fixture_lock, runtime_pid_file, detected_uid);
+            let _ = (
+                profile,
+                singleton_lock,
+                fixture_lock,
+                runtime_pid_file,
+                detected_uid,
+            );
             Err(DimError::UnsupportedPlatform(
                 "Linux runtime inspection requires Linux".to_owned(),
             ))
@@ -828,6 +846,17 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                     }
                 };
                 let mut full = vec![script_path.to_string_lossy().into_owned()];
+                if !extra_args
+                    .iter()
+                    .any(|a| a == "--user-id" || a.starts_with("--user-id="))
+                {
+                    let zalo_data = linux_zalo_data_dir(profile_dir);
+                    let resolved_uid = detect_zalo_user_id(&zalo_data)
+                        .or_else(|| profile.zalo_user_id.clone())
+                        .unwrap_or_else(|| derive_deterministic_fixture_user_id(&profile.id));
+                    full.push("--user-id".to_owned());
+                    full.push(resolved_uid);
+                }
                 full.extend(extra_args.iter().cloned());
                 (resolved_node, full, false, vec![script_path.clone()])
             }
@@ -1090,16 +1119,64 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                 std::thread::sleep(std::time::Duration::from_millis(40));
             }
 
-            // Phase 2: Escalate to SIGKILL ONLY on remaining verified profile-owned PIDs in
-            // reverse topological order (leaves-first: helpers/renderers -> zygote -> app main ->
-            // outer `bwrap` wrapper), verifying `(pid, starttime_ticks)` right before each `kill(2)`.
-            let remaining = collect_profile_process_tree(
+            // Phase 2: Check `/proc/<pid>/fd` for open SQLite DB/WAL descriptors (`F-UBU-03`)
+            // before escalating to SIGKILL. If a PID still holds an active SQLite descriptor under
+            // `<zalo_data_dir>/Database/_production/`, grant one additional SIGTERM flush window and
+            // refuse blind mid-WAL SIGKILL if the descriptor remains open.
+            let mut remaining = collect_profile_process_tree(
                 Path::new("/proc"),
                 &state.profile_id,
                 &state.profile_dir,
                 &state.zalo_data_dir,
                 Some(euid),
             );
+            let has_open_db = remaining.process_ids.iter().any(|&pid| {
+                pid_holds_open_sqlite_db_fd(Path::new("/proc"), pid, &state.zalo_data_dir)
+            });
+            if has_open_db {
+                if let Some(graceful_pid) = remaining.main_pid {
+                    let exp_ticks = remaining.process_starttimes.get(&graceful_pid).copied();
+                    send_signal_verified(
+                        graceful_pid,
+                        exp_ticks,
+                        libc::SIGTERM,
+                        protected_primary_pids,
+                    );
+                }
+                let wal_deadline =
+                    std::time::Instant::now() + std::time::Duration::from_millis(500);
+                while std::time::Instant::now() < wal_deadline {
+                    reap_direct_children(&initial_targets);
+                    remaining = collect_profile_process_tree(
+                        Path::new("/proc"),
+                        &state.profile_id,
+                        &state.profile_dir,
+                        &state.zalo_data_dir,
+                        Some(euid),
+                    );
+                    let still_open = remaining.process_ids.iter().any(|&pid| {
+                        pid_holds_open_sqlite_db_fd(Path::new("/proc"), pid, &state.zalo_data_dir)
+                    });
+                    if !still_open {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                }
+                if remaining.process_ids.iter().any(|&pid| {
+                    pid_holds_open_sqlite_db_fd(Path::new("/proc"), pid, &state.zalo_data_dir)
+                }) {
+                    return Err(DimError::ProcessError(format!(
+                        "refused SIGKILL on profile '{}' ({}): process still holds open SQLite WAL/DB descriptors under '{}'",
+                        state.profile_name,
+                        state.profile_id,
+                        state.zalo_data_dir.display()
+                    )));
+                }
+            }
+
+            // Escalate to SIGKILL ONLY on remaining verified profile-owned PIDs in reverse
+            // topological order (leaves-first: helpers/renderers -> zygote -> app main ->
+            // outer `bwrap` wrapper), verifying `(pid, starttime_ticks)` right before each `kill(2)`.
             for &pid in remaining.process_ids.iter().rev() {
                 let exp_ticks = remaining.process_starttimes.get(&pid).copied();
                 send_signal_verified(pid, exp_ticks, libc::SIGKILL, protected_primary_pids);
@@ -1119,6 +1196,62 @@ impl InstanceLauncher for LinuxPlatformAdapter {
             ))
         }
     }
+}
+
+/// Derives a deterministic 7-digit fixture `zalo_user_id` (`1000000..9999998`) via FNV-1a over
+/// `profile_id`, matching Windows and macOS `NodeFixture` launch parity (`DEFECT-02`).
+#[must_use]
+pub fn derive_deterministic_fixture_user_id(profile_id: &str) -> String {
+    let mut hash: u32 = 2_166_136_261;
+    for b in profile_id.as_bytes() {
+        hash ^= u32::from(*b);
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    let uid = 1_000_000 + (hash % 8_999_999);
+    uid.to_string()
+}
+
+/// Checks `/proc/<pid>/fd` symlink targets (or plain descriptor target files in synthetic `proc_root`
+/// tests) to determine whether `pid` holds an open SQLite DB/WAL/journal descriptor inside
+/// `<zalo_data_dir>/Database/_production` (`F-UBU-03`).
+#[must_use]
+pub fn pid_holds_open_sqlite_db_fd(proc_root: &Path, pid: u32, zalo_data_dir: &Path) -> bool {
+    let fd_dir = proc_root.join(pid.to_string()).join("fd");
+    let Ok(entries) = fs::read_dir(&fd_dir) else {
+        return false;
+    };
+    let db_prod_dir = zalo_data_dir.join("Database").join("_production");
+    let db_prod_norm = db_prod_dir.to_string_lossy().replace('\\', "/");
+
+    for entry in entries.flatten() {
+        let fd_path = entry.path();
+        let target_path = fs::read_link(&fd_path).ok().or_else(|| {
+            fs::read_to_string(&fd_path)
+                .ok()
+                .map(|s| PathBuf::from(s.trim()))
+        });
+        let Some(target) = target_path else {
+            continue;
+        };
+        let target_norm = target.to_string_lossy().replace('\\', "/");
+        if !target_norm.starts_with(&db_prod_norm) {
+            continue;
+        }
+        let lower_name = target
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if lower_name.ends_with(".db")
+            || lower_name.ends_with("-wal")
+            || lower_name.ends_with("-shm")
+            || lower_name.ends_with("-journal")
+            || lower_name.contains(".sqlite")
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Reads PID from Linux `SingletonLock` symlink (`<host>-<pid>`) or fixture `lockfile` JSON.
@@ -1141,10 +1274,7 @@ fn detach_into_new_session() -> std::io::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn configure_child_lifetime(
-    cmd: &mut std::process::Command,
-    policy: LauncherLifetimePolicy,
-) {
+fn configure_child_lifetime(cmd: &mut std::process::Command, policy: LauncherLifetimePolicy) {
     use std::os::unix::process::CommandExt;
     if policy.detaches_from_launcher() {
         // SAFETY: `detach_into_new_session` invokes only POSIX async-signal-safe syscalls

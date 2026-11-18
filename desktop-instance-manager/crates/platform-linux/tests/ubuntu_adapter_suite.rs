@@ -918,9 +918,12 @@ fn test_11_unix_symlink_attack_and_safe_unlink() {
 
     let adapter = LinuxPlatformAdapter::new();
     store
-        .delete_profile_with_guard(&created.id, true, false, &|d| {
-            adapter.unlink_profile_junctions(d)
-        })
+        .delete_profile_with_guard(
+            &created.id,
+            true,
+            dim_core::VerifiedDeletionState::ConfirmedStopped,
+            &|d| adapter.unlink_profile_junctions(d),
+        )
         .unwrap();
     assert!(!cdir.exists());
     assert!(
@@ -940,9 +943,12 @@ fn test_11_portable_unlink_reparse_points_safe() {
     let adapter = LinuxPlatformAdapter::new();
     assert_eq!(adapter.unlink_profile_junctions(&cdir).unwrap(), 0);
     store
-        .delete_profile_with_guard(&created.id, true, false, &|d| {
-            adapter.unlink_profile_junctions(d)
-        })
+        .delete_profile_with_guard(
+            &created.id,
+            true,
+            dim_core::VerifiedDeletionState::ConfirmedStopped,
+            &|d| adapter.unlink_profile_junctions(d),
+        )
         .unwrap();
     assert!(!cdir.exists());
 }

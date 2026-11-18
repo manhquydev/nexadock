@@ -13,7 +13,10 @@ pub mod layout;
 pub mod procfs;
 pub mod status;
 
-pub use adapter::{read_linux_pid, LinuxPlatformAdapter};
+pub use adapter::{
+    derive_deterministic_fixture_user_id, pid_holds_open_sqlite_db_fd, read_linux_pid,
+    LinuxPlatformAdapter,
+};
 pub use discovery::{
     analyze_startup_script, classify_binary_bytes, discover_compatible_apps_from_env,
     discover_compatible_apps_in_roots, inspect_elf64_needed_libraries,
@@ -30,8 +33,8 @@ pub use isolation::{
     evaluate_appimage_preflight, find_executable_in_path, find_mount_for_path,
     has_targeted_apparmor_userns_profile, parse_proc_mounts, preflight_live_appimage,
     probe_live_ubuntu_runtime, probe_ubuntu_runtime_at, render_recommended_apparmor_profile,
-    AppImagePreflightReport, DisplaySessionKind, IsolationComparisonEntry,
-    LinuxIsolationMechanism, PreflightDiagnostic, ProcMountEntry, UbuntuRuntimeProbe,
+    AppImagePreflightReport, DisplaySessionKind, IsolationComparisonEntry, LinuxIsolationMechanism,
+    PreflightDiagnostic, ProcMountEntry, UbuntuRuntimeProbe,
     APPARMOR_PROFILE_NON_GUARANTEE_WARNING,
 };
 pub use layout::{
@@ -289,40 +292,45 @@ mod tests {
         );
 
         // Never bind real $HOME, full /run/user/1000, full `pulse` dir, or `/tmp/.X11-unix`!
-        assert!(!wl_plan
-            .args
-            .windows(3)
-            .any(|w| (w[0] == "--bind" || w[0] == "--ro-bind" || w[0] == "--ro-bind-try")
-                && (w[1] == "/home/alice"
-                    || w[1] == "/run/user/1000"
-                    || w[1] == "/run/user/1000/pulse"
-                    || w[1] == "/tmp/.X11-unix"
-                    || w[1] == "/dev")));
-        assert!(wl_plan
-            .args
-            .windows(3)
-            .any(|w| w == ["--ro-bind-try", "/run/user/1000/wayland-0", "/run/user/1000/wayland-0"]));
-        assert!(wl_plan
-            .args
-            .windows(3)
-            .any(|w| w == ["--ro-bind-try", "/tmp/dbus-isolated-bus", "/tmp/dbus-isolated-bus"]));
-        assert!(wl_plan
-            .args
-            .windows(3)
-            .any(|w| w == ["--ro-bind-try", "/run/user/1000/pipewire-0", "/run/user/1000/pipewire-0"]));
-        assert!(wl_plan.args.windows(3).any(
-            |w| w
-                == [
-                    "--ro-bind-try",
-                    "/run/user/1000/pulse/native",
-                    "/run/user/1000/pulse/native"
-                ]
-        ));
+        assert!(!wl_plan.args.windows(3).any(|w| (w[0] == "--bind"
+            || w[0] == "--ro-bind"
+            || w[0] == "--ro-bind-try")
+            && (w[1] == "/home/alice"
+                || w[1] == "/run/user/1000"
+                || w[1] == "/run/user/1000/pulse"
+                || w[1] == "/tmp/.X11-unix"
+                || w[1] == "/dev")));
+        assert!(wl_plan.args.windows(3).any(|w| w
+            == [
+                "--ro-bind-try",
+                "/run/user/1000/wayland-0",
+                "/run/user/1000/wayland-0"
+            ]));
+        assert!(wl_plan.args.windows(3).any(|w| w
+            == [
+                "--ro-bind-try",
+                "/tmp/dbus-isolated-bus",
+                "/tmp/dbus-isolated-bus"
+            ]));
+        assert!(wl_plan.args.windows(3).any(|w| w
+            == [
+                "--ro-bind-try",
+                "/run/user/1000/pipewire-0",
+                "/run/user/1000/pipewire-0"
+            ]));
+        assert!(wl_plan.args.windows(3).any(|w| w
+            == [
+                "--ro-bind-try",
+                "/run/user/1000/pulse/native",
+                "/run/user/1000/pulse/native"
+            ]));
         assert!(wl_plan
             .args
             .windows(3)
             .any(|w| w == ["--setenv", "GTK_USE_PORTAL", "1"]));
-        assert!(!wl_plan.exposed_surfaces.contains(&DesktopSocketSurface::X11Server));
+        assert!(!wl_plan
+            .exposed_surfaces
+            .contains(&DesktopSocketSurface::X11Server));
         assert!(wl_plan
             .security_tradeoff_notes
             .iter()
@@ -347,10 +355,12 @@ mod tests {
             .args
             .windows(3)
             .any(|w| w == ["--ro-bind-try", "/tmp/.X11-unix/X1", "/tmp/.X11-unix/X1"]));
-        assert!(x11_plan
-            .args
-            .windows(3)
-            .any(|w| w == ["--ro-bind-try", "/run/user/1000/xauth_token", "/run/user/1000/xauth_token"]));
+        assert!(x11_plan.args.windows(3).any(|w| w
+            == [
+                "--ro-bind-try",
+                "/run/user/1000/xauth_token",
+                "/run/user/1000/xauth_token"
+            ]));
         // Missing `pipewire-0` rejected by `endpoint_exists` must NOT be bound!
         assert!(!x11_plan
             .exposed_surfaces
@@ -501,7 +511,10 @@ mod tests {
 
         let tree = collect_profile_process_tree(&proc_root, &profile.id, &pdir, &zdir, Some(1000));
         assert_eq!(tree.main_pid, Some(2001));
-        assert_eq!(tree.process_ids[0], 2000, "outer bwrap must be root/first so reverse order kills it last");
+        assert_eq!(
+            tree.process_ids[0], 2000,
+            "outer bwrap must be root/first so reverse order kills it last"
+        );
         assert!(tree.process_ids.contains(&2001));
         assert!(tree.process_ids.contains(&2002));
         assert!(tree.process_ids.contains(&2003));
@@ -725,5 +738,31 @@ mod tests {
             sha256_bytes(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
+    }
+
+    #[test]
+    fn deterministic_fixture_uid_and_open_sqlite_fd_guard_work() {
+        let uid_a = derive_deterministic_fixture_user_id("11223344");
+        let uid_b = derive_deterministic_fixture_user_id("55667788");
+        assert_ne!(uid_a, uid_b);
+        assert_eq!(uid_a.len(), 7);
+        assert_eq!(uid_a, derive_deterministic_fixture_user_id("11223344"));
+
+        let tmp = tempfile::tempdir().unwrap();
+        let zdata = tmp.path().join(".config").join("ZaloData");
+        let prod = zdata.join("Database").join("_production").join("849111222");
+        fs::create_dir_all(&prod).unwrap();
+
+        let proc_root = tmp.path().join("proc");
+        let fd_dir = proc_root.join("7777").join("fd");
+        fs::create_dir_all(&fd_dir).unwrap();
+        assert!(!pid_holds_open_sqlite_db_fd(&proc_root, 7777, &zdata));
+
+        fs::write(
+            fd_dir.join("4"),
+            prod.join("zalo_msg.db-wal").display().to_string(),
+        )
+        .unwrap();
+        assert!(pid_holds_open_sqlite_db_fd(&proc_root, 7777, &zdata));
     }
 }

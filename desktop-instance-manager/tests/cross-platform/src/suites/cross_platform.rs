@@ -1076,12 +1076,13 @@ fn xp_lnx_03_bwrap_user_namespaces_and_apparmor() -> Result<CaseSuccess, String>
     let exe = Path::new("/opt/local/Zalo.AppImage");
     let args = build_bwrap_args(pdir, exe, &["--no-sandbox".to_owned()]);
 
-    let has_die_with_parent = args.iter().any(|a| a == "--die-with-parent");
+    let has_new_session =
+        args.iter().any(|a| a == "--new-session") && !args.iter().any(|a| a == "--die-with-parent");
     let has_ro_usr = args.windows(3).any(|w| w == ["--ro-bind", "/usr", "/usr"]);
     let has_home_bind = args.windows(3).any(|w| {
         w[0] == "--bind" && w[1] == "/tmp/dim-bwrap-prof" && w[2] == "/tmp/dim-bwrap-prof"
     });
-    if !has_die_with_parent || !has_ro_usr || !has_home_bind {
+    if !has_new_session || !has_ro_usr || !has_home_bind {
         return Err(format!("invalid bwrap sandbox argv: {args:?}"));
     }
 
@@ -1099,7 +1100,7 @@ fn xp_lnx_03_bwrap_user_namespaces_and_apparmor() -> Result<CaseSuccess, String>
 
     Ok(CaseSuccess::pass(json!({
         "bwrap_arg_count": args.len(),
-        "die_with_parent_enforced": has_die_with_parent,
+        "detached_new_session_enforced": has_new_session,
         "apparmor_userns_advisory_present": true,
     })))
 }
