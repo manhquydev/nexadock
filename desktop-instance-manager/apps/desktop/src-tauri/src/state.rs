@@ -75,6 +75,11 @@ impl WebSessionStore {
     }
 
     pub fn get(&self, id: &str) -> Result<WebSessionRecord, DimError> {
+        if !is_valid_web_session_id(id) {
+            return Err(DimError::InvalidProfileName(format!(
+                "invalid web session id '{id}'"
+            )));
+        }
         let guard = self
             .doc
             .lock()
@@ -99,6 +104,15 @@ impl WebSessionStore {
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("web sessions lock poisoned")))?;
 
+        let lower = normalized_name.to_lowercase();
+        if guard
+            .sessions
+            .iter()
+            .any(|s| s.display_name.to_lowercase() == lower)
+        {
+            return Err(DimError::DuplicateProfileName(normalized_name));
+        }
+
         let now = now_rfc3339_utc();
         let mut id = format!("web-{}", generate_profile_id());
         while guard.sessions.iter().any(|s| s.id == id) {
@@ -121,11 +135,24 @@ impl WebSessionStore {
     }
 
     pub fn rename(&self, id: &str, display_name: &str) -> Result<WebSessionRecord, DimError> {
+        if !is_valid_web_session_id(id) {
+            return Err(DimError::InvalidProfileName(format!(
+                "invalid web session id '{id}'"
+            )));
+        }
         let normalized_name = validate_web_session_name(display_name)?;
         let mut guard = self
             .doc
             .lock()
             .map_err(|_| DimError::Io(std::io::Error::other("web sessions lock poisoned")))?;
+        let lower = normalized_name.to_lowercase();
+        if guard
+            .sessions
+            .iter()
+            .any(|s| s.id != id && s.display_name.to_lowercase() == lower)
+        {
+            return Err(DimError::DuplicateProfileName(normalized_name));
+        }
         let mut next = guard.clone();
         let Some(entry) = next.sessions.iter_mut().find(|s| s.id == id) else {
             return Err(DimError::ProfileNotFound(format!(
@@ -145,6 +172,11 @@ impl WebSessionStore {
         id: &str,
         pending_profile_delete: Option<String>,
     ) -> Result<WebSessionRecord, DimError> {
+        if !is_valid_web_session_id(id) {
+            return Err(DimError::InvalidProfileName(format!(
+                "invalid web session id '{id}'"
+            )));
+        }
         let mut guard = self
             .doc
             .lock()
@@ -174,6 +206,11 @@ impl WebSessionStore {
         id: &str,
         pending_profile_delete: Option<String>,
     ) -> Result<WebSessionRecord, DimError> {
+        if !is_valid_web_session_id(id) {
+            return Err(DimError::InvalidProfileName(format!(
+                "invalid web session id '{id}'"
+            )));
+        }
         let mut guard = self
             .doc
             .lock()
@@ -219,6 +256,12 @@ impl WebSessionStore {
     }
 }
 
+/// Validates that a web session ID has the canonical `web-<8 lowercase hex>` format (12 ASCII bytes).
+pub fn is_valid_web_session_id(id: &str) -> bool {
+    id.strip_prefix("web-")
+        .is_some_and(dim_core::is_valid_profile_id)
+}
+
 fn validate_web_session_name(raw: &str) -> Result<String, DimError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -229,6 +272,15 @@ fn validate_web_session_name(raw: &str) -> Result<String, DimError> {
     if trimmed.chars().count() > 80 {
         return Err(DimError::InvalidProfileName(
             "Web session display name must be at most 80 characters.".to_owned(),
+        ));
+    }
+    if trimmed
+        .chars()
+        .any(|c| c == '\0' || c.is_control() || c == '/' || c == '\\')
+        || trimmed.contains("..")
+    {
+        return Err(DimError::InvalidProfileName(
+            "Web session display name contains invalid control or path characters.".to_owned(),
         ));
     }
     Ok(trimmed.to_owned())
@@ -259,6 +311,7 @@ fn load_web_sessions(data_dir: &Path) -> WebSessionsDocument {
     if parsed.schema_version == 0 {
         parsed.schema_version = WEB_SESSIONS_SCHEMA_VERSION;
     }
+    parsed.sessions.retain(|s| is_valid_web_session_id(&s.id));
     parsed
 }
 
@@ -573,6 +626,65 @@ mod tests {
         assert_eq!(
             reloaded.pending_profile_deletes(),
             vec!["khoang_web_old_g2".to_owned()]
+        );
+
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn web_session_store_rejects_duplicate_names_and_invalid_ids() {
+        let data_dir = temp_sandbox_dir("web-store-valid");
+        let store = WebSessionStore::initialize(&data_dir);
+
+        let first = store
+            .create("Zalo Web Alpha", Some("ocean"))
+            .expect("create first web session");
+        assert!(is_valid_web_session_id(&first.id));
+        assert!(!is_valid_web_session_id("web-../../etc"));
+        assert!(!is_valid_web_session_id("web-UPPER123"));
+        assert!(!is_valid_web_session_id("web-1234567890"));
+
+        let dup = store
+            .create("  zalo web alpha  ", None)
+            .expect_err("case-insensitive duplicate display_name must fail");
+        assert_eq!(dup.code(), "DUPLICATE_NAME");
+
+        let second = store
+            .create("Zalo Web Beta", None)
+            .expect("create second web session");
+        let rename_dup = store
+            .rename(&second.id, "ZALO WEB ALPHA")
+            .expect_err("rename to existing display_name must fail");
+        assert_eq!(rename_dup.code(), "DUPLICATE_NAME");
+
+        // Self-rename with casing change is allowed.
+        let self_renamed = store
+            .rename(&first.id, "Zalo Web ALPHA")
+            .expect("self rename allowed");
+        assert_eq!(self_renamed.display_name, "Zalo Web ALPHA");
+
+        assert!(store.create("Bad/Name", None).is_err());
+        assert!(store.create("Bad..Name", None).is_err());
+        assert!(store.create("Bad\x07Name", None).is_err());
+
+        assert_eq!(
+            store.get("web-notvalid!").unwrap_err().code(),
+            "INVALID_NAME"
+        );
+        assert_eq!(
+            store.rename("../escape", "Valid").unwrap_err().code(),
+            "INVALID_NAME"
+        );
+        assert_eq!(
+            store
+                .bump_generation_for_reset("web-123", None)
+                .unwrap_err()
+                .code(),
+            "INVALID_NAME"
+        );
+        assert_eq!(
+            store.delete("web-123", None).unwrap_err().code(),
+            "INVALID_NAME"
         );
 
         let _ = fs::remove_dir_all(&data_dir);

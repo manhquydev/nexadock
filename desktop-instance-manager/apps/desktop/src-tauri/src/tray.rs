@@ -221,10 +221,12 @@ pub fn init_tray<R: Runtime>(app: &AppHandle<R>, locale: TrayLocale) -> tauri::R
                     show_main_window(app);
                 }
                 MENU_ACCOUNTS_ID => {
+                    let _ = crate::web_workspace::hide_all_sessions(app);
                     show_main_window(app);
                     let _ = app.emit("khoang://navigate", "profiles");
                 }
                 MENU_SETTINGS_ID => {
+                    let _ = crate::web_workspace::hide_all_sessions(app);
                     show_main_window(app);
                     let _ = app.emit("khoang://navigate", "settings");
                 }

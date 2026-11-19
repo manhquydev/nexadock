@@ -21,8 +21,12 @@ fn main() {
         .setup(|app| {
             web_workspace::register_main_thread();
             let st = app.state::<AppState>();
-            let _ =
-                web_workspace::sweep_pending_profile_deletes(st.store.data_dir(), &st.web_sessions);
+            let main_win = app.get_webview_window("main");
+            let _ = web_workspace::sweep_pending_profile_deletes(
+                main_win.as_ref(),
+                st.store.data_dir(),
+                &st.web_sessions,
+            );
             let prefs = app.state::<DesktopPrefsState>().snapshot();
             tray::init_tray(app.handle(), tray::TrayLocale::parse(&prefs.locale))?;
             tray::refresh_tray_accounts(app.handle());
@@ -33,7 +37,9 @@ fn main() {
                 return;
             }
             match event {
-                WindowEvent::Moved(_) => {
+                WindowEvent::Moved(_)
+                | WindowEvent::Resized(_)
+                | WindowEvent::ScaleFactorChanged { .. } => {
                     web_workspace::notify_parent_moved_on_current_thread();
                 }
                 WindowEvent::CloseRequested { api, .. } => {

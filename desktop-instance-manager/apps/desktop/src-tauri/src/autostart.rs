@@ -8,6 +8,7 @@ use std::path::Path;
 
 use dim_core::DimError;
 
+#[allow(dead_code)]
 pub const AUTOSTART_ENTRY_NAME: &str = "KHOANG";
 #[cfg(target_os = "macos")]
 const MACOS_LAUNCH_AGENT_LABEL: &str = "com.multizalodesktop.manager";
