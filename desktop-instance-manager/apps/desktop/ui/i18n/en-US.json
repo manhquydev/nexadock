@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "KHOANG",
-    "windowTitle": "KHOANG — Accounts",
+    "name": "NexaDock",
+    "windowTitle": "NexaDock — Accounts",
     "subtitle": "Your accounts. Their own space.",
     "modeTauri": "Desktop app",
     "modeBridge": "Local bridge",
@@ -224,8 +224,8 @@
     "behavior": {
       "heading": "Desktop Behavior",
       "keepInTray": "Keep running in system tray when closing window",
-      "autostart": "Launch KHOANG on system startup",
-      "desktopOnlyHint": "Available only in the KHOANG desktop app."
+      "autostart": "Launch NexaDock on system startup",
+      "desktopOnlyHint": "Available only in the NexaDock desktop app."
     },
     "language": {
       "heading": "Display language",
@@ -262,7 +262,7 @@
     "cards": {
       "mentalModel": {
         "title": "1. What this app does (and doesn't do)",
-        "body": "KHOANG creates separate data spaces so you can run multiple Zalo Desktop windows side by side. It does not register new Zalo accounts and never asks for or stores your passwords, OTP codes, or messages."
+        "body": "NexaDock creates separate data spaces so you can run multiple Zalo Desktop windows side by side. It does not register new Zalo accounts and never asks for or stores your passwords, OTP codes, or messages."
       },
       "signIn": {
         "title": "2. Adding and signing in to an account",
@@ -304,10 +304,10 @@
       "modeLegend": "Session mode",
       "modeDesktopTitle": "Zalo Desktop (Isolated)",
       "modeDesktopRecommended": "Recommended",
-      "modeDesktopDesc": "Opens an independent Zalo Desktop window with full voice/video calls and offline KHOANG backups.",
-      "modeWebTitle": "Zalo Web (Isolated in KHOANG)",
+      "modeDesktopDesc": "Opens an independent Zalo Desktop window with full voice/video calls and offline NexaDock backups.",
+      "modeWebTitle": "Zalo Web (Isolated in NexaDock)",
       "modeWebBeta": "Experimental",
-      "modeWebDesc": "Runs directly inside KHOANG with isolated storage. One active Web session per account; no offline local backup; browser-based calls.",
+      "modeWebDesc": "Runs directly inside NexaDock with isolated storage. One active Web session per account; no offline local backup; browser-based calls.",
       "modeWebUnsupported": "Unavailable on this platform.",
       "step2Title": "Space \"{name}\" is ready",
       "step2Body": "Its separate Zalo space is ready. Open Zalo Desktop now to sign in with QR or password (or open it anytime from the main screen).",
@@ -322,7 +322,7 @@
     },
     "delete": {
       "title": "Remove this account?",
-      "warning": "This deletes all local data for \"{name}\" from KHOANG. Back it up first if you want to keep local history.",
+      "warning": "This deletes all local data for \"{name}\" from NexaDock. Back it up first if you want to keep local history.",
       "confirmText": "Close Zalo before removing account data.",
       "submit": "Remove account"
     },
@@ -339,10 +339,10 @@
       "submit": "Reset session"
     },
     "help": {
-      "title": "How KHOANG works",
+      "title": "How NexaDock works",
       "items": [
         "Each account you add opens Zalo Desktop in its own separate space.",
-        "You sign in directly inside Zalo (QR or password); KHOANG never collects credentials.",
+        "You sign in directly inside Zalo (QR or password); NexaDock never collects credentials.",
         "Any Zalo already installed on your computer stays untouched and protected.",
         "You can back up any account whenever its Zalo window is closed."
       ]
@@ -409,18 +409,18 @@
     "reloadAria": "Reload Web session",
     "limitsTriggerAria": "Web session limitations",
     "limitsTitle": "Isolated Zalo Web limitations",
-    "limitsBody": "• Zalo allows only 1 active Zalo Web session per account at a time.\n• No local KHOANG backup/export; resetting this session requires scanning QR again.\n• Voice/video calls run in the browser and require separate mic/camera permission.",
+    "limitsBody": "• Zalo allows only 1 active Zalo Web session per account at a time.\n• No local NexaDock backup/export; resetting this session requires scanning QR again.\n• Voice/video calls run in the browser and require separate mic/camera permission.",
     "reset": "Reset Web session",
     "moreAria": "Web session options",
     "loading": "Opening isolated Zalo Web session...",
     "pausedForOverlay": "Web view is paused while an overlay is open.",
-    "previewNotice": "Isolated Zalo Web sessions render inside the KHOANG desktop app.",
+    "previewNotice": "Isolated Zalo Web sessions render inside the NexaDock desktop app.",
     "unsupportedTitle": "Web session is unavailable on this platform",
     "unsupportedBody": "Use an isolated Zalo Desktop account for full features and data isolation."
   },
   "desktopStage": {
-    "honestNotice": "Running in an independent Zalo Desktop window — not embedded inside KHOANG.",
-    "primaryNotice": "Your main Zalo installation is protected in read-only mode. KHOANG never closes, removes, overwrites, or repositions its window.",
+    "honestNotice": "Running in an independent Zalo Desktop window — not embedded inside NexaDock.",
+    "primaryNotice": "Your main Zalo installation is protected in read-only mode. NexaDock never closes, removes, overwrites, or repositions its window.",
     "bringToFront": "Bring window to front",
     "openAndFocus": "Open & Bring to front",
     "activating": "Activating account...",
@@ -430,10 +430,10 @@
     "retryAction": "Try again",
     "refreshAction": "Refresh status",
     "useDesktopAction": "Add Desktop account",
-    "companionSnapLabel": "Snap beside KHOANG (optional)",
-    "companionSnapHint": "Positions this secondary Zalo Desktop window beside KHOANG; turn off to restore its previous position. Not embedded.",
+    "companionSnapLabel": "Snap beside NexaDock (optional)",
+    "companionSnapHint": "Positions this secondary Zalo Desktop window beside NexaDock; turn off to restore its previous position. Not embedded.",
     "companionSnapPrimaryBlocked": "Disabled for protected main Zalo.",
-    "companionSnapStopped": "Open Zalo first to snap its window beside KHOANG.",
+    "companionSnapStopped": "Open Zalo first to snap its window beside NexaDock.",
     "snapSectionTitle": "Window arrangement",
     "manageSectionTitle": "Account management",
     "dangerZoneTitle": "Destructive action",
@@ -471,7 +471,7 @@
     "UNSUPPORTED_PLATFORM": "This feature is not supported on your operating system yet.",
     "BACKUP_ERROR": "Cannot back up while Zalo is open or the folder is busy.",
     "SHARED_EXTERNAL_DB_PATH": "This account shares an external Zalo storage folder with another open account. Please configure separate storage folders inside Zalo.",
-    "EXTERNAL_DB_OUTSIDE_PROFILE": "This account stores Zalo messages in an external folder outside KHOANG, so standard backup is paused to protect your history.",
+    "EXTERNAL_DB_OUTSIDE_PROFILE": "This account stores Zalo messages in an external folder outside NexaDock, so standard backup is paused to protect your history.",
     "RESTORE_ERROR": "Could not restore because this backup is missing files, damaged, or failed integrity verification.",
     "PROCESS_ERROR": "Could not open Zalo. Try again.",
     "LAUNCH_FAILED": "Zalo closed before finishing startup. Please try opening this account again.",

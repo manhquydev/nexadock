@@ -422,7 +422,7 @@ async function runSuite() {
       const indexResp = await fetch(`${baseUrl}/`);
       assert.equal(indexResp.status, 200);
       const indexHtml = await indexResp.text();
-      assert.match(indexHtml, /KHOANG/);
+      assert.match(indexHtml, /NexaDock/);
       const tokenMatch = indexHtml.match(/<meta\s+name="dim-session-token"\s+content="([0-9a-f]{64})">/);
       assert.ok(tokenMatch, 'Expected injected meta[name="dim-session-token"] on index page');
       const sessionToken = tokenMatch[1];

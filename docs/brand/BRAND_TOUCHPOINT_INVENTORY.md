@@ -1,4 +1,6 @@
-# KHOANG — Brand Consistency & Touchpoint Inventory
+# KHOANG — Brand Consistency & Touchpoint Inventory (Superseded)
+
+> **SUPERSEDED:** Preserved for KHOANG historical touchpoint traceability. Current NexaDock (PROVISIONAL) brand guidelines and naming classification live in [brand-guidelines.md](brand-guidelines.md) and [naming-and-trademark-review.md](naming-and-trademark-review.md). Persistent compatibility keys (`MultiZaloDesktop`, `multi-zalo.*`, `khoang-preferences.json`, `khoang.*`) remain unchanged.
 
 > **Audit Scope:** Full repository (`c:\Users\manhquy\Downloads\zalo`) audited against **Locked Brand Decisions**:
 > - **Product Name:** `KHOANG` (Technical short name: `khoang`, Positioning: `Independent Account Workspace`)

@@ -1,4 +1,6 @@
-# KHOANG — Migration & Backward-Compatibility Report
+# KHOANG — Migration & Backward-Compatibility Report (Historical Record)
+
+> **UPDATED / SUPERSEDED IN PART:** Historical compatibility record from Multi-Zalo Desktop -> KHOANG. Current NexaDock (PROVISIONAL) compatibility, autostart migration (`"KHOANG"` / `khoang.desktop` -> `"NexaDock"` / `nexadock.desktop`), and preserved persistent identifiers are documented in [brand-guidelines.md](brand-guidelines.md) and [../design/implementation-report.md](../design/implementation-report.md).
 
 > **Scope:** Upgrading from Multi-Zalo Desktop to **KHOANG** without losing existing user accounts, login sessions, backups, theme/locale preferences, or account color tags.
 

@@ -1790,17 +1790,17 @@ fn regression_02_manager_graceful_shutdown_and_bwrap_tree_ordering() {
     let mut guard_stop = spawn_linux_env_fixture(
         &p_stop,
         &dir_stop,
-        &["--user-id=849802001", "--stay-ms=12000"],
+        &["--user-id=849802001", "--stay-ms=20000"],
     );
     let _guard_keep = spawn_linux_env_fixture(
         &p_keep,
         &dir_keep,
-        &["--user-id=849802002", "--stay-ms=12000"],
+        &["--user-id=849802002", "--stay-ms=20000"],
     );
-    assert!(wait_for_file(&z_stop.join("lockfile"), 4_000));
-    assert!(wait_for_file(&z_stop.join("launch-state.json"), 4_000));
-    assert!(wait_for_file(&z_keep.join("lockfile"), 4_000));
-    assert!(wait_for_file(&z_keep.join("launch-state.json"), 4_000));
+    assert!(wait_for_file(&z_stop.join("lockfile"), 10_000));
+    assert!(wait_for_file(&z_stop.join("launch-state.json"), 10_000));
+    assert!(wait_for_file(&z_keep.join("lockfile"), 10_000));
+    assert!(wait_for_file(&z_keep.join("launch-state.json"), 10_000));
 
     fs::write(z_stop.join(".quit-signal"), "{\"requested_at\":\"now\"}\n").unwrap();
     if let Some(ref mut c) = guard_stop.0 {

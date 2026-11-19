@@ -9,7 +9,7 @@ use std::path::Path;
 use dim_core::DimError;
 
 #[allow(dead_code)]
-pub const AUTOSTART_ENTRY_NAME: &str = "KHOANG";
+pub const AUTOSTART_ENTRY_NAME: &str = "NexaDock";
 #[cfg(target_os = "macos")]
 const MACOS_LAUNCH_AGENT_LABEL: &str = "com.multizalodesktop.manager";
 
@@ -108,7 +108,7 @@ fn format_linux_desktop_entry(exe_path: &Path) -> String {
         "[Desktop Entry]\n\
 Type=Application\n\
 Version=1.0\n\
-Name=KHOANG\n\
+Name=NexaDock\n\
 Comment=Independent Account Workspace\n\
 Exec=\"{escaped_exe}\"\n\
 Terminal=false\n\
@@ -196,20 +196,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formats_autostart_entries_with_khoang_branding() {
-        let win = format_windows_run_value(Path::new("C:\\Program Files\\KHOANG\\khoang.exe"));
-        assert_eq!(win, "\"C:\\Program Files\\KHOANG\\khoang.exe\"");
+    fn formats_autostart_entries_with_nexadock_branding() {
+        let win = format_windows_run_value(Path::new("C:\\Program Files\\NexaDock\\nexadock.exe"));
+        assert_eq!(win, "\"C:\\Program Files\\NexaDock\\nexadock.exe\"");
 
         let plist = format_macos_launch_agent_plist(
             "com.multizalodesktop.manager",
-            Path::new("/Applications/KHOANG.app/Contents/MacOS/KHOANG"),
+            Path::new("/Applications/NexaDock.app/Contents/MacOS/NexaDock"),
         );
         assert!(plist.contains("<string>com.multizalodesktop.manager</string>"));
-        assert!(plist.contains("<string>/Applications/KHOANG.app/Contents/MacOS/KHOANG</string>"));
+        assert!(
+            plist.contains("<string>/Applications/NexaDock.app/Contents/MacOS/NexaDock</string>")
+        );
         assert!(plist.contains("<true/>"));
 
-        let desktop = format_linux_desktop_entry(Path::new("/usr/bin/khoang"));
-        assert!(desktop.contains("Name=KHOANG"));
-        assert!(desktop.contains("Exec=\"/usr/bin/khoang\""));
+        let desktop = format_linux_desktop_entry(Path::new("/usr/bin/nexadock"));
+        assert!(desktop.contains("Name=NexaDock"));
+        assert!(desktop.contains("Exec=\"/usr/bin/nexadock\""));
     }
 }

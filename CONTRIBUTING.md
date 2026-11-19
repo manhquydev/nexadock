@@ -1,6 +1,6 @@
-# Contributing to KHOANG
+# Contributing to NexaDock
 
-Thank you for contributing to **KHOANG** (`desktop-instance-manager/`, formerly Multi-Zalo Desktop).
+Thank you for contributing to **NexaDock** (`desktop-instance-manager/`, formerly Multi-Zalo Desktop).
 
 ## Licensing (`Inbound = Outbound`)
 

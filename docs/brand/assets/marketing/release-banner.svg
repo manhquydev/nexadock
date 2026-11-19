@@ -1,23 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" fill="none" role="img" aria-label="KHOANG Release Banner">
-  <rect width="1200" height="320" rx="16" fill="#192A26" />
-  <rect x="1" y="1" width="1198" height="318" rx="15" stroke="#2B423C" stroke-width="2" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" fill="none" role="img" aria-label="NexaDock Release Banner">
+  <rect width="1200" height="320" rx="16" fill="#0F171A" />
+  <rect x="1" y="1" width="1198" height="318" rx="15" stroke="#273940" stroke-width="2" />
 
-  <g transform="translate(64 64) scale(2.0)">
-    <rect x="2" y="2" width="20" height="20" rx="5" stroke="#F6F5F2" stroke-width="1.75" />
-    <rect x="5.5" y="5.5" width="5.5" height="13" rx="1.75" fill="#F6F5F2" />
-    <rect x="13" y="5.5" width="5.5" height="6" rx="1.5" fill="#BCE5D8" />
-    <rect x="13" y="13" width="5.5" height="5.5" rx="1.5" stroke="#F6F5F2" stroke-width="1.5" />
+  <g transform="translate(64 60) scale(2.2)">
+    <rect x="2" y="2" width="20" height="20" rx="5.5" stroke="#EAF2EF" stroke-width="1.75" />
+    <rect x="5" y="5" width="3.75" height="14" rx="1.75" fill="#DCE8E2" />
+    <rect x="10.75" y="5" width="8.25" height="6.25" rx="1.75" fill="#247D70" />
+    <circle cx="16.25" cy="8.125" r="1.15" fill="#FFFFFF" />
+    <rect x="10.75" y="12.75" width="8.25" height="6.25" rx="1.75" stroke="#9FB3B9" stroke-width="1.65" />
   </g>
-  <text x="128" y="102" fill="#F6F5F2" font-family="'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif" font-size="36" font-weight="700" letter-spacing="2.5">KHOANG</text>
+  <text x="136" y="102" fill="#EAF2EF" font-family="'Inter', 'Segoe UI', system-ui, sans-serif" font-size="40" font-weight="700" letter-spacing="-0.6">Nexa<tspan fill="#2DD4BF">Dock</tspan></text>
 
-  <rect x="64" y="136" width="244" height="28" rx="14" fill="#17675F" />
-  <text x="80" y="155" fill="#BCE5D8" font-family="'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif" font-size="13" font-weight="600">INDEPENDENT ACCOUNT WORKSPACE</text>
+  <rect x="64" y="136" width="276" height="28" rx="14" fill="#173632" stroke="#247D70" stroke-width="1" />
+  <text x="84" y="154.5" fill="#DCE8E2" font-family="'Inter', 'Segoe UI', system-ui, sans-serif" font-size="12" font-weight="600">ISOLATED ACCOUNT WORKSPACE</text>
 
-  <text x="64" y="210" fill="#F6F5F2" font-family="'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif" font-size="24" font-weight="600">Your accounts. Their own space.</text>
-  <text x="64" y="246" fill="#BCE5D8" font-family="'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif" font-size="18" font-weight="500">Một máy. Nhiều tài khoản. Không trộn dữ liệu.</text>
+  <text x="64" y="210" fill="#EAF2EF" font-family="'Inter', 'Segoe UI', system-ui, sans-serif" font-size="24" font-weight="600">Your accounts. Their own isolated space.</text>
+  <text x="64" y="246" fill="#9FB3B9" font-family="'Inter', 'Segoe UI', system-ui, sans-serif" font-size="18" font-weight="500">Một máy. Nhiều tài khoản Zalo Desktop. Không trộn dữ liệu.</text>
 
-  <!-- Right side bays -->
-  <rect x="890" y="54" width="108" height="212" rx="12" fill="#233832" stroke="#36544B" stroke-width="1.5" />
-  <rect x="1014" y="54" width="122" height="98" rx="12" fill="#17675F" />
-  <rect x="1014" y="168" width="122" height="98" rx="12" fill="#192A26" stroke="#BCE5D8" stroke-width="1.5" />
+  <rect x="884" y="52" width="88" height="216" rx="14" fill="#162126" stroke="#273940" stroke-width="1.5" />
+  <rect x="990" y="52" width="146" height="100" rx="14" fill="#247D70" />
+  <circle cx="1102" cy="86" r="10" fill="#FFFFFF" />
+  <rect x="990" y="168" width="146" height="100" rx="14" fill="#162126" stroke="#DCE8E2" stroke-width="1.75" />
 </svg>

@@ -1,4 +1,9 @@
-# KHOANG — Brand Guidelines & Design System
+# KHOANG — Brand Guidelines & Design System (Superseded)
+
+> **SUPERSEDED:** This earlier KHOANG v1 brand document is preserved for historical context and has been superseded by the **NexaDock (PROVISIONAL)** brand and Refined Desktop Utility overhaul:
+> - Brand & Trademark Clearance Review: [naming-and-trademark-review.md](naming-and-trademark-review.md)
+> - Current Brand Guidelines: [brand-guidelines.md](brand-guidelines.md)
+> - Current Design System: [../design/design-system.md](../design/design-system.md)
 
 > **Product Name:** `KHOANG` (Technical short name: `khoang`)
 > **Positioning:** *Independent Account Workspace*

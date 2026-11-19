@@ -12,7 +12,7 @@ use state::AppState;
 use tauri::{Manager, WindowEvent};
 
 fn main() {
-    let app_state = AppState::initialize().expect("failed to initialize KHOANG state");
+    let app_state = AppState::initialize().expect("failed to initialize NexaDock state");
     let prefs_state = DesktopPrefsState::initialize(app_state.store.data_dir());
 
     tauri::Builder::default()
@@ -92,5 +92,5 @@ fn main() {
             commands::web_session_rename,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running KHOANG Tauri application");
+        .expect("error while running NexaDock Tauri application");
 }

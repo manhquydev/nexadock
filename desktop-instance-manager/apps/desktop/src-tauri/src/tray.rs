@@ -54,18 +54,18 @@ impl TrayLocale {
     pub fn labels(self) -> TrayLabels {
         match self {
             Self::Vi => TrayLabels {
-                tooltip: "KHOANG — Một máy. Nhiều tài khoản. Không trộn dữ liệu.",
-                open: "Mở KHOANG",
+                tooltip: "NexaDock — Một máy. Nhiều tài khoản. Không trộn dữ liệu.",
+                open: "Mở NexaDock",
                 accounts: "Tài khoản",
                 settings: "Cài đặt",
-                quit: "Thoát KHOANG",
+                quit: "Thoát NexaDock",
             },
             Self::En => TrayLabels {
-                tooltip: "KHOANG — Your accounts. Their own space.",
-                open: "Open KHOANG",
+                tooltip: "NexaDock — Your accounts. Their own space.",
+                open: "Open NexaDock",
                 accounts: "Accounts",
                 settings: "Settings",
-                quit: "Quit KHOANG",
+                quit: "Quit NexaDock",
             },
         }
     }
@@ -299,7 +299,7 @@ mod tests {
     fn parses_locale_and_provides_localized_labels() {
         assert_eq!(TrayLocale::parse("vi-VN"), TrayLocale::Vi);
         assert_eq!(TrayLocale::parse("en-US"), TrayLocale::En);
-        assert_eq!(TrayLocale::Vi.labels().quit, "Thoát KHOANG");
-        assert_eq!(TrayLocale::En.labels().quit, "Quit KHOANG");
+        assert_eq!(TrayLocale::Vi.labels().quit, "Thoát NexaDock");
+        assert_eq!(TrayLocale::En.labels().quit, "Quit NexaDock");
     }
 }
