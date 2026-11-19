@@ -1,0 +1,244 @@
+﻿{
+  "activation_latency": {
+    "cold_launch_coordinator_xf_fixture_mjs": {
+      "parallel_3_per_profile": {
+        "count": 3,
+        "max_ms": 1704.77,
+        "mean_ms": 1495.27,
+        "min_ms": 1390.49,
+        "p50_ms": 1390.54,
+        "p95_ms": 1704.77
+      },
+      "parallel_3_wall_ms": 1705.7,
+      "single_ms": 333.3
+    },
+    "cold_launch_to_visible_focused_gui_fixture_ms": {
+      "secondary_a": 46.07,
+      "secondary_b": 36.64,
+      "secondary_c": 36.33,
+      "simulated_primary": 35.26
+    },
+    "minimized_current_repo_fallback_handoff": {
+      "confirmed_restored": "5/5",
+      "stats": {
+        "count": 5,
+        "max_ms": 239.89,
+        "mean_ms": 197.6,
+        "min_ms": 175.7,
+        "p50_ms": 188.89,
+        "p95_ms": 239.89
+      }
+    },
+    "minimized_remediated_v2_direct_restore_focus": {
+      "os_foreground_confirmed": "0/8",
+      "restored_and_z_top": "8/8",
+      "stats": {
+        "count": 8,
+        "max_ms": 170.5,
+        "mean_ms": 166.75,
+        "min_ms": 162.28,
+        "p50_ms": 167.2,
+        "p95_ms": 170.5
+      }
+    },
+    "running_visible_repo_focus_window": {
+      "os_foreground_confirmed": "0/12",
+      "stats": {
+        "count": 12,
+        "max_ms": 51.79,
+        "mean_ms": 42.16,
+        "min_ms": 37.27,
+        "p50_ms": 40.71,
+        "p95_ms": 51.79
+      }
+    },
+    "running_visible_v2_verified_raise": {
+      "os_foreground_confirmed": "0/12",
+      "stats": {
+        "count": 12,
+        "max_ms": 125.74,
+        "mean_ms": 101.28,
+        "min_ms": 89.15,
+        "p50_ms": 94.31,
+        "p95_ms": 125.74
+      },
+      "z_order_top_among_accounts": "12/12"
+    },
+    "tray_hidden_native_exe_second_instance_handoff": {
+      "confirmed_woke": "5/5",
+      "stats": {
+        "count": 5,
+        "max_ms": 46.88,
+        "mean_ms": 44.57,
+        "min_ms": 41.54,
+        "p50_ms": 44.09,
+        "p95_ms": 46.88
+      }
+    },
+    "tray_hidden_node_handoff_focus_or_restore": {
+      "confirmed_woke": "5/5",
+      "popup_never_focused": true,
+      "sibling_hidden_undisturbed": true,
+      "stats": {
+        "count": 5,
+        "max_ms": 179.85,
+        "mean_ms": 174.51,
+        "min_ms": 169.93,
+        "p50_ms": 174.15,
+        "p95_ms": 179.85
+      }
+    }
+  },
+  "companion_snap_layout_eval": {
+    "monitor_rc_work": [
+      0,
+      0,
+      1536,
+      816
+    ],
+    "parent_still_null": true,
+    "primary_untouched": true,
+    "rail_dpi": 96,
+    "rail_snapped_rect": [
+      0,
+      0,
+      240,
+      816
+    ],
+    "secondary_snapped_rect": [
+      240,
+      0,
+      1536,
+      816
+    ],
+    "snap_latency_ms": 30.09,
+    "styles_unchanged": true,
+    "unsnap_restored_exact": true
+  },
+  "environment": {
+    "foreground_lock_timeout_ms": 2147483647,
+    "initial_foreground_class": "<null>",
+    "initial_foreground_hwnd": 0,
+    "rail_acquired_foreground_initially": false,
+    "rail_dpi": 96
+  },
+  "fail_closed_security_and_races": {
+    "concurrent_4x_launch_coalesced_unique_pids": 1,
+    "recovery_focus_refused": "[NOT_RUNNING] profile 'Recovery Locked' is not currently running",
+    "recovery_launch_refused": "[PROFILE_RUNNING] profile 'Recovery Locked (8b196cef) has an active or OS-locked lockfile; refusing lockfile cleanup' is currently running",
+    "recovery_lockfile_intact": true,
+    "recovery_required_detected": true,
+    "recovery_required_status_label": "Recovery Required",
+    "title_spoofing_decoy_rejected": true
+  },
+  "minimized_window_bug_audit": {
+    "current_repo_classify_window_for_pid": "NotificationPopup",
+    "current_repo_find_main_window_for_profile": null,
+    "get_window_placement_normal_size": [
+      900,
+      650
+    ],
+    "get_window_rect": [
+      0,
+      986,
+      199,
+      1020
+    ],
+    "get_window_rect_size": [
+      199,
+      34
+    ],
+    "is_iconic": true,
+    "is_window_visible": true,
+    "proposed_v2_classify_window": [
+      "MainChatWindow",
+      true
+    ],
+    "proposed_v2_find_main_window": {
+      "hwnd": 5507550,
+      "is_iconic": true,
+      "title": "Zalo - Secondary Alpha"
+    }
+  },
+  "rapid_switching_accuracy": {
+    "mixed_4_accounts_24_switches": {
+      "decoy_popup_or_owned_hits": 0,
+      "exact_target_z_top_and_restored": 24,
+      "latency": {
+        "count": 24,
+        "max_ms": 138.73,
+        "mean_ms": 100.83,
+        "min_ms": 88.55,
+        "p50_ms": 93.54,
+        "p95_ms": 121.27
+      },
+      "maximized_state_preserved": true,
+      "os_foreground_confirmed": 0,
+      "target_accuracy_pct": 100.0,
+      "total": 24,
+      "wrong_window_activations": 0
+    },
+    "rapid_3_secondaries_20_switches": {
+      "exact_target_z_top": 20,
+      "latency": {
+        "count": 20,
+        "max_ms": 122.32,
+        "mean_ms": 103.82,
+        "min_ms": 93.55,
+        "p50_ms": 94.52,
+        "p95_ms": 122.2
+      },
+      "os_foreground_confirmed": 0,
+      "primary_ever_touched": false,
+      "target_accuracy_pct": 100.0,
+      "total": 20
+    }
+  },
+  "resource_and_polling_overhead": {
+    "enum_windows_4_accounts_poll": {
+      "count": 50,
+      "max_ms": 0.2,
+      "mean_ms": 0.1,
+      "min_ms": 0.08,
+      "p50_ms": 0.09,
+      "p95_ms": 0.17
+    },
+    "enum_windows_50x4_total_cpu_ms": 15.63,
+    "gui_fixture_ram_mb": 10.04,
+    "inspect_profile_1500_files_dir_size_bottleneck": {
+      "count": 10,
+      "max_ms": 201.78,
+      "mean_ms": 182.21,
+      "min_ms": 165.54,
+      "p50_ms": 185.38,
+      "p95_ms": 201.78
+    },
+    "inspect_profile_small_dir": {
+      "count": 10,
+      "max_ms": 102.96,
+      "mean_ms": 101.06,
+      "min_ms": 98.84,
+      "p50_ms": 101.98,
+      "p95_ms": 102.96
+    },
+    "khoang_tauri_shell": {
+      "binary_size_mb": 26.61,
+      "measured": true,
+      "process_tree_count": 7,
+      "processes": [
+        "dim-desktop.exe:28.7MB",
+        "msedgewebview2.exe:120.6MB",
+        "msedgewebview2.exe:64.4MB",
+        "msedgewebview2.exe:19.4MB",
+        "msedgewebview2.exe:34.1MB",
+        "msedgewebview2.exe:69.1MB",
+        "msedgewebview2.exe:9.6MB"
+      ],
+      "rust_host_ram_mb": 28.72,
+      "total_cpu_ms_first_3_5s": 2078.13,
+      "total_shell_plus_webview2_ram_mb": 345.9
+    },
+    "orchestrator_rust_process_ram_mb": 20.22,
+    "xf_node_fixture_ram_mb": 45.22
+  }
+}

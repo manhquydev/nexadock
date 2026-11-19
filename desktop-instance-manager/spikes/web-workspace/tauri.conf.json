@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KHOANG-Spike-Web",
+  "version": "0.1.0",
+  "identifier": "com.multizalodesktop.spike.webworkspace",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:*"
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}
