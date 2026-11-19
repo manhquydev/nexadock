@@ -18,7 +18,9 @@
     "backups": "Backups",
     "settings": "Settings",
     "help": "Help",
-    "backToAccounts": "← Back to Accounts"
+    "backNavAria": "Back navigation",
+    "backToAccounts": "Accounts",
+    "backToHelp": "Help"
   },
   "statusBar": {
     "zaloReady": "Zalo Desktop is ready",
@@ -122,11 +124,30 @@
   },
   "diagnostics": {
     "title": "Troubleshoot",
-    "subtitle": "Advanced checks for Zalo installation, storage, and data isolation.",
-    "backToSettings": "← Back to Settings",
+    "subtitle": "System health overview and account isolation verification.",
+    "backToSettings": "Settings",
     "reverify": "Run checks",
     "refresh": "Refresh",
+    "copyAction": "Copy diagnostics",
     "measureDisk": "Measure account disk sizes",
+    "technicalSummary": "Technical details & system logs",
+    "summary": {
+      "title": "System Health Summary",
+      "qInstall": "Zalo Desktop client",
+      "qInstallOk": "Detected ({version})",
+      "qInstallMissing": "Zalo Desktop not found",
+      "qIsolation": "Account data isolation",
+      "qIsolationOk": "Protected — folders & processes separated",
+      "qIsolationWarn": "Some checks need attention",
+      "qAction": "Recommended next step",
+      "qActionReady": "Ready for normal multi-account use.",
+      "qActionInstall": "Install official Zalo Desktop from VNG, then click Run checks.",
+      "qActionUnverified": "Some advanced checks are unverified or have known platform limits (see below)."
+    },
+    "groupsSummary": {
+      "isolation": "Data isolation & main Zalo protection",
+      "limits": "Platform limits & unverified checks"
+    },
     "groups": {
       "application": "Zalo Desktop app",
       "security": "Isolation & protection",
@@ -332,7 +353,12 @@
     "accountRenamed": "Renamed.",
     "accountDeleted": "Account removed.",
     "backupRestored": "Restored as a new account.",
-    "backupCreated": "Backup created."
+    "backupCreated": "Backup created.",
+    "pinAdded": "Account pinned to sidebar.",
+    "pinRemoved": "Account unpinned.",
+    "diagnosticsCopied": "Diagnostics summary copied.",
+    "dismissToast": "Dismiss notification",
+    "retry": "Retry"
   },
   "supportStatus": {
     "SUPPORTED_AND_TESTED": "Supported & tested",
@@ -359,7 +385,10 @@
     "kindWeb": "Web · Experimental",
     "pin": "Pin to top",
     "unpin": "Unpin",
-    "pinnedBadge": "Pinned"
+    "pinnedBadge": "Pinned",
+    "contextMenuAria": "Options for {name}",
+    "bringToFront": "Bring window to front",
+    "openAccount": "Open account"
   },
   "webSession": {
     "badge": "Web Session (Isolated · Experimental)",
@@ -394,6 +423,10 @@
     "companionSnapHint": "Positions this secondary Zalo Desktop window beside KHOANG; turn off to restore its previous position. Not embedded.",
     "companionSnapPrimaryBlocked": "Disabled for protected main Zalo.",
     "companionSnapStopped": "Open Zalo first to snap its window beside KHOANG.",
+    "snapSectionTitle": "Window arrangement",
+    "manageSectionTitle": "Account management",
+    "dangerZoneTitle": "Destructive action",
+    "snapOsUnsupported": "Side-by-side window arrangement is supported on Windows 10/11 only.",
     "sessionDetailsSummary": "Session & storage details",
     "pinAction": "Pin to rail",
     "unpinAction": "Unpin"

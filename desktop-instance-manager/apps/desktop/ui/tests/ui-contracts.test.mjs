@@ -11,7 +11,8 @@ import {
   getAccountColorId,
   saveAccountColor,
   removeAccountColor,
-  pickNextAvailableColorId
+  pickNextAvailableColorId,
+  classifyErrorBehavior
 } from '../app.js';
 import { initI18n, setLocale, getLocale, LOCALE_STORAGE_KEY } from '../i18n/index.js';
 
@@ -329,4 +330,52 @@ test('locale persistence updates localStorage and document.documentElement.lang'
     if (prevDocument === undefined) delete globalThis.document;
     else globalThis.document = prevDocument;
   }
+});
+
+test('classifyErrorBehavior distinguishes security guards, action-required, non-retryable, critical, and retryable errors', () => {
+  const guard = classifyErrorBehavior('PROTECTED_PRIMARY_PROCESS');
+  assert.equal(guard.category, 'info_only');
+  assert.equal(guard.retryable, false);
+  assert.equal(guard.liveRole, 'status');
+  assert.equal(guard.tone, 'info');
+
+  assert.equal(classifyErrorBehavior('PROTECTED_PRIMARY_PATH').retryable, false);
+  assert.equal(classifyErrorBehavior('PATH_TRAVERSAL_ATTEMPT').retryable, false);
+  assert.equal(classifyErrorBehavior('PATH_TRAVERSAL_ATTEMPT').liveRole, 'status');
+
+  const dup = classifyErrorBehavior('DUPLICATE_ZALO_USER_ID');
+  assert.equal(dup.category, 'action_required');
+  assert.equal(dup.retryable, false);
+  assert.equal(dup.liveRole, 'status');
+  assert.equal(dup.action, 'open_diagnostics');
+
+  const invalid = classifyErrorBehavior('INVALID_NAME');
+  assert.equal(invalid.category, 'non_retryable');
+  assert.equal(invalid.retryable, false);
+  assert.equal(invalid.liveRole, 'status');
+
+  for (const rustNonRetryable of ['NOT_FOUND', 'DUPLICATE_NAME', 'CONFIRM_REQUIRED', 'SCHEMA_ERROR']) {
+    assert.equal(classifyErrorBehavior(rustNonRetryable).retryable, false);
+    assert.equal(classifyErrorBehavior(rustNonRetryable).liveRole, 'status');
+  }
+  for (const guardCode of ['PRIMARY_PROTECTED', 'NOT_RUNNING', 'WEB_WORKSPACE_REQUIRES_MACOS_14']) {
+    assert.equal(classifyErrorBehavior(guardCode).category, 'info_only');
+    assert.equal(classifyErrorBehavior(guardCode).retryable, false);
+    assert.equal(classifyErrorBehavior(guardCode).liveRole, 'status');
+  }
+  for (const actionCode of ['UNVERIFIED_BINARY', 'PROFILE_MARKER_MISMATCH', 'EXTERNAL_DB_OUTSIDE_PROFILE']) {
+    assert.equal(classifyErrorBehavior(actionCode).category, 'action_required');
+    assert.equal(classifyErrorBehavior(actionCode).retryable, false);
+    assert.equal(classifyErrorBehavior(actionCode).liveRole, 'status');
+  }
+
+  const crit = classifyErrorBehavior('HOST_EXEC_FAILED');
+  assert.equal(crit.category, 'critical_system');
+  assert.equal(crit.retryable, true);
+  assert.equal(crit.liveRole, 'alert');
+
+  const proc = classifyErrorBehavior('PROCESS_ERROR');
+  assert.equal(proc.category, 'retryable');
+  assert.equal(proc.retryable, true);
+  assert.equal(proc.liveRole, 'alert');
 });

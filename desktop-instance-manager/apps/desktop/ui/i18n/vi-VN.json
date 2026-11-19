@@ -18,7 +18,9 @@
     "backups": "Sao lưu",
     "settings": "Cài đặt",
     "help": "Trợ giúp",
-    "backToAccounts": "← Quay lại Tài khoản"
+    "backNavAria": "Điều hướng quay lại",
+    "backToAccounts": "Tài khoản",
+    "backToHelp": "Trợ giúp"
   },
   "statusBar": {
     "zaloReady": "Zalo Desktop đã sẵn sàng",
@@ -122,11 +124,30 @@
   },
   "diagnostics": {
     "title": "Kiểm tra sự cố",
-    "subtitle": "Thông tin nâng cao giúp kiểm tra cài đặt Zalo, bộ nhớ và khả năng tách biệt dữ liệu.",
-    "backToSettings": "← Quay lại Cài đặt",
+    "subtitle": "Tổng quan sức khỏe hệ thống và kiểm tra tách biệt dữ liệu tài khoản.",
+    "backToSettings": "Cài đặt",
     "reverify": "Kiểm tra lại",
     "refresh": "Làm mới",
+    "copyAction": "Sao chép chẩn đoán",
     "measureDisk": "Đo dung lượng đĩa của các tài khoản",
+    "technicalSummary": "Chi tiết kỹ thuật & nhật ký hệ thống",
+    "summary": {
+      "title": "Tóm tắt tình trạng hệ thống",
+      "qInstall": "Ứng dụng Zalo Desktop",
+      "qInstallOk": "Đã phát hiện ({version})",
+      "qInstallMissing": "Chưa tìm thấy Zalo Desktop",
+      "qIsolation": "Tách biệt dữ liệu tài khoản",
+      "qIsolationOk": "An toàn — thư mục & tiến trình tách riêng",
+      "qIsolationWarn": "Có mục cần kiểm tra thêm",
+      "qAction": "Hành động đề xuất",
+      "qActionReady": "Hệ thống sẵn sàng sử dụng bình thường.",
+      "qActionInstall": "Cài đặt Zalo Desktop chính thức từ VNG rồi bấm Kiểm tra lại.",
+      "qActionUnverified": "Một số kiểm tra nâng cao chưa chạy hoặc có giới hạn nền tảng đã biết (xem bên dưới)."
+    },
+    "groupsSummary": {
+      "isolation": "Tách biệt dữ liệu & bảo vệ Zalo gốc",
+      "limits": "Giới hạn nền tảng & mục chưa kiểm thử"
+    },
     "groups": {
       "application": "Ứng dụng Zalo Desktop",
       "security": "Tách biệt & bảo vệ dữ liệu",
@@ -332,7 +353,12 @@
     "accountRenamed": "Đã đổi tên.",
     "accountDeleted": "Đã xóa tài khoản.",
     "backupRestored": "Đã khôi phục thành tài khoản mới.",
-    "backupCreated": "Đã tạo bản sao lưu mới."
+    "backupCreated": "Đã tạo bản sao lưu mới.",
+    "pinAdded": "Đã ghim tài khoản lên thanh bên.",
+    "pinRemoved": "Đã bỏ ghim tài khoản.",
+    "diagnosticsCopied": "Đã sao chép thông tin chẩn đoán.",
+    "dismissToast": "Đóng thông báo",
+    "retry": "Thử lại"
   },
   "supportStatus": {
     "SUPPORTED_AND_TESTED": "Đã hỗ trợ & kiểm thử",
@@ -359,7 +385,10 @@
     "kindWeb": "Web · Thử nghiệm",
     "pin": "Ghim lên đầu",
     "unpin": "Bỏ ghim",
-    "pinnedBadge": "Đã ghim"
+    "pinnedBadge": "Đã ghim",
+    "contextMenuAria": "Tùy chọn cho {name}",
+    "bringToFront": "Đưa cửa sổ lên trên",
+    "openAccount": "Mở tài khoản"
   },
   "webSession": {
     "badge": "Phiên Web (Tách biệt · Thử nghiệm)",
@@ -394,6 +423,10 @@
     "companionSnapHint": "Chỉ sắp xếp cửa sổ Zalo Desktop phụ bên cạnh thanh KHOANG; tắt để trả về vị trí cũ. Không phải nhúng cửa sổ.",
     "companionSnapPrimaryBlocked": "Không áp dụng cho Zalo gốc được bảo vệ.",
     "companionSnapStopped": "Mở cửa sổ Zalo trước để dùng chế độ đặt cạnh.",
+    "snapSectionTitle": "Sắp xếp cửa sổ",
+    "manageSectionTitle": "Quản lý tài khoản",
+    "dangerZoneTitle": "Thao tác không thể hoàn tác",
+    "snapOsUnsupported": "Tính năng đặt cạnh cửa sổ chỉ hỗ trợ trên Windows 10/11.",
     "sessionDetailsSummary": "Chi tiết phiên & lưu trữ",
     "pinAction": "Ghim lên thanh",
     "unpinAction": "Bỏ ghim"

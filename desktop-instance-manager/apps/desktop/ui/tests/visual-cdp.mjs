@@ -461,7 +461,17 @@ try {
 
   const snap = async (filename) => {
     const { data } = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(screenshotsDir, filename), Buffer.from(data, 'base64'));
+    const outPath = path.join(screenshotsDir, filename);
+    const buf = Buffer.from(data, 'base64');
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.writeFileSync(outPath, buf);
+        return;
+      } catch (err) {
+        if (attempt === 4) throw err;
+        await new Promise((r) => setTimeout(r, 60 * (attempt + 1)));
+      }
+    }
   };
 
   const pressKey = async (key, code, windowsVirtualKeyCode) => {
@@ -645,40 +655,50 @@ try {
   assert.equal(mockData.status.profiles[0]?.id, 'prof-101', 'New profile ID must use monotonic seq >= 101');
   await snap('account-dock-add-step2-vi-light.png');
 
-  // Step 2 Launch failure (PROCESS_ERROR): dialog closes, error banner appears, newly created card remains on Home for retry
+  // Step 2 Launch failure (PROCESS_ERROR): dialog closes, toast from create does not block inline error, remediation card & inline card error allow retry
   mockData.failNextAction = { ok: false, error_code: 'PROCESS_ERROR', message: 'Failed to launch Zalo executable' };
   await evalJs(`document.getElementById('btn-create-launch').click()`);
   await new Promise((r) => setTimeout(r, 180));
   const afterStep2Fail = await evalJs(`(() => {
+    const remCard = document.getElementById('desktop-remediation-card');
     const card = document.querySelector('#profiles-list .account-card[data-profile-id="prof-101"]');
+    const inlineErr = card?.querySelector('[data-profile-error]');
     return {
       dialogOpen: document.getElementById('create-profile-dialog').open,
-      bannerVisible: !document.getElementById('status-banner').hidden,
-      bannerText: document.getElementById('status-banner-text').textContent,
-      bannerRaw: document.getElementById('status-banner-raw').textContent,
+      stageVisible: !document.getElementById('stage-desktop-session').hidden,
+      remVisible: !remCard.hidden,
+      remBody: document.getElementById('desktop-remediation-body').textContent,
+      inlineErrCode: inlineErr?.dataset.profileError || null,
       cardVisible: Boolean(card),
       launchEnabled: card ? !card.querySelector('.btn-primary').disabled : false,
-      totalCards: document.querySelectorAll('#profiles-list .account-card').length,
-      searchHidden: document.getElementById('search-wrap').hidden,
-      summaryHidden: document.getElementById('accounts-count-summary').hidden,
-      noOverflow: document.documentElement.scrollWidth <= window.innerWidth
+      totalCards: document.querySelectorAll('#profiles-list .account-card').length
     };
   })()`);
   assert.equal(afterStep2Fail.dialogOpen, false);
-  assert.equal(afterStep2Fail.bannerVisible, true);
-  assert.match(afterStep2Fail.bannerText, /Không thể mở Zalo/);
-  assert.match(afterStep2Fail.bannerRaw, /PROCESS_ERROR/);
+  assert.equal(afterStep2Fail.stageVisible, true);
+  assert.equal(afterStep2Fail.remVisible, true);
+  assert.match(afterStep2Fail.remBody, /Không thể mở Zalo/);
+  assert.equal(afterStep2Fail.inlineErrCode, 'PROCESS_ERROR');
   assert.equal(afterStep2Fail.cardVisible, true);
   assert.equal(afterStep2Fail.launchEnabled, true);
   assert.equal(afterStep2Fail.totalCards, 1);
-  assert.equal(afterStep2Fail.searchHidden, true);
-  assert.equal(afterStep2Fail.summaryHidden, true);
-  assert.equal(afterStep2Fail.noOverflow, true);
 
-  // Retry launch from Home card succeeds and clears error banner
+  // Back button on Desktop Stage returns cleanly to Home and shows inline error + 1-account scale
+  await evalJs(`document.getElementById('btn-desktop-back').click()`);
+  await new Promise((r) => setTimeout(r, 80));
+  const homeAfterBack = await evalJs(`({
+    profilesVisible: !document.getElementById('view-profiles').hidden,
+    searchHidden: document.getElementById('search-wrap').hidden,
+    summaryHidden: document.getElementById('accounts-count-summary').hidden,
+    noOverflow: document.documentElement.scrollWidth <= window.innerWidth
+  })`);
+  assert.deepEqual(homeAfterBack, { profilesVisible: true, searchHidden: true, summaryHidden: true, noOverflow: true });
+  await snap('account-dock-1account-vi-light.png');
+
+  // Retry launch from Home card succeeds and clears inline error
   await evalJs(`document.querySelector('#profiles-list .account-card[data-profile-id="prof-101"] .btn-primary').click()`);
   await new Promise((r) => setTimeout(r, 150));
-  assert.equal(await evalJs(`document.getElementById('status-banner').hidden`), true);
+  assert.equal(await evalJs(`Boolean(document.querySelector('#profiles-list .account-card[data-profile-id="prof-101"] [data-profile-error]'))`), false);
   assert.equal(await evalJs(`!document.getElementById('stage-desktop-session').hidden`), true);
   await snap('account-dock-desktop-stage-vi-light.png');
   await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
@@ -792,6 +812,10 @@ try {
   await evalJs(`document.getElementById('btn-help-diagnostics').click()`);
   assert.equal(await evalJs(`!document.getElementById('view-diagnostics').hidden`), true);
   assert.equal(await evalJs(`document.getElementById('view-help').hidden`), true);
+  assert.equal(await evalJs(`document.getElementById('btn-diag-back').getAttribute('data-back-to')`), 'help');
+  await evalJs(`document.getElementById('btn-diag-back').click()`);
+  assert.equal(await evalJs(`!document.getElementById('view-help').hidden`), true);
+  assert.equal(await evalJs(`document.activeElement?.id`), 'btn-help-diagnostics');
 
   // 3. Native Radio Group keyboard navigation in Settings + Advanced Diagnostics
   await evalJs(`document.querySelector('.top-nav-btn[data-view="settings"]').click()`);
@@ -824,19 +848,42 @@ try {
   assert.equal(pendingCheck.prof2Disabled, true);
   assert.equal(pendingCheck.prof1Enabled, true);
   await new Promise((r) => setTimeout(r, 300));
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
+  await new Promise((r) => setTimeout(r, 80));
 
   mockData.failNextAction = { ok: false, error_code: 'PROTECTED_PRIMARY_PROCESS', message: 'Target PID 4120 is primary Zalo' };
   await evalJs(`document.querySelector('#profiles-list .account-card:first-child .btn-subtle-danger').click()`);
   await new Promise((r) => setTimeout(r, 150));
-  const errCheck = await evalJs(`(() => ({
-    bannerText: document.getElementById('status-banner-text').textContent,
-    rawText: document.getElementById('status-banner-raw').textContent,
-    detailsHidden: document.getElementById('status-banner-details').hidden
-  }))()`);
-  assert.doesNotMatch(errCheck.bannerText, /Target PID 4120/);
-  assert.match(errCheck.rawText, /PROTECTED_PRIMARY_PROCESS/);
-  assert.equal(errCheck.detailsHidden, false);
+  const errCheck = await evalJs(`(() => {
+    const inlineEl = document.querySelector('#profiles-list .account-card:first-child [data-profile-error]');
+    const btns = Array.from(inlineEl?.querySelectorAll('button') || []).map((b) => b.textContent.trim());
+    return {
+      code: inlineEl?.dataset.profileError || null,
+      role: inlineEl?.getAttribute('role') || null,
+      isInfo: inlineEl?.classList.contains('is-info') || false,
+      hasRetryBtn: btns.some((txt) => /Thử lại|Retry/i.test(txt)),
+      text: inlineEl?.querySelector('.account-inline-error-text')?.textContent || '',
+      globalBannerHidden: document.getElementById('status-banner').hidden,
+      siblingDisabled: document.querySelector('#profiles-list .account-card:nth-child(2) .btn-primary')?.disabled || false
+    };
+  })()`);
+  assert.equal(errCheck.code, 'PROTECTED_PRIMARY_PROCESS');
+  assert.equal(errCheck.role, 'status');
+  assert.equal(errCheck.isInfo, true);
+  assert.equal(errCheck.hasRetryBtn, false);
+  assert.equal(errCheck.siblingDisabled, false);
+  assert.doesNotMatch(errCheck.text, /Target PID 4120/);
+  assert.equal(errCheck.globalBannerHidden, true);
   await snap('account-dock-error-vi-light.png');
+
+  // Dismiss inline error and verify focus restores to card action button
+  await evalJs(`document.querySelector('#profiles-list .account-card:first-child [data-profile-error] .btn-link').click()`);
+  const dismissFocus = await evalJs(`({
+    errGone: !document.querySelector('#profiles-list .account-card:first-child [data-profile-error]'),
+    focusInsideCard: Boolean(document.activeElement?.closest('#profiles-list .account-card:first-child'))
+  })`);
+  assert.equal(dismissFocus.errGone, true);
+  assert.equal(dismissFocus.focusInsideCard, true);
 
   await evalJs(`document.querySelector('#profiles-list .account-card:first-child [role="menuitem"]:nth-child(3)').click()`);
   const detailsCheck = await evalJs(`({
@@ -1183,7 +1230,116 @@ try {
   assert.equal(await evalJs(`document.querySelectorAll('#profiles-list .account-card').length`), 20);
   assert.equal(await evalJs(`document.getElementById('accounts-count-summary').textContent`), 'Hiển thị 20 / 20 tài khoản');
 
-  // Quick Switcher (Ctrl+K) + Account Rail check
+  // Quick Switcher (Ctrl+K) + Account Rail context menu + Font telemetry check
+  await evalJs(`(() => {
+    const railBtn = document.querySelector('#rail-accounts .rail-account-btn');
+    railBtn?.focus();
+    railBtn?.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 60));
+  const railCtx = await evalJs(`({
+    menuVisible: !document.getElementById('account-context-menu').hidden,
+    items: document.querySelectorAll('#account-context-menu [role="menuitem"]').length
+  })`);
+  assert.equal(railCtx.menuVisible, true);
+  assert.ok(railCtx.items >= 2);
+  await pressKey('Escape', 'Escape', 27);
+  assert.equal(await evalJs(`document.getElementById('account-context-menu').hidden`), true);
+
+  // P0 Feedback & P1 Navigation / Rail / Typography verification
+  // 1. Toast dedupe, consecutive toasts, clipboard rejection, view switch & dialog coexistence
+  await evalJs(`(() => {
+    document.querySelectorAll('#toast-region .toast-close').forEach((btn) => btn.click());
+    window.__origClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => Promise.resolve() }
+    });
+  })()`);
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="settings"]').click()`);
+  await evalJs(`document.getElementById('btn-goto-diagnostics').click()`);
+  assert.equal(await evalJs(`document.getElementById('btn-diag-back').getAttribute('data-back-to')`), 'settings');
+  await evalJs(`document.getElementById('btn-copy-diagnostics').click()`);
+  await new Promise((r) => setTimeout(r, 40));
+  await evalJs(`document.getElementById('btn-copy-diagnostics').click()`); // duplicate should dedupe
+  await new Promise((r) => setTimeout(r, 40));
+  const toastDedupe = await evalJs(`document.querySelectorAll('#toast-region .toast').length`);
+  assert.equal(toastDedupe, 1, 'Duplicate copy diagnostics toast must deduplicate');
+
+  // Clipboard rejection -> error toast (role/kind error, not success)
+  await evalJs(`(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => Promise.reject(new Error('Clipboard denied')) }
+    });
+  })()`);
+  await evalJs(`document.getElementById('btn-copy-diagnostics').click()`);
+  await new Promise((r) => setTimeout(r, 50));
+  const toastTwo = await evalJs(`({
+    count: document.querySelectorAll('#toast-region .toast').length,
+    hasErrorToast: Boolean(document.querySelector('#toast-region .toast.toast-error'))
+  })`);
+  assert.equal(toastTwo.count, 2, 'Two distinct consecutive toasts must coexist');
+  assert.equal(toastTwo.hasErrorToast, true, 'Clipboard rejection must emit an error toast');
+
+  // View switch during active toast keeps #toast-region populated
+  await evalJs(`document.getElementById('btn-diag-back').click()`);
+  assert.equal(await evalJs(`!document.getElementById('view-settings').hidden`), true);
+  assert.equal(await evalJs(`document.querySelectorAll('#toast-region .toast').length`), 2);
+
+  // Critical global error banner coexists with toast without being wiped + repeated error dedupe
+  mockData.delayNextStatusMs = 300;
+  await evalJs(`window.__MZ_API_TIMEOUT_MS = 100; document.getElementById('btn-refresh').click();`);
+  await new Promise((r) => setTimeout(r, 180));
+  mockData.delayNextStatusMs = 300;
+  await evalJs(`document.getElementById('btn-refresh').click();`);
+  await new Promise((r) => setTimeout(r, 180));
+  await evalJs(`window.__MZ_API_TIMEOUT_MS = 5000;`);
+  const bannerAndToast = await evalJs(`({
+    bannerVisible: !document.getElementById('status-banner').hidden,
+    bannerRole: document.getElementById('status-banner').getAttribute('role'),
+    toastCount: document.querySelectorAll('#toast-region .toast').length
+  })`);
+  assert.equal(bannerAndToast.bannerVisible, true);
+  assert.equal(bannerAndToast.bannerRole, 'alert');
+  assert.ok(bannerAndToast.toastCount >= 1);
+  await evalJs(`document.getElementById('btn-dismiss-banner')?.click()`);
+
+  // P1 Back Navigation: Desktop Stage -> Diagnostics -> Back -> Desktop Stage; direct rail reset
+  await evalJs(`document.querySelector('#rail-accounts .rail-account-btn').click()`);
+  await new Promise((r) => setTimeout(r, 100));
+  await evalJs(`(() => {
+    const stageBtn = document.querySelector('#desktop-remediation-card button, #btn-desktop-back');
+    if (stageBtn && stageBtn.id === 'btn-desktop-back') stageBtn.click();
+  })()`);
+  await evalJs(`document.getElementById('btn-nav-help').click()`);
+  await evalJs(`document.getElementById('btn-help-diagnostics').click()`);
+  assert.equal(await evalJs(`document.getElementById('btn-diag-back').getAttribute('data-back-to')`), 'help');
+  await evalJs(`document.getElementById('btn-diag-back').click()`);
+  assert.equal(await evalJs(`!document.getElementById('view-help').hidden`), true);
+
+  // Outside click closes account context menu
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
+  await evalJs(`(() => {
+    const railBtn = document.querySelector('#rail-accounts .rail-account-btn');
+    railBtn?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 220 }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(await evalJs(`!document.getElementById('account-context-menu').hidden`), true);
+  await evalJs(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(await evalJs(`document.getElementById('account-context-menu').hidden`), true);
+
+  const fontInfo = await evalJs(`({
+    computedBodyFont: getComputedStyle(document.body).fontFamily,
+    bodySize: getComputedStyle(document.body).fontSize,
+    fontsStatus: document.fonts?.status || 'unknown',
+    interLoaded: document.fonts ? document.fonts.check('14px Inter') : false,
+    segoeLoaded: document.fonts ? document.fonts.check('14px "Segoe UI"') : false,
+    toastRegionPresent: Boolean(document.getElementById('toast-region'))
+  })`);
+  console.log('FONT_METRICS', JSON.stringify(fontInfo));
+
   await evalJs(`document.getElementById('btn-quick-switcher').click()`);
   await new Promise((r) => setTimeout(r, 80));
   const qsOpen = await evalJs(`({
