@@ -199,9 +199,9 @@ jobs:
           node-version: "22"
 
       - name: Install Ubuntu 24.04 LTS Tauri, Xvfb & packaging build dependencies
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
-          sudo sed -i -E 's|https?://[^/]*ec2\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo find /etc/apt -type f -exec sed -i -E 's|https?://[^/[:space:]]*ec2\.archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' {} + 2>/dev/null || true
           APT_OPTS=(
             -o Acquire::ForceIPv4=true
             -o Acquire::Retries=3
@@ -212,8 +212,8 @@ jobs:
             -o Dpkg::Options::="--force-confold"
           )
           for attempt in 1 2 3; do
-            if timeout 120s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" update && \
-               timeout 120s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
+            if timeout 240s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" update && \
+               timeout 360s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
                  build-essential \
                  pkg-config \
                  curl \
@@ -236,7 +236,6 @@ jobs:
             if [ "${attempt}" -eq 3 ]; then
               exit 1
             fi
-            sudo apt-get clean
             sleep 5
           done
 
