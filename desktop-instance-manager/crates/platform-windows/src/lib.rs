@@ -9,7 +9,8 @@ pub mod win32_ffi;
 pub use win32_ffi::{
     classify_window_for_pid, find_main_window_for_pids, find_main_window_for_profile, focus_window,
     focus_window_verified, get_window_parent, get_window_rect, get_window_styles,
-    is_window_minimized, passive_zcall_pipes_present, ZaloWindowRole,
+    is_window_minimized, passive_zcall_pipes_present, probe_window_activation_state,
+    ZaloWindowRole,
 };
 
 pub use adapter::WindowsPlatformAdapter;

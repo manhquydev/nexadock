@@ -6,14 +6,15 @@ use std::path::{Path, PathBuf};
 #[cfg(windows)]
 use dim_core::{
     build_runtime_lease, remove_runtime_lease, verify_runtime_lease, write_runtime_lease,
-    LeaseVerification, ProfileLifecycleState, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
+    AccountKind, ActionableRemediation, ActivationOutcome, LeaseVerification, PrimaryWindowState,
+    ProfileLifecycleState, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
 };
 use dim_core::{
-    detect_zalo_user_id, AccountActivationResult, AccountKind, ActionableRemediation,
-    ActivationOutcome, ApplicationInstallation, ApplicationLocator, CompanionSnapResult, DimError,
-    InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities,
-    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, PrimaryWindowState,
-    ProfileRecord, ProfileRuntimeState, SupportStatus, WindowController, WindowRect,
+    detect_zalo_user_id, AccountActivationResult, ApplicationInstallation, ApplicationLocator,
+    CompanionSnapResult, DimError, InstanceLauncher, InstanceMonitor, LaunchTarget,
+    PlatformCapabilities, PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus,
+    ProfileRecord, ProfileRuntimeState, SupportStatus, WindowActivationState, WindowController,
+    WindowRect,
 };
 use dim_profile_store::unlink_reparse_points_safe;
 
@@ -1213,9 +1214,50 @@ impl WindowController for WindowsPlatformAdapter {
                     live.window_state,
                     PrimaryWindowState::Visible | PrimaryWindowState::Minimized
                 ) {
-                    if let Ok((was_minimized, fg_confirmed)) =
+                    if let Ok((was_minimized, mut fg_confirmed)) =
                         crate::win32_ffi::focus_window_verified(hwnd, &live.protected_pids)
                     {
+                        if !fg_confirmed {
+                            for _ in 0..10 {
+                                if let Some(p) =
+                                    crate::win32_ffi::probe_window_activation_state(hwnd)
+                                {
+                                    if p.is_foreground {
+                                        fg_confirmed = true;
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(30));
+                            }
+                        }
+                        let final_probe = crate::win32_ffi::probe_window_activation_state(hwnd);
+                        if final_probe.is_some_and(|p| p.is_foreground) {
+                            fg_confirmed = true;
+                        }
+                        let blocked_by_foreground_lock = !fg_confirmed
+                            && final_probe.is_none_or(|p| {
+                                p.foreign_foreground_present || !p.is_visible || p.is_minimized
+                            });
+                        if blocked_by_foreground_lock {
+                            return Ok(AccountActivationResult {
+                                account_id: "primary".to_owned(),
+                                account_kind: AccountKind::DesktopPrimary,
+                                outcome: ActivationOutcome::ManualActionRequired,
+                                method: Some("direct_focus_blocked".to_owned()),
+                                os_foreground_confirmed: Some(false),
+                                window_handle: Some(hwnd),
+                                window_title: live.window_title.clone(),
+                                message: "Windows Foreground Lock prevented activating the primary Zalo window.".to_owned(),
+                                remediation: Some(ActionableRemediation {
+                                    code: "PRIMARY_FOREGROUND_BLOCKED".to_owned(),
+                                    message: "Primary Zalo is open, but Windows Foreground Lock prevented bringing it to front. Click its taskbar or tray icon directly.".to_owned(),
+                                    suggested_action: Some("click_primary_tray_icon".to_owned()),
+                                }),
+                            });
+                        }
+
                         let outcome = if was_minimized {
                             ActivationOutcome::Restored
                         } else {
@@ -1442,6 +1484,18 @@ impl WindowController for WindowsPlatformAdapter {
         {
             let _ = (hwnd, allowed_pids);
             Ok(None)
+        }
+    }
+
+    fn probe_window_activation_state(&self, hwnd: u64) -> Option<WindowActivationState> {
+        #[cfg(windows)]
+        {
+            crate::win32_ffi::probe_window_activation_state(hwnd)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = hwnd;
+            None
         }
     }
 }

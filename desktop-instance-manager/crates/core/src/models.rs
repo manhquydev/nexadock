@@ -454,6 +454,19 @@ pub struct AccountActivationResult {
     pub remediation: Option<ActionableRemediation>,
 }
 
+/// Observed foreground and visibility state of a native window handle after an activation attempt.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WindowActivationState {
+    /// True if the target window currently owns OS foreground focus.
+    pub is_foreground: bool,
+    /// True if a different, non-null foreign window currently holds OS foreground focus.
+    pub foreign_foreground_present: bool,
+    /// True if the target window is visible (`IsWindowVisible`).
+    pub is_visible: bool,
+    /// True if the target window is still minimized (`IsIconic`).
+    pub is_minimized: bool,
+}
+
 /// Screen-space rectangle in physical pixels.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WindowRect {

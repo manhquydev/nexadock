@@ -30,10 +30,10 @@ pub use models::{
     IsolationVerificationReport, LaunchTarget, PlatformCapabilityReport, PlatformKind,
     PrimaryInstanceStatus, PrimaryWindowState, ProfileLifecycleState, ProfileRecord,
     ProfileRuntimeState, ProfilesDocument, RecoveryReport, RuntimeOwnershipState, RuntimeStatus,
-    SupportStatus, VerifiedDeletionState, WebSessionRecord, WindowRect, APP_DIR_NAME,
-    BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, LAUNCH_ADMISSION_LOCK_FILE, MIN_FREE_DISK_BYTES,
-    PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION, PROFILE_LOCKS_DIR, PROFILE_OP_LOCK_FILE,
-    RUNTIME_LEASE_FILE, RUNTIME_PID_FILE, ZALO_PROFILE_ID_FILE,
+    SupportStatus, VerifiedDeletionState, WebSessionRecord, WindowActivationState, WindowRect,
+    APP_DIR_NAME, BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, LAUNCH_ADMISSION_LOCK_FILE,
+    MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION, PROFILE_LOCKS_DIR,
+    PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE, ZALO_PROFILE_ID_FILE,
 };
 pub use path_guard::{
     check_disk_space_bytes, ensure_min_free_disk_space, ensure_not_primary_zalo_path,

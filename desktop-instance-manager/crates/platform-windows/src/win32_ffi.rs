@@ -463,6 +463,7 @@ extern "system" {
         lp_enum_func: unsafe extern "system" fn(*mut c_void, isize) -> i32,
         l_param: isize,
     ) -> i32;
+    fn IsWindow(h_wnd: *mut c_void) -> i32;
     fn IsWindowVisible(h_wnd: *mut c_void) -> i32;
     fn IsIconic(h_wnd: *mut c_void) -> i32;
     fn GetWindowThreadProcessId(h_wnd: *mut c_void, lpdw_process_id: *mut u32) -> u32;
@@ -1248,6 +1249,33 @@ pub fn is_window_minimized(hwnd_val: u64) -> bool {
     }
     // SAFETY: Read-only Win32 `IsIconic` query on a window handle.
     unsafe { IsIconic(hwnd) != 0 }
+}
+
+/// Probes the live foreground, visibility, and minimized state of `hwnd_val`.
+///
+/// Returns `None` if `hwnd_val` is null or no longer a valid window (`IsWindow == 0`).
+pub fn probe_window_activation_state(hwnd_val: u64) -> Option<dim_core::WindowActivationState> {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return None;
+    }
+    // SAFETY: Read-only Win32 user32 queries on a window handle.
+    unsafe {
+        if IsWindow(hwnd) == 0 {
+            return None;
+        }
+        let fg = GetForegroundWindow();
+        let is_foreground = !fg.is_null() && fg == hwnd;
+        let foreign_foreground_present = !fg.is_null() && fg != hwnd;
+        let is_visible = IsWindowVisible(hwnd) != 0;
+        let is_minimized = IsIconic(hwnd) != 0;
+        Some(dim_core::WindowActivationState {
+            is_foreground,
+            foreign_foreground_present,
+            is_visible,
+            is_minimized,
+        })
+    }
 }
 
 /// Returns the owning PID of `hwnd_val` via `GetWindowThreadProcessId`, or `None` if invalid.

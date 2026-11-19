@@ -19,7 +19,7 @@ use dim_core::{
     InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities,
     PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, PrimaryWindowState,
     ProfileLifecycleState, ProfileRecord, ProfileRuntimeState, ProfileStore, SupportStatus,
-    WindowController, PROFILES_SCHEMA_VERSION,
+    WindowActivationState, WindowController, PROFILES_SCHEMA_VERSION,
 };
 use dim_process_manager::InstanceCoordinator;
 use dim_profile_store::JsonProfileStore;
@@ -37,6 +37,8 @@ struct ActivationTestAdapter {
     primary: Mutex<PrimaryInstanceStatus>,
     primary_focus_calls: AtomicUsize,
     spawn_calls: AtomicUsize,
+    launch_delay_ms: AtomicUsize,
+    force_unconfirmed_fg: Mutex<Option<WindowActivationState>>,
     windows: Mutex<HashMap<String, SimWindow>>,
     recovery_required: Mutex<HashMap<String, bool>>,
     next_id: Mutex<(u32, u64)>,
@@ -60,6 +62,8 @@ impl ActivationTestAdapter {
             }),
             primary_focus_calls: AtomicUsize::new(0),
             spawn_calls: AtomicUsize::new(0),
+            launch_delay_ms: AtomicUsize::new(0),
+            force_unconfirmed_fg: Mutex::new(None),
             windows: Mutex::new(HashMap::new()),
             recovery_required: Mutex::new(HashMap::new()),
             next_id: Mutex::new((6000, 0x10_0000)),
@@ -228,6 +232,10 @@ impl InstanceLauncher for ActivationTestAdapter {
         profile: &ProfileRecord,
         profile_dir: &Path,
     ) -> Result<ProfileRuntimeState, DimError> {
+        let delay = self.launch_delay_ms.load(Ordering::SeqCst);
+        if delay > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(delay as u64));
+        }
         self.spawn_calls.fetch_add(1, Ordering::SeqCst);
         let (pid, hwnd) = {
             let mut ids = self.next_id.lock().unwrap();
@@ -321,7 +329,27 @@ impl WindowController for ActivationTestAdapter {
         }
         let was_minimized = w.minimized;
         w.minimized = false;
-        Ok(Some((was_minimized, true)))
+        let fg_confirmed = self
+            .force_unconfirmed_fg
+            .lock()
+            .unwrap()
+            .map(|p| p.is_foreground)
+            .unwrap_or(true);
+        Ok(Some((was_minimized, fg_confirmed)))
+    }
+
+    fn probe_window_activation_state(&self, hwnd: u64) -> Option<WindowActivationState> {
+        if let Some(forced) = *self.force_unconfirmed_fg.lock().unwrap() {
+            return Some(forced);
+        }
+        let guard = self.windows.lock().unwrap();
+        let w = guard.values().find(|w| w.hwnd == hwnd)?;
+        Some(WindowActivationState {
+            is_foreground: !w.hidden_in_tray && !w.minimized,
+            foreign_foreground_present: false,
+            is_visible: !w.hidden_in_tray,
+            is_minimized: w.minimized,
+        })
     }
 }
 
@@ -499,4 +527,108 @@ fn secondary_three_profiles_twenty_sequential_activations_and_edge_states() {
         3,
         "must never spawn extra processes during 20 activations or RecoveryRequired"
     );
+}
+
+#[test]
+fn concurrent_activate_desktop_account_calls_coalesce_to_single_launch_without_pending() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data_dir = tmp.path().join("dim-data");
+    let primary_dir = tmp.path().join("primary-zalo");
+    fs::create_dir_all(&primary_dir).unwrap();
+
+    let store = Arc::new(JsonProfileStore::new(data_dir).unwrap());
+    let profile = store.create_profile("Concurrent Secondary", "").unwrap();
+    let adapter = Arc::new(ActivationTestAdapter::new(primary_dir));
+    adapter.launch_delay_ms.store(120, Ordering::SeqCst);
+    let coord = Arc::new(InstanceCoordinator::new(store, Arc::clone(&adapter)));
+
+    let barrier = Arc::new(std::sync::Barrier::new(4));
+    let mut handles = Vec::with_capacity(4);
+    for _ in 0..4 {
+        let c = Arc::clone(&coord);
+        let b = Arc::clone(&barrier);
+        let pid = profile.id.clone();
+        handles.push(std::thread::spawn(move || {
+            let target = dummy_target();
+            b.wait();
+            c.activate_desktop_account(&pid, Some(&target)).unwrap()
+        }));
+    }
+
+    let mut hwnds = std::collections::HashSet::new();
+    for h in handles {
+        let res = h.join().unwrap();
+        assert_eq!(res.account_id, profile.id);
+        assert!(
+            matches!(
+                res.outcome,
+                ActivationOutcome::Launched | ActivationOutcome::Focused
+            ),
+            "concurrent activation must coalesce and return Launched/Focused, never premature Pending; got {:?}",
+            res.outcome
+        );
+        hwnds.insert(res.window_handle.expect("window_handle must be populated"));
+    }
+
+    assert_eq!(
+        adapter.spawn_calls.load(Ordering::SeqCst),
+        1,
+        "4 concurrent activate_desktop_account calls must spawn exactly 1 process"
+    );
+    assert_eq!(
+        hwnds.len(),
+        1,
+        "all 4 concurrent callers must resolve to the same window handle"
+    );
+}
+
+#[test]
+fn foreground_locked_by_foreign_window_returns_manual_action_required_not_false_focused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data_dir = tmp.path().join("dim-data");
+    let primary_dir = tmp.path().join("primary-zalo");
+    fs::create_dir_all(&primary_dir).unwrap();
+
+    let store = Arc::new(JsonProfileStore::new(data_dir).unwrap());
+    let profile = store.create_profile("FG Lock Secondary", "").unwrap();
+    let adapter = Arc::new(ActivationTestAdapter::new(primary_dir));
+    let coord = InstanceCoordinator::new(store, Arc::clone(&adapter));
+    let target = dummy_target();
+
+    let launched = coord
+        .activate_desktop_account(&profile.id, Some(&target))
+        .unwrap();
+    assert_eq!(launched.outcome, ActivationOutcome::Launched);
+
+    // 1. OS Foreground Lock blocks activation while another foreign window holds foreground.
+    *adapter.force_unconfirmed_fg.lock().unwrap() = Some(WindowActivationState {
+        is_foreground: false,
+        foreign_foreground_present: true,
+        is_visible: true,
+        is_minimized: false,
+    });
+    let locked_res = coord
+        .activate_desktop_account(&profile.id, Some(&target))
+        .unwrap();
+    assert_eq!(locked_res.outcome, ActivationOutcome::ManualActionRequired);
+    assert_eq!(locked_res.os_foreground_confirmed, Some(false));
+    assert_eq!(
+        locked_res.remediation.as_ref().map(|r| r.code.as_str()),
+        Some("FOREGROUND_LOCKED")
+    );
+
+    // 2. Headless desktop (no foreign foreground window, target window visible & unminimized)
+    // remains Focused with os_foreground_confirmed: Some(false).
+    std::thread::sleep(std::time::Duration::from_millis(260));
+    *adapter.force_unconfirmed_fg.lock().unwrap() = Some(WindowActivationState {
+        is_foreground: false,
+        foreign_foreground_present: false,
+        is_visible: true,
+        is_minimized: false,
+    });
+    let headless_res = coord
+        .activate_desktop_account(&profile.id, Some(&target))
+        .unwrap();
+    assert_eq!(headless_res.outcome, ActivationOutcome::Focused);
+    assert_eq!(headless_res.os_foreground_confirmed, Some(false));
 }

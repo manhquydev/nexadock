@@ -7,7 +7,8 @@ use crate::models::{
     AccountActivationResult, AccountKind, ActionableRemediation, ActivationOutcome,
     ApplicationInstallation, BackupManifest, BackupResult, CompanionSnapResult, LaunchTarget,
     PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileRecord,
-    ProfileRuntimeState, ProfilesDocument, RecoveryReport, VerifiedDeletionState, WindowRect,
+    ProfileRuntimeState, ProfilesDocument, RecoveryReport, VerifiedDeletionState,
+    WindowActivationState, WindowRect,
 };
 
 /// Discovers target desktop applications and validates their binary metadata/signatures.
@@ -201,6 +202,11 @@ pub trait WindowController {
         _allowed_pids: &[u32],
     ) -> Result<Option<(bool, bool)>, DimError> {
         Ok(None)
+    }
+
+    /// Probes the live foreground, visibility, and minimized state of `hwnd`, if supported by the OS.
+    fn probe_window_activation_state(&self, _hwnd: u64) -> Option<WindowActivationState> {
+        None
     }
 }
 
