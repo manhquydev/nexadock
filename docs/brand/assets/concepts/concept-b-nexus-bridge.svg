@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" role="img" aria-label="NexaDock Concept B — The Nexus Bridge">
+  <rect x="2" y="2" width="20" height="20" rx="5.5" stroke="#182B32" stroke-width="1.75" />
+  <rect x="5.5" y="5.5" width="3.5" height="13" rx="1.5" fill="#182B32" />
+  <rect x="15" y="5.5" width="3.5" height="13" rx="1.5" fill="#182B32" />
+  <path d="M8.25 7.25 L15.75 16.75" stroke="#247D70" stroke-width="2.75" stroke-linecap="round" />
+  <circle cx="16.75" cy="7.25" r="1.35" fill="#247D70" />
+</svg>

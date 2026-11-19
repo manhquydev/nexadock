@@ -1,8 +1,8 @@
-# KHOANG — Component UX Audit & Design Contracts
+# NexaDock — Component UX Audit & Design Contracts
 
 > **Branch:** `feat/ux-component-reconstruction` (rebased onto `origin/main` @ `cd533cb`)  
 > **Scope:** Component-level UX, information architecture, interaction design, feedback architecture, and desktop ergonomics overhaul.  
-> **Brand Source of Truth Preserved:** `KHOANG` — no product renaming or new logo work in this reconstruction.
+> **Brand Source of Truth Preserved:** `NexaDock` — no product renaming or new logo work in this reconstruction.
 
 ---
 

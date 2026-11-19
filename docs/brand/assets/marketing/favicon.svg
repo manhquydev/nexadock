@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" role="img" aria-label="KHOANG favicon">
-  <rect x="1" y="1" width="22" height="22" rx="5" fill="#F6F5F2" stroke="#D6D0C4" stroke-width="1" />
-  <rect x="4" y="4" width="16" height="16" rx="3.5" stroke="#192A26" stroke-width="1.8" />
-  <rect x="6.75" y="6.75" width="4.5" height="10.5" rx="1.25" fill="#192A26" />
-  <rect x="12.75" y="6.75" width="4.5" height="10.5" rx="1.25" fill="#17675F" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" role="img" aria-label="NexaDock small mark">
+  <rect x="2" y="2" width="20" height="20" rx="5" stroke="#182B32" stroke-width="2.2" />
+  <rect x="5" y="5" width="4" height="14" rx="1.5" fill="#182B32" />
+  <rect x="11" y="5" width="8" height="6.25" rx="1.5" fill="#247D70" />
+  <rect x="11" y="12.75" width="8" height="6.25" rx="1.5" fill="#182B32" />
 </svg>

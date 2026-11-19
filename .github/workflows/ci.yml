@@ -1,4 +1,4 @@
-name: KHOANG CI
+name: NexaDock CI
 
 on:
   push:

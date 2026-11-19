@@ -50,12 +50,12 @@ test('System tray icons exist for Windows, macOS template, Linux, and attention 
   assertMagic(path.join(trayDir, 'tray-attention.png'), '89504e470d0a1a0a');
 });
 
-test('tauri.conf.json enforces KHOANG branding and preserved window/CSP contracts', () => {
+test('tauri.conf.json enforces NexaDock branding and preserved window/CSP/compatibility contracts', () => {
   const conf = JSON.parse(fs.readFileSync(path.join(tauriDir, 'tauri.conf.json'), 'utf8'));
-  assert.equal(conf.productName, 'KHOANG');
+  assert.equal(conf.productName, 'NexaDock');
   assert.equal(conf.identifier, 'com.multizalodesktop.manager');
   assert.equal(conf.app?.withGlobalTauri, true);
-  assert.equal(conf.app?.windows?.[0]?.title, 'KHOANG');
+  assert.equal(conf.app?.windows?.[0]?.title, 'NexaDock');
   assert.equal(conf.app?.windows?.[0]?.width, 1160);
   assert.equal(conf.app?.windows?.[0]?.height, 780);
   assert.equal(conf.app?.windows?.[0]?.minWidth, 420);
@@ -63,23 +63,31 @@ test('tauri.conf.json enforces KHOANG branding and preserved window/CSP contract
   assert.ok(conf.app?.security?.csp?.includes("default-src 'self'"), 'Strict CSP must be preserved');
 });
 
-test('src-tauri Cargo.toml and main.rs contain no leftover Multi-Zalo user-facing strings', () => {
+test('src-tauri Cargo.toml, main.rs, and UI dictionaries contain no leftover KHOANG or Multi-Zalo user-facing strings', () => {
   const cargoToml = fs.readFileSync(path.join(tauriDir, 'Cargo.toml'), 'utf8');
   const mainRs = fs.readFileSync(path.join(tauriDir, 'src', 'main.rs'), 'utf8');
-  assert.doesNotMatch(cargoToml, /Multi-Zalo/i);
-  assert.doesNotMatch(mainRs, /Multi-Zalo/i);
+  const viJson = fs.readFileSync(path.join(dimRoot, 'apps', 'desktop', 'ui', 'i18n', 'vi-VN.json'), 'utf8');
+  const enJson = fs.readFileSync(path.join(dimRoot, 'apps', 'desktop', 'ui', 'i18n', 'en-US.json'), 'utf8');
+  assert.doesNotMatch(cargoToml, /Multi-Zalo|\bKHOANG\b/i);
+  assert.doesNotMatch(mainRs, /Multi-Zalo|\bKHOANG\b/i);
+  assert.doesNotMatch(viJson, /\bKHOANG\b/);
+  assert.doesNotMatch(enJson, /\bKHOANG\b/);
 });
 
-test('README.md and README.en.md feature KHOANG branding, locked taglines, and VNG non-affiliation disclaimer', () => {
+test('README.md and README.en.md feature NexaDock branding, manhquydev/nexadock URLs, taglines, and VNG non-affiliation disclaimer', () => {
   const readmeVi = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
   const readmeEn = fs.readFileSync(path.join(repoRoot, 'README.en.md'), 'utf8');
 
-  assert.ok(readmeVi.includes('KHOANG'));
+  assert.ok(readmeVi.includes('NexaDock'));
+  assert.ok(readmeVi.includes('manhquydev/nexadock'));
+  assert.doesNotMatch(readmeVi, /https:\/\/github\.com\/manhquydev\/zalo/);
   assert.ok(readmeVi.includes('github-readme-hero.svg'));
   assert.ok(readmeVi.includes('Một máy. Nhiều tài khoản. Không trộn dữ liệu.'));
   assert.ok(readmeVi.includes('VNG Corporation'));
 
-  assert.ok(readmeEn.includes('KHOANG'));
+  assert.ok(readmeEn.includes('NexaDock'));
+  assert.ok(readmeEn.includes('manhquydev/nexadock'));
+  assert.doesNotMatch(readmeEn, /https:\/\/github\.com\/manhquydev\/zalo/);
   assert.ok(readmeEn.includes('github-readme-hero.svg'));
   assert.ok(readmeEn.includes('Your accounts. Their own space.'));
   assert.ok(readmeEn.includes('VNG Corporation'));

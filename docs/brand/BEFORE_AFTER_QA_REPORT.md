@@ -1,4 +1,6 @@
-# KHOANG — Before/After QA & Regression Verification Report
+# KHOANG — Before/After QA & Regression Verification Report (Superseded)
+
+> **SUPERSEDED:** Historical QA report for the earlier KHOANG transition. Current NexaDock (PROVISIONAL) before/after visual verification, test counts, and remaining platform checks live in [../design/visual-qa-report.md](../design/visual-qa-report.md) and [../design/implementation-report.md](../design/implementation-report.md).
 
 > **Product:** KHOANG (*"Your accounts. Their own space."*) — upgraded from Multi-Zalo Desktop  
 > **Scope:** Phase 2 Interactive Prototype (`docs/prototype/`) & Phase 3 Production UI + Rust/Tauri Workspace (`desktop-instance-manager/`)  

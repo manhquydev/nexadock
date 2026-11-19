@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "KHOANG",
-    "windowTitle": "KHOANG — Tài khoản",
+    "name": "NexaDock",
+    "windowTitle": "NexaDock — Tài khoản",
     "subtitle": "Một máy. Nhiều tài khoản. Không trộn dữ liệu.",
     "modeTauri": "Ứng dụng máy tính",
     "modeBridge": "Kết nối cục bộ",
@@ -224,8 +224,8 @@
     "behavior": {
       "heading": "Hành vi ứng dụng",
       "keepInTray": "Tiếp tục chạy trong khay hệ thống khi đóng cửa sổ",
-      "autostart": "Khởi động KHOANG cùng hệ thống",
-      "desktopOnlyHint": "Chỉ khả dụng trong ứng dụng máy tính KHOANG."
+      "autostart": "Khởi động NexaDock cùng hệ thống",
+      "desktopOnlyHint": "Chỉ khả dụng trong ứng dụng máy tính NexaDock."
     },
     "language": {
       "heading": "Ngôn ngữ hiển thị",
@@ -262,7 +262,7 @@
     "cards": {
       "mentalModel": {
         "title": "1. Công cụ này làm gì (và không làm gì)?",
-        "body": "KHOANG tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn."
+        "body": "NexaDock tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn."
       },
       "signIn": {
         "title": "2. Cách thêm và đăng nhập tài khoản",
@@ -305,9 +305,9 @@
       "modeDesktopTitle": "Zalo Desktop (Tách biệt)",
       "modeDesktopRecommended": "Khuyên dùng",
       "modeDesktopDesc": "Mở cửa sổ Zalo Desktop độc lập với đầy đủ tính năng gọi thoại/video và sao lưu dữ liệu ngoại tuyến.",
-      "modeWebTitle": "Zalo Web (Tách biệt trong KHOANG)",
+      "modeWebTitle": "Zalo Web (Tách biệt trong NexaDock)",
       "modeWebBeta": "Thử nghiệm",
-      "modeWebDesc": "Chạy trực tiếp trong khung bên phải KHOANG với bộ nhớ riêng. Mỗi tài khoản chỉ giữ 1 phiên Web; không có sao lưu ngoại tuyến; gọi thoại dùng trình duyệt.",
+      "modeWebDesc": "Chạy trực tiếp trong khung bên phải NexaDock với bộ nhớ riêng. Mỗi tài khoản chỉ giữ 1 phiên Web; không có sao lưu ngoại tuyến; gọi thoại dùng trình duyệt.",
       "modeWebUnsupported": "Không khả dụng trên nền tảng này.",
       "step2Title": "Không gian \"{name}\" đã sẵn sàng",
       "step2Body": "Không gian dùng Zalo riêng đã tạo xong. Mở Zalo Desktop ngay để đăng nhập tài khoản hiện có bằng mã QR hoặc mật khẩu (hoặc mở lại bất cứ lúc nào từ màn hình chính).",
@@ -322,7 +322,7 @@
     },
     "delete": {
       "title": "Xóa tài khoản này?",
-      "warning": "Thao tác này sẽ xóa toàn bộ dữ liệu cục bộ của tài khoản \"{name}\" khỏi KHOANG. Hãy sao lưu trước nếu cần giữ lại lịch sử trên máy.",
+      "warning": "Thao tác này sẽ xóa toàn bộ dữ liệu cục bộ của tài khoản \"{name}\" khỏi NexaDock. Hãy sao lưu trước nếu cần giữ lại lịch sử trên máy.",
       "confirmText": "Hãy đóng Zalo trước khi xóa dữ liệu tài khoản.",
       "submit": "Xóa tài khoản"
     },
@@ -339,10 +339,10 @@
       "submit": "Đặt lại phiên"
     },
     "help": {
-      "title": "Cách hoạt động của KHOANG",
+      "title": "Cách hoạt động của NexaDock",
       "items": [
         "Mỗi tài khoản bạn thêm sẽ mở Zalo Desktop trong một không gian riêng.",
-        "Bạn đăng nhập trực tiếp trong ứng dụng Zalo (QR hoặc mật khẩu); KHOANG không thu thập thông tin đăng nhập.",
+        "Bạn đăng nhập trực tiếp trong ứng dụng Zalo (QR hoặc mật khẩu); NexaDock không thu thập thông tin đăng nhập.",
         "Zalo đang dùng sẵn trên máy luôn được giữ nguyên và bảo vệ.",
         "Bạn có thể sao lưu tài khoản bất cứ lúc nào khi tài khoản đó đang đóng."
       ]
@@ -409,18 +409,18 @@
     "reloadAria": "Tải lại phiên Web",
     "limitsTriggerAria": "Giới hạn của phiên Web",
     "limitsTitle": "Giới hạn của Zalo Web tách biệt",
-    "limitsBody": "• Mỗi tài khoản Zalo chỉ giữ được 1 phiên Zalo Web hoạt động cùng lúc.\n• Không có sao lưu dữ liệu cục bộ trên KHOANG; đặt lại phiên sẽ cần quét QR lại.\n• Cuộc gọi thoại/video dùng trình duyệt và cần cấp quyền micro/camera riêng.",
+    "limitsBody": "• Mỗi tài khoản Zalo chỉ giữ được 1 phiên Zalo Web hoạt động cùng lúc.\n• Không có sao lưu dữ liệu cục bộ trên NexaDock; đặt lại phiên sẽ cần quét QR lại.\n• Cuộc gọi thoại/video dùng trình duyệt và cần cấp quyền micro/camera riêng.",
     "reset": "Đặt lại phiên Web",
     "moreAria": "Tùy chọn phiên Web",
     "loading": "Đang mở phiên Zalo Web tách biệt...",
     "pausedForOverlay": "Phiên Web tạm ẩn khi hộp thoại đang mở.",
-    "previewNotice": "Phiên Zalo Web tách biệt chỉ hiển thị trong ứng dụng máy tính KHOANG.",
+    "previewNotice": "Phiên Zalo Web tách biệt chỉ hiển thị trong ứng dụng máy tính NexaDock.",
     "unsupportedTitle": "Phiên Web chưa khả dụng trên thiết bị này",
     "unsupportedBody": "Hãy dùng tài khoản Zalo Desktop tách biệt để có đầy đủ tính năng và cô lập dữ liệu."
   },
   "desktopStage": {
-    "honestNotice": "Đang chạy trong cửa sổ Zalo Desktop độc lập — không nhúng vào KHOANG.",
-    "primaryNotice": "Ứng dụng Zalo cài sẵn trên máy được bảo vệ ở chế độ chỉ đọc. KHOANG không đóng, xóa, sao lưu đè hay thay đổi vị trí cửa sổ này.",
+    "honestNotice": "Đang chạy trong cửa sổ Zalo Desktop độc lập — không nhúng vào NexaDock.",
+    "primaryNotice": "Ứng dụng Zalo cài sẵn trên máy được bảo vệ ở chế độ chỉ đọc. NexaDock không đóng, xóa, sao lưu đè hay thay đổi vị trí cửa sổ này.",
     "bringToFront": "Đưa cửa sổ lên trên",
     "openAndFocus": "Mở & Đưa lên trên",
     "activating": "Đang chuyển đến tài khoản...",
@@ -430,8 +430,8 @@
     "retryAction": "Thử lại",
     "refreshAction": "Làm mới trạng thái",
     "useDesktopAction": "Thêm tài khoản Desktop",
-    "companionSnapLabel": "Đặt cạnh KHOANG (tùy chọn)",
-    "companionSnapHint": "Chỉ sắp xếp cửa sổ Zalo Desktop phụ bên cạnh thanh KHOANG; tắt để trả về vị trí cũ. Không phải nhúng cửa sổ.",
+    "companionSnapLabel": "Đặt cạnh NexaDock (tùy chọn)",
+    "companionSnapHint": "Chỉ sắp xếp cửa sổ Zalo Desktop phụ bên cạnh thanh NexaDock; tắt để trả về vị trí cũ. Không phải nhúng cửa sổ.",
     "companionSnapPrimaryBlocked": "Không áp dụng cho Zalo gốc được bảo vệ.",
     "companionSnapStopped": "Mở cửa sổ Zalo trước để dùng chế độ đặt cạnh.",
     "snapSectionTitle": "Sắp xếp cửa sổ",
@@ -471,7 +471,7 @@
     "UNSUPPORTED_PLATFORM": "Tính năng này chưa hỗ trợ trên hệ điều hành hiện tại.",
     "BACKUP_ERROR": "Không thể sao lưu khi Zalo đang mở hoặc thư mục đang bận.",
     "SHARED_EXTERNAL_DB_PATH": "Tài khoản này đang dùng chung thư mục lưu trữ ngoài với một cửa sổ Zalo khác. Hãy chọn thư mục lưu trữ riêng trong cài đặt Zalo.",
-    "EXTERNAL_DB_OUTSIDE_PROFILE": "Tài khoản này đang đặt thư mục tin nhắn Zalo ở ổ đĩa ngoài KHOANG, nên sao lưu tự động tạm dừng để tránh thiếu dữ liệu.",
+    "EXTERNAL_DB_OUTSIDE_PROFILE": "Tài khoản này đang đặt thư mục tin nhắn Zalo ở ổ đĩa ngoài NexaDock, nên sao lưu tự động tạm dừng để tránh thiếu dữ liệu.",
     "RESTORE_ERROR": "Không thể khôi phục vì bản sao lưu bị thiếu tệp, hỏng định dạng hoặc không còn nguyên vẹn.",
     "PROCESS_ERROR": "Không thể mở Zalo. Thử lại.",
     "LAUNCH_FAILED": "Cửa sổ Zalo đã đóng trước khi khởi động xong. Vui lòng thử mở lại tài khoản này.",

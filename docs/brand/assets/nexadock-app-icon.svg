@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none" role="img" aria-label="NexaDock App Icon">
+  <rect x="12" y="12" width="232" height="232" rx="54" fill="#182B32" />
+  <rect x="14" y="14" width="228" height="228" rx="52" stroke="#2D4A54" stroke-width="4" />
+  <rect x="46" y="48" width="44" height="160" rx="18" fill="#DCE8E2" />
+  <rect x="108" y="48" width="102" height="72" rx="18" fill="#247D70" />
+  <circle cx="176" cy="84" r="11" fill="#FFFFFF" />
+  <rect x="108" y="136" width="102" height="72" rx="18" fill="#213840" stroke="#9FB3B9" stroke-width="8" />
+</svg>

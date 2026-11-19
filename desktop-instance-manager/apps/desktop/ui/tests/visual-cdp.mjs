@@ -805,7 +805,7 @@ try {
     navActive: true,
     ariaCurrent: 'page',
     cardCount: 4,
-    title: 'KHOANG — Hướng dẫn sử dụng'
+    title: 'NexaDock — Hướng dẫn sử dụng'
   });
   await snap('account-dock-help-vi-light.png');
 

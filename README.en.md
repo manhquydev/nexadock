@@ -1,38 +1,40 @@
 <div align="center">
 
-<img src="docs/brand/assets/marketing/github-readme-hero.svg" alt="KHOANG — Your accounts. Their own space." width="880" />
+<img src="docs/brand/assets/marketing/github-readme-hero.svg" alt="NexaDock — Your accounts. Their own space." width="880" />
 
 <br />
 
-# KHOANG
+# NexaDock
 
 **Your accounts. Their own space.** *(Independent Account Workspace — cross-platform isolated multi-instance profile manager for Zalo Desktop on Windows, macOS, and Ubuntu)*
 
-[Tiếng Việt](README.md) · [Pre-release Downloads](https://github.com/manhquydev/zalo/releases) · [Installation & Testing Guide (VI)](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md) · [Report an Issue](https://github.com/manhquydev/zalo/issues)
+[Tiếng Việt](README.md) · [Pre-release Downloads](https://github.com/manhquydev/nexadock/releases) · [Installation & Testing Guide (VI)](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md) · [Report an Issue](https://github.com/manhquydev/nexadock/issues)
 
-![Build Status](https://img.shields.io/badge/CI-Windows%20%7C%20macOS%20%7C%20Ubuntu-2563eb?style=flat-square)
+[![CI](https://github.com/manhquydev/nexadock/actions/workflows/ci.yml/badge.svg)](https://github.com/manhquydev/nexadock/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-16a34a?style=flat-square)
 ![Architecture](https://img.shields.io/badge/Stack-Rust%20%2B%20Tauri%202%20%2B%20WebView-0f172a?style=flat-square)
 ![Binary Policy](https://img.shields.io/badge/VNG%20Binaries-Zero%20Bundled%20%2F%20Zero%20Patched-0284c7?style=flat-square)
 
 <br />
 
-<img src="desktop-instance-manager/docs/design/screenshots/account-dock-en-US-light-1160x780.png" alt="Multi-Zalo Account Dock English Light Theme" width="820" />
+<img src="desktop-instance-manager/docs/design/screenshots/account-dock-en-US-light-1160x780.png" alt="NexaDock Account Dock English Light Theme" width="820" />
 
 </div>
 
 ---
 
 > [!IMPORTANT]
-> **Non-Affiliation Notice:** **KHOANG** (`desktop-instance-manager`, formerly Multi-Zalo Desktop) is an independent open-source project (`MIT OR Apache-2.0`). It is **not affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo**. `"Zalo"` is a trademark of VNG Corporation. This repository and its installers **never** bundle, patch, or redistribute proprietary VNG binaries — users install the official Zalo Desktop client directly from VNG.
+> **Non-Affiliation Notice:** **NexaDock** (`desktop-instance-manager`, formerly NexaDock / Multi-Zalo Desktop) is an independent open-source project (`MIT OR Apache-2.0`). It is **not affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo**. `"Zalo"` is a trademark of VNG Corporation. This repository and its installers **never** bundle, patch, or redistribute proprietary VNG binaries — users install the official Zalo Desktop client directly from VNG.
 
 ---
 
 ## Overview
 
-**KHOANG** lets you run and organize multiple isolated **Zalo Desktop** sessions side-by-side on a single machine **without interfering with your existing primary Zalo installation** (`%APPDATA%\ZaloData` on Windows or `~/Library/Application Support/ZaloData` on macOS).
+**NexaDock** lets you run and organize multiple isolated **Zalo Desktop** sessions side-by-side on a single machine **without interfering with your existing primary Zalo installation** (`%APPDATA%\ZaloData` on Windows or `~/Library/Application Support/ZaloData` on macOS).
 
-Each account resides in its own dedicated space ("khoang", `Profiles/<slug>_<id>/`) enforced via OS-level environment and filesystem redirection, managed through the **KHOANG** UI (Vietnamese & English, Light & Dark mode, *Calm Precision* design system — see [`docs/brand/BRAND_GUIDELINES.md`](docs/brand/BRAND_GUIDELINES.md)) built with **Rust + Tauri 2**.
+Each account resides in its own dedicated space (`Profiles/<slug>_<id>/`) enforced via OS-level environment and filesystem redirection, managed through the **NexaDock** UI (Vietnamese & English, Light & Dark mode, *Calm Precision* design system — see [`docs/brand/BRAND_GUIDELINES.md`](docs/brand/BRAND_GUIDELINES.md)) built with **Rust + Tauri 2**.
+
+> **Upgrade Compatibility (NexaDock / Multi-Zalo Desktop -> NexaDock):** NexaDock preserves `com.multizalodesktop.manager`, `%LOCALAPPDATA%\MultiZaloDesktop`, `khoang-preferences.json`, and all existing profiles/WebIsolated sessions — upgrading retains your accounts and data.
 
 <details>
 <summary><strong>More UI screenshots (Dark mode, Account creation wizard, Safe Backup &amp; Restore, Diagnostics)</strong></summary>
@@ -78,11 +80,11 @@ Each account resides in its own dedicated space ("khoang", `Profiles/<slug>_<id>
 
 ## Quick Installation & Verification
 
-Download installers from **[GitHub Releases](https://github.com/manhquydev/zalo/releases)** and verify checksums against **`SHA256SUMS.txt`**.
+Download installers (**`v0.1.1-beta.1`**) from **[GitHub Releases](https://github.com/manhquydev/nexadock/releases)** and verify checksums against **`SHA256SUMS.txt`**.
 
-- **Windows 10/11:** Run `KHOANG-0.1.0-beta.1-windows-x64-setup.exe` (or `.msi`). On machines with Smart App Control (`SAC=1`), launch from source with `cd desktop-instance-manager && node apps/desktop/ui-server.mjs`.
-- **macOS (`arm64`):** Download `KHOANG-0.1.0-beta.1-macos-arm64.dmg`. Because the pre-release `.dmg` is unsigned/unnotarized, Gatekeeper blocks downloaded unsigned bundles by default; developers can run locally from source via `cargo run --manifest-path desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml`.
-- **Ubuntu 24.04 LTS (`x64`):** Install `KHOANG-0.1.0-beta.1-ubuntu24.04-amd64.deb` (`sudo apt-get install -y ./KHOANG-0.1.0-beta.1-ubuntu24.04-amd64.deb bubblewrap`) or execute `KHOANG-0.1.0-beta.1-linux-x86_64.AppImage`.
+- **Windows 10/11:** Run `NexaDock-0.1.1-beta.1-windows-x64-setup.exe` (or `.msi`). On machines with Smart App Control (`SAC=1`), launch from source with `cd desktop-instance-manager && node apps/desktop/ui-server.mjs`.
+- **macOS (`arm64`):** Download `NexaDock-0.1.1-beta.1-macos-arm64.dmg`. Because the pre-release `.dmg` is unsigned/unnotarized, Gatekeeper blocks downloaded unsigned bundles by default; developers can run locally from source via `cargo run --manifest-path desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml`.
+- **Ubuntu 24.04 LTS (`x64`):** Install `NexaDock-0.1.1-beta.1-ubuntu24.04-amd64.deb` (`sudo apt-get install -y ./NexaDock-0.1.1-beta.1-ubuntu24.04-amd64.deb bubblewrap`) or execute `NexaDock-0.1.1-beta.1-linux-x86_64.AppImage`.
 
 ---
 

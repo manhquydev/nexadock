@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="text-scale" content="scale">
   <meta name="color-scheme" content="light dark">
-  <title>KHOANG — Tài khoản</title>
+  <title>NexaDock — Tài khoản</title>
   <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -16,17 +16,18 @@
     <!-- Left Account Rail -->
     <aside class="account-rail" id="account-rail" data-i18n-aria-label="rail.ariaLabel" aria-label="Thanh tài khoản">
       <div class="rail-header">
-        <button type="button" class="rail-brand-btn" id="btn-brand-home" aria-label="KHOANG" data-i18n-title="nav.accounts">
+        <button type="button" class="rail-brand-btn" id="btn-brand-home" aria-label="NexaDock" data-i18n-title="nav.accounts">
           <span class="brand-mark" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <rect x="2" y="2" width="20" height="20" rx="5" stroke="currentColor" stroke-width="1.75"/>
-              <rect x="5.5" y="5.5" width="5.5" height="13" rx="1.75" fill="currentColor"/>
-              <rect x="13" y="5.5" width="5.5" height="6" rx="1.5" fill="var(--accent, currentColor)"/>
-              <rect x="13" y="13" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+              <rect x="2" y="2" width="20" height="20" rx="5.5" stroke="currentColor" stroke-width="1.75"/>
+              <rect x="5" y="5" width="3.75" height="14" rx="1.75" fill="currentColor"/>
+              <rect x="10.75" y="5" width="8.25" height="6.25" rx="1.75" fill="var(--accent, #247D70)"/>
+              <circle cx="16.25" cy="8.125" r="1.15" fill="#FFFFFF"/>
+              <rect x="10.75" y="12.75" width="8.25" height="6.25" rx="1.75" stroke="currentColor" stroke-width="1.65"/>
             </svg>
           </span>
           <span class="rail-brand-text">
-            <span class="brand-name" data-i18n="app.name">KHOANG</span>
+            <span class="brand-name" data-i18n="app.name">NexaDock</span>
             <span class="brand-sub" id="topbar-open-summary" data-i18n="app.connecting">Đang kết nối...</span>
           </span>
         </button>
@@ -278,7 +279,7 @@
                   <span id="desktop-stage-state-label"></span>
                 </div>
                 <p class="desktop-honest-notice" id="desktop-honest-notice" data-i18n="desktopStage.honestNotice">
-                  Đang chạy trong cửa sổ Zalo Desktop độc lập — không nhúng vào KHOANG.
+                  Đang chạy trong cửa sổ Zalo Desktop độc lập — không nhúng vào NexaDock.
                 </p>
               </div>
             </div>
@@ -308,7 +309,7 @@
             <h2 class="stage-section-title" data-i18n="desktopStage.snapSectionTitle">Sắp xếp cửa sổ</h2>
             <label class="settings-toggle-row">
               <input type="checkbox" id="toggle-companion-snap">
-              <span data-i18n="desktopStage.companionSnapLabel">Đặt cạnh KHOANG (tùy chọn)</span>
+              <span data-i18n="desktopStage.companionSnapLabel">Đặt cạnh NexaDock (tùy chọn)</span>
             </label>
             <p class="settings-hint" id="desktop-snap-hint" data-i18n="desktopStage.companionSnapHint"></p>
           </section>
@@ -498,10 +499,10 @@
               </label>
               <label class="settings-toggle-row">
                 <input type="checkbox" id="toggle-autostart">
-                <span data-i18n="settings.behavior.autostart">Khởi động KHOANG cùng hệ thống</span>
+                <span data-i18n="settings.behavior.autostart">Khởi động NexaDock cùng hệ thống</span>
               </label>
             </div>
-            <p class="settings-hint" id="settings-behavior-hint" hidden data-i18n="settings.behavior.desktopOnlyHint">Chỉ khả dụng trong ứng dụng máy tính KHOANG.</p>
+            <p class="settings-hint" id="settings-behavior-hint" hidden data-i18n="settings.behavior.desktopOnlyHint">Chỉ khả dụng trong ứng dụng máy tính NexaDock.</p>
           </section>
 
           <section class="panel settings-panel">
@@ -690,7 +691,7 @@
               <input type="radio" name="create-session-mode" value="web_isolated" id="create-mode-web-radio">
               <span class="mode-card-body">
                 <span class="mode-card-title-row">
-                  <strong data-i18n="dialogs.create.modeWebTitle">Zalo Web (Tách biệt trong KHOANG)</strong>
+                  <strong data-i18n="dialogs.create.modeWebTitle">Zalo Web (Tách biệt trong NexaDock)</strong>
                   <span class="badge" data-i18n="dialogs.create.modeWebBeta">Thử nghiệm</span>
                 </span>
                 <span class="mode-card-desc" id="create-mode-web-desc" data-i18n="dialogs.create.modeWebDesc"></span>
