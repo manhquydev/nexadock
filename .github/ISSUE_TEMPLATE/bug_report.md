@@ -16,7 +16,7 @@ labels: bug
 - **Platform:** (Windows 11 / Windows 10 / macOS Apple Silicon / macOS Intel / Ubuntu 24.04)
 - **OS version:** (ví dụ `Windows 11 24H2`, `macOS 15.x`, `Ubuntu 24.04.1 LTS`)
 - **Build SHA:** (commit SHA trong `artifact-manifest.json` hoặc trang Release)
-- **Installer / Artifact đã dùng:** (ví dụ `NexaDock-0.1.1-beta.1-windows-x64-setup.exe`, `.msi`, `.dmg`, `.deb`, `.AppImage`)
+- **Installer / Artifact đã dùng:** (ví dụ `NexaDock-0.1.1-beta.2-windows-x64-setup.exe`, `.msi`, `.dmg`, `.deb`, `.AppImage`)
 - **Error code (nếu có):** (ví dụ `INSTALL_NOT_FOUND`, `UNVERIFIED_BINARY`, `IO_ERROR`, `JSON_ERROR`, `BACKUP_ERROR`, `RESTORE_ERROR`)
 
 ## 2. Các bước tái hiện (Steps to reproduce)

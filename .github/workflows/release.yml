@@ -79,16 +79,17 @@ jobs:
             echo "::error::Expected productName NexaDock, got ${PRODUCT}"
             exit 1
           fi
-          if [ "${TAG}" != "v${VERSION}" ]; then
-            echo "::error::Tag ${TAG} does not match tauri.conf.json version v${VERSION}"
+          if [ "${TAG}" != "v${VERSION}" ] && [[ "${TAG}" != "v${VERSION}-"* ]]; then
+            echo "::error::Tag ${TAG} does not match tauri.conf.json base version v${VERSION}"
             exit 1
           fi
+          RELEASE_VER="${TAG#v}"
           IS_PRE="false"
-          if [[ "${VERSION}" == *-* ]]; then
+          if [[ "${RELEASE_VER}" == *-* ]]; then
             IS_PRE="true"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_VER}" >> "$GITHUB_OUTPUT"
           echo "product_name=${PRODUCT}" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=${IS_PRE}" >> "$GITHUB_OUTPUT"
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
