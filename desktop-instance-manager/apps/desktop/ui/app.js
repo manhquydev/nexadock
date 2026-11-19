@@ -15,6 +15,9 @@ import {
 const UI_VERSION = '0.1.0';
 const THEME_STORAGE_KEY = 'multi-zalo.theme';
 const ACCOUNT_COLORS_STORAGE_KEY = 'multi-zalo.accountColors';
+const PINNED_STORAGE_KEY = 'khoang.pinnedAccounts';
+const RAIL_EXPANDED_KEY = 'khoang.railExpanded';
+const ACTIVE_ACCOUNT_KEY = 'khoang.activeAccountId';
 
 const ACCOUNT_COLORS = [
   { id: 'blue', cssVar: '--id-blue' },
@@ -29,15 +32,24 @@ const ACCOUNT_COLORS = [
 
 const state = {
   status: null,
+  workspace: null,
   backups: [],
   diagnostics: null,
   isolation: null,
-  activeView: 'profiles',
+  activeView: 'profiles', // 'profiles' | 'backups' | 'settings' | 'diagnostics' | 'help' | 'desktop-stage' | 'web-stage'
+  activeAccount: null, // { id, kind }
+  lastActivationResult: null,
+  railFilterQuery: '',
   searchQuery: '',
+  switcherQuery: '',
+  switcherActiveIndex: 0,
   connectionMode: null, // 'tauri' | 'bridge' | null
   connectionOk: false,
   activeRenameId: null,
+  activeRenameKind: 'desktop_isolated',
   activeDeleteId: null,
+  activeDeleteKind: 'desktop_isolated',
+  activeResetWebId: null,
   activeRestoreBackupDir: null,
   activeRestoreSourceId: null,
   createdAccountForStep2: null,
@@ -46,7 +58,10 @@ const state = {
   refreshSeq: 0,
   banner: null,
   pendingProfileActions: new Map(),
-  pendingGlobalActions: new Set()
+  pendingGlobalActions: new Set(),
+  overlayBlockers: new Set(),
+  mountedWebSessionId: null,
+  lastWebBoundsKey: ''
 };
 
 export function getTauriInvoke() {
@@ -56,48 +71,46 @@ export function getTauriInvoke() {
   return null;
 }
 
-function loadAccountColorsMap() {
+function loadJsonStorage(key, fallback) {
   try {
     if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(ACCOUNT_COLORS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
+      const raw = localStorage.getItem(key);
+      if (raw) return JSON.parse(raw);
     }
   } catch (_err) {
     // Ignore storage errors
   }
-  return {};
+  return fallback;
+}
+
+function saveJsonStorage(key, value) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+  } catch (_err) {
+    // Ignore storage errors
+  }
+}
+
+function loadAccountColorsMap() {
+  const parsed = loadJsonStorage(ACCOUNT_COLORS_STORAGE_KEY, {});
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
 }
 
 export function saveAccountColor(profileId, colorId) {
   if (!profileId || !ACCOUNT_COLORS.some((c) => c.id === colorId)) return;
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const map = loadAccountColorsMap();
-      map[profileId] = colorId;
-      localStorage.setItem(ACCOUNT_COLORS_STORAGE_KEY, JSON.stringify(map));
-    }
-  } catch (_err) {
-    // Ignore storage errors
-  }
+  const map = loadAccountColorsMap();
+  map[profileId] = colorId;
+  saveJsonStorage(ACCOUNT_COLORS_STORAGE_KEY, map);
 }
 
 export function removeAccountColor(profileId) {
   if (!profileId) return;
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const map = loadAccountColorsMap();
-      if (Object.hasOwn(map, profileId)) {
-        delete map[profileId];
-        localStorage.setItem(ACCOUNT_COLORS_STORAGE_KEY, JSON.stringify(map));
-      }
-    }
-  } catch (_err) {
-    // Ignore storage errors
+  const map = loadAccountColorsMap();
+  if (Object.hasOwn(map, profileId)) {
+    delete map[profileId];
+    saveJsonStorage(ACCOUNT_COLORS_STORAGE_KEY, map);
   }
 }
 
@@ -106,8 +119,11 @@ export function getAccountColorId(prof) {
   const saved = prof?.id ? map[prof.id] : null;
   const matched = ACCOUNT_COLORS.find((c) => c.id === saved);
   if (matched) return matched.id;
+  if (prof?.color_token && ACCOUNT_COLORS.some((c) => c.id === prof.color_token)) {
+    return prof.color_token;
+  }
 
-  const seed = String(prof?.id || prof?.name || 'z');
+  const seed = String(prof?.id || prof?.name || prof?.display_name || 'z');
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
     hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
@@ -253,6 +269,24 @@ export async function apiCall(route, method = 'GET', body = null, tauriCmd = nul
   }
 }
 
+async function tauriInvokeEnvelope(cmd, args = {}) {
+  const invoke = getTauriInvoke();
+  if (!invoke) return null;
+  const env = await invoke(cmd, args);
+  updateConnectionBadge('tauri', true);
+  return env;
+}
+
+function announceToScreenReader(text) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('sr-announcer');
+  if (!el) return;
+  el.textContent = '';
+  setTimeout(() => {
+    el.textContent = text;
+  }, 40);
+}
+
 function renderBanner() {
   const banner = document.getElementById('status-banner');
   const textEl = document.getElementById('status-banner-text');
@@ -378,6 +412,7 @@ function updatePendingControls() {
   const isRefreshing = state.pendingGlobalActions.has('refresh');
   const isVerifying = state.pendingGlobalActions.has('verify');
   const isCreating = state.pendingGlobalActions.has('create');
+  const isStoppingAll = state.pendingGlobalActions.has('stop-all');
 
   const btnRefresh = document.getElementById('btn-refresh');
   if (btnRefresh) btnRefresh.disabled = isRefreshing;
@@ -394,8 +429,14 @@ function updatePendingControls() {
   const btnCreate = document.getElementById('btn-open-create');
   if (btnCreate) btnCreate.disabled = isCreating;
 
+  const btnOverviewCreate = document.getElementById('btn-overview-create');
+  if (btnOverviewCreate) btnOverviewCreate.disabled = isCreating;
+
   const btnEmptyCreate = document.getElementById('btn-empty-create');
   if (btnEmptyCreate) btnEmptyCreate.disabled = isCreating;
+
+  const btnStopAll = document.getElementById('btn-stop-all');
+  if (btnStopAll) btnStopAll.disabled = isStoppingAll;
 }
 
 function updateDocumentTitle(viewName = state.activeView) {
@@ -405,10 +446,144 @@ function updateDocumentTitle(viewName = state.activeView) {
     backups: t('nav.backups'),
     settings: t('nav.settings'),
     diagnostics: t('diagnostics.title'),
-    help: t('help.title')
+    help: t('help.title'),
+    'desktop-stage': state.activeAccount ? findAccountDisplayName(state.activeAccount) : t('nav.accounts'),
+    'web-stage': state.activeAccount ? findAccountDisplayName(state.activeAccount) : t('nav.accounts')
   };
   const viewTitle = viewTitles[viewName] || t('nav.accounts');
   document.title = `${t('app.name')} — ${viewTitle}`;
+}
+
+/* ========================================================================
+ * WebView Overlay Coordinator (Z-Order Protection for Native Child WebViews)
+ * ======================================================================== */
+function isWebViewStageActive() {
+  return state.activeView === 'web-stage' && state.activeAccount?.kind === 'web_isolated';
+}
+
+function computePhysicalViewportBounds() {
+  const viewport = document.getElementById('web-session-viewport');
+  if (!viewport) return null;
+  const rect = viewport.getBoundingClientRect();
+  const dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
+  const x = Math.round(rect.left * dpr);
+  const y = Math.round(rect.top * dpr);
+  const width = Math.round(rect.width * dpr);
+  const height = Math.round(rect.height * dpr);
+  if (width < 40 || height < 40) return null;
+  return { x, y, width, height };
+}
+
+async function syncNativeWebViewState() {
+  const shell = document.getElementById('workspace-shell');
+  const shouldShow = isWebViewStageActive()
+    && state.overlayBlockers.size === 0
+    && Boolean(state.workspace?.web_workspace?.supported);
+
+  const bounds = shouldShow ? computePhysicalViewportBounds() : null;
+  const invoke = getTauriInvoke();
+
+  if (!shouldShow || !bounds) {
+    if (shell) shell.dataset.webviewActive = 'false';
+    if (state.mountedWebSessionId && invoke) {
+      state.mountedWebSessionId = null;
+      state.lastWebBoundsKey = '';
+      await tauriInvokeEnvelope('web_session_hide_all', {}).catch(() => {});
+    }
+    syncRailTooltipsForWebView(false);
+    updateWebViewportPlaceholder();
+    return;
+  }
+
+  if (shell) shell.dataset.webviewActive = 'true';
+  syncRailTooltipsForWebView(true);
+
+  if (!invoke) {
+    updateWebViewportPlaceholder();
+    return;
+  }
+
+  const targetId = state.activeAccount.id;
+  const boundsKey = `${targetId}:${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+  if (state.mountedWebSessionId !== targetId) {
+    state.mountedWebSessionId = targetId;
+    state.lastWebBoundsKey = boundsKey;
+    updateWebViewportPlaceholder();
+    await tauriInvokeEnvelope('web_session_show', {
+      id: targetId,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height
+    }).catch((err) => {
+      showErrorBanner(err?.errorCode || 'WEB_SESSION_ERROR', err?.message || '');
+    });
+  } else if (state.lastWebBoundsKey !== boundsKey) {
+    state.lastWebBoundsKey = boundsKey;
+    await tauriInvokeEnvelope('web_session_set_bounds', {
+      id: targetId,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height
+    }).catch(() => {});
+  }
+}
+
+function addOverlayBlocker(key) {
+  if (!key) return;
+  const hadNone = state.overlayBlockers.size === 0;
+  state.overlayBlockers.add(key);
+  if (hadNone) {
+    syncNativeWebViewState();
+  }
+}
+
+function removeOverlayBlocker(key) {
+  if (!key) return;
+  if (state.overlayBlockers.delete(key) && state.overlayBlockers.size === 0) {
+    syncNativeWebViewState();
+  }
+}
+
+function syncRailTooltipsForWebView(webviewActive) {
+  const portal = document.getElementById('tooltip-portal');
+  const buttons = document.querySelectorAll('.rail-account-btn');
+  if (webviewActive) {
+    if (portal) portal.replaceChildren();
+    for (const btn of buttons) {
+      const tipText = btn.dataset.tooltipText || '';
+      if (tipText) btn.setAttribute('title', tipText);
+      btn.removeAttribute('interestfor');
+      btn.removeAttribute('aria-describedby');
+    }
+    return;
+  }
+
+  const supportsInterest = typeof HTMLButtonElement !== 'undefined'
+    && 'interestForElement' in HTMLButtonElement.prototype
+    && typeof CSS !== 'undefined'
+    && CSS.supports('position-area', 'inline-end');
+
+  if (!supportsInterest || !portal) return;
+
+  portal.replaceChildren();
+  buttons.forEach((btn, idx) => {
+    const tipText = btn.dataset.tooltipText || '';
+    if (!tipText) return;
+    const tipId = `rail-tip-${idx}`;
+    const tip = document.createElement('div');
+    tip.id = tipId;
+    tip.className = 'rail-tooltip';
+    tip.setAttribute('popover', 'hint');
+    tip.setAttribute('role', 'tooltip');
+    tip.textContent = tipText;
+    portal.appendChild(tip);
+
+    btn.removeAttribute('title');
+    btn.setAttribute('interestfor', tipId);
+    btn.setAttribute('aria-describedby', tipId);
+  });
 }
 
 function selectView(viewName) {
@@ -416,20 +591,33 @@ function selectView(viewName) {
   if (state.banner && state.banner.kind !== 'error') {
     clearBanner();
   }
+
   for (const btn of document.querySelectorAll('.top-nav-btn[data-view]')) {
     const active = btn.getAttribute('data-view') === viewName;
     btn.classList.toggle('is-active', active);
     if (active) btn.setAttribute('aria-current', 'page');
     else btn.removeAttribute('aria-current');
   }
+
   for (const view of document.querySelectorAll('.view')) {
     view.hidden = view.id !== `view-${viewName}`;
   }
-  const btnOpenCreate = document.getElementById('btn-open-create');
-  if (btnOpenCreate) {
-    btnOpenCreate.hidden = viewName !== 'profiles';
+
+  const webStage = document.getElementById('stage-web-session');
+  if (webStage) webStage.hidden = viewName !== 'web-stage';
+
+  const desktopStage = document.getElementById('stage-desktop-session');
+  if (desktopStage) desktopStage.hidden = viewName !== 'desktop-stage';
+
+  const isStage = viewName === 'web-stage' || viewName === 'desktop-stage';
+  if (!isStage) {
+    for (const btn of document.querySelectorAll('.rail-account-btn')) {
+      btn.setAttribute('aria-pressed', 'false');
+    }
   }
+
   updateDocumentTitle(viewName);
+  syncNativeWebViewState();
 }
 
 function makeBadge(text, variant = 'neutral') {
@@ -462,8 +650,10 @@ function appendKvRow(dl, keyLabel, valueText) {
 }
 
 function normalizeLifecycleState(prof) {
-  if (!prof || prof.lifecycle_state == null) return '';
-  return String(prof.lifecycle_state)
+  if (!prof) return '';
+  const raw = prof.lifecycle_state ?? prof.state;
+  if (raw == null) return '';
+  return String(raw)
     .trim()
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .toLowerCase();
@@ -480,7 +670,7 @@ function isProfileActiveOrUnclean(prof) {
 
 export function resolveAccountState(prof) {
   const pendingAction = prof?.id ? state.pendingProfileActions.get(prof.id) : null;
-  if (pendingAction === 'launch') return { label: t('accounts.states.starting'), kind: 'pending' };
+  if (pendingAction === 'launch' || pendingAction === 'activate') return { label: t('accounts.states.starting'), kind: 'pending' };
   if (pendingAction === 'stop') return { label: t('accounts.states.stopping'), kind: 'pending' };
   if (prof?.error) return { label: t('accounts.states.error'), kind: 'error' };
   const lc = normalizeLifecycleState(prof);
@@ -500,6 +690,116 @@ export function resolveIsolationCheckResult(check) {
   if (explicit === 'FAIL' || check?.passed === false) return { label: t('diagnostics.checks.fail'), raw: 'FAIL', variant: 'fail' };
   if (explicit === 'PASS' || check?.passed === true) return { label: t('diagnostics.checks.pass'), raw: 'PASS', variant: 'pass' };
   return { label: t('diagnostics.checks.unknown'), raw: 'UNKNOWN', variant: 'neutral' };
+}
+
+function buildWorkspaceFallbackFromStatus(statusData) {
+  const pinnedList = loadJsonStorage(PINNED_STORAGE_KEY, []);
+  const pinnedSet = new Set(Array.isArray(pinnedList) ? pinnedList : []);
+  const primary = statusData?.primary_zalo;
+  const profiles = Array.isArray(statusData?.profiles) ? statusData.profiles : [];
+  return {
+    primary: {
+      detected: Boolean(primary?.running || primary?.is_running),
+      running: Boolean(primary?.is_running),
+      window_state: primary?.is_running ? 'visible' : 'none',
+      window_title: null,
+      pinned: pinnedSet.has('primary')
+    },
+    accounts: profiles.map((p) => ({
+      id: p.id,
+      kind: 'desktop_isolated',
+      display_name: p.name,
+      color_token: getAccountColorId(p),
+      pinned: pinnedSet.has(p.id),
+      state: normalizeLifecycleState(p) || (p.running ? 'running' : 'stopped'),
+      window_state: p.running ? 'visible' : 'none',
+      companion_snapped: false,
+      zalo_user_id: p.zalo_user_id || null,
+      window_title: p.window_title || null
+    })),
+    web_workspace: {
+      supported: false,
+      reason_code: 'WEB_SESSION_UNSUPPORTED'
+    }
+  };
+}
+
+function getAllUnifiedAccounts() {
+  const ws = state.workspace;
+  if (!ws) return [];
+  const items = [];
+  if (ws.primary) {
+    items.push({
+      id: 'primary',
+      kind: 'desktop_primary',
+      display_name: t('accounts.primaryZalo.heading'),
+      pinned: Boolean(ws.primary.pinned),
+      running: Boolean(ws.primary.running),
+      state: ws.primary.running ? 'running' : 'stopped',
+      window_state: ws.primary.window_state || 'none',
+      window_title: ws.primary.window_title || null,
+      detected: Boolean(ws.primary.detected)
+    });
+  }
+  for (const acc of ws.accounts || []) {
+    items.push(acc);
+  }
+  return items;
+}
+
+function findAccountDisplayName(target) {
+  if (!target) return t('app.name');
+  if (target.kind === 'desktop_primary' || target.id === 'primary') {
+    return t('accounts.primaryZalo.heading');
+  }
+  const found = (state.workspace?.accounts || []).find((a) => a.id === target.id && a.kind === target.kind);
+  if (found) return found.display_name;
+  const prof = (state.status?.profiles || []).find((p) => p.id === target.id);
+  return prof?.name || target.id;
+}
+
+function makeKindBadgeSvg(kind) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '10');
+  svg.setAttribute('height', '10');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.2');
+  svg.setAttribute('aria-hidden', 'true');
+
+  if (kind === 'desktop_primary') {
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z');
+    svg.appendChild(p);
+  } else if (kind === 'web_isolated') {
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', '12');
+    c.setAttribute('cy', '12');
+    c.setAttribute('r', '9');
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', '3');
+    l.setAttribute('y1', '12');
+    l.setAttribute('x2', '21');
+    l.setAttribute('y2', '12');
+    svg.appendChild(c);
+    svg.appendChild(l);
+  } else {
+    const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    r.setAttribute('x', '3');
+    r.setAttribute('y', '4');
+    r.setAttribute('width', '18');
+    r.setAttribute('height', '13');
+    r.setAttribute('rx', '2');
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', '8');
+    l.setAttribute('y1', '21');
+    l.setAttribute('x2', '16');
+    l.setAttribute('y2', '21');
+    svg.appendChild(r);
+    svg.appendChild(l);
+  }
+  return svg;
 }
 
 function renderTopbarSummary() {
@@ -529,6 +829,471 @@ function renderTopbarSummary() {
       installAlertText.textContent = '';
     }
   }
+}
+
+function renderAccountRail() {
+  const rail = document.getElementById('rail-accounts');
+  if (!rail) return;
+
+  const groupPrimary = rail.querySelector('[data-group="primary"]');
+  const groupPinned = rail.querySelector('[data-group="pinned"]');
+  const groupDesktop = rail.querySelector('[data-group="desktop"]');
+  const groupWeb = rail.querySelector('[data-group="web"]');
+  const sepPinned = rail.querySelector('[data-sep-for="pinned"]');
+  const sepDesktop = rail.querySelector('[data-sep-for="desktop"]');
+  const sepWeb = rail.querySelector('[data-sep-for="web"]');
+  if (!groupPrimary || !groupPinned || !groupDesktop || !groupWeb) return;
+
+  groupPrimary.replaceChildren();
+  groupPinned.replaceChildren();
+  groupDesktop.replaceChildren();
+  groupWeb.replaceChildren();
+
+  const q = state.railFilterQuery.trim().toLowerCase();
+  const all = getAllUnifiedAccounts();
+  const filtered = q
+    ? all.filter((acc) => String(acc.display_name || '').toLowerCase().includes(q))
+    : all;
+
+  const makeRailBtn = (acc) => {
+    const isSelected = state.activeAccount?.id === acc.id
+      && state.activeAccount?.kind === acc.kind
+      && (state.activeView === 'desktop-stage' || state.activeView === 'web-stage');
+    const isPending = state.pendingProfileActions.has(acc.id);
+    const isPrimary = acc.kind === 'desktop_primary';
+    const isWeb = acc.kind === 'web_isolated';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'rail-account-btn';
+    btn.dataset.accountId = acc.id;
+    btn.dataset.accountKind = acc.kind;
+    btn.setAttribute('aria-pressed', String(isSelected));
+    if (isPending) {
+      btn.setAttribute('aria-disabled', 'true');
+    }
+
+    const kindLabel = isPrimary
+      ? t('rail.kindPrimary')
+      : (isWeb ? t('rail.kindWeb') : t('rail.kindDesktop'));
+    const accState = isPrimary
+      ? (acc.running ? { label: t('accounts.states.running'), kind: 'running' } : { label: t('accounts.states.stopped'), kind: 'stopped' })
+      : resolveAccountState({ id: acc.id, running: acc.state === 'running', lifecycle_state: acc.state });
+
+    const tooltipText = `${acc.display_name} · ${kindLabel} · ${accState.label}`;
+    btn.dataset.tooltipText = tooltipText;
+    btn.setAttribute('title', tooltipText);
+    btn.setAttribute('aria-label', tooltipText);
+
+    const avatarWrap = document.createElement('span');
+    avatarWrap.className = 'rail-avatar-wrap';
+    avatarWrap.setAttribute('aria-hidden', 'true');
+
+    const avatar = document.createElement('span');
+    avatar.className = isPrimary ? 'account-avatar rail-avatar avatar-protected' : 'account-avatar rail-avatar';
+    if (!isPrimary) {
+      avatar.style.setProperty('--avatar-color', getAccountColorVar({ id: acc.id, name: acc.display_name, color_token: acc.color_token }));
+    }
+    avatar.textContent = isPrimary ? 'Z' : getAccountInitials(acc.display_name);
+
+    const kindBadge = document.createElement('span');
+    kindBadge.className = 'rail-kind-badge';
+    kindBadge.appendChild(makeKindBadgeSvg(acc.kind));
+
+    const stateDot = document.createElement('span');
+    const dotClass = acc.state === 'recovery_required' ? 'is-recovery' : `is-${accState.kind}`;
+    stateDot.className = `rail-state-dot ${dotClass}`;
+
+    avatarWrap.appendChild(avatar);
+    avatarWrap.appendChild(kindBadge);
+    avatarWrap.appendChild(stateDot);
+
+    const meta = document.createElement('span');
+    meta.className = 'rail-item-meta';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'rail-item-name';
+    nameSpan.textContent = acc.display_name;
+
+    const subSpan = document.createElement('span');
+    subSpan.className = 'rail-item-sub';
+    subSpan.textContent = `${kindLabel} · ${accState.label}`;
+
+    meta.appendChild(nameSpan);
+    meta.appendChild(subSpan);
+
+    btn.appendChild(avatarWrap);
+    btn.appendChild(meta);
+
+    btn.addEventListener('click', () => {
+      if (btn.getAttribute('aria-disabled') === 'true') return;
+      activateAccount(acc.id, acc.kind);
+    });
+
+    return btn;
+  };
+
+  for (const acc of filtered) {
+    const btn = makeRailBtn(acc);
+    if (acc.kind === 'desktop_primary') {
+      groupPrimary.appendChild(btn);
+    } else if (acc.pinned) {
+      groupPinned.appendChild(btn);
+    } else if (acc.kind === 'web_isolated') {
+      groupWeb.appendChild(btn);
+    } else {
+      groupDesktop.appendChild(btn);
+    }
+  }
+
+  groupPrimary.hidden = groupPrimary.childElementCount === 0;
+  groupPinned.hidden = groupPinned.childElementCount === 0;
+  groupDesktop.hidden = groupDesktop.childElementCount === 0;
+  groupWeb.hidden = groupWeb.childElementCount === 0;
+
+  if (sepPinned) sepPinned.hidden = groupPinned.hidden;
+  if (sepDesktop) sepDesktop.hidden = groupDesktop.hidden;
+  if (sepWeb) sepWeb.hidden = groupWeb.hidden;
+
+  syncRailTooltipsForWebView(isWebViewStageActive() && state.overlayBlockers.size === 0);
+  installRailRovingFallback();
+}
+
+function installRailRovingFallback() {
+  if (typeof HTMLElement !== 'undefined' && 'focusGroup' in HTMLElement.prototype) return;
+  const rail = document.getElementById('rail-accounts');
+  if (!rail) return;
+  const items = Array.from(rail.querySelectorAll('.rail-account-btn'));
+  if (items.length === 0) return;
+
+  const currentIdx = Math.max(0, items.findIndex((b) => b.getAttribute('aria-pressed') === 'true'));
+  items.forEach((b, i) => {
+    b.tabIndex = i === currentIdx ? 0 : -1;
+  });
+
+  if (rail.dataset.rovingWired === 'true') return;
+  rail.dataset.rovingWired = 'true';
+
+  rail.addEventListener('focusin', (event) => {
+    const target = event.target?.closest?.('.rail-account-btn');
+    if (!target) return;
+    for (const b of rail.querySelectorAll('.rail-account-btn')) {
+      b.tabIndex = b === target ? 0 : -1;
+    }
+  });
+
+  rail.addEventListener('keydown', (event) => {
+    const btns = Array.from(rail.querySelectorAll('.rail-account-btn'));
+    if (btns.length === 0) return;
+    const idx = btns.indexOf(document.activeElement);
+    if (idx < 0) return;
+
+    let nextIdx = -1;
+    if (event.key === 'ArrowDown') nextIdx = (idx + 1) % btns.length;
+    else if (event.key === 'ArrowUp') nextIdx = (idx - 1 + btns.length) % btns.length;
+    else if (event.key === 'Home') nextIdx = 0;
+    else if (event.key === 'End') nextIdx = btns.length - 1;
+    else return;
+
+    event.preventDefault();
+    for (const b of btns) b.tabIndex = -1;
+    btns[nextIdx].tabIndex = 0;
+    btns[nextIdx].focus();
+    btns[nextIdx].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
+}
+
+/* ========================================================================
+ * Unified One-Click Activation (activate_account)
+ * ======================================================================== */
+export async function activateAccount(id, kind) {
+  if (!id || !kind) return;
+  if (state.pendingProfileActions.has(id)) return;
+
+  clearBanner();
+  state.activeAccount = { id, kind };
+  state.lastActivationResult = null;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(ACTIVE_ACCOUNT_KEY, JSON.stringify({ id, kind }));
+    }
+  } catch (_err) {
+    // Ignore
+  }
+
+  state.pendingProfileActions.set(id, 'activate');
+  selectView(kind === 'web_isolated' ? 'web-stage' : 'desktop-stage');
+  renderProfiles();
+  renderAccountRail();
+  renderActiveStage();
+
+  try {
+    const invoke = getTauriInvoke();
+    let res;
+    if (invoke) {
+      const env = await tauriInvokeEnvelope('activate_account', { id, kind });
+      if (env && env.ok === false) {
+        showErrorBanner(env.error_code, env.message);
+        state.lastActivationResult = {
+          outcome: 'failed',
+          remediation: { code: env.error_code, message: env.message }
+        };
+      } else {
+        state.lastActivationResult = env?.data || null;
+      }
+    } else if (kind === 'desktop_isolated') {
+      const prof = (state.status?.profiles || []).find((p) => p.id === id);
+      const action = prof?.running ? 'focus' : 'launch';
+      res = await apiCall(`/api/profiles/${encodeURIComponent(id)}/${action}`, 'POST', {});
+      if (res && res.ok === false) {
+        showErrorBanner(res.error_code, res.message);
+        state.lastActivationResult = {
+          outcome: 'failed',
+          remediation: { code: res.error_code, message: res.message }
+        };
+      } else {
+        state.lastActivationResult = { outcome: prof?.running ? 'focused' : 'launched', message: res?.message || '' };
+      }
+    } else if (kind === 'desktop_primary') {
+      const running = Boolean(state.workspace?.primary?.running);
+      state.lastActivationResult = running
+        ? { outcome: 'focused', message: t('accounts.primaryZalo.running') }
+        : {
+          outcome: 'manual_action_required',
+          remediation: { code: 'PRIMARY_NOT_RUNNING', message: t('errors.PRIMARY_NOT_RUNNING') }
+        };
+    }
+
+    await refreshAll({ quiet: true });
+    announceToScreenReader(findAccountDisplayName({ id, kind }));
+  } catch (err) {
+    showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
+  } finally {
+    state.pendingProfileActions.delete(id);
+    renderProfiles();
+    renderPrimaryZalo();
+    renderAccountRail();
+    renderActiveStage();
+    syncNativeWebViewState();
+  }
+}
+
+function updateWebViewportPlaceholder() {
+  const placeholder = document.getElementById('web-viewport-placeholder');
+  const progress = document.getElementById('web-stage-progress');
+  const titleEl = document.getElementById('web-placeholder-title');
+  const bodyEl = document.getElementById('web-placeholder-body');
+  if (!placeholder || !titleEl || !bodyEl) return;
+
+  const supported = Boolean(state.workspace?.web_workspace?.supported);
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    placeholder.hidden = false;
+    if (progress) progress.hidden = true;
+    titleEl.textContent = t('webSession.previewNotice');
+    bodyEl.textContent = t('webSession.limitsBody');
+    return;
+  }
+
+  if (!supported) {
+    placeholder.hidden = false;
+    if (progress) progress.hidden = true;
+    titleEl.textContent = t('webSession.unsupportedTitle');
+    const code = state.workspace?.web_workspace?.reason_code;
+    bodyEl.textContent = code ? resolveErrorInfo(code).userMessage : t('webSession.unsupportedBody');
+    return;
+  }
+
+  if (state.overlayBlockers.size > 0) {
+    placeholder.hidden = false;
+    if (progress) progress.hidden = true;
+    titleEl.textContent = t('webSession.pausedForOverlay');
+    bodyEl.textContent = '';
+    return;
+  }
+
+  if (state.mountedWebSessionId === state.activeAccount?.id) {
+    placeholder.hidden = true;
+    return;
+  }
+
+  placeholder.hidden = false;
+  if (progress) progress.hidden = false;
+  titleEl.textContent = t('webSession.loading');
+  bodyEl.textContent = '';
+}
+
+function renderWebStage() {
+  if (!state.activeAccount || state.activeAccount.kind !== 'web_isolated') return;
+  const acc = (state.workspace?.accounts || []).find(
+    (a) => a.id === state.activeAccount.id && a.kind === 'web_isolated'
+  );
+  if (!acc) return;
+
+  const avatar = document.getElementById('web-stage-avatar');
+  const nameEl = document.getElementById('web-stage-name');
+  const pinBtn = document.getElementById('btn-web-pin');
+  if (avatar) {
+    avatar.textContent = getAccountInitials(acc.display_name);
+    avatar.style.setProperty('--avatar-color', getAccountColorVar({ id: acc.id, name: acc.display_name, color_token: acc.color_token }));
+  }
+  if (nameEl) nameEl.textContent = acc.display_name;
+  if (pinBtn) pinBtn.textContent = acc.pinned ? t('rail.unpin') : t('rail.pin');
+
+  updateWebViewportPlaceholder();
+}
+
+function renderDesktopStage() {
+  if (!state.activeAccount || state.activeAccount.kind === 'web_isolated') return;
+
+  const isPrimary = state.activeAccount.kind === 'desktop_primary';
+  const acc = isPrimary
+    ? {
+      id: 'primary',
+      kind: 'desktop_primary',
+      display_name: t('accounts.primaryZalo.heading'),
+      running: Boolean(state.workspace?.primary?.running),
+      window_state: state.workspace?.primary?.window_state || 'none',
+      window_title: state.workspace?.primary?.window_title || null,
+      pinned: Boolean(state.workspace?.primary?.pinned)
+    }
+    : (state.workspace?.accounts || []).find((a) => a.id === state.activeAccount.id && a.kind === 'desktop_isolated');
+
+  const prof = !isPrimary
+    ? (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id)
+    : null;
+
+  if (!acc && !isPrimary) return;
+
+  const avatar = document.getElementById('desktop-stage-avatar');
+  const nameEl = document.getElementById('desktop-stage-name');
+  const kindBadge = document.getElementById('desktop-stage-kind-badge');
+  const stateRow = document.getElementById('desktop-stage-state-row');
+  const stateLabel = document.getElementById('desktop-stage-state-label');
+  const progress = document.getElementById('desktop-stage-progress');
+  const activateBtn = document.getElementById('btn-desktop-activate');
+  const stopBtn = document.getElementById('btn-desktop-stop');
+  const primaryNotice = document.getElementById('desktop-primary-notice');
+  const snapPanel = document.getElementById('desktop-snap-panel');
+  const snapToggle = document.getElementById('toggle-companion-snap');
+  const snapHint = document.getElementById('desktop-snap-hint');
+  const secondaryTools = document.getElementById('desktop-secondary-tools');
+  const remediationCard = document.getElementById('desktop-remediation-card');
+  const remTitle = document.getElementById('desktop-remediation-title');
+  const remBody = document.getElementById('desktop-remediation-body');
+  const remActions = document.getElementById('desktop-remediation-actions');
+
+  const displayName = acc?.display_name || prof?.name || '';
+  const isPending = state.pendingProfileActions.has(state.activeAccount.id);
+
+  if (avatar) {
+    avatar.className = isPrimary ? 'account-avatar account-avatar-lg avatar-protected' : 'account-avatar account-avatar-lg';
+    if (isPrimary) {
+      avatar.style.removeProperty('--avatar-color');
+      avatar.textContent = 'Z';
+    } else {
+      avatar.style.setProperty('--avatar-color', getAccountColorVar({ id: acc.id, name: displayName, color_token: acc.color_token }));
+      avatar.textContent = getAccountInitials(displayName);
+    }
+  }
+  if (nameEl) nameEl.textContent = displayName;
+  if (kindBadge) kindBadge.textContent = isPrimary ? t('accounts.primaryZalo.protectedBadge') : t('rail.kindDesktop');
+
+  const resolvedState = isPrimary
+    ? (acc.running ? { label: t('accounts.states.running'), kind: 'running' } : { label: t('accounts.states.stopped'), kind: 'stopped' })
+    : resolveAccountState(prof || { id: acc.id, running: acc.state === 'running', lifecycle_state: acc.state });
+
+  if (stateRow) stateRow.className = `account-state-row is-${resolvedState.kind}`;
+  if (stateLabel) stateLabel.textContent = resolvedState.label;
+  if (progress) progress.hidden = !isPending;
+
+  if (activateBtn) {
+    activateBtn.disabled = isPending;
+    if (isPrimary) {
+      activateBtn.hidden = !acc.running;
+      activateBtn.textContent = t('desktopStage.bringToFront');
+    } else {
+      activateBtn.hidden = false;
+      const lc = normalizeLifecycleState(prof || acc);
+      if (lc === 'recovery_required') {
+        activateBtn.textContent = t('accounts.actions.recover');
+      } else if (prof?.running || acc.state === 'running') {
+        activateBtn.textContent = t('desktopStage.bringToFront');
+      } else {
+        activateBtn.textContent = t('desktopStage.openAndFocus');
+      }
+    }
+  }
+
+  if (stopBtn) {
+    stopBtn.hidden = isPrimary || !(prof?.running || acc?.state === 'running');
+    stopBtn.disabled = isPending;
+  }
+
+  if (primaryNotice) primaryNotice.hidden = !isPrimary;
+
+  if (snapPanel && snapToggle && snapHint) {
+    snapPanel.hidden = isPrimary;
+    const isRunning = Boolean(prof?.running || acc?.state === 'running');
+    snapToggle.checked = Boolean(acc?.companion_snapped);
+    snapToggle.disabled = isPrimary || !isRunning || isPending;
+    snapHint.textContent = isRunning
+      ? t('desktopStage.companionSnapHint')
+      : t('desktopStage.companionSnapStopped');
+  }
+
+  if (secondaryTools) {
+    secondaryTools.hidden = isPrimary;
+    if (!isPrimary && (prof || acc)) {
+      const pinBtn = document.getElementById('btn-desktop-pin');
+      const backupBtn = document.getElementById('btn-desktop-backup');
+      const delBtn = document.getElementById('btn-desktop-delete');
+      const blockOffline = isProfileActiveOrUnclean(prof || acc);
+      if (pinBtn) pinBtn.textContent = acc?.pinned ? t('desktopStage.unpinAction') : t('desktopStage.pinAction');
+      if (backupBtn) {
+        backupBtn.disabled = blockOffline || isPending;
+        backupBtn.title = blockOffline ? t('accounts.actions.closeFirstHint') : '';
+      }
+      if (delBtn) {
+        delBtn.disabled = blockOffline || isPending;
+        delBtn.title = blockOffline ? t('accounts.actions.closeFirstHint') : '';
+      }
+      const kv = document.getElementById('desktop-stage-kv');
+      if (kv) {
+        kv.replaceChildren();
+        appendKvRow(kv, t('accounts.details.directory'), prof?.directory_name || '—');
+        appendKvRow(kv, t('accounts.details.pid'), prof?.main_pid != null ? String(prof.main_pid) : '—');
+        appendKvRow(kv, t('accounts.details.windowTitle'), acc?.window_title || prof?.window_title || '—');
+        appendKvRow(kv, t('accounts.details.workingSet'), prof?.total_working_set_bytes ? formatBytes(prof.total_working_set_bytes) : '—');
+      }
+    }
+  }
+
+  if (remediationCard && remTitle && remBody && remActions) {
+    const rem = state.lastActivationResult?.remediation;
+    const outcome = state.lastActivationResult?.outcome;
+    if (rem && (outcome === 'manual_action_required' || outcome === 'blocked' || outcome === 'failed')) {
+      remediationCard.hidden = false;
+      remTitle.textContent = outcome === 'manual_action_required'
+        ? t('desktopStage.manualActionTitle')
+        : t('desktopStage.remediationTitle');
+      const info = resolveErrorInfo(rem.code, rem.message);
+      remBody.textContent = info.userMessage;
+      remActions.replaceChildren();
+      if (rem.suggested_action === 'open_diagnostics') {
+        remActions.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary', () => selectView('diagnostics')));
+      }
+    } else {
+      remediationCard.hidden = true;
+      remActions.replaceChildren();
+    }
+  }
+}
+
+function renderActiveStage() {
+  if (state.activeView === 'web-stage') renderWebStage();
+  else if (state.activeView === 'desktop-stage') renderDesktopStage();
 }
 
 function renderPrimaryZalo() {
@@ -608,6 +1373,7 @@ function buildOverflowMenu(prof, isPending) {
   const openMenu = (focusMode = 'first') => {
     if (isPending) return;
     state.openMenuProfileId = prof.id;
+    addOverlayBlocker(`menu:${menuId}`);
     if (supportsPopover) {
       if (!isOpen()) menuList.showPopover();
       positionMenu(moreBtn, menuList);
@@ -627,12 +1393,13 @@ function buildOverflowMenu(prof, isPending) {
     if (state.openMenuProfileId === prof.id) {
       state.openMenuProfileId = null;
     }
+    removeOverlayBlocker(`menu:${menuId}`);
     if (supportsPopover) {
       if (isOpen()) {
         try {
           menuList.hidePopover();
         } catch (_err) {
-          // Ignore if already closed
+          // Ignore
         }
       }
     } else {
@@ -651,9 +1418,11 @@ function buildOverflowMenu(prof, isPending) {
       moreBtn.setAttribute('aria-expanded', openNow ? 'true' : 'false');
       if (openNow) {
         state.openMenuProfileId = prof.id;
+        addOverlayBlocker(`menu:${menuId}`);
         positionMenu(moreBtn, menuList);
-      } else if (state.openMenuProfileId === prof.id) {
-        state.openMenuProfileId = null;
+      } else {
+        if (state.openMenuProfileId === prof.id) state.openMenuProfileId = null;
+        removeOverlayBlocker(`menu:${menuId}`);
       }
     });
   } else {
@@ -700,12 +1469,10 @@ function buildOverflowMenu(prof, isPending) {
     const currentIdx = items.indexOf(document.activeElement);
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      const next = currentIdx === -1 ? 0 : (currentIdx + 1) % items.length;
-      items[next].focus();
+      items[currentIdx === -1 ? 0 : (currentIdx + 1) % items.length].focus();
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      const prev = currentIdx <= 0 ? items.length - 1 : currentIdx - 1;
-      items[prev].focus();
+      items[currentIdx <= 0 ? items.length - 1 : currentIdx - 1].focus();
     } else if (event.key === 'Home') {
       event.preventDefault();
       items[0].focus();
@@ -742,7 +1509,7 @@ function buildOverflowMenu(prof, isPending) {
   };
 
   const blockOfflineOps = isProfileActiveOrUnclean(prof);
-  addMenuItem(t('accounts.actions.rename'), () => openRenameDialog(prof));
+  addMenuItem(t('accounts.actions.rename'), () => openRenameDialog(prof, 'desktop_isolated'));
   addMenuItem(
     t('accounts.actions.backup'),
     () => runProfileAction('backup', prof),
@@ -751,7 +1518,7 @@ function buildOverflowMenu(prof, isPending) {
   addMenuItem(t('accounts.actions.details'), () => openDetailsDialog(prof));
   addMenuItem(
     t('accounts.actions.delete'),
-    () => openDeleteDialog(prof),
+    () => openDeleteDialog(prof, 'desktop_isolated'),
     { disabled: blockOfflineOps, danger: true, hint: t('accounts.actions.closeFirstHint') }
   );
 
@@ -766,7 +1533,7 @@ function renderProfiles() {
   const emptyTitle = document.getElementById('profiles-empty-title');
   const emptyHint = document.getElementById('profiles-empty-hint');
   const emptyBtn = document.getElementById('btn-empty-create');
-  const openCreateBtn = document.getElementById('btn-open-create');
+  const overviewCreateBtn = document.getElementById('btn-overview-create');
   const stopAllBtn = document.getElementById('btn-stop-all');
   const searchWrap = document.getElementById('search-wrap');
   const countSummary = document.getElementById('accounts-count-summary');
@@ -781,8 +1548,8 @@ function renderProfiles() {
   const hasQuery = state.searchQuery.trim().length > 0;
   const runningProfiles = allProfiles.filter((p) => Boolean(p.running) || normalizeLifecycleState(p) === 'running');
 
-  if (openCreateBtn) {
-    openCreateBtn.hidden = allProfiles.length === 0;
+  if (overviewCreateBtn) {
+    overviewCreateBtn.hidden = allProfiles.length === 0;
   }
   if (stopAllBtn) {
     stopAllBtn.hidden = runningProfiles.length < 2;
@@ -898,11 +1665,18 @@ function renderProfiles() {
     secondaryActions.className = 'account-actions-secondary';
 
     const isActiveLifecycle = Boolean(prof.running) || lcState === 'starting' || lcState === 'running' || lcState === 'stopping';
-    if (isActiveLifecycle) {
+    if (lcState === 'recovery_required') {
       primaryActions.appendChild(makeButton(
-        t('accounts.actions.focus'),
+        t('accounts.actions.recover'),
         'btn-primary',
-        () => runProfileAction('focus', prof),
+        () => activateAccount(prof.id, 'desktop_isolated'),
+        { disabled: isPending, ariaLabel: t('accounts.actions.recoverAria', { name: prof.name }) }
+      ));
+    } else if (isActiveLifecycle) {
+      primaryActions.appendChild(makeButton(
+        t('desktopStage.bringToFront'),
+        'btn-primary',
+        () => activateAccount(prof.id, 'desktop_isolated'),
         {
           disabled: isPending || lcState === 'starting' || lcState === 'stopping',
           ariaLabel: t('accounts.actions.focusAria', { name: prof.name })
@@ -917,18 +1691,11 @@ function renderProfiles() {
           ariaLabel: t('accounts.actions.stopAria', { name: prof.name })
         }
       ));
-    } else if (lcState === 'recovery_required') {
-      primaryActions.appendChild(makeButton(
-        t('accounts.actions.recover'),
-        'btn-primary',
-        () => runProfileAction('launch', prof),
-        { disabled: isPending, ariaLabel: t('accounts.actions.recoverAria', { name: prof.name }) }
-      ));
     } else {
       primaryActions.appendChild(makeButton(
-        t('accounts.actions.launch'),
+        t('desktopStage.openAndFocus'),
         'btn-primary',
-        () => runProfileAction('launch', prof),
+        () => activateAccount(prof.id, 'desktop_isolated'),
         { disabled: isPending, ariaLabel: t('accounts.actions.launchAria', { name: prof.name }) }
       ));
     }
@@ -1258,6 +2025,24 @@ function renderRenameColorPalette(explicitColorId = null) {
   renderColorPalette('rename-color-palette', 'rename-account-color', selected);
 }
 
+function updateCreateSessionModeControls() {
+  const webRadio = document.getElementById('create-mode-web-radio');
+  const webDesc = document.getElementById('create-mode-web-desc');
+  if (!webRadio || !webDesc) return;
+  const supported = Boolean(state.workspace?.web_workspace?.supported);
+  const invoke = getTauriInvoke();
+  if (invoke && !supported) {
+    webRadio.disabled = true;
+    const code = state.workspace?.web_workspace?.reason_code;
+    webDesc.textContent = code ? resolveErrorInfo(code).userMessage : t('dialogs.create.modeWebUnsupported');
+    const desktopRadio = document.querySelector('input[name="create-session-mode"][value="desktop_isolated"]');
+    if (desktopRadio && webRadio.checked) desktopRadio.checked = true;
+  } else {
+    webRadio.disabled = false;
+    webDesc.textContent = t('dialogs.create.modeWebDesc');
+  }
+}
+
 function refreshOpenDialogTranslations() {
   const ctx = state.openDialogContext;
   if (!ctx) return;
@@ -1268,11 +2053,11 @@ function refreshOpenDialogTranslations() {
     });
   } else if (ctx.type === 'rename' && document.getElementById('rename-profile-dialog')?.open) {
     document.getElementById('rename-profile-subtitle').textContent = t('dialogs.rename.subtitle', {
-      name: ctx.prof.name
+      name: ctx.prof.name || ctx.prof.display_name
     });
   } else if (ctx.type === 'delete' && document.getElementById('delete-profile-dialog')?.open) {
     document.getElementById('delete-profile-warning').textContent = t('dialogs.delete.warning', {
-      name: ctx.prof.name
+      name: ctx.prof.name || ctx.prof.display_name
     });
   } else if (ctx.type === 'restore' && document.getElementById('restore-backup-dialog')?.open) {
     document.getElementById('restore-backup-subtitle').textContent = t('dialogs.restore.subtitle', {
@@ -1287,6 +2072,8 @@ function renderAll() {
   updateConnectionBadge();
   renderBanner();
   renderTopbarSummary();
+  renderAccountRail();
+  renderActiveStage();
   renderProfiles();
   renderPrimaryZalo();
   renderBackups();
@@ -1294,6 +2081,7 @@ function renderAll() {
   renderSettingsAbout();
   renderCreateColorPalette();
   renderRenameColorPalette();
+  updateCreateSessionModeControls();
   updateLanguageControls();
   updateAppearanceControls();
   updatePendingControls();
@@ -1301,23 +2089,27 @@ function renderAll() {
   refreshOpenDialogTranslations();
 }
 
-export async function refreshAll({ isVerify = false } = {}) {
+export async function refreshAll({ isVerify = false, quiet = false } = {}) {
   const key = isVerify ? 'verify' : 'refresh';
   if (state.pendingGlobalActions.has(key)) return;
 
   const seq = ++state.refreshSeq;
   state.pendingGlobalActions.add(key);
-  updatePendingControls();
-  renderTopbarSummary();
+  if (!quiet) {
+    updatePendingControls();
+    renderTopbarSummary();
+  }
 
   try {
     const toggleSizes = document.getElementById('toggle-sizes');
     const withSize = Boolean(toggleSizes?.checked);
-    const [statusData, backupsData, diagData, isoData] = await Promise.all([
+    const invoke = getTauriInvoke();
+    const [statusData, backupsData, diagData, isoData, wsEnv] = await Promise.all([
       apiCall(`/api/status${withSize ? '?withSize=1' : ''}`, 'GET', null, 'get_status', { withSize }),
       apiCall('/api/backups', 'GET', null, 'list_backups', {}),
       apiCall('/api/diagnostics', 'GET', null, 'get_diagnostics', {}),
-      apiCall('/api/verify-isolation', 'GET', null, 'verify_isolation', {})
+      apiCall('/api/verify-isolation', 'GET', null, 'verify_isolation', {}),
+      invoke ? tauriInvokeEnvelope('get_workspace_snapshot', {}).catch(() => null) : Promise.resolve(null)
     ]);
     if (seq !== state.refreshSeq) return;
     if (statusData && statusData.ok === false) {
@@ -1325,6 +2117,11 @@ export async function refreshAll({ isVerify = false } = {}) {
       showErrorBanner(statusData.error_code || 'HOST_EXEC_FAILED', statusData.message || '');
     } else {
       state.status = statusData;
+    }
+    if (wsEnv && wsEnv.ok && wsEnv.data) {
+      state.workspace = wsEnv.data;
+    } else {
+      state.workspace = buildWorkspaceFallbackFromStatus(state.status);
     }
     if (backupsData && backupsData.ok !== false) {
       state.backups = backupsData.backups || [];
@@ -1347,11 +2144,46 @@ export async function refreshAll({ isVerify = false } = {}) {
   }
 }
 
+async function refreshWorkspaceFast() {
+  const invoke = getTauriInvoke();
+  if (!invoke) {
+    await refreshAll({ quiet: true });
+    return;
+  }
+  const env = await tauriInvokeEnvelope('get_workspace_snapshot', {}).catch(() => null);
+  if (env && env.ok && env.data) {
+    state.workspace = env.data;
+    renderAccountRail();
+    renderActiveStage();
+  }
+}
+
+async function toggleAccountPinned(id, currentlyPinned) {
+  const nextPinned = !currentlyPinned;
+  const invoke = getTauriInvoke();
+  if (invoke) {
+    const env = await tauriInvokeEnvelope('set_account_pinned', { id, pinned: nextPinned });
+    if (env && env.ok === false) {
+      showErrorBanner(env.error_code, env.message);
+      return;
+    }
+  } else {
+    const list = loadJsonStorage(PINNED_STORAGE_KEY, []);
+    const set = new Set(Array.isArray(list) ? list : []);
+    if (nextPinned) set.add(id);
+    else set.delete(id);
+    saveJsonStorage(PINNED_STORAGE_KEY, Array.from(set));
+  }
+  await refreshWorkspaceFast();
+}
+
 async function runProfileAction(action, prof) {
   if (state.pendingProfileActions.has(prof.id)) return;
   clearBanner();
   state.pendingProfileActions.set(prof.id, action);
   renderProfiles();
+  renderAccountRail();
+  renderActiveStage();
 
   try {
     let res;
@@ -1375,6 +2207,8 @@ async function runProfileAction(action, prof) {
   } finally {
     state.pendingProfileActions.delete(prof.id);
     renderProfiles();
+    renderAccountRail();
+    renderActiveStage();
   }
 }
 
@@ -1419,8 +2253,13 @@ function resetCreateDialogToStep1() {
   document.getElementById('create-step-2').hidden = true;
   document.getElementById('create-profile-name').value = '';
   document.getElementById('create-profile-notes').value = '';
+  const desktopRadio = document.querySelector('input[name="create-session-mode"][value="desktop_isolated"]');
+  if (desktopRadio) desktopRadio.checked = true;
+  const notesField = document.getElementById('create-notes-field');
+  if (notesField) notesField.hidden = false;
   clearCreateStep1Error();
   renderCreateColorPalette(pickNextAvailableColorId(state.status?.profiles || []));
+  updateCreateSessionModeControls();
   const submitBtn = document.getElementById('btn-submit-create');
   if (submitBtn) {
     submitBtn.disabled = false;
@@ -1445,24 +2284,47 @@ function showCreateStep2(prof) {
   document.getElementById('btn-create-launch')?.focus();
 }
 
-function openRenameDialog(prof) {
-  state.activeRenameId = prof.id;
-  state.openDialogContext = { type: 'rename', prof };
-  document.getElementById('rename-profile-subtitle').textContent = t('dialogs.rename.subtitle', {
-    name: prof.name
-  });
-  document.getElementById('rename-profile-name').value = prof.name;
-  renderRenameColorPalette(getAccountColorId(prof));
-  document.getElementById('rename-profile-dialog').showModal();
+function showModalSafely(dialogEl) {
+  if (!dialogEl) return;
+  addOverlayBlocker(`dialog:${dialogEl.id}`);
+  if (typeof dialogEl.showModal === 'function') {
+    dialogEl.showModal();
+  }
 }
 
-function openDeleteDialog(prof) {
-  state.activeDeleteId = prof.id;
-  state.openDialogContext = { type: 'delete', prof };
-  document.getElementById('delete-profile-warning').textContent = t('dialogs.delete.warning', {
-    name: prof.name
+function openRenameDialog(prof, kind = 'desktop_isolated') {
+  state.activeRenameId = prof.id;
+  state.activeRenameKind = kind;
+  const displayName = prof.name || prof.display_name || '';
+  state.openDialogContext = { type: 'rename', prof: { ...prof, name: displayName } };
+  document.getElementById('rename-profile-subtitle').textContent = t('dialogs.rename.subtitle', {
+    name: displayName
   });
-  document.getElementById('delete-profile-dialog').showModal();
+  document.getElementById('rename-profile-name').value = displayName;
+  renderRenameColorPalette(getAccountColorId(prof));
+  showModalSafely(document.getElementById('rename-profile-dialog'));
+}
+
+function openDeleteDialog(prof, kind = 'desktop_isolated') {
+  state.activeDeleteId = prof.id;
+  state.activeDeleteKind = kind;
+  const displayName = prof.name || prof.display_name || '';
+  state.openDialogContext = { type: 'delete', prof: { ...prof, name: displayName } };
+  document.getElementById('delete-profile-warning').textContent = t('dialogs.delete.warning', {
+    name: displayName
+  });
+  const confirmEl = document.getElementById('delete-profile-confirm-text');
+  if (confirmEl) confirmEl.hidden = kind === 'web_isolated';
+  showModalSafely(document.getElementById('delete-profile-dialog'));
+}
+
+function openResetWebDialog(acc) {
+  state.activeResetWebId = acc.id;
+  state.openDialogContext = { type: 'reset-web', prof: acc };
+  document.getElementById('reset-web-warning').textContent = t('dialogs.resetWeb.warning', {
+    name: acc.display_name || acc.id
+  });
+  showModalSafely(document.getElementById('reset-web-dialog'));
 }
 
 function openRestoreDialog(bk) {
@@ -1473,7 +2335,7 @@ function openRestoreDialog(bk) {
     backupName: bk.backup_name || bk.backup_id || ''
   });
   document.getElementById('restore-profile-name').value = '';
-  document.getElementById('restore-backup-dialog').showModal();
+  showModalSafely(document.getElementById('restore-backup-dialog'));
 }
 
 function populateDetailsDialog(prof) {
@@ -1509,32 +2371,181 @@ function populateDetailsDialog(prof) {
 function openDetailsDialog(prof) {
   state.openDialogContext = { type: 'details', prof };
   populateDetailsDialog(prof);
-  document.getElementById('profile-details-dialog').showModal();
+  showModalSafely(document.getElementById('profile-details-dialog'));
+}
+
+/* ========================================================================
+ * Quick Switcher (Ctrl+K)
+ * ======================================================================== */
+function getFilteredSwitcherAccounts() {
+  const q = state.switcherQuery.trim().toLowerCase();
+  const all = getAllUnifiedAccounts();
+  if (!q) return all;
+  return all.filter((acc) => (
+    String(acc.display_name || '').toLowerCase().includes(q)
+    || String(acc.kind || '').toLowerCase().includes(q)
+  ));
+}
+
+function renderQuickSwitcherList() {
+  const list = document.getElementById('quick-switcher-list');
+  const empty = document.getElementById('quick-switcher-empty');
+  const input = document.getElementById('quick-switcher-input');
+  if (!list || !empty || !input) return;
+
+  list.replaceChildren();
+  const items = getFilteredSwitcherAccounts();
+  if (items.length === 0) {
+    empty.hidden = false;
+    input.removeAttribute('aria-activedescendant');
+    return;
+  }
+
+  empty.hidden = true;
+  if (state.switcherActiveIndex >= items.length) state.switcherActiveIndex = 0;
+  if (state.switcherActiveIndex < 0) state.switcherActiveIndex = items.length - 1;
+
+  const allAccounts = getAllUnifiedAccounts();
+
+  items.forEach((acc, idx) => {
+    const opt = document.createElement('li');
+    const optId = `qs-opt-${idx}`;
+    opt.id = optId;
+    opt.className = 'switcher-option';
+    opt.setAttribute('role', 'option');
+    opt.setAttribute('aria-selected', String(idx === state.switcherActiveIndex));
+
+    const isPrimary = acc.kind === 'desktop_primary';
+    const isWeb = acc.kind === 'web_isolated';
+    const avatar = document.createElement('span');
+    avatar.className = isPrimary ? 'account-avatar account-avatar-sm avatar-protected' : 'account-avatar account-avatar-sm';
+    if (!isPrimary) {
+      avatar.style.setProperty('--avatar-color', getAccountColorVar({ id: acc.id, name: acc.display_name, color_token: acc.color_token }));
+    }
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = isPrimary ? 'Z' : getAccountInitials(acc.display_name);
+
+    const meta = document.createElement('span');
+    meta.className = 'switcher-option-meta';
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'switcher-option-name';
+    nameSpan.textContent = acc.display_name;
+    const subSpan = document.createElement('span');
+    subSpan.className = 'switcher-option-sub';
+    const kindText = isPrimary ? t('rail.kindPrimary') : (isWeb ? t('rail.kindWeb') : t('rail.kindDesktop'));
+    const stText = acc.state === 'running' ? t('accounts.states.running') : t('accounts.states.stopped');
+    subSpan.textContent = `${kindText} · ${stText}`;
+    meta.appendChild(nameSpan);
+    meta.appendChild(subSpan);
+
+    opt.appendChild(avatar);
+    opt.appendChild(meta);
+
+    const globalIdx = allAccounts.findIndex((a) => a.id === acc.id && a.kind === acc.kind);
+    if (globalIdx >= 0 && globalIdx < 9) {
+      const kbd = document.createElement('span');
+      kbd.className = 'switcher-shortcut';
+      kbd.setAttribute('aria-hidden', 'true');
+      kbd.textContent = t('quickSwitcher.shortcutHint', { num: String(globalIdx + 1) });
+      opt.appendChild(kbd);
+    }
+
+    opt.addEventListener('click', () => {
+      document.getElementById('quick-switcher-dialog')?.close('select');
+      activateAccount(acc.id, acc.kind);
+    });
+
+    list.appendChild(opt);
+    if (idx === state.switcherActiveIndex) {
+      input.setAttribute('aria-activedescendant', optId);
+      opt.scrollIntoView?.({ block: 'nearest' });
+    }
+  });
+}
+
+function openQuickSwitcher() {
+  const dlg = document.getElementById('quick-switcher-dialog');
+  const input = document.getElementById('quick-switcher-input');
+  if (!dlg || !input) return;
+  state.switcherQuery = '';
+  state.switcherActiveIndex = 0;
+  input.value = '';
+  renderQuickSwitcherList();
+  showModalSafely(dlg);
+  input.focus();
+}
+
+function wireLightDismissFallback() {
+  if (typeof HTMLDialogElement === 'undefined' || 'closedBy' in HTMLDialogElement.prototype) return;
+  const outside = (e, dialog) => {
+    const r = dialog.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+  };
+  for (const dialog of document.querySelectorAll('dialog[closedby="any"]')) {
+    let pressedOutside = false;
+    dialog.addEventListener('pointerdown', (e) => {
+      pressedOutside = outside(e, dialog);
+    });
+    dialog.addEventListener('pointerup', (e) => {
+      if (pressedOutside && outside(e, dialog)) dialog.close('');
+    });
+  }
 }
 
 function wireDialogsAndFallbacks() {
-  for (const btnId of ['btn-open-create', 'btn-empty-create']) {
+  wireLightDismissFallback();
+
+  for (const btnId of ['btn-open-create', 'btn-overview-create', 'btn-empty-create']) {
     document.getElementById(btnId)?.addEventListener('click', () => {
       clearCreateStep1Error();
       renderCreateColorPalette(pickNextAvailableColorId(state.status?.profiles || []));
+      updateCreateSessionModeControls();
     });
   }
+
+  document.getElementById('btn-quick-switcher')?.addEventListener('click', () => {
+    openQuickSwitcher();
+  });
 
   if (typeof HTMLButtonElement === 'undefined' || !('commandForElement' in HTMLButtonElement.prototype)) {
     for (const btn of document.querySelectorAll('button[command="show-modal"][commandfor]')) {
       btn.addEventListener('click', () => {
         const target = document.getElementById(btn.getAttribute('commandfor'));
-        if (target && typeof target.showModal === 'function') {
-          target.showModal();
+        if (target && !target.open) {
+          showModalSafely(target);
         }
       });
     }
+    for (const btn of document.querySelectorAll('button[command="close"][commandfor]')) {
+      btn.addEventListener('click', () => {
+        document.getElementById(btn.getAttribute('commandfor'))?.close('close');
+      });
+    }
+  } else {
+    for (const btn of document.querySelectorAll('button[command="show-modal"][commandfor]')) {
+      btn.addEventListener('click', () => {
+        addOverlayBlocker(`dialog:${btn.getAttribute('commandfor')}`);
+      });
+    }
+  }
+
+  for (const dlg of document.querySelectorAll('dialog')) {
+    dlg.addEventListener('close', () => {
+      removeOverlayBlocker(`dialog:${dlg.id}`);
+    });
   }
 
   document.getElementById('btn-dismiss-banner')?.addEventListener('click', clearBanner);
 
   const createDialog = document.getElementById('create-profile-dialog');
   const createForm = document.getElementById('create-profile-form');
+
+  for (const radio of document.querySelectorAll('input[name="create-session-mode"]')) {
+    radio.addEventListener('change', (e) => {
+      const notesField = document.getElementById('create-notes-field');
+      if (notesField) notesField.hidden = e.target.value === 'web_isolated';
+    });
+  }
 
   document.getElementById('create-profile-name')?.addEventListener('input', () => {
     clearCreateStep1Error();
@@ -1563,7 +2574,7 @@ function wireDialogsAndFallbacks() {
     const prof = state.createdAccountForStep2;
     createDialog?.close('launch');
     if (prof) {
-      await runProfileAction('launch', prof);
+      await activateAccount(prof.id, 'desktop_isolated');
     }
   });
 
@@ -1574,6 +2585,8 @@ function wireDialogsAndFallbacks() {
     const nameInput = document.getElementById('create-profile-name');
     const notesInput = document.getElementById('create-profile-notes');
     const colorInput = document.querySelector('input[name="create-account-color"]:checked');
+    const modeInput = document.querySelector('input[name="create-session-mode"]:checked');
+    const sessionMode = modeInput?.value === 'web_isolated' ? 'web_isolated' : 'desktop_isolated';
     const name = nameInput.value.trim();
     const notes = notesInput.value.trim();
     const chosenColor = colorInput?.value || pickNextAvailableColorId(state.status?.profiles || []);
@@ -1593,6 +2606,26 @@ function wireDialogsAndFallbacks() {
     updatePendingControls();
 
     try {
+      if (sessionMode === 'web_isolated') {
+        const env = await tauriInvokeEnvelope('web_session_create', {
+          displayName: name,
+          colorToken: chosenColor
+        });
+        if (!env || env.ok === false) {
+          showCreateStep1Error(env?.error_code || 'WEB_SESSION_UNSUPPORTED', env?.message || '');
+          nameInput?.focus();
+          return;
+        }
+        const rec = env.data;
+        if (rec?.id) saveAccountColor(rec.id, chosenColor);
+        createDialog?.close('web-created');
+        await refreshAll({ quiet: true });
+        if (rec?.id) {
+          await activateAccount(rec.id, 'web_isolated');
+        }
+        return;
+      }
+
       const res = await apiCall('/api/profiles', 'POST', { name, notes }, 'create_profile', { name, notes });
       if (res && res.ok === false) {
         showCreateStep1Error(res.error_code, res.message);
@@ -1619,6 +2652,7 @@ function wireDialogsAndFallbacks() {
         }
         saveAccountColor(created.id, chosenColor);
         renderProfiles();
+        renderAccountRail();
         renderTopbarSummary();
       }
       showKeyBanner('messages.accountCreated', {}, 'success');
@@ -1663,6 +2697,7 @@ function wireDialogsAndFallbacks() {
     renameDialog.returnValue = '';
     state.openDialogContext = null;
     const targetId = state.activeRenameId;
+    const targetKind = state.activeRenameKind;
     state.activeRenameId = null;
     if (action !== 'rename' || !targetId || state.pendingProfileActions.has(targetId)) return;
 
@@ -1676,8 +2711,14 @@ function wireDialogsAndFallbacks() {
 
     state.pendingProfileActions.set(targetId, 'rename');
     renderProfiles();
+    renderAccountRail();
     try {
-      const res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}/rename`, 'POST', { newName }, 'rename_profile', { id: targetId, newName });
+      let res;
+      if (targetKind === 'web_isolated') {
+        res = await tauriInvokeEnvelope('web_session_rename', { id: targetId, displayName: newName });
+      } else {
+        res = await apiCall(`/api/profiles/${encodeURIComponent(targetId)}/rename`, 'POST', { newName }, 'rename_profile', { id: targetId, newName });
+      }
       if (res && res.ok === false) showErrorBanner(res.error_code, res.message);
       else showKeyBanner('messages.accountRenamed', {}, 'success');
       await refreshAll();
@@ -1686,6 +2727,8 @@ function wireDialogsAndFallbacks() {
     } finally {
       state.pendingProfileActions.delete(targetId);
       renderProfiles();
+      renderAccountRail();
+      renderActiveStage();
     }
   });
 
@@ -1695,23 +2738,34 @@ function wireDialogsAndFallbacks() {
     deleteDialog.returnValue = '';
     state.openDialogContext = null;
     const targetId = state.activeDeleteId;
+    const targetKind = state.activeDeleteKind;
     state.activeDeleteId = null;
     if (action !== 'delete' || !targetId || state.pendingProfileActions.has(targetId)) return;
 
     state.pendingProfileActions.set(targetId, 'delete');
     renderProfiles();
+    renderAccountRail();
     try {
-      const res = await apiCall(
-        `/api/profiles/${encodeURIComponent(targetId)}`,
-        'DELETE',
-        { confirm: true },
-        'delete_profile',
-        { id: targetId, confirm: true }
-      );
+      let res;
+      if (targetKind === 'web_isolated') {
+        res = await tauriInvokeEnvelope('web_session_delete', { id: targetId });
+      } else {
+        res = await apiCall(
+          `/api/profiles/${encodeURIComponent(targetId)}`,
+          'DELETE',
+          { confirm: true },
+          'delete_profile',
+          { id: targetId, confirm: true }
+        );
+      }
       if (res && res.ok === false) {
         showErrorBanner(res.error_code, res.message);
       } else {
         removeAccountColor(targetId);
+        if (state.activeAccount?.id === targetId && state.activeAccount?.kind === targetKind) {
+          state.activeAccount = null;
+          selectView('profiles');
+        }
         showKeyBanner('messages.accountDeleted', {}, 'success');
       }
       await refreshAll();
@@ -1720,18 +2774,37 @@ function wireDialogsAndFallbacks() {
     } finally {
       state.pendingProfileActions.delete(targetId);
       renderProfiles();
+      renderAccountRail();
       if (needsFocusRestore(document.activeElement)) {
-        const firstCardBtn = document.querySelector('#profiles-list .account-card .btn-primary');
-        const emptyCreateBtn = document.getElementById('btn-empty-create');
         const openCreateBtn = document.getElementById('btn-open-create');
-        if (firstCardBtn && !firstCardBtn.disabled && !needsFocusRestore(firstCardBtn)) {
-          firstCardBtn.focus();
-        } else if (emptyCreateBtn && !needsFocusRestore(emptyCreateBtn)) {
-          emptyCreateBtn.focus();
-        } else if (openCreateBtn && !needsFocusRestore(openCreateBtn)) {
+        if (openCreateBtn && !needsFocusRestore(openCreateBtn)) {
           openCreateBtn.focus();
         }
       }
+    }
+  });
+
+  const resetWebDialog = document.getElementById('reset-web-dialog');
+  resetWebDialog?.addEventListener('close', async () => {
+    const action = resetWebDialog.returnValue;
+    resetWebDialog.returnValue = '';
+    state.openDialogContext = null;
+    const targetId = state.activeResetWebId;
+    state.activeResetWebId = null;
+    if (action !== 'reset' || !targetId) return;
+
+    state.mountedWebSessionId = null;
+    state.lastWebBoundsKey = '';
+    const env = await tauriInvokeEnvelope('web_session_reset', { id: targetId }).catch((err) => ({
+      ok: false,
+      error_code: err?.errorCode || 'WEB_SESSION_ERROR',
+      message: err?.message || ''
+    }));
+    if (env && env.ok === false) {
+      showErrorBanner(env.error_code, env.message);
+    } else {
+      await refreshWorkspaceFast();
+      syncNativeWebViewState();
     }
   });
 
@@ -1765,6 +2838,7 @@ function wireDialogsAndFallbacks() {
         if (restoredId && sourceId) {
           saveAccountColor(restoredId, getAccountColorId({ id: sourceId }));
           renderProfiles();
+          renderAccountRail();
         }
       }
     } catch (err) {
@@ -1780,18 +2854,330 @@ function wireDialogsAndFallbacks() {
     e.currentTarget.returnValue = '';
     state.openDialogContext = null;
   });
+
+  const qsDialog = document.getElementById('quick-switcher-dialog');
+  const qsInput = document.getElementById('quick-switcher-input');
+  qsDialog?.addEventListener('close', () => {
+    qsDialog.returnValue = '';
+  });
+  qsInput?.addEventListener('input', (e) => {
+    state.switcherQuery = e.target.value;
+    state.switcherActiveIndex = 0;
+    renderQuickSwitcherList();
+  });
+  qsInput?.addEventListener('keydown', (event) => {
+    const items = getFilteredSwitcherAccounts();
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (items.length > 0) {
+        state.switcherActiveIndex = (state.switcherActiveIndex + 1) % items.length;
+        renderQuickSwitcherList();
+      }
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (items.length > 0) {
+        state.switcherActiveIndex = (state.switcherActiveIndex - 1 + items.length) % items.length;
+        renderQuickSwitcherList();
+      }
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      state.switcherActiveIndex = 0;
+      renderQuickSwitcherList();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      state.switcherActiveIndex = Math.max(0, items.length - 1);
+      renderQuickSwitcherList();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      if (event.isComposing || event.keyCode === 229) return;
+      const chosen = items[state.switcherActiveIndex];
+      if (chosen) {
+        qsDialog?.close('select');
+        activateAccount(chosen.id, chosen.kind);
+      }
+    } else if (event.key === 'Escape' && qsInput.value) {
+      event.preventDefault();
+      event.stopPropagation();
+      qsInput.value = '';
+      state.switcherQuery = '';
+      state.switcherActiveIndex = 0;
+      renderQuickSwitcherList();
+    }
+  });
+}
+
+function wireWebHeaderControls() {
+  const webInfoBtn = document.getElementById('btn-web-info');
+  const webLimitsTip = document.getElementById('web-limits-tip');
+  const webMenu = document.getElementById('web-session-menu');
+  const webMoreBtn = document.getElementById('btn-web-more');
+
+  const probe = typeof document !== 'undefined' ? document.createElement('div') : null;
+  if (probe) {
+    probe.popover = 'hint';
+    if (probe.popover !== 'hint') {
+      document.addEventListener('beforetoggle', ({ target, newState }) => {
+        if (target?.getAttribute?.('popover') === 'hint'
+          && document.querySelector(`[popovertarget="${CSS.escape(target.id)}"]`)
+          && newState === 'open') {
+          target.popover = 'auto';
+        }
+      }, true);
+    }
+  }
+
+  document.addEventListener('toggle', (event) => {
+    const target = event.target;
+    if (!target || target.id !== 'web-limits-tip') return;
+    const isOpen = event.newState === 'open';
+    webInfoBtn?.setAttribute('aria-expanded', String(isOpen));
+    if (isOpen) addOverlayBlocker('popover:web-limits-tip');
+    else removeOverlayBlocker('popover:web-limits-tip');
+  }, true);
+
+  if (webMenu && webMoreBtn) {
+    webMenu.addEventListener('toggle', (event) => {
+      const isOpen = event.newState === 'open';
+      webMoreBtn.setAttribute('aria-expanded', String(isOpen));
+      if (isOpen) {
+        addOverlayBlocker('popover:web-session-menu');
+        if (!CSS.supports('position-area', 'block-end')) {
+          positionMenu(webMoreBtn, webMenu);
+        }
+      } else {
+        removeOverlayBlocker('popover:web-session-menu');
+      }
+    });
+
+    if (typeof HTMLButtonElement === 'undefined' || !('commandForElement' in HTMLButtonElement.prototype)) {
+      webMoreBtn.addEventListener('click', () => {
+        if (webMenu.matches(':popover-open')) webMenu.hidePopover();
+        else webMenu.showPopover();
+      });
+    }
+  }
+
+  document.getElementById('btn-web-reload')?.addEventListener('click', async () => {
+    if (!state.activeAccount || state.activeAccount.kind !== 'web_isolated') return;
+    await tauriInvokeEnvelope('web_session_reload', { id: state.activeAccount.id }).catch((err) => {
+      showErrorBanner(err?.errorCode || 'WEB_SESSION_ERROR', err?.message || '');
+    });
+  });
+
+  document.getElementById('btn-web-pin')?.addEventListener('click', () => {
+    webMenu?.hidePopover?.();
+    if (!state.activeAccount) return;
+    const acc = (state.workspace?.accounts || []).find((a) => a.id === state.activeAccount.id);
+    toggleAccountPinned(state.activeAccount.id, Boolean(acc?.pinned));
+  });
+
+  document.getElementById('btn-web-rename')?.addEventListener('click', () => {
+    webMenu?.hidePopover?.();
+    if (!state.activeAccount) return;
+    const acc = (state.workspace?.accounts || []).find((a) => a.id === state.activeAccount.id);
+    if (acc) openRenameDialog(acc, 'web_isolated');
+  });
+
+  document.getElementById('btn-web-reset')?.addEventListener('click', () => {
+    webMenu?.hidePopover?.();
+    if (!state.activeAccount) return;
+    const acc = (state.workspace?.accounts || []).find((a) => a.id === state.activeAccount.id);
+    if (acc) openResetWebDialog(acc);
+  });
+
+  document.getElementById('btn-web-delete')?.addEventListener('click', () => {
+    webMenu?.hidePopover?.();
+    if (!state.activeAccount) return;
+    const acc = (state.workspace?.accounts || []).find((a) => a.id === state.activeAccount.id);
+    if (acc) openDeleteDialog(acc, 'web_isolated');
+  });
+}
+
+function wireDesktopStageControls() {
+  document.getElementById('btn-desktop-activate')?.addEventListener('click', () => {
+    if (!state.activeAccount) return;
+    activateAccount(state.activeAccount.id, state.activeAccount.kind);
+  });
+
+  document.getElementById('btn-desktop-stop')?.addEventListener('click', () => {
+    if (!state.activeAccount || state.activeAccount.kind !== 'desktop_isolated') return;
+    const prof = (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id);
+    if (prof) runProfileAction('stop', prof);
+  });
+
+  document.getElementById('toggle-companion-snap')?.addEventListener('change', async (event) => {
+    if (!state.activeAccount || state.activeAccount.kind !== 'desktop_isolated') {
+      event.target.checked = false;
+      return;
+    }
+    const enabled = Boolean(event.target.checked);
+    const railRect = document.getElementById('account-rail')?.getBoundingClientRect();
+    const dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
+    const railWidthPx = railRect ? Math.round(railRect.width * dpr) : 68;
+    event.target.disabled = true;
+    try {
+      const env = await tauriInvokeEnvelope('set_companion_snap', {
+        id: state.activeAccount.id,
+        enabled,
+        railWidthPx
+      });
+      if (env && env.ok === false) {
+        event.target.checked = !enabled;
+        showErrorBanner(env.error_code, env.message);
+      } else {
+        await refreshWorkspaceFast();
+      }
+    } catch (err) {
+      event.target.checked = !enabled;
+      showErrorBanner(err?.errorCode || 'COMPANION_SNAP_UNSUPPORTED', err?.message || '');
+    } finally {
+      event.target.disabled = false;
+    }
+  });
+
+  document.getElementById('btn-desktop-pin')?.addEventListener('click', () => {
+    if (!state.activeAccount || state.activeAccount.kind !== 'desktop_isolated') return;
+    const acc = (state.workspace?.accounts || []).find((a) => a.id === state.activeAccount.id);
+    toggleAccountPinned(state.activeAccount.id, Boolean(acc?.pinned));
+  });
+
+  document.getElementById('btn-desktop-rename')?.addEventListener('click', () => {
+    if (!state.activeAccount) return;
+    const prof = (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id);
+    if (prof) openRenameDialog(prof, 'desktop_isolated');
+  });
+
+  document.getElementById('btn-desktop-backup')?.addEventListener('click', () => {
+    if (!state.activeAccount) return;
+    const prof = (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id);
+    if (prof) runProfileAction('backup', prof);
+  });
+
+  document.getElementById('btn-desktop-details')?.addEventListener('click', () => {
+    if (!state.activeAccount) return;
+    const prof = (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id);
+    if (prof) openDetailsDialog(prof);
+  });
+
+  document.getElementById('btn-desktop-delete')?.addEventListener('click', () => {
+    if (!state.activeAccount) return;
+    const prof = (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id);
+    if (prof) openDeleteDialog(prof, 'desktop_isolated');
+  });
+}
+
+function wireBoundsObservers() {
+  const viewport = document.getElementById('web-session-viewport');
+  if (!viewport || typeof ResizeObserver === 'undefined') return;
+  let rafId = 0;
+  const scheduleSync = () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      if (isWebViewStageActive() && state.overlayBlockers.size === 0) {
+        syncNativeWebViewState();
+      }
+    });
+  };
+  const ro = new ResizeObserver(scheduleSync);
+  ro.observe(viewport);
+  window.addEventListener('resize', scheduleSync);
+}
+
+function wireGlobalShortcuts() {
+  if (typeof document === 'undefined') return;
+  document.addEventListener('keydown', (event) => {
+    const mod = event.ctrlKey || event.metaKey;
+    if (mod && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      openQuickSwitcher();
+      return;
+    }
+    if (mod && event.key.toLowerCase() === 'b') {
+      event.preventDefault();
+      document.getElementById('btn-rail-toggle')?.click();
+      return;
+    }
+    if (mod && event.key.toLowerCase() === 'n') {
+      event.preventDefault();
+      document.getElementById('btn-open-create')?.click();
+      return;
+    }
+    if (mod && event.key === ',') {
+      event.preventDefault();
+      selectView('settings');
+      return;
+    }
+    if (mod && /^[1-9]$/.test(event.key)) {
+      const idx = Number(event.key) - 1;
+      const items = getAllUnifiedAccounts();
+      if (items[idx]) {
+        event.preventDefault();
+        activateAccount(items[idx].id, items[idx].kind);
+      }
+      return;
+    }
+    if (event.key === '/' && !mod && !event.altKey) {
+      const active = document.activeElement;
+      const inInput = active && active.matches?.('input, textarea, select, [contenteditable="true"]');
+      const anyDialogOpen = Boolean(document.querySelector('dialog[open]'));
+      if (!inInput && !anyDialogOpen) {
+        event.preventDefault();
+        const railFilter = document.getElementById('rail-filter-input');
+        const shell = document.getElementById('workspace-shell');
+        if (shell?.dataset.railExpanded === 'true' && railFilter) {
+          railFilter.focus();
+        } else if (state.activeView === 'profiles') {
+          document.getElementById('profile-search')?.focus();
+        } else {
+          openQuickSwitcher();
+        }
+      }
+    }
+  });
 }
 
 export async function initApp() {
   await initI18n();
   applyDomTranslations();
   applyThemePreference(getSavedThemePreference());
+
+  const shell = document.getElementById('workspace-shell');
+  const railToggle = document.getElementById('btn-rail-toggle');
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(RAIL_EXPANDED_KEY) === 'true' && shell) {
+      shell.dataset.railExpanded = 'true';
+      railToggle?.setAttribute('aria-pressed', 'true');
+    }
+  } catch (_err) {
+    // Ignore
+  }
+
+  railToggle?.addEventListener('click', () => {
+    if (!shell) return;
+    const expanded = shell.dataset.railExpanded === 'true';
+    const next = !expanded;
+    shell.dataset.railExpanded = String(next);
+    railToggle.setAttribute('aria-pressed', String(next));
+    railToggle.setAttribute('aria-label', next ? t('rail.collapse') : t('rail.expand'));
+    railToggle.setAttribute('title', next ? t('rail.collapse') : t('rail.expand'));
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(RAIL_EXPANDED_KEY, String(next));
+    } catch (_err) {
+      // Ignore
+    }
+  });
+
   renderCreateColorPalette();
   renderRenameColorPalette();
   updateLanguageControls();
   updateAppearanceControls();
   updateDocumentTitle(state.activeView);
   wireDialogsAndFallbacks();
+  wireWebHeaderControls();
+  wireDesktopStageControls();
+  wireBoundsObservers();
+  wireGlobalShortcuts();
 
   document.getElementById('btn-brand-home')?.addEventListener('click', () => {
     selectView('profiles');
@@ -1815,6 +3201,20 @@ export async function initApp() {
 
   document.getElementById('btn-help-diagnostics')?.addEventListener('click', () => {
     selectView('diagnostics');
+  });
+
+  const railFilterInput = document.getElementById('rail-filter-input');
+  railFilterInput?.addEventListener('input', (event) => {
+    state.railFilterQuery = event.target.value;
+    renderAccountRail();
+  });
+  railFilterInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && railFilterInput.value) {
+      event.preventDefault();
+      railFilterInput.value = '';
+      state.railFilterQuery = '';
+      renderAccountRail();
+    }
   });
 
   const searchInput = document.getElementById('profile-search');
@@ -1851,16 +3251,23 @@ export async function initApp() {
     try {
       const invoke = getTauriInvoke();
       if (invoke) {
-        await invoke('stop_all_profiles', {});
+        const res = await invoke('stop_all_profiles', {});
+        if (res && res.ok === false) {
+          const err = new Error(res.message || t('errors.UNKNOWN'));
+          err.errorCode = res.error_code || 'UNKNOWN';
+          throw err;
+        }
       } else {
-        const running = (state.status?.profiles || []).filter((p) => Boolean(p.running));
-        for (const p of running) {
-          await apiCall(`/api/profiles/${encodeURIComponent(p.id)}/stop`, 'POST', {});
+        const res = await apiCall('/api/profiles/stop-all', 'POST', {});
+        if (res && res.ok === false) {
+          const err = new Error(res.message || t('errors.UNKNOWN'));
+          err.errorCode = res.error_code || 'UNKNOWN';
+          throw err;
         }
       }
       await refreshAll();
     } catch (err) {
-      showErrorBanner(err.errorCode || 'UNKNOWN_ERROR', err.message || String(err));
+      showErrorBanner(err.errorCode || 'UNKNOWN', err.message || String(err));
     } finally {
       state.pendingGlobalActions.delete('stop-all');
       updatePendingControls();
@@ -1911,10 +3318,10 @@ export async function initApp() {
       const next = Boolean(event.target.checked);
       keepInTrayEl.disabled = true;
       try {
-        await tauriInvoke('set_keep_in_tray', { keepInTray: next });
+        await tauriInvoke('set_keep_in_tray', { enabled: next });
       } catch (err) {
         keepInTrayEl.checked = !next;
-        showErrorBanner(err.errorCode || 'UNKNOWN_ERROR', err.message || String(err));
+        showErrorBanner(err.errorCode || 'UNKNOWN', err.message || String(err));
       } finally {
         keepInTrayEl.disabled = false;
       }
@@ -1926,7 +3333,7 @@ export async function initApp() {
         await tauriInvoke('set_autostart_enabled', { enabled: next });
       } catch (err) {
         autostartEl.checked = !next;
-        showErrorBanner(err.errorCode || 'UNKNOWN_ERROR', err.message || String(err));
+        showErrorBanner(err.errorCode || 'UNKNOWN', err.message || String(err));
       } finally {
         autostartEl.disabled = false;
       }
@@ -1938,6 +3345,15 @@ export async function initApp() {
         if (target === 'profiles' || target === 'settings' || target === 'backups' || target === 'help' || target === 'diagnostics') {
           selectView(target);
         }
+      }).catch(() => {});
+      tauriListen('khoang://activate-request', (event) => {
+        const payload = event?.payload;
+        if (payload?.id && payload?.kind) {
+          activateAccount(payload.id, payload.kind);
+        }
+      }).catch(() => {});
+      tauriListen('khoang://snapshot-changed', () => {
+        refreshWorkspaceFast();
       }).catch(() => {});
     }
   } else {

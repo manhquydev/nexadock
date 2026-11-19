@@ -36,6 +36,11 @@ test('HTML adheres to Modern Web Guidance, native radio groups, & CSP rules', ()
   assert.match(html, /id="delete-profile-dialog"[\s\S]*?value="cancel"[^>]*autofocus/i, 'Cancel button in delete dialog must have autofocus');
   assert.match(html, /<fieldset[^>]*>[\s\S]*?<legend[^>]*>[\s\S]*?name="ui-locale"/i, 'Language control must use native radio inputs inside fieldset/legend');
   assert.match(html, /<fieldset[^>]*>[\s\S]*?<legend[^>]*>[\s\S]*?name="ui-theme"/i, 'Appearance control must use native radio inputs inside fieldset/legend');
+  assert.match(html, /<fieldset[^>]*>[\s\S]*?<legend[^>]*>[\s\S]*?name="create-session-mode"/i, 'Session mode selector must use native radio inputs inside fieldset/legend');
+  assert.match(html, /id="account-rail"[\s\S]*?role="toolbar"/i, 'Account rail must expose vertical toolbar semantics');
+  assert.match(html, /id="stage-web-session"/i, 'Unified surface must include #stage-web-session');
+  assert.match(html, /id="stage-desktop-session"/i, 'Unified surface must include #stage-desktop-session');
+  assert.match(html, /id="quick-switcher-dialog"[^>]*closedby="any"/i, 'Quick Switcher must use native <dialog closedby="any">');
 });
 
 test('CSS adheres to Modern Web Guidance & Quiet Workspace rules', () => {
@@ -48,6 +53,8 @@ test('CSS adheres to Modern Web Guidance & Quiet Workspace rules', () => {
   assert.doesNotMatch(css, /backdrop-filter/i, 'Quiet Workspace forbids glassmorphism');
   assert.doesNotMatch(css, /@import\s+url\(|https?:\/\//i, 'No remote fonts or URLs in CSS');
   assert.doesNotMatch(css, /\bfont-size\s*:\s*\d+(?:\.\d+)?px\b/i, 'All CSS font-size rules must use rem/em to respect OS text scaling');
+  assert.match(css, /scrollbar-color:/, 'Custom scrollbar color must be configured');
+  assert.match(css, /@supports\s+not\s*\(\s*scrollbar-color:\s*auto\s*\)\s*\{[^}]*scrollbar-width:\s*auto;/s, 'WebKit scrollbar fallback must reset scrollbar-width: auto');
 });
 
 test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forbids innerHTML', () => {
@@ -70,7 +77,19 @@ test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forb
     'list_backups',
     'restore_backup',
     'get_diagnostics',
-    'verify_isolation'
+    'verify_isolation',
+    'get_workspace_snapshot',
+    'activate_account',
+    'set_account_pinned',
+    'set_companion_snap',
+    'web_session_create',
+    'web_session_show',
+    'web_session_set_bounds',
+    'web_session_hide_all',
+    'web_session_reload',
+    'web_session_reset',
+    'web_session_delete',
+    'web_session_rename'
   ];
   for (const cmd of requiredTauriCommands) {
     assert.ok(appJs.includes(`'${cmd}'`), `Missing Tauri command ${cmd}`);
@@ -112,6 +131,21 @@ test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forb
     appJs,
     /['"]multi-zalo\.theme['"]/,
     'app.js must persist theme under multi-zalo.theme'
+  );
+  assert.match(
+    appJs,
+    /'set_keep_in_tray'\s*,\s*\{\s*enabled:/,
+    'set_keep_in_tray must pass { enabled }'
+  );
+  assert.match(
+    appJs,
+    /'set_companion_snap'\s*,\s*\{[\s\S]*?\brailWidthPx\b/,
+    'set_companion_snap must pass railWidthPx'
+  );
+  assert.match(
+    appJs,
+    /isComposing\s*\|\|\s*event\.keyCode\s*===\s*229/,
+    'Quick Switcher Enter handler must be IME-safe'
   );
 });
 

@@ -679,6 +679,9 @@ try {
   await evalJs(`document.querySelector('#profiles-list .account-card[data-profile-id="prof-101"] .btn-primary').click()`);
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(await evalJs(`document.getElementById('status-banner').hidden`), true);
+  assert.equal(await evalJs(`!document.getElementById('stage-desktop-session').hidden`), true);
+  await snap('account-dock-desktop-stage-vi-light.png');
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
 
   // Restore 3 accounts (2 running) for Journey B, Search + Escape, Menu, Help, Settings, Diagnostics, Backups
   mockData.status.profiles = [
@@ -771,7 +774,6 @@ try {
   const helpState = await evalJs(`({
     helpVisible: !document.getElementById('view-help').hidden,
     profilesHidden: document.getElementById('view-profiles').hidden,
-    createHidden: document.getElementById('btn-open-create').hidden,
     navActive: document.getElementById('btn-nav-help').classList.contains('is-active'),
     ariaCurrent: document.getElementById('btn-nav-help').getAttribute('aria-current'),
     cardCount: document.querySelectorAll('#view-help .help-grid .panel').length,
@@ -780,7 +782,6 @@ try {
   assert.deepEqual(helpState, {
     helpVisible: true,
     profilesHidden: true,
-    createHidden: true,
     navActive: true,
     ariaCurrent: 'page',
     cardCount: 4,
@@ -1181,6 +1182,18 @@ try {
   await pressKey('Escape', 'Escape', 27);
   assert.equal(await evalJs(`document.querySelectorAll('#profiles-list .account-card').length`), 20);
   assert.equal(await evalJs(`document.getElementById('accounts-count-summary').textContent`), 'Hiển thị 20 / 20 tài khoản');
+
+  // Quick Switcher (Ctrl+K) + Account Rail check
+  await evalJs(`document.getElementById('btn-quick-switcher').click()`);
+  await new Promise((r) => setTimeout(r, 80));
+  const qsOpen = await evalJs(`({
+    open: document.getElementById('quick-switcher-dialog').open,
+    options: document.querySelectorAll('#quick-switcher-list [role="option"]').length
+  })`);
+  assert.equal(qsOpen.open, true);
+  assert.ok(qsOpen.options >= 21);
+  await snap('account-dock-quick-switcher-vi-light.png');
+  await evalJs(`document.getElementById('quick-switcher-dialog').close('close')`);
 
   assert.deepEqual(runtimeErrors, [], `Runtime errors: ${runtimeErrors.join('; ')}`);
   console.log('PASS (Account Dock: 16 matrix combinations, session token, theme reload, scale 0/1/3/10/20, Step1/Step2 resilience, color persistence/restore, primary Zalo honest states, timeout, Tauri invoke, Help view, WAI-ARIA menu, out-of-order status, 200% zoom, 0 runtime errors)');

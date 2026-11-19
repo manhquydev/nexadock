@@ -226,7 +226,21 @@ test('consumer-facing Account Dock copy avoids technical jargon on Home and Add 
   const forbidden = /\b(PID|sandbox|IPC|Authenticode|loopback)\b/i;
 
   for (const dict of [vi, en]) {
-    const consumerSections = [dict.app, dict.nav, dict.statusBar, dict.accounts?.states, dict.accounts?.actions, dict.accounts?.primaryZalo, dict.dialogs?.create, dict.dialogs?.help, dict.help];
+    const consumerSections = [
+      dict.app,
+      dict.nav,
+      dict.statusBar,
+      dict.accounts?.states,
+      dict.accounts?.actions,
+      dict.accounts?.primaryZalo,
+      dict.rail,
+      dict.webSession,
+      dict.desktopStage,
+      dict.quickSwitcher,
+      dict.dialogs?.create,
+      dict.dialogs?.help,
+      dict.help
+    ];
     const serialized = JSON.stringify(consumerSections);
     assert.doesNotMatch(serialized, forbidden, 'Consumer copy must not contain technical jargon');
   }
@@ -264,7 +278,17 @@ test('every Rust DimError::code() and bridge error code resolves to localized no
     'HOST_EXEC_FAILED',
     'HOST_TIMEOUT',
     'UNAUTHORIZED',
-    'RATE_LIMITED'
+    'RATE_LIMITED',
+    'PRIMARY_IN_TRAY',
+    'PRIMARY_NOT_RUNNING',
+    'PRIMARY_PROTECTED',
+    'WINDOW_UNVERIFIED',
+    'WEB_SESSION_UNSUPPORTED',
+    'WEB_SESSION_ERROR',
+    'WEB_SESSION_BUSY',
+    'WEB_WORKSPACE_REQUIRES_MACOS_14',
+    'WEB_WORKSPACE_WAYLAND_UNSUPPORTED',
+    'COMPANION_SNAP_UNSUPPORTED'
   ];
   const allCodes = [...rustErrorCodes, ...bridgeErrorCodes];
 

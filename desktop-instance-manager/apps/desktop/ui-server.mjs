@@ -368,6 +368,35 @@ export function createUiServer(options = {}) {
         return;
       }
 
+      if (pathname === '/api/profiles/stop-all' && method === 'POST') {
+        const out = await enqueueMutation(async () => {
+          const statusRes = await runHostCli(['status'], hostOptions);
+          if (!statusRes.payload || statusRes.payload.ok === false) {
+            return statusRes;
+          }
+          const profiles = Array.isArray(statusRes.payload.profiles) ? statusRes.payload.profiles : [];
+          const running = profiles.filter((p) => Boolean(p.running));
+          let stoppedCount = 0;
+          for (const prof of running) {
+            const stopRes = await runHostCli(['stop', String(prof.id)], hostOptions);
+            if (!stopRes.payload || stopRes.payload.ok === false) {
+              return stopRes;
+            }
+            stoppedCount += 1;
+          }
+          return {
+            statusCode: 200,
+            payload: {
+              ok: true,
+              message: `Stopped ${stoppedCount} running profile(s).`,
+              data: { stopped_count: stoppedCount }
+            }
+          };
+        });
+        sendJson(res, out.statusCode, out.payload);
+        return;
+      }
+
       if (pathname === '/api/backups/restore' && method === 'POST') {
         const body = await readJsonBody(req);
         const rawBackupDir = String(body.backupDir || '').trim();
