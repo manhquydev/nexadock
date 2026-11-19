@@ -1001,7 +1001,8 @@ pub fn reload_session(
         })?;
 
         #[allow(unused_variables)]
-        let Some((bounds, old_entry, cached_env)) = action else {
+        let Some((bounds, old_entry, cached_env)) = action
+        else {
             return Ok(());
         };
 
