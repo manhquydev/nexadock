@@ -26,6 +26,7 @@ test('tauri.conf.json enables macOS hardenedRuntime and minimal Entitlements.pli
   assert.ok(fs.existsSync(plistPath), 'Entitlements.plist must exist');
   const plist = fs.readFileSync(plistPath, 'utf8');
   assert.ok(plist.includes('<plist version="1.0">'));
+  assert.match(plist, /<dict>\s*<\/dict>/, 'Entitlements.plist must remain minimal (empty <dict>)');
   assert.doesNotMatch(plist, /com\.apple\.security\.app-sandbox/);
   assert.doesNotMatch(plist, /com\.apple\.security\.cs\.disable-library-validation/);
 });
@@ -119,10 +120,18 @@ test('evaluateSigningVerdict fails closed on any missing signing, stapling, or G
   assert.equal(fullPass.passed, true);
   assert.equal(fullPass.signing_status, 'SIGNED_AND_NOTARIZED');
 
-  const unstapledDmg = evaluateSigningVerdict(validMeta, true, true, false, true);
-  assert.equal(unstapledDmg.passed, false);
-  assert.equal(unstapledDmg.signing_status, 'UNSIGNED_DEVELOPMENT_ARTIFACT');
-
-  const gatekeeperFail = evaluateSigningVerdict(validMeta, true, false, true, true);
-  assert.equal(gatekeeperFail.passed, false);
+  const cases = [
+    ['codesignVerifyOk=false', evaluateSigningVerdict(validMeta, false, true, true, true)],
+    ['spctlOk=false', evaluateSigningVerdict(validMeta, true, false, true, true)],
+    ['dmgStapled=false', evaluateSigningVerdict(validMeta, true, true, false, true)],
+    ['appStapled=false', evaluateSigningVerdict(validMeta, true, true, true, false)],
+    ['is_adhoc=true', evaluateSigningVerdict({ ...validMeta, is_adhoc: true }, true, true, true, true)],
+    ['has_developer_id=false', evaluateSigningVerdict({ ...validMeta, has_developer_id: false }, true, true, true, true)],
+    ['team_identifier=null', evaluateSigningVerdict({ ...validMeta, team_identifier: null }, true, true, true, true)],
+    ['has_hardened_runtime=false', evaluateSigningVerdict({ ...validMeta, has_hardened_runtime: false }, true, true, true, true)],
+  ];
+  for (const [label, res] of cases) {
+    assert.equal(res.passed, false, `Expected failure for ${label}`);
+    assert.equal(res.signing_status, 'UNSIGNED_DEVELOPMENT_ARTIFACT', `Expected unsigned status for ${label}`);
+  }
 });

@@ -219,7 +219,13 @@ async function testCleanLaunch(executablePath, timeoutMs = 5000) {
     const first = await runOnce(timeoutMs);
     const relaunch = await runOnce(3000);
     return {
-      ok: first.alive_after_hold && !first.has_panic && relaunch.alive_after_hold && !relaunch.has_panic,
+      ok:
+        first.alive_after_hold &&
+        first.clean_exit &&
+        !first.has_panic &&
+        relaunch.alive_after_hold &&
+        relaunch.clean_exit &&
+        !relaunch.has_panic,
       first_launch: first,
       relaunch,
     };
@@ -304,7 +310,10 @@ async function main() {
       throw new Error(`ditto copy to clean install dir failed: ${ditto.combined}`);
     }
 
-    runCmd('hdiutil', ['detach', mountPoint, '-force'], 30000);
+    const detach = runCmd('hdiutil', ['detach', mountPoint, '-force'], 30000);
+    if (!detach.ok) {
+      throw new Error(`hdiutil detach failed: ${detach.combined}`);
+    }
     mounted = false;
 
     const plistPath = path.join(installedApp, 'Contents', 'Info.plist');
@@ -340,7 +349,10 @@ async function main() {
 
     // Simulate downloaded browser quarantine on the clean-installed copy (never stripping quarantine)
     const hexEpoch = Math.floor(Date.now() / 1000).toString(16);
-    runCmd('xattr', ['-w', 'com.apple.quarantine', `0081;${hexEpoch};Safari;`, installedApp]);
+    const quarantine = runCmd('xattr', ['-w', 'com.apple.quarantine', `0081;${hexEpoch};Safari;`, installedApp]);
+    if (!quarantine.ok) {
+      throw new Error(`xattr quarantine failed: ${quarantine.combined}`);
+    }
     const spctlRes = runCmd('spctl', ['--assess', '--type', 'execute', '--verbose=4', installedApp]);
 
     const signingVerdict = evaluateSigningVerdict(
@@ -401,7 +413,7 @@ async function main() {
       signing_verdict: signingVerdict,
       automated_launch: launchResult,
       verification_levels: {
-        build_verified: 'PASS',
+        build_verified: 'NOT_TESTED',
         bundle_verified: bundleVerified ? 'PASS' : 'FAIL',
         signature_gatekeeper_verified: signingVerdict.passed ? 'PASS' : 'FAIL',
         automated_launch_verified: opts.skipLaunch
@@ -424,7 +436,7 @@ async function main() {
     console.log(jsonText);
 
     if (!overallPass) {
-      process.exit(1);
+      process.exitCode = 1;
     }
   } finally {
     if (mounted) {

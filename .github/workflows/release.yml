@@ -486,8 +486,17 @@ jobs:
           See attached \`SHA256SUMS.txt\` and \`PROVENANCE.txt\`.
           EOF
           if gh release view "${TAG}" >/dev/null 2>&1; then
+            EXISTING_PRE=$(gh release view "${TAG}" --json isPrerelease --jq '.isPrerelease')
+            if [ "${EXISTING_PRE}" = "false" ] && [ "${MACOS_SIGNING_STATUS}" != "SIGNED_AND_NOTARIZED" ]; then
+              echo "::error::Refusing to overwrite non-prerelease ${TAG} with ${MACOS_SIGNING_STATUS}"
+              exit 1
+            fi
             gh release upload "${TAG}" dist-staging/* --clobber
-            gh release edit "${TAG}" --title "${PROD} ${TAG} (Pre-release)" --notes-file "${NOTES_FILE}"
+            if [ -n "${PRE_FLAG}" ]; then
+              gh release edit "${TAG}" --title "${PROD} ${TAG} (Pre-release)" --notes-file "${NOTES_FILE}" --prerelease
+            else
+              gh release edit "${TAG}" --title "${PROD} ${TAG}" --notes-file "${NOTES_FILE}"
+            fi
           else
             gh release create "${TAG}" dist-staging/* \
               --verify-tag \
