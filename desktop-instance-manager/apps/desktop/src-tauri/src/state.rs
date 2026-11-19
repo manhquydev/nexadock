@@ -6,16 +6,20 @@
 //!   inside `Arc<InstanceCoordinator>` (in-process keyed table + cross-process `.dim-profile.lock`),
 //!   allowing distinct profiles to launch, stop, and back up concurrently without blocking one another.
 
-use std::path::Path;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dim_core::{
-    AdvisoryFileLock, BackupResult, DimError, PlatformCapabilities, ProfileLifecycleState,
-    ProfileStore,
+    generate_profile_id, now_rfc3339_utc, write_bytes_atomic, AdvisoryFileLock, BackupResult,
+    DimError, PlatformCapabilities, ProfileLifecycleState, ProfileStore, WebSessionRecord,
+    WindowRect,
 };
 use dim_process_manager::InstanceCoordinator;
 use dim_profile_store::{FileBackupManager, JsonProfileStore};
+use serde::{Deserialize, Serialize};
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 pub use dim_platform_linux::LinuxPlatformAdapter as ActiveAdapter;
@@ -25,6 +29,245 @@ pub use dim_platform_macos::MacOsPlatformAdapter as ActiveAdapter;
 pub use dim_platform_windows::WindowsPlatformAdapter as ActiveAdapter;
 
 const PROFILE_BACKUP_LOCK_TIMEOUT: Duration = Duration::from_secs(15);
+pub const WEB_SESSIONS_FILE_NAME: &str = "web-sessions.json";
+pub const WEB_SESSIONS_SCHEMA_VERSION: u32 = 1;
+
+/// Root document persisted in `<data_dir>/web-sessions.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct WebSessionsDocument {
+    pub schema_version: u32,
+    pub sessions: Vec<WebSessionRecord>,
+    /// Windows WebView2 profile folder names queued for cleanup before opening `_shared_env`.
+    pub pending_profile_deletes: Vec<String>,
+}
+
+impl Default for WebSessionsDocument {
+    fn default() -> Self {
+        Self {
+            schema_version: WEB_SESSIONS_SCHEMA_VERSION,
+            sessions: Vec::new(),
+            pending_profile_deletes: Vec::new(),
+        }
+    }
+}
+
+/// Thread-safe store for isolated web session records (`<data_dir>/web-sessions.json`).
+pub struct WebSessionStore {
+    data_dir: PathBuf,
+    doc: Mutex<WebSessionsDocument>,
+}
+
+impl WebSessionStore {
+    pub fn initialize(data_dir: &Path) -> Self {
+        let loaded = load_web_sessions(data_dir);
+        Self {
+            data_dir: data_dir.to_path_buf(),
+            doc: Mutex::new(loaded),
+        }
+    }
+
+    pub fn list(&self) -> Vec<WebSessionRecord> {
+        self.doc
+            .lock()
+            .map(|g| g.sessions.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn get(&self, id: &str) -> Result<WebSessionRecord, DimError> {
+        let guard = self
+            .doc
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("web sessions lock poisoned")))?;
+        guard
+            .sessions
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or_else(|| DimError::ProfileNotFound(format!("web session '{id}' not found")))
+    }
+
+    pub fn create(
+        &self,
+        display_name: &str,
+        color_token: Option<&str>,
+    ) -> Result<WebSessionRecord, DimError> {
+        let normalized_name = validate_web_session_name(display_name)?;
+        let normalized_color = normalize_color_token(color_token);
+        let mut guard = self
+            .doc
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("web sessions lock poisoned")))?;
+
+        let now = now_rfc3339_utc();
+        let mut id = format!("web-{}", generate_profile_id());
+        while guard.sessions.iter().any(|s| s.id == id) {
+            id = format!("web-{}", generate_profile_id());
+        }
+        let record = WebSessionRecord {
+            id,
+            display_name: normalized_name,
+            color_token: normalized_color,
+            profile_generation: 1,
+            data_store_uuid: Some(generate_uuid_hex()),
+            created_at: now.clone(),
+            updated_at: now,
+        };
+        let mut next = guard.clone();
+        next.sessions.push(record.clone());
+        save_web_sessions(&self.data_dir, &next)?;
+        *guard = next;
+        Ok(record)
+    }
+
+    pub fn rename(&self, id: &str, display_name: &str) -> Result<WebSessionRecord, DimError> {
+        let normalized_name = validate_web_session_name(display_name)?;
+        let mut guard = self
+            .doc
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("web sessions lock poisoned")))?;
+        let mut next = guard.clone();
+        let Some(entry) = next.sessions.iter_mut().find(|s| s.id == id) else {
+            return Err(DimError::ProfileNotFound(format!(
+                "web session '{id}' not found"
+            )));
+        };
+        entry.display_name = normalized_name;
+        entry.updated_at = now_rfc3339_utc();
+        let updated = entry.clone();
+        save_web_sessions(&self.data_dir, &next)?;
+        *guard = next;
+        Ok(updated)
+    }
+
+    pub fn bump_generation_for_reset(
+        &self,
+        id: &str,
+        pending_profile_delete: Option<String>,
+    ) -> Result<WebSessionRecord, DimError> {
+        let mut guard = self
+            .doc
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("web sessions lock poisoned")))?;
+        let mut next = guard.clone();
+        let Some(entry) = next.sessions.iter_mut().find(|s| s.id == id) else {
+            return Err(DimError::ProfileNotFound(format!(
+                "web session '{id}' not found"
+            )));
+        };
+        entry.profile_generation = entry.profile_generation.saturating_add(1);
+        entry.data_store_uuid = Some(generate_uuid_hex());
+        entry.updated_at = now_rfc3339_utc();
+        let updated = entry.clone();
+        if let Some(name) = pending_profile_delete {
+            if !name.is_empty() && !next.pending_profile_deletes.iter().any(|p| p == &name) {
+                next.pending_profile_deletes.push(name);
+            }
+        }
+        save_web_sessions(&self.data_dir, &next)?;
+        *guard = next;
+        Ok(updated)
+    }
+
+    pub fn delete(
+        &self,
+        id: &str,
+        pending_profile_delete: Option<String>,
+    ) -> Result<WebSessionRecord, DimError> {
+        let mut guard = self
+            .doc
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("web sessions lock poisoned")))?;
+        let mut next = guard.clone();
+        let Some(pos) = next.sessions.iter().position(|s| s.id == id) else {
+            return Err(DimError::ProfileNotFound(format!(
+                "web session '{id}' not found"
+            )));
+        };
+        let removed = next.sessions.remove(pos);
+        if let Some(name) = pending_profile_delete {
+            if !name.is_empty() && !next.pending_profile_deletes.iter().any(|p| p == &name) {
+                next.pending_profile_deletes.push(name);
+            }
+        }
+        save_web_sessions(&self.data_dir, &next)?;
+        *guard = next;
+        Ok(removed)
+    }
+
+    pub fn pending_profile_deletes(&self) -> Vec<String> {
+        self.doc
+            .lock()
+            .map(|g| g.pending_profile_deletes.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn remove_pending_profile_deletes(&self, cleared: &[String]) -> Result<(), DimError> {
+        if cleared.is_empty() {
+            return Ok(());
+        }
+        let mut guard = self
+            .doc
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("web sessions lock poisoned")))?;
+        let mut next = guard.clone();
+        next.pending_profile_deletes
+            .retain(|name| !cleared.iter().any(|c| c == name));
+        save_web_sessions(&self.data_dir, &next)?;
+        *guard = next;
+        Ok(())
+    }
+}
+
+fn validate_web_session_name(raw: &str) -> Result<String, DimError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(DimError::InvalidProfileName(
+            "Web session display name cannot be empty.".to_owned(),
+        ));
+    }
+    if trimmed.chars().count() > 80 {
+        return Err(DimError::InvalidProfileName(
+            "Web session display name must be at most 80 characters.".to_owned(),
+        ));
+    }
+    Ok(trimmed.to_owned())
+}
+
+fn normalize_color_token(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty() && s.len() <= 32)
+        .map(str::to_owned)
+}
+
+fn generate_uuid_hex() -> String {
+    format!(
+        "{}{}{}{}",
+        generate_profile_id(),
+        generate_profile_id(),
+        generate_profile_id(),
+        generate_profile_id()
+    )
+}
+
+fn load_web_sessions(data_dir: &Path) -> WebSessionsDocument {
+    let path = data_dir.join(WEB_SESSIONS_FILE_NAME);
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return WebSessionsDocument::default();
+    };
+    let mut parsed: WebSessionsDocument = serde_json::from_str(&raw).unwrap_or_default();
+    if parsed.schema_version == 0 {
+        parsed.schema_version = WEB_SESSIONS_SCHEMA_VERSION;
+    }
+    parsed
+}
+
+fn save_web_sessions(data_dir: &Path, doc: &WebSessionsDocument) -> Result<(), DimError> {
+    fs::create_dir_all(data_dir)?;
+    let target = data_dir.join(WEB_SESSIONS_FILE_NAME);
+    let payload = serde_json::to_string_pretty(doc)?;
+    write_bytes_atomic(&target, payload.as_bytes())
+}
 
 /// Cloneable shared application state managed by Tauri.
 #[derive(Clone)]
@@ -33,6 +276,9 @@ pub struct AppState {
     pub adapter: Arc<ActiveAdapter>,
     pub coordinator: Arc<InstanceCoordinator<ActiveAdapter>>,
     pub backups: Arc<FileBackupManager>,
+    pub web_sessions: Arc<WebSessionStore>,
+    /// Original `WindowRect` before companion snapping, keyed by secondary profile ID.
+    pub companion_snapped: Arc<Mutex<HashMap<String, WindowRect>>>,
 }
 
 impl AppState {
@@ -59,11 +305,15 @@ impl AppState {
             )),
         );
 
+        let web_sessions = Arc::new(WebSessionStore::initialize(store.data_dir()));
+
         Ok(Self {
             store,
             adapter,
             coordinator,
             backups,
+            web_sessions,
+            companion_snapped: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -266,6 +516,64 @@ mod tests {
             let _ = state.coordinator.stop_profile(&p_a.id);
             let _ = state.coordinator.stop_profile(&p_b.id);
         });
+
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn web_session_store_crud_reset_and_pending_deletes_persist() {
+        let data_dir = temp_sandbox_dir("web-store");
+        let store = WebSessionStore::initialize(&data_dir);
+        assert!(store.list().is_empty());
+
+        let created = store
+            .create("  Zalo Web Work  ", Some("ocean"))
+            .expect("create web session");
+        assert_eq!(created.display_name, "Zalo Web Work");
+        assert_eq!(created.color_token.as_deref(), Some("ocean"));
+        assert_eq!(created.profile_generation, 1);
+        assert!(created
+            .data_store_uuid
+            .as_ref()
+            .is_some_and(|u| u.len() == 32));
+
+        let renamed = store
+            .rename(&created.id, "Zalo Web Sales")
+            .expect("rename web session");
+        assert_eq!(renamed.display_name, "Zalo Web Sales");
+
+        let reset = store
+            .bump_generation_for_reset(&created.id, Some("khoang_web_old_g1".to_owned()))
+            .expect("reset web session");
+        assert_eq!(reset.profile_generation, 2);
+        assert_ne!(reset.data_store_uuid, created.data_store_uuid);
+        assert_eq!(
+            store.pending_profile_deletes(),
+            vec!["khoang_web_old_g1".to_owned()]
+        );
+
+        let reloaded = WebSessionStore::initialize(&data_dir);
+        assert_eq!(reloaded.list().len(), 1);
+        assert_eq!(reloaded.list()[0].profile_generation, 2);
+        assert_eq!(
+            reloaded.pending_profile_deletes(),
+            vec!["khoang_web_old_g1".to_owned()]
+        );
+
+        reloaded
+            .remove_pending_profile_deletes(&["khoang_web_old_g1".to_owned()])
+            .expect("clear pending");
+        assert!(reloaded.pending_profile_deletes().is_empty());
+
+        let deleted = reloaded
+            .delete(&created.id, Some("khoang_web_old_g2".to_owned()))
+            .expect("delete web session");
+        assert_eq!(deleted.id, created.id);
+        assert!(reloaded.list().is_empty());
+        assert_eq!(
+            reloaded.pending_profile_deletes(),
+            vec!["khoang_web_old_g2".to_owned()]
+        );
 
         let _ = fs::remove_dir_all(&data_dir);
     }

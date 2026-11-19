@@ -5,6 +5,7 @@ mod commands;
 mod preferences;
 mod state;
 mod tray;
+mod web_workspace;
 
 use preferences::DesktopPrefsState;
 use state::AppState;
@@ -18,21 +19,37 @@ fn main() {
         .manage(app_state)
         .manage(prefs_state)
         .setup(|app| {
+            web_workspace::register_main_thread();
+            let st = app.state::<AppState>();
+            let _ =
+                web_workspace::sweep_pending_profile_deletes(st.store.data_dir(), &st.web_sessions);
             let prefs = app.state::<DesktopPrefsState>().snapshot();
             tray::init_tray(app.handle(), tray::TrayLocale::parse(&prefs.locale))?;
+            tray::refresh_tray_accounts(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main"
-                    && window
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                WindowEvent::Moved(_) => {
+                    web_workspace::notify_parent_moved_on_current_thread();
+                }
+                WindowEvent::CloseRequested { api, .. } => {
+                    if window
                         .app_handle()
                         .state::<DesktopPrefsState>()
                         .keep_in_tray()
-                {
-                    api.prevent_close();
-                    let _ = window.hide();
+                    {
+                        api.prevent_close();
+                        web_workspace::set_main_window_visible_on_current_thread(false);
+                        let _ = window.hide();
+                    } else {
+                        web_workspace::clear_all_on_current_thread();
+                    }
                 }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -54,6 +71,19 @@ fn main() {
             commands::set_tray_locale,
             commands::get_autostart_enabled,
             commands::set_autostart_enabled,
+            commands::get_workspace_snapshot,
+            commands::activate_account,
+            commands::set_account_pinned,
+            commands::set_companion_snap,
+            commands::web_session_create,
+            commands::web_session_show,
+            commands::web_session_set_bounds,
+            commands::web_session_hide,
+            commands::web_session_hide_all,
+            commands::web_session_reload,
+            commands::web_session_reset,
+            commands::web_session_delete,
+            commands::web_session_rename,
         ])
         .run(tauri::generate_context!())
         .expect("error while running KHOANG Tauri application");

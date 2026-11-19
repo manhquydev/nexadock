@@ -639,11 +639,16 @@ dependencies = [
  "dim-platform-windows",
  "dim-process-manager",
  "dim-profile-store",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "url",
+ "webview2-com",
+ "windows-core",
  "winreg",
+ "wry",
 ]
 
 [[package]]

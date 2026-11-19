@@ -1,11 +1,10 @@
 //! Persistent desktop-shell preferences for KHOANG (`khoang-preferences.json`).
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use dim_core::DimError;
+use dim_core::{write_bytes_atomic, DimError};
 use serde::{Deserialize, Serialize};
 
 pub const PREFERENCES_FILE_NAME: &str = "khoang-preferences.json";
@@ -19,6 +18,9 @@ pub struct DesktopPreferences {
     pub keep_in_tray: bool,
     /// Active UI locale (`"vi-VN"` or `"en-US"`) used for localized tray labels and tooltips.
     pub locale: String,
+    /// Account IDs pinned to the top of the workspace rail (stored only in `khoang-preferences.json`).
+    #[serde(default)]
+    pub pinned_accounts: Vec<String>,
 }
 
 impl Default for DesktopPreferences {
@@ -26,6 +28,7 @@ impl Default for DesktopPreferences {
         Self {
             keep_in_tray: false,
             locale: DEFAULT_LOCALE.to_owned(),
+            pinned_accounts: Vec::new(),
         }
     }
 }
@@ -78,6 +81,43 @@ impl DesktopPrefsState {
         })
     }
 
+    /// Pins or unpins an account ID in `khoang-preferences.json`.
+    pub fn set_account_pinned(
+        &self,
+        id: &str,
+        pinned: bool,
+    ) -> Result<DesktopPreferences, DimError> {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            return Err(DimError::InvalidProfileName(
+                "account id cannot be empty".to_owned(),
+            ));
+        }
+        let owned = trimmed.to_owned();
+        self.update(|prefs| {
+            if pinned {
+                if !prefs
+                    .pinned_accounts
+                    .iter()
+                    .any(|existing| existing == &owned)
+                {
+                    prefs.pinned_accounts.push(owned);
+                }
+            } else {
+                prefs.pinned_accounts.retain(|existing| existing != &owned);
+            }
+        })
+    }
+
+    /// Returns `true` if `id` is currently pinned.
+    #[cfg(test)]
+    pub fn is_pinned(&self, id: &str) -> bool {
+        self.inner
+            .read()
+            .map(|guard| guard.pinned_accounts.iter().any(|x| x == id))
+            .unwrap_or(false)
+    }
+
     fn update(
         &self,
         mutate: impl FnOnce(&mut DesktopPreferences),
@@ -118,25 +158,9 @@ pub fn load_preferences(data_dir: &Path) -> DesktopPreferences {
 /// Atomically persists preferences to `<data_dir>/khoang-preferences.json`.
 pub fn save_preferences(data_dir: &Path, prefs: &DesktopPreferences) -> Result<(), DimError> {
     fs::create_dir_all(data_dir)?;
-
     let target = data_dir.join(PREFERENCES_FILE_NAME);
-    let tmp = data_dir.join(format!(
-        ".{PREFERENCES_FILE_NAME}.{}.tmp",
-        std::process::id()
-    ));
     let payload = serde_json::to_string_pretty(prefs)?;
-
-    {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(payload.as_bytes())?;
-        let _ = file.sync_all();
-    }
-
-    if let Err(err) = fs::rename(&tmp, &target) {
-        let _ = fs::remove_file(&tmp);
-        return Err(DimError::Io(err));
-    }
-    Ok(())
+    write_bytes_atomic(&target, payload.as_bytes())
 }
 
 #[cfg(test)]
@@ -168,6 +192,40 @@ mod tests {
         let reloaded = DesktopPrefsState::initialize(&dir);
         assert!(reloaded.keep_in_tray());
         assert_eq!(reloaded.snapshot().locale, "en-US");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pinned_accounts_persist_deduplicate_and_unpin() {
+        let dir = temp_prefs_dir("pinned");
+        let state = DesktopPrefsState::initialize(&dir);
+        assert!(state.snapshot().pinned_accounts.is_empty());
+
+        state
+            .set_account_pinned("primary", true)
+            .expect("pin primary");
+        state
+            .set_account_pinned("primary", true)
+            .expect("dedupe pin");
+        state
+            .set_account_pinned("abc12345", true)
+            .expect("pin secondary");
+        assert_eq!(
+            state.snapshot().pinned_accounts,
+            vec!["primary".to_owned(), "abc12345".to_owned()]
+        );
+        assert!(state.is_pinned("primary"));
+
+        state
+            .set_account_pinned("primary", false)
+            .expect("unpin primary");
+        let reloaded = DesktopPrefsState::initialize(&dir);
+        assert_eq!(
+            reloaded.snapshot().pinned_accounts,
+            vec!["abc12345".to_owned()]
+        );
+        assert!(!reloaded.is_pinned("primary"));
 
         let _ = fs::remove_dir_all(&dir);
     }
