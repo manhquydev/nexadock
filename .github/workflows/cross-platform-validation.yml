@@ -70,7 +70,6 @@ jobs:
             -o Acquire::Retries=3
             -o Acquire::http::Timeout=15
             -o Acquire::https::Timeout=15
-            -o Acquire::http::Pipeline-Depth=0
             -o Dpkg::Options::="--force-confdef"
             -o Dpkg::Options::="--force-confold"
           )
@@ -207,7 +206,6 @@ jobs:
             -o Acquire::Retries=3
             -o Acquire::http::Timeout=15
             -o Acquire::https::Timeout=15
-            -o Acquire::http::Pipeline-Depth=0
             -o Dpkg::Options::="--force-confdef"
             -o Dpkg::Options::="--force-confold"
           )
