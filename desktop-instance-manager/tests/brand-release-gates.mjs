@@ -53,6 +53,7 @@ test('System tray icons exist for Windows, macOS template, Linux, and attention 
 test('tauri.conf.json enforces KHOANG branding and preserved window/CSP contracts', () => {
   const conf = JSON.parse(fs.readFileSync(path.join(tauriDir, 'tauri.conf.json'), 'utf8'));
   assert.equal(conf.productName, 'KHOANG');
+  assert.equal(conf.identifier, 'com.multizalodesktop.manager');
   assert.equal(conf.app?.withGlobalTauri, true);
   assert.equal(conf.app?.windows?.[0]?.title, 'KHOANG');
   assert.equal(conf.app?.windows?.[0]?.width, 1160);

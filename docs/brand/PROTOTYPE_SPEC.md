@@ -1,6 +1,6 @@
 # KHOANG — Phase 2 Prototype & UX Architecture Specification
 
-> **Product:** KHOANG (*"Your accounts. Their own space."* / *"Mỗi tài khoản. Một không gian riêng."*)  
+> **Product:** KHOANG (*"Your accounts. Their own space."* / *"Một máy. Nhiều tài khoản. Không trộn dữ liệu."*)  
 > **Scope:** Desktop UX Architecture, Modern Web Guidance Compliance, Interactive State Matrix, and Contract Preservation Checklist for upgrading `desktop-instance-manager/apps/desktop/ui/`.  
 > **Inputs:**
 > - Phase 1 Audit (`@auditor`, board `#5`)

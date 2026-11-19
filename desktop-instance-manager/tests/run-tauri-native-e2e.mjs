@@ -116,7 +116,7 @@ async function waitForWebViewTarget(port, timeoutMs = 20_000) {
             t.type === 'page' &&
             t.webSocketDebuggerUrl &&
             (String(t.url || '').includes('tauri.localhost') ||
-              String(t.title || '').includes('Multi-Zalo'))
+              String(t.title || '').includes('KHOANG'))
         );
         if (page) return page;
       }

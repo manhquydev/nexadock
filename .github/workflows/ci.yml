@@ -170,7 +170,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: rustfmt, clippy
 
       - name: Install Linux GTK/WebKitGTK dependencies
         if: runner.os == 'Linux'

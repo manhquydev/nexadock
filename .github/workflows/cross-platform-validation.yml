@@ -383,7 +383,7 @@ jobs:
             DEB_COPIED=0
             for DEB in "${BUNDLE_ROOT}/deb/"*.deb; do
               if [ -e "${DEB}" ]; then
-                cp "${DEB}" "${OUT_DIR}/Multi-Zalo-0.1.0-beta.1-ubuntu24.04-amd64.deb"
+                cp "${DEB}" "${OUT_DIR}/KHOANG-0.1.0-beta.1-ubuntu24.04-amd64.deb"
                 DEB_COPIED=1
                 break
               fi
@@ -397,8 +397,8 @@ jobs:
             IMG_COPIED=0
             for IMG in "${BUNDLE_ROOT}/appimage/"*.AppImage; do
               if [ -e "${IMG}" ]; then
-                cp "${IMG}" "${OUT_DIR}/Multi-Zalo-0.1.0-beta.1-linux-x86_64.AppImage"
-                chmod +x "${OUT_DIR}/Multi-Zalo-0.1.0-beta.1-linux-x86_64.AppImage"
+                cp "${IMG}" "${OUT_DIR}/KHOANG-0.1.0-beta.1-linux-x86_64.AppImage"
+                chmod +x "${OUT_DIR}/KHOANG-0.1.0-beta.1-linux-x86_64.AppImage"
                 IMG_COPIED=1
                 break
               fi
@@ -602,14 +602,14 @@ jobs:
             $reqTokens = $requested.Split(',') | ForEach-Object { $_.Trim().ToLower() }
             $nsisFile = Get-ChildItem (Join-Path $bundleRoot "nsis") -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($nsisFile) {
-              Copy-Item $nsisFile.FullName (Join-Path $outDir "Multi-Zalo-0.1.0-beta.1-windows-x64-setup.exe") -Force
+              Copy-Item $nsisFile.FullName (Join-Path $outDir "KHOANG-0.1.0-beta.1-windows-x64-setup.exe") -Force
             } elseif ($reqTokens -contains "all" -or $reqTokens -contains "nsis") {
               Write-Error "Expected NSIS setup.exe bundle missing under $bundleRoot\nsis"
               exit 1
             }
             $msiFile = Get-ChildItem (Join-Path $bundleRoot "msi") -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($msiFile) {
-              Copy-Item $msiFile.FullName (Join-Path $outDir "Multi-Zalo-0.1.0-beta.1-windows-x64.msi") -Force
+              Copy-Item $msiFile.FullName (Join-Path $outDir "KHOANG-0.1.0-beta.1-windows-x64.msi") -Force
             } elseif ($reqTokens -contains "all" -or $reqTokens -contains "msi") {
               Write-Error "Expected WiX .msi bundle missing under $bundleRoot\msi"
               exit 1
@@ -777,7 +777,7 @@ jobs:
             DMG_COPIED=0
             for DMG in "${BUNDLE_ROOT}/dmg/"*.dmg; do
               if [ -e "${DMG}" ]; then
-                cp "${DMG}" "${OUT_DIR}/Multi-Zalo-0.1.0-beta.1-macos-arm64.dmg"
+                cp "${DMG}" "${OUT_DIR}/KHOANG-0.1.0-beta.1-macos-arm64.dmg"
                 DMG_COPIED=1
                 break
               fi
@@ -794,7 +794,7 @@ jobs:
                 echo "ERROR: Expected macOS arm64 .app missing in ${BUNDLE_ROOT}/macos" >&2
                 exit 1
               fi
-              cp -R "${APP_DIR}" "${OUT_DIR}/Multi-Zalo-Desktop-macos-arm64.app"
+              cp -R "${APP_DIR}" "${OUT_DIR}/KHOANG-macos-arm64.app"
             fi
           fi
           LOG_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -963,7 +963,7 @@ jobs:
             DMG_COPIED=0
             for DMG in "${BUNDLE_ROOT}/dmg/"*.dmg; do
               if [ -e "${DMG}" ]; then
-                cp "${DMG}" "${OUT_DIR}/Multi-Zalo-0.1.0-beta.1-macos-x64.dmg"
+                cp "${DMG}" "${OUT_DIR}/KHOANG-0.1.0-beta.1-macos-x64.dmg"
                 DMG_COPIED=1
                 break
               fi
@@ -980,7 +980,7 @@ jobs:
                 echo "ERROR: Expected macOS Intel .app missing in ${BUNDLE_ROOT}/macos" >&2
                 exit 1
               fi
-              cp -R "${APP_DIR}" "${OUT_DIR}/Multi-Zalo-Desktop-macos-x64.app"
+              cp -R "${APP_DIR}" "${OUT_DIR}/KHOANG-macos-x64.app"
             fi
           fi
           LOG_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

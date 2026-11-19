@@ -1,6 +1,6 @@
 # KHOANG — Desktop Instance Manager (formerly Multi-Zalo Desktop v2)
 
-> **Your accounts. Their own space.** / **Mỗi tài khoản. Một không gian riêng.**
+> **Your accounts. Their own space.** / **Một máy. Nhiều tài khoản. Không trộn dữ liệu.**
 
 > **Tuyên bố phi liên kết / Non-Affiliation Notice:** Dự án độc lập, **không liên kết, không được tài trợ hay chứng thực bởi VNG Corporation hay Zalo**. `"Zalo"` là nhãn hiệu của VNG Corporation. Ứng dụng **không** đóng gói hoặc chỉnh sửa nhị phân của VNG (`MIT OR Apache-2.0`, xem [`../LICENSE-MIT`](../LICENSE-MIT), [`../LICENSE-APACHE`](../LICENSE-APACHE) và [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)).
 
