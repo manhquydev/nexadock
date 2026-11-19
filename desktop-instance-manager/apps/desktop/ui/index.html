@@ -36,12 +36,11 @@
             type="button"
             class="rail-icon-btn"
             id="btn-quick-switcher"
-            command="show-modal"
-            commandfor="quick-switcher-dialog"
             aria-keyshortcuts="Control+K"
             data-i18n-aria-label="quickSwitcher.triggerAria"
             aria-label="Chuyển nhanh tài khoản (Ctrl+K)"
             data-i18n-title="quickSwitcher.triggerAria"
+            title="Chuyển nhanh tài khoản (Ctrl+K)"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="7"/>
@@ -93,7 +92,8 @@
           <span class="rail-sep" role="separator" aria-orientation="horizontal" data-sep-for="desktop" hidden></span>
           <div class="rail-group" role="group" data-group="desktop" data-i18n-aria-label="rail.groupDesktop" aria-label="Zalo Desktop" hidden></div>
           <span class="rail-sep" role="separator" aria-orientation="horizontal" data-sep-for="web" hidden></span>
-          <div class="rail-group" role="group" data-group="web" data-i18n-aria-label="rail.groupWeb" aria-label="Zalo Web" hidden></div>
+          <div class="rail-group-heading" data-heading-for="web" data-i18n="rail.groupWeb" hidden>Zalo Web (Thử nghiệm)</div>
+          <div class="rail-group" role="group" data-group="web" data-i18n-aria-label="rail.groupWeb" aria-label="Zalo Web (Thử nghiệm)" hidden></div>
         </div>
       </div>
 
@@ -118,7 +118,7 @@
       </div>
 
       <nav class="rail-utility-nav" data-i18n-aria-label="nav.ariaLabel" aria-label="Chính">
-        <button type="button" class="rail-util-btn top-nav-btn is-active" data-view="profiles" aria-current="page" data-i18n-title="nav.accounts">
+        <button type="button" class="rail-util-btn top-nav-btn is-active" data-view="profiles" aria-current="page" data-i18n-title="nav.accounts" title="Tài khoản" data-i18n-aria-label="nav.accounts" aria-label="Tài khoản">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
             <circle cx="9" cy="7" r="4"/>
@@ -127,7 +127,7 @@
           </svg>
           <span class="rail-btn-label" data-i18n="nav.accounts">Tài khoản</span>
         </button>
-        <button type="button" class="rail-util-btn top-nav-btn" data-view="backups" data-i18n-title="nav.backups">
+        <button type="button" class="rail-util-btn top-nav-btn" data-view="backups" data-i18n-title="nav.backups" title="Sao lưu" data-i18n-aria-label="nav.backups" aria-label="Sao lưu">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -135,20 +135,20 @@
           </svg>
           <span class="rail-btn-label" data-i18n="nav.backups">Sao lưu</span>
         </button>
-        <button type="button" class="rail-util-btn top-nav-btn" data-view="settings" data-i18n-title="nav.settings">
+        <button type="button" class="rail-util-btn top-nav-btn" data-view="settings" data-i18n-title="nav.settings" title="Cài đặt" data-i18n-aria-label="nav.settings" aria-label="Cài đặt">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
           <span class="rail-btn-label" data-i18n="nav.settings">Cài đặt</span>
         </button>
-        <button type="button" class="rail-util-btn top-nav-btn" data-view="diagnostics" data-i18n-title="diagnostics.title">
+        <button type="button" class="rail-util-btn top-nav-btn" data-view="diagnostics" data-i18n-title="diagnostics.title" title="Kiểm tra sự cố" data-i18n-aria-label="diagnostics.title" aria-label="Kiểm tra sự cố">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
           </svg>
           <span class="rail-btn-label" data-i18n="diagnostics.title">Kiểm tra sự cố</span>
         </button>
-        <button type="button" class="rail-util-btn top-nav-btn" id="btn-nav-help" data-view="help" data-i18n-title="nav.help">
+        <button type="button" class="rail-util-btn top-nav-btn" id="btn-nav-help" data-view="help" data-i18n-title="nav.help" title="Trợ giúp" data-i18n-aria-label="nav.help" aria-label="Trợ giúp">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10"/>
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
@@ -189,13 +189,13 @@
           <div class="web-session-identity">
             <span class="account-avatar account-avatar-sm" id="web-stage-avatar" aria-hidden="true">W</span>
             <h1 class="web-stage-title" id="web-stage-name">Zalo Web</h1>
-            <span class="badge web-session-badge">
+            <span class="badge badge-warn web-session-badge">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <circle cx="12" cy="12" r="10"/>
                 <line x1="2" y1="12" x2="22" y2="12"/>
                 <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
               </svg>
-              <span data-i18n="webSession.badge">Phiên Web (Tách biệt)</span>
+              <span data-i18n="webSession.badge">Phiên Web (Tách biệt · Thử nghiệm)</span>
             </span>
           </div>
 
@@ -207,7 +207,7 @@
               id="btn-web-info"
               interestfor="web-limits-tip"
               popovertarget="web-limits-tip"
-              popovertargetaction="show"
+              popovertargetaction="toggle"
               aria-expanded="false"
               data-i18n-aria-label="webSession.limitsTriggerAria"
               aria-label="Giới hạn của phiên Web"

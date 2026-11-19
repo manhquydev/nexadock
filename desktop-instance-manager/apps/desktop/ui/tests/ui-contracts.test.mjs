@@ -147,6 +147,26 @@ test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forb
     /isComposing\s*\|\|\s*event\.keyCode\s*===\s*229/,
     'Quick Switcher Enter handler must be IME-safe'
   );
+  assert.match(
+    appJs,
+    /\bactivationSeq\b[\s\S]*?\bwebSyncSeq\b/,
+    'app.js must guard concurrent account activations and WebView sync via monotonic sequences'
+  );
+  assert.match(
+    appJs,
+    /matchMedia\(`\(resolution:\s*\$\{dpr\}dppx\)`\)/,
+    'app.js must observe devicePixelRatio changes via matchMedia resolution query'
+  );
+  assert.match(
+    i18nJs,
+    /\[data-i18n-title\]/,
+    'applyDomTranslations must localize data-i18n-title attributes'
+  );
+  assert.match(
+    html,
+    /id="stage-web-session"[\s\S]*?badge-warn[\s\S]*?data-i18n="webSession\.badge"/,
+    'Web Session stage must visibly badge WebIsolated as Experimental'
+  );
 });
 
 test('resolveIsolationCheckResult never converts NOT_TESTED, BLOCKED, or UNKNOWN into PASS', () => {

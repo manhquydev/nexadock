@@ -9,7 +9,9 @@ import {
   formatBytes,
   formatDateTime,
   formatNumber,
-  applyDomTranslations
+  applyDomTranslations,
+  LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES
 } from './i18n/index.js';
 
 const UI_VERSION = '0.1.0';
@@ -56,10 +58,15 @@ const state = {
   openDialogContext: null,
   openMenuProfileId: null,
   refreshSeq: 0,
+  activationSeq: 0,
+  webSyncSeq: 0,
+  webSyncChain: Promise.resolve(),
+  initialized: false,
   banner: null,
   pendingProfileActions: new Map(),
   pendingGlobalActions: new Set(),
   overlayBlockers: new Set(),
+  fallbackMenuCleanups: new Set(),
   mountedWebSessionId: null,
   lastWebBoundsKey: ''
 };
@@ -464,70 +471,121 @@ function isWebViewStageActive() {
 function computePhysicalViewportBounds() {
   const viewport = document.getElementById('web-session-viewport');
   if (!viewport) return null;
+  if (typeof document !== 'undefined' && document.hidden) return null;
   const rect = viewport.getBoundingClientRect();
   const dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
-  const x = Math.round(rect.left * dpr);
-  const y = Math.round(rect.top * dpr);
-  const width = Math.round(rect.width * dpr);
-  const height = Math.round(rect.height * dpr);
+  const x = Math.ceil(rect.left * dpr);
+  const y = Math.ceil(rect.top * dpr);
+  const right = Math.floor(rect.right * dpr);
+  const bottom = Math.floor(rect.bottom * dpr);
+  const width = right - x;
+  const height = bottom - y;
   if (width < 40 || height < 40) return null;
   return { x, y, width, height };
 }
 
-async function syncNativeWebViewState() {
-  const shell = document.getElementById('workspace-shell');
-  const shouldShow = isWebViewStageActive()
-    && state.overlayBlockers.size === 0
-    && Boolean(state.workspace?.web_workspace?.supported);
+function syncNativeWebViewState({ forceHide = false } = {}) {
+  const seq = ++state.webSyncSeq;
+  const run = async () => {
+    const shell = document.getElementById('workspace-shell');
+    const shouldShow = isWebViewStageActive()
+      && state.overlayBlockers.size === 0
+      && Boolean(state.workspace?.web_workspace?.supported);
 
-  const bounds = shouldShow ? computePhysicalViewportBounds() : null;
-  const invoke = getTauriInvoke();
+    const bounds = shouldShow ? computePhysicalViewportBounds() : null;
+    const invoke = getTauriInvoke();
 
-  if (!shouldShow || !bounds) {
-    if (shell) shell.dataset.webviewActive = 'false';
-    if (state.mountedWebSessionId && invoke) {
+    if (!shouldShow || !bounds) {
+      if (shell) shell.dataset.webviewActive = 'false';
+      const hadMounted = Boolean(state.mountedWebSessionId);
       state.mountedWebSessionId = null;
       state.lastWebBoundsKey = '';
-      await tauriInvokeEnvelope('web_session_hide_all', {}).catch(() => {});
+      if ((hadMounted || forceHide) && invoke) {
+        await tauriInvokeEnvelope('web_session_hide_all', {}).catch(() => {});
+      }
+      syncRailTooltipsForWebView(false);
+      updateWebViewportPlaceholder();
+      return;
     }
-    syncRailTooltipsForWebView(false);
-    updateWebViewportPlaceholder();
-    return;
-  }
 
-  if (shell) shell.dataset.webviewActive = 'true';
-  syncRailTooltipsForWebView(true);
+    if (seq !== state.webSyncSeq) return;
 
-  if (!invoke) {
-    updateWebViewportPlaceholder();
-    return;
-  }
+    if (shell) shell.dataset.webviewActive = 'true';
+    syncRailTooltipsForWebView(true);
 
-  const targetId = state.activeAccount.id;
-  const boundsKey = `${targetId}:${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
-  if (state.mountedWebSessionId !== targetId) {
-    state.mountedWebSessionId = targetId;
-    state.lastWebBoundsKey = boundsKey;
-    updateWebViewportPlaceholder();
-    await tauriInvokeEnvelope('web_session_show', {
-      id: targetId,
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height
-    }).catch((err) => {
-      showErrorBanner(err?.errorCode || 'WEB_SESSION_ERROR', err?.message || '');
-    });
-  } else if (state.lastWebBoundsKey !== boundsKey) {
-    state.lastWebBoundsKey = boundsKey;
-    await tauriInvokeEnvelope('web_session_set_bounds', {
-      id: targetId,
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height
-    }).catch(() => {});
-  }
+    if (!invoke) {
+      updateWebViewportPlaceholder();
+      return;
+    }
+
+    const targetId = state.activeAccount.id;
+    const boundsKey = `${targetId}:${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+    if (state.mountedWebSessionId !== targetId) {
+      state.mountedWebSessionId = targetId;
+      state.lastWebBoundsKey = boundsKey;
+      updateWebViewportPlaceholder();
+      try {
+        const env = await tauriInvokeEnvelope('web_session_show', {
+          id: targetId,
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height
+        });
+        if (!env || env.ok === false) {
+          state.mountedWebSessionId = null;
+          state.lastWebBoundsKey = '';
+          if (shell) shell.dataset.webviewActive = 'false';
+          syncRailTooltipsForWebView(false);
+          updateWebViewportPlaceholder();
+          if (seq === state.webSyncSeq) {
+            showErrorBanner(env?.error_code || 'WEB_SESSION_ERROR', env?.message || '');
+          }
+          return;
+        }
+        if (seq !== state.webSyncSeq && (!isWebViewStageActive() || state.overlayBlockers.size > 0)) {
+          state.mountedWebSessionId = null;
+          state.lastWebBoundsKey = '';
+          await tauriInvokeEnvelope('web_session_hide_all', {}).catch(() => {});
+        }
+      } catch (err) {
+        state.mountedWebSessionId = null;
+        state.lastWebBoundsKey = '';
+        if (shell) shell.dataset.webviewActive = 'false';
+        syncRailTooltipsForWebView(false);
+        updateWebViewportPlaceholder();
+        if (seq === state.webSyncSeq) {
+          showErrorBanner(err?.errorCode || 'WEB_SESSION_ERROR', err?.message || '');
+        }
+      }
+    } else if (state.lastWebBoundsKey !== boundsKey) {
+      const prevBoundsKey = state.lastWebBoundsKey;
+      state.lastWebBoundsKey = boundsKey;
+      try {
+        const env = await tauriInvokeEnvelope('web_session_set_bounds', {
+          id: targetId,
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height
+        });
+        if (!env || env.ok === false) {
+          state.lastWebBoundsKey = prevBoundsKey;
+          if (seq === state.webSyncSeq) {
+            showErrorBanner(env?.error_code || 'WEB_SESSION_ERROR', env?.message || '');
+          }
+        }
+      } catch (err) {
+        state.lastWebBoundsKey = prevBoundsKey;
+        if (seq === state.webSyncSeq) {
+          showErrorBanner(err?.errorCode || 'WEB_SESSION_ERROR', err?.message || '');
+        }
+      }
+    }
+  };
+
+  state.webSyncChain = state.webSyncChain.then(run, run);
+  return state.webSyncChain;
 }
 
 function addOverlayBlocker(key) {
@@ -535,7 +593,7 @@ function addOverlayBlocker(key) {
   const hadNone = state.overlayBlockers.size === 0;
   state.overlayBlockers.add(key);
   if (hadNone) {
-    syncNativeWebViewState();
+    syncNativeWebViewState({ forceHide: true });
   }
 }
 
@@ -586,8 +644,26 @@ function syncRailTooltipsForWebView(webviewActive) {
   });
 }
 
+function closeWebHeaderPopovers() {
+  for (const popId of ['web-session-menu', 'web-limits-tip']) {
+    const el = document.getElementById(popId);
+    if (el && typeof el.hidePopover === 'function') {
+      try {
+        if (el.matches(':popover-open')) el.hidePopover();
+      } catch (_err) {
+        // Ignore if not open
+      }
+    }
+    state.overlayBlockers.delete(`popover:${popId}`);
+  }
+}
+
 function selectView(viewName) {
+  const wasWebStage = state.activeView === 'web-stage';
   state.activeView = viewName;
+  if (wasWebStage && viewName !== 'web-stage') {
+    closeWebHeaderPopovers();
+  }
   if (state.banner && state.banner.kind !== 'error') {
     clearBanner();
   }
@@ -617,7 +693,7 @@ function selectView(viewName) {
   }
 
   updateDocumentTitle(viewName);
-  syncNativeWebViewState();
+  syncNativeWebViewState({ forceHide: viewName !== 'web-stage' });
 }
 
 function makeBadge(text, variant = 'neutral') {
@@ -724,6 +800,12 @@ function buildWorkspaceFallbackFromStatus(statusData) {
   };
 }
 
+function getAllColorTrackedAccounts() {
+  const desktop = Array.isArray(state.status?.profiles) ? state.status.profiles : [];
+  const web = (state.workspace?.accounts || []).filter((a) => a.kind === 'web_isolated');
+  return [...desktop, ...web];
+}
+
 function getAllUnifiedAccounts() {
   const ws = state.workspace;
   if (!ws) return [];
@@ -741,9 +823,16 @@ function getAllUnifiedAccounts() {
       detected: Boolean(ws.primary.detected)
     });
   }
-  for (const acc of ws.accounts || []) {
-    items.push(acc);
+  const allAccounts = ws.accounts || [];
+  const pinned = [];
+  const desktop = [];
+  const web = [];
+  for (const acc of allAccounts) {
+    if (acc.pinned) pinned.push(acc);
+    else if (acc.kind === 'web_isolated') web.push(acc);
+    else desktop.push(acc);
   }
+  items.push(...pinned, ...desktop, ...web);
   return items;
 }
 
@@ -813,7 +902,9 @@ function renderTopbarSummary() {
   } else if (!state.status) {
     summaryEl.textContent = t('app.subtitle');
   } else {
-    const runningCount = (state.status.profiles || []).filter((p) => p.running).length;
+    const runningDesktop = (state.status.profiles || []).filter((p) => p.running).length;
+    const runningWeb = (state.workspace?.accounts || []).filter((a) => a.kind === 'web_isolated' && a.state === 'running').length;
+    const runningCount = runningDesktop + runningWeb;
     summaryEl.textContent = runningCount > 0
       ? t('app.openCount', { count: formatNumber(runningCount) })
       : t('app.noneOpen');
@@ -842,6 +933,7 @@ function renderAccountRail() {
   const sepPinned = rail.querySelector('[data-sep-for="pinned"]');
   const sepDesktop = rail.querySelector('[data-sep-for="desktop"]');
   const sepWeb = rail.querySelector('[data-sep-for="web"]');
+  const headingWeb = rail.querySelector('[data-heading-for="web"]');
   if (!groupPrimary || !groupPinned || !groupDesktop || !groupWeb) return;
 
   groupPrimary.replaceChildren();
@@ -954,6 +1046,7 @@ function renderAccountRail() {
   if (sepPinned) sepPinned.hidden = groupPinned.hidden;
   if (sepDesktop) sepDesktop.hidden = groupDesktop.hidden;
   if (sepWeb) sepWeb.hidden = groupWeb.hidden;
+  if (headingWeb) headingWeb.hidden = groupWeb.hidden;
 
   syncRailTooltipsForWebView(isWebViewStageActive() && state.overlayBlockers.size === 0);
   installRailRovingFallback();
@@ -1010,6 +1103,7 @@ export async function activateAccount(id, kind) {
   if (!id || !kind) return;
   if (state.pendingProfileActions.has(id)) return;
 
+  const seq = ++state.activationSeq;
   clearBanner();
   state.activeAccount = { id, kind };
   state.lastActivationResult = null;
@@ -1032,12 +1126,17 @@ export async function activateAccount(id, kind) {
     let res;
     if (invoke) {
       const env = await tauriInvokeEnvelope('activate_account', { id, kind });
+      if (seq !== state.activationSeq) return;
       if (env && env.ok === false) {
         showErrorBanner(env.error_code, env.message);
         state.lastActivationResult = {
           outcome: 'failed',
           remediation: { code: env.error_code, message: env.message }
         };
+        if (env.error_code === 'NOT_FOUND') {
+          state.activeAccount = null;
+          selectView('profiles');
+        }
       } else {
         state.lastActivationResult = env?.data || null;
       }
@@ -1045,6 +1144,7 @@ export async function activateAccount(id, kind) {
       const prof = (state.status?.profiles || []).find((p) => p.id === id);
       const action = prof?.running ? 'focus' : 'launch';
       res = await apiCall(`/api/profiles/${encodeURIComponent(id)}/${action}`, 'POST', {});
+      if (seq !== state.activationSeq) return;
       if (res && res.ok === false) {
         showErrorBanner(res.error_code, res.message);
         state.lastActivationResult = {
@@ -1064,17 +1164,26 @@ export async function activateAccount(id, kind) {
         };
     }
 
-    await refreshAll({ quiet: true });
+    if (kind === 'web_isolated') {
+      await refreshWorkspaceFast();
+    } else {
+      await refreshAccountStatusFast();
+    }
+    if (seq !== state.activationSeq) return;
     announceToScreenReader(findAccountDisplayName({ id, kind }));
   } catch (err) {
+    if (seq !== state.activationSeq) return;
     showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
   } finally {
     state.pendingProfileActions.delete(id);
+    renderTopbarSummary();
     renderProfiles();
     renderPrimaryZalo();
     renderAccountRail();
     renderActiveStage();
-    syncNativeWebViewState();
+    if (seq === state.activationSeq) {
+      syncNativeWebViewState();
+    }
   }
 }
 
@@ -1129,7 +1238,15 @@ function renderWebStage() {
   const acc = (state.workspace?.accounts || []).find(
     (a) => a.id === state.activeAccount.id && a.kind === 'web_isolated'
   );
-  if (!acc) return;
+  if (!acc) {
+    const nameEl = document.getElementById('web-stage-name');
+    if (nameEl) nameEl.textContent = '';
+    state.activeAccount = null;
+    if (state.activeView === 'web-stage') {
+      selectView('profiles');
+    }
+    return;
+  }
 
   const avatar = document.getElementById('web-stage-avatar');
   const nameEl = document.getElementById('web-stage-name');
@@ -1164,7 +1281,18 @@ function renderDesktopStage() {
     ? (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id)
     : null;
 
-  if (!acc && !isPrimary) return;
+  if (!acc && !isPrimary) {
+    const nameEl = document.getElementById('desktop-stage-name');
+    const kv = document.getElementById('desktop-stage-kv');
+    if (nameEl) nameEl.textContent = '';
+    if (kv) kv.replaceChildren();
+    state.activeAccount = null;
+    state.lastActivationResult = null;
+    if (state.activeView === 'desktop-stage') {
+      selectView('profiles');
+    }
+    return;
+  }
 
   const avatar = document.getElementById('desktop-stage-avatar');
   const nameEl = document.getElementById('desktop-stage-name');
@@ -1283,6 +1411,21 @@ function renderDesktopStage() {
       remActions.replaceChildren();
       if (rem.suggested_action === 'open_diagnostics') {
         remActions.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary', () => selectView('diagnostics')));
+      } else if (rem.suggested_action === 'recover_profile') {
+        remActions.appendChild(makeButton(t('accounts.actions.recover'), 'btn-primary', () => {
+          if (state.activeAccount) activateAccount(state.activeAccount.id, state.activeAccount.kind);
+        }));
+        remActions.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary', () => selectView('diagnostics')));
+      } else if (rem.suggested_action === 'retry_after_stop') {
+        remActions.appendChild(makeButton(t('desktopStage.retryAction'), 'btn-secondary', () => {
+          if (state.activeAccount) activateAccount(state.activeAccount.id, state.activeAccount.kind);
+        }));
+      } else if (rem.suggested_action === 'refresh_status') {
+        remActions.appendChild(makeButton(t('desktopStage.refreshAction'), 'btn-secondary', () => refreshAll()));
+      } else if (rem.suggested_action === 'use_desktop_isolated') {
+        remActions.appendChild(makeButton(t('desktopStage.useDesktopAction'), 'btn-primary', () => {
+          document.getElementById('btn-open-create')?.click();
+        }));
       }
     } else {
       remediationCard.hidden = true;
@@ -1429,12 +1572,17 @@ function buildOverflowMenu(prof, isPending) {
     const onDocClick = (event) => {
       if (!menuWrap.isConnected) {
         document.removeEventListener('click', onDocClick);
+        state.fallbackMenuCleanups.delete(cleanupDocClick);
         return;
       }
       if (isOpen() && !menuWrap.contains(event.target)) {
         closeMenu({ restoreFocus: false });
       }
     };
+    const cleanupDocClick = () => {
+      document.removeEventListener('click', onDocClick);
+    };
+    state.fallbackMenuCleanups.add(cleanupDocClick);
     document.addEventListener('click', onDocClick);
   }
 
@@ -1509,18 +1657,29 @@ function buildOverflowMenu(prof, isPending) {
   };
 
   const blockOfflineOps = isProfileActiveOrUnclean(prof);
-  addMenuItem(t('accounts.actions.rename'), () => openRenameDialog(prof, 'desktop_isolated'));
-  addMenuItem(
-    t('accounts.actions.backup'),
-    () => runProfileAction('backup', prof),
-    { disabled: blockOfflineOps, hint: t('accounts.actions.closeFirstHint') }
-  );
-  addMenuItem(t('accounts.actions.details'), () => openDetailsDialog(prof));
-  addMenuItem(
-    t('accounts.actions.delete'),
-    () => openDeleteDialog(prof, 'desktop_isolated'),
-    { disabled: blockOfflineOps, danger: true, hint: t('accounts.actions.closeFirstHint') }
-  );
+  if (prof.account_kind === 'web_isolated') {
+    addMenuItem(prof.pinned ? t('rail.unpin') : t('rail.pin'), () => toggleAccountPinned(prof.id, Boolean(prof.pinned)));
+    addMenuItem(t('accounts.actions.rename'), () => openRenameDialog(prof, 'web_isolated'));
+    addMenuItem(t('webSession.reset'), () => openResetWebDialog(prof));
+    addMenuItem(
+      t('accounts.actions.delete'),
+      () => openDeleteDialog(prof, 'web_isolated'),
+      { danger: true }
+    );
+  } else {
+    addMenuItem(t('accounts.actions.rename'), () => openRenameDialog(prof, 'desktop_isolated'));
+    addMenuItem(
+      t('accounts.actions.backup'),
+      () => runProfileAction('backup', prof),
+      { disabled: blockOfflineOps, hint: t('accounts.actions.closeFirstHint') }
+    );
+    addMenuItem(t('accounts.actions.details'), () => openDetailsDialog(prof));
+    addMenuItem(
+      t('accounts.actions.delete'),
+      () => openDeleteDialog(prof, 'desktop_isolated'),
+      { disabled: blockOfflineOps, danger: true, hint: t('accounts.actions.closeFirstHint') }
+    );
+  }
 
   menuWrap.appendChild(moreBtn);
   menuWrap.appendChild(menuList);
@@ -1542,11 +1701,40 @@ function renderProfiles() {
   const reopenMenuId = state.openMenuProfileId;
   const focusWasInMenu = Boolean(document.activeElement?.closest?.('.overflow-menu'));
 
+  for (const cleanup of state.fallbackMenuCleanups) {
+    cleanup();
+  }
+  state.fallbackMenuCleanups.clear();
+  let removedMenuBlocker = false;
+  for (const key of Array.from(state.overlayBlockers)) {
+    if (key.startsWith('menu:')) {
+      state.overlayBlockers.delete(key);
+      removedMenuBlocker = true;
+    }
+  }
+
   list.replaceChildren();
-  const allProfiles = state.status?.profiles || [];
+  const desktopProfiles = (state.status?.profiles || []).map((p) => ({
+    ...p,
+    account_kind: 'desktop_isolated'
+  }));
+  const webProfiles = (state.workspace?.accounts || [])
+    .filter((a) => a.kind === 'web_isolated')
+    .map((w) => ({
+      id: w.id,
+      name: w.display_name,
+      display_name: w.display_name,
+      color_token: w.color_token,
+      pinned: Boolean(w.pinned),
+      notes: '',
+      running: w.state === 'running',
+      lifecycle_state: w.state || 'stopped',
+      account_kind: 'web_isolated'
+    }));
+  const allProfiles = [...desktopProfiles, ...webProfiles];
   const filtered = filterProfiles(allProfiles, state.searchQuery);
   const hasQuery = state.searchQuery.trim().length > 0;
-  const runningProfiles = allProfiles.filter((p) => Boolean(p.running) || normalizeLifecycleState(p) === 'running');
+  const runningProfiles = desktopProfiles.filter((p) => Boolean(p.running) || normalizeLifecycleState(p) === 'running');
 
   if (overviewCreateBtn) {
     overviewCreateBtn.hidden = allProfiles.length === 0;
@@ -1607,6 +1795,7 @@ function renderProfiles() {
   list.hidden = false;
 
   for (const prof of filtered) {
+    const isWebAccount = prof.account_kind === 'web_isolated';
     const isPending = state.pendingProfileActions.has(prof.id);
     const accState = resolveAccountState(prof);
     const lcState = normalizeLifecycleState(prof);
@@ -1614,6 +1803,7 @@ function renderProfiles() {
     const li = document.createElement('li');
     li.className = prof.running ? 'account-card is-running' : 'account-card';
     li.dataset.profileId = prof.id;
+    li.dataset.accountKind = isWebAccount ? 'web_isolated' : 'desktop_isolated';
     li.dataset.lifecycle = lcState;
 
     const head = document.createElement('div');
@@ -1631,7 +1821,15 @@ function renderProfiles() {
     const nameEl = document.createElement('h2');
     nameEl.className = 'account-name';
     nameEl.textContent = prof.name;
-    identity.appendChild(nameEl);
+    if (isWebAccount) {
+      const titleRow = document.createElement('div');
+      titleRow.className = 'account-card-title-row';
+      titleRow.appendChild(nameEl);
+      titleRow.appendChild(makeBadge(t('rail.kindWeb'), 'warn'));
+      identity.appendChild(titleRow);
+    } else {
+      identity.appendChild(nameEl);
+    }
 
     const stateRow = document.createElement('div');
     stateRow.className = `account-state-row is-${accState.kind}`;
@@ -1664,40 +1862,49 @@ function renderProfiles() {
     const secondaryActions = document.createElement('div');
     secondaryActions.className = 'account-actions-secondary';
 
-    const isActiveLifecycle = Boolean(prof.running) || lcState === 'starting' || lcState === 'running' || lcState === 'stopping';
-    if (lcState === 'recovery_required') {
+    if (isWebAccount) {
       primaryActions.appendChild(makeButton(
-        t('accounts.actions.recover'),
+        t('webSession.openWeb'),
         'btn-primary',
-        () => activateAccount(prof.id, 'desktop_isolated'),
-        { disabled: isPending, ariaLabel: t('accounts.actions.recoverAria', { name: prof.name }) }
-      ));
-    } else if (isActiveLifecycle) {
-      primaryActions.appendChild(makeButton(
-        t('desktopStage.bringToFront'),
-        'btn-primary',
-        () => activateAccount(prof.id, 'desktop_isolated'),
-        {
-          disabled: isPending || lcState === 'starting' || lcState === 'stopping',
-          ariaLabel: t('accounts.actions.focusAria', { name: prof.name })
-        }
-      ));
-      secondaryActions.appendChild(makeButton(
-        t('accounts.actions.stop'),
-        'btn-subtle-danger',
-        () => runProfileAction('stop', prof),
-        {
-          disabled: isPending || lcState === 'stopping',
-          ariaLabel: t('accounts.actions.stopAria', { name: prof.name })
-        }
+        () => activateAccount(prof.id, 'web_isolated'),
+        { disabled: isPending, ariaLabel: t('webSession.openWebAria', { name: prof.name }) }
       ));
     } else {
-      primaryActions.appendChild(makeButton(
-        t('desktopStage.openAndFocus'),
-        'btn-primary',
-        () => activateAccount(prof.id, 'desktop_isolated'),
-        { disabled: isPending, ariaLabel: t('accounts.actions.launchAria', { name: prof.name }) }
-      ));
+      const isActiveLifecycle = Boolean(prof.running) || lcState === 'starting' || lcState === 'running' || lcState === 'stopping';
+      if (lcState === 'recovery_required') {
+        primaryActions.appendChild(makeButton(
+          t('accounts.actions.recover'),
+          'btn-primary',
+          () => activateAccount(prof.id, 'desktop_isolated'),
+          { disabled: isPending, ariaLabel: t('accounts.actions.recoverAria', { name: prof.name }) }
+        ));
+      } else if (isActiveLifecycle) {
+        primaryActions.appendChild(makeButton(
+          t('desktopStage.bringToFront'),
+          'btn-primary',
+          () => activateAccount(prof.id, 'desktop_isolated'),
+          {
+            disabled: isPending || lcState === 'starting' || lcState === 'stopping',
+            ariaLabel: t('accounts.actions.focusAria', { name: prof.name })
+          }
+        ));
+        secondaryActions.appendChild(makeButton(
+          t('accounts.actions.stop'),
+          'btn-subtle-danger',
+          () => runProfileAction('stop', prof),
+          {
+            disabled: isPending || lcState === 'stopping',
+            ariaLabel: t('accounts.actions.stopAria', { name: prof.name })
+          }
+        ));
+      } else {
+        primaryActions.appendChild(makeButton(
+          t('desktopStage.openAndFocus'),
+          'btn-primary',
+          () => activateAccount(prof.id, 'desktop_isolated'),
+          { disabled: isPending, ariaLabel: t('accounts.actions.launchAria', { name: prof.name }) }
+        ));
+      }
     }
 
     secondaryActions.appendChild(buildOverflowMenu(prof, isPending));
@@ -1706,7 +1913,7 @@ function renderProfiles() {
     actions.appendChild(secondaryActions);
 
     li.appendChild(head);
-    if (lcState === 'recovery_required') {
+    if (!isWebAccount && lcState === 'recovery_required') {
       const recHint = document.createElement('p');
       recHint.className = 'account-recovery-hint';
       recHint.textContent = t('accounts.recoveryHint');
@@ -1716,6 +1923,7 @@ function renderProfiles() {
     list.appendChild(li);
   }
 
+  let reopened = false;
   if (reopenMenuId) {
     const row = Array.from(list.querySelectorAll('.account-card')).find(
       (el) => el.dataset.profileId === reopenMenuId
@@ -1723,6 +1931,7 @@ function renderProfiles() {
     const trigger = row?.querySelector('button[aria-haspopup="menu"]');
     const menu = row?.querySelector('.overflow-menu');
     if (trigger && menu && !trigger.disabled) {
+      addOverlayBlocker(`menu:${menu.id}`);
       if (typeof HTMLElement !== 'undefined' && Object.hasOwn(HTMLElement.prototype, 'popover')) {
         try {
           menu.showPopover();
@@ -1736,12 +1945,16 @@ function renderProfiles() {
       }
       trigger.setAttribute('aria-expanded', 'true');
       state.openMenuProfileId = reopenMenuId;
+      reopened = true;
       if (focusWasInMenu) {
         menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
       }
     } else {
       state.openMenuProfileId = null;
     }
+  }
+  if (removedMenuBlocker && !reopened && state.overlayBlockers.size === 0) {
+    syncNativeWebViewState();
   }
 }
 
@@ -1928,7 +2141,7 @@ function renderDiagnostics() {
 
         const { code, label } = translateSupportStatus(row.status);
         const variant = code === 'SUPPORTED_AND_TESTED' ? 'pass'
-          : (code === 'PARTIALLY_SUPPORTED' ? 'warn'
+          : (code === 'PARTIALLY_SUPPORTED' || code === 'EXPERIMENTAL' ? 'warn'
             : (code === 'UNSUPPORTED' || code === 'BLOCKED' ? 'fail' : 'neutral'));
         const stTd = document.createElement('td');
         stTd.appendChild(makeBadge(`${label} (${code})`, variant));
@@ -2010,8 +2223,8 @@ function renderCreateColorPalette(explicitColorId = null) {
   let selected = explicitColorId;
   if (!selected) {
     selected = createDialog?.open
-      ? (palette.querySelector('input[name="create-account-color"]:checked')?.value || pickNextAvailableColorId(state.status?.profiles || []))
-      : pickNextAvailableColorId(state.status?.profiles || []);
+      ? (palette.querySelector('input[name="create-account-color"]:checked')?.value || pickNextAvailableColorId(getAllColorTrackedAccounts()))
+      : pickNextAvailableColorId(getAllColorTrackedAccounts());
   }
   renderColorPalette('create-color-palette', 'create-account-color', selected);
 }
@@ -2147,14 +2360,46 @@ export async function refreshAll({ isVerify = false, quiet = false } = {}) {
 async function refreshWorkspaceFast() {
   const invoke = getTauriInvoke();
   if (!invoke) {
-    await refreshAll({ quiet: true });
+    await refreshAccountStatusFast();
     return;
   }
   const env = await tauriInvokeEnvelope('get_workspace_snapshot', {}).catch(() => null);
   if (env && env.ok && env.data) {
     state.workspace = env.data;
+    renderTopbarSummary();
     renderAccountRail();
+    renderProfiles();
     renderActiveStage();
+  }
+}
+
+async function refreshAccountStatusFast() {
+  const seq = ++state.refreshSeq;
+  try {
+    const invoke = getTauriInvoke();
+    const [statusData, wsEnv] = await Promise.all([
+      apiCall('/api/status', 'GET', null, 'get_status', { withSize: false }),
+      invoke ? tauriInvokeEnvelope('get_workspace_snapshot', {}).catch(() => null) : Promise.resolve(null)
+    ]);
+    if (seq !== state.refreshSeq) return;
+    if (statusData && statusData.ok !== false) {
+      state.status = statusData;
+    }
+    if (wsEnv && wsEnv.ok && wsEnv.data) {
+      state.workspace = wsEnv.data;
+    } else {
+      state.workspace = buildWorkspaceFallbackFromStatus(state.status);
+    }
+  } catch (_err) {
+    // Keep last known snapshot; full refreshAll surfaces infra banners.
+  } finally {
+    if (seq === state.refreshSeq) {
+      renderTopbarSummary();
+      renderAccountRail();
+      renderProfiles();
+      renderPrimaryZalo();
+      renderActiveStage();
+    }
   }
 }
 
@@ -2258,7 +2503,7 @@ function resetCreateDialogToStep1() {
   const notesField = document.getElementById('create-notes-field');
   if (notesField) notesField.hidden = false;
   clearCreateStep1Error();
-  renderCreateColorPalette(pickNextAvailableColorId(state.status?.profiles || []));
+  renderCreateColorPalette(pickNextAvailableColorId(getAllColorTrackedAccounts()));
   updateCreateSessionModeControls();
   const submitBtn = document.getElementById('btn-submit-create');
   if (submitBtn) {
@@ -2285,7 +2530,7 @@ function showCreateStep2(prof) {
 }
 
 function showModalSafely(dialogEl) {
-  if (!dialogEl) return;
+  if (!dialogEl || dialogEl.open) return;
   addOverlayBlocker(`dialog:${dialogEl.id}`);
   if (typeof dialogEl.showModal === 'function') {
     dialogEl.showModal();
@@ -2381,10 +2626,19 @@ function getFilteredSwitcherAccounts() {
   const q = state.switcherQuery.trim().toLowerCase();
   const all = getAllUnifiedAccounts();
   if (!q) return all;
-  return all.filter((acc) => (
-    String(acc.display_name || '').toLowerCase().includes(q)
-    || String(acc.kind || '').toLowerCase().includes(q)
-  ));
+  const profilesById = new Map((state.status?.profiles || []).map((p) => [p.id, p]));
+  return all.filter((acc) => {
+    const prof = acc.kind === 'desktop_isolated' ? profilesById.get(acc.id) : null;
+    const kindLabel = acc.kind === 'desktop_primary'
+      ? t('rail.kindPrimary')
+      : (acc.kind === 'web_isolated' ? t('rail.kindWeb') : t('rail.kindDesktop'));
+    return (
+      String(acc.display_name || '').toLowerCase().includes(q)
+      || String(prof?.notes || '').toLowerCase().includes(q)
+      || String(acc.kind || '').toLowerCase().includes(q)
+      || String(kindLabel || '').toLowerCase().includes(q)
+    );
+  });
 }
 
 function renderQuickSwitcherList() {
@@ -2406,6 +2660,7 @@ function renderQuickSwitcherList() {
   if (state.switcherActiveIndex < 0) state.switcherActiveIndex = items.length - 1;
 
   const allAccounts = getAllUnifiedAccounts();
+  const profilesById = new Map((state.status?.profiles || []).map((p) => [p.id, p]));
 
   items.forEach((acc, idx) => {
     const opt = document.createElement('li');
@@ -2433,7 +2688,10 @@ function renderQuickSwitcherList() {
     const subSpan = document.createElement('span');
     subSpan.className = 'switcher-option-sub';
     const kindText = isPrimary ? t('rail.kindPrimary') : (isWeb ? t('rail.kindWeb') : t('rail.kindDesktop'));
-    const stText = acc.state === 'running' ? t('accounts.states.running') : t('accounts.states.stopped');
+    const prof = acc.kind === 'desktop_isolated' ? profilesById.get(acc.id) : null;
+    const stText = isPrimary
+      ? (acc.state === 'running' ? t('accounts.states.running') : t('accounts.states.stopped'))
+      : resolveAccountState(prof || { id: acc.id, running: acc.state === 'running', lifecycle_state: acc.state }).label;
     subSpan.textContent = `${kindText} · ${stText}`;
     meta.appendChild(nameSpan);
     meta.appendChild(subSpan);
@@ -2466,7 +2724,7 @@ function renderQuickSwitcherList() {
 function openQuickSwitcher() {
   const dlg = document.getElementById('quick-switcher-dialog');
   const input = document.getElementById('quick-switcher-input');
-  if (!dlg || !input) return;
+  if (!dlg || !input || dlg.open) return;
   state.switcherQuery = '';
   state.switcherActiveIndex = 0;
   input.value = '';
@@ -2498,7 +2756,7 @@ function wireDialogsAndFallbacks() {
   for (const btnId of ['btn-open-create', 'btn-overview-create', 'btn-empty-create']) {
     document.getElementById(btnId)?.addEventListener('click', () => {
       clearCreateStep1Error();
-      renderCreateColorPalette(pickNextAvailableColorId(state.status?.profiles || []));
+      renderCreateColorPalette(pickNextAvailableColorId(getAllColorTrackedAccounts()));
       updateCreateSessionModeControls();
     });
   }
@@ -2530,6 +2788,7 @@ function wireDialogsAndFallbacks() {
   }
 
   for (const dlg of document.querySelectorAll('dialog')) {
+    if (dlg.id === 'delete-profile-dialog' || dlg.id === 'reset-web-dialog') continue;
     dlg.addEventListener('close', () => {
       removeOverlayBlocker(`dialog:${dlg.id}`);
     });
@@ -2589,7 +2848,7 @@ function wireDialogsAndFallbacks() {
     const sessionMode = modeInput?.value === 'web_isolated' ? 'web_isolated' : 'desktop_isolated';
     const name = nameInput.value.trim();
     const notes = notesInput.value.trim();
-    const chosenColor = colorInput?.value || pickNextAvailableColorId(state.status?.profiles || []);
+    const chosenColor = colorInput?.value || pickNextAvailableColorId(getAllColorTrackedAccounts());
     if (!name) {
       nameInput?.focus();
       return;
@@ -2740,7 +2999,10 @@ function wireDialogsAndFallbacks() {
     const targetId = state.activeDeleteId;
     const targetKind = state.activeDeleteKind;
     state.activeDeleteId = null;
-    if (action !== 'delete' || !targetId || state.pendingProfileActions.has(targetId)) return;
+    if (action !== 'delete' || !targetId || state.pendingProfileActions.has(targetId)) {
+      removeOverlayBlocker('dialog:delete-profile-dialog');
+      return;
+    }
 
     state.pendingProfileActions.set(targetId, 'delete');
     renderProfiles();
@@ -2748,6 +3010,10 @@ function wireDialogsAndFallbacks() {
     try {
       let res;
       if (targetKind === 'web_isolated') {
+        if (state.mountedWebSessionId === targetId) {
+          state.mountedWebSessionId = null;
+          state.lastWebBoundsKey = '';
+        }
         res = await tauriInvokeEnvelope('web_session_delete', { id: targetId });
       } else {
         res = await apiCall(
@@ -2775,6 +3041,7 @@ function wireDialogsAndFallbacks() {
       state.pendingProfileActions.delete(targetId);
       renderProfiles();
       renderAccountRail();
+      removeOverlayBlocker('dialog:delete-profile-dialog');
       if (needsFocusRestore(document.activeElement)) {
         const openCreateBtn = document.getElementById('btn-open-create');
         if (openCreateBtn && !needsFocusRestore(openCreateBtn)) {
@@ -2791,20 +3058,26 @@ function wireDialogsAndFallbacks() {
     state.openDialogContext = null;
     const targetId = state.activeResetWebId;
     state.activeResetWebId = null;
-    if (action !== 'reset' || !targetId) return;
+    if (action !== 'reset' || !targetId) {
+      removeOverlayBlocker('dialog:reset-web-dialog');
+      return;
+    }
 
     state.mountedWebSessionId = null;
     state.lastWebBoundsKey = '';
-    const env = await tauriInvokeEnvelope('web_session_reset', { id: targetId }).catch((err) => ({
-      ok: false,
-      error_code: err?.errorCode || 'WEB_SESSION_ERROR',
-      message: err?.message || ''
-    }));
-    if (env && env.ok === false) {
-      showErrorBanner(env.error_code, env.message);
-    } else {
-      await refreshWorkspaceFast();
-      syncNativeWebViewState();
+    try {
+      const env = await tauriInvokeEnvelope('web_session_reset', { id: targetId }).catch((err) => ({
+        ok: false,
+        error_code: err?.errorCode || 'WEB_SESSION_ERROR',
+        message: err?.message || ''
+      }));
+      if (env && env.ok === false) {
+        showErrorBanner(env.error_code, env.message);
+      } else {
+        await refreshWorkspaceFast();
+      }
+    } finally {
+      removeOverlayBlocker('dialog:reset-web-dialog');
     }
   });
 
@@ -2926,6 +3199,14 @@ function wireWebHeaderControls() {
     }
   }
 
+  document.addEventListener('beforetoggle', (event) => {
+    const target = event.target;
+    if (!target || target.id !== 'web-limits-tip') return;
+    if (event.newState === 'open') {
+      addOverlayBlocker('popover:web-limits-tip');
+    }
+  }, true);
+
   document.addEventListener('toggle', (event) => {
     const target = event.target;
     if (!target || target.id !== 'web-limits-tip') return;
@@ -2936,6 +3217,12 @@ function wireWebHeaderControls() {
   }, true);
 
   if (webMenu && webMoreBtn) {
+    webMenu.addEventListener('beforetoggle', (event) => {
+      if (event.newState === 'open') {
+        addOverlayBlocker('popover:web-session-menu');
+      }
+    });
+
     webMenu.addEventListener('toggle', (event) => {
       const isOpen = event.newState === 'open';
       webMoreBtn.setAttribute('aria-expanded', String(isOpen));
@@ -2959,9 +3246,14 @@ function wireWebHeaderControls() {
 
   document.getElementById('btn-web-reload')?.addEventListener('click', async () => {
     if (!state.activeAccount || state.activeAccount.kind !== 'web_isolated') return;
-    await tauriInvokeEnvelope('web_session_reload', { id: state.activeAccount.id }).catch((err) => {
+    try {
+      const env = await tauriInvokeEnvelope('web_session_reload', { id: state.activeAccount.id });
+      if (!env || env.ok === false) {
+        showErrorBanner(env?.error_code || 'WEB_SESSION_ERROR', env?.message || '');
+      }
+    } catch (err) {
       showErrorBanner(err?.errorCode || 'WEB_SESSION_ERROR', err?.message || '');
-    });
+    }
   });
 
   document.getElementById('btn-web-pin')?.addEventListener('click', () => {
@@ -3081,12 +3373,43 @@ function wireBoundsObservers() {
   };
   const ro = new ResizeObserver(scheduleSync);
   ro.observe(viewport);
+  const alertsEl = document.getElementById('workspace-alerts');
+  if (alertsEl) ro.observe(alertsEl);
+
   window.addEventListener('resize', scheduleSync);
+  window.addEventListener('focus', scheduleSync);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      syncNativeWebViewState({ forceHide: true });
+    } else {
+      scheduleSync();
+    }
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', scheduleSync);
+  }
+  if (typeof window.matchMedia === 'function') {
+    let dprMql = null;
+    const onDprChange = () => {
+      scheduleSync();
+      bindDprMedia();
+    };
+    const bindDprMedia = () => {
+      if (dprMql) {
+        dprMql.removeEventListener('change', onDprChange);
+      }
+      const dpr = window.devicePixelRatio || 1;
+      dprMql = window.matchMedia(`(resolution: ${dpr}dppx)`);
+      dprMql.addEventListener('change', onDprChange);
+    };
+    bindDprMedia();
+  }
 }
 
 function wireGlobalShortcuts() {
   if (typeof document === 'undefined') return;
   document.addEventListener('keydown', (event) => {
+    if (document.querySelector('dialog[open]')) return;
     const mod = event.ctrlKey || event.metaKey;
     if (mod && event.key.toLowerCase() === 'k') {
       event.preventDefault();
@@ -3120,8 +3443,7 @@ function wireGlobalShortcuts() {
     if (event.key === '/' && !mod && !event.altKey) {
       const active = document.activeElement;
       const inInput = active && active.matches?.('input, textarea, select, [contenteditable="true"]');
-      const anyDialogOpen = Boolean(document.querySelector('dialog[open]'));
-      if (!inInput && !anyDialogOpen) {
+      if (!inInput) {
         event.preventDefault();
         const railFilter = document.getElementById('rail-filter-input');
         const shell = document.getElementById('workspace-shell');
@@ -3138,6 +3460,8 @@ function wireGlobalShortcuts() {
 }
 
 export async function initApp() {
+  if (state.initialized) return;
+  state.initialized = true;
   await initI18n();
   applyDomTranslations();
   applyThemePreference(getSavedThemePreference());
@@ -3301,14 +3625,29 @@ export async function initApp() {
   const tauriInvoke = getTauriInvoke();
   if (tauriInvoke) {
     if (behaviorHintEl) behaviorHintEl.hidden = true;
-    tauriInvoke('set_tray_locale', { locale: getLocale() }).catch(() => {});
     tauriInvoke('get_desktop_preferences', {})
       .then((prefs) => {
         if (keepInTrayEl && prefs && typeof prefs.keep_in_tray === 'boolean') {
           keepInTrayEl.checked = prefs.keep_in_tray;
         }
+        let savedLocalLocale = null;
+        try {
+          if (typeof localStorage !== 'undefined') {
+            savedLocalLocale = localStorage.getItem(LOCALE_STORAGE_KEY);
+          }
+        } catch (_err) {
+          // Ignore storage access errors
+        }
+        const backendLocale = prefs?.locale;
+        if (!savedLocalLocale && backendLocale && SUPPORTED_LOCALES.includes(backendLocale) && backendLocale !== getLocale()) {
+          setLocale(backendLocale);
+        } else if (backendLocale !== getLocale()) {
+          tauriInvoke('set_tray_locale', { locale: getLocale() }).catch(() => {});
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        tauriInvoke('set_tray_locale', { locale: getLocale() }).catch(() => {});
+      });
     tauriInvoke('get_autostart_enabled', {})
       .then((enabled) => {
         if (autostartEl) autostartEl.checked = Boolean(enabled);

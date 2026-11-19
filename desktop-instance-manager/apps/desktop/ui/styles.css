@@ -1799,6 +1799,28 @@ dialog::backdrop {
   margin-block: 2px;
 }
 
+.rail-group-heading {
+  display: none;
+  padding: 2px var(--sp-2);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-shell[data-rail-expanded="true"] .rail-group-heading:not([hidden]) {
+  display: block;
+}
+
+.account-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
 .rail-account-btn {
   position: relative;
   display: flex;
@@ -2436,6 +2458,7 @@ dialog.modal-switcher {
   .rail-expand-toggle,
   .workspace-shell[data-rail-expanded="true"] .rail-brand-text,
   .workspace-shell[data-rail-expanded="true"] .rail-filter-wrap,
+  .workspace-shell[data-rail-expanded="true"] .rail-group-heading,
   .workspace-shell[data-rail-expanded="true"] .rail-item-meta,
   .workspace-shell[data-rail-expanded="true"] .rail-btn-label {
     display: none;

@@ -177,17 +177,19 @@ Kiến trúc được thiết kế để hoàn nguyên an toàn với **zero dat
 - [x] **Zalo gốc (`DesktopPrimary`)**: Hiển thị trên Account Rail với huy hiệu khiên chỉ đọc; bấm kích hoạt khi đang mở/thu nhỏ đưa cửa sổ lên trên; trả về `ManualActionRequired` khi ẩn khay/tắt; **0 nút đột biến** (không Stop/Rename/Backup/Delete/Snap) (`FIXTURE_PASS` + `SOURCE_REVIEWED`).
 - [x] **Chuyển tài khoản Desktop (`DesktopIsolated`)**: 1 chạm trên Rail / `Ctrl+K` / `Ctrl+1..9` / Tray để mở mới, khôi phục cửa sổ đang thu nhỏ (`GetWindowPlacement`), hoặc đưa cửa sổ đang chạy lên trên; không mở trùng tiến trình; hiển thị trung thực là cửa sổ độc lập (`FIXTURE_PASS` + `NATIVE_PASS` qua `run-tauri-native-e2e.mjs`).
 - [x] **Phiên Web Tách biệt (`WebIsolated`) — Tích hợp & Cô lập**: Tạo mới có cảnh báo rõ khác biệt Web vs Desktop; cấu trúc `wry::WebViewBuilder::build_as_child` không Tauri IPC (`window.__TAURI__`/`__TAURI_INTERNALS__`/`window.ipc` `undefined`); `WebViewOverlayCoordinator` ẩn child WebView trước khi mở `<dialog>`/`[popover]`; đồng bộ `Moved` và `devicePixelRatio` (`200%` zoom); `ICoreWebView2Profile8::Delete()` + tombstones (`SOURCE_REVIEWED` + `FIXTURE_PASS` + spike `NATIVE_PASS` trên `chat.zalo.me` QR).
-- [x] **Cổng an toàn & Chất lượng (Stage 2A/2B)**:
+- [x] **Cổng an toàn & Chất lượng (Stage 2A/2B + Phase 2 Hardening)**:
   - `cargo fmt --all -- --check` & `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check`: **PASS**
-  - `cargo test --workspace --offline`: **107 passed, 0 failed, 0 ignored** (`FIXTURE_PASS`)
-  - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --offline`: **14 passed, 0 failed, 0 ignored** (`FIXTURE_PASS`)
+  - `cargo clippy --workspace --all-targets --offline --locked -- -D warnings` & `cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --offline --locked -- -D warnings`: **PASS**
+  - `cargo test --workspace --offline`: **109 passed, 0 failed, 0 ignored** (`FIXTURE_PASS`)
+  - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --offline`: **17 passed, 0 failed, 0 ignored** (`FIXTURE_PASS`)
   - `cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --release --offline --locked`: **PASS**
   - `node --test apps/desktop/ui/tests/ui-contracts.test.mjs apps/desktop/ui/tests/i18n.test.mjs tests/brand-release-gates.mjs`: **26 passed, 0 failed**
   - `node tests/run-fixture-tests.mjs`: **8/8 passed, 0 failed** (`ok: true`)
   - `node tests/run-contract-parity-tests.mjs`: **PASS** (`ok: true`)
-  - `node apps/desktop/ui/tests/visual-cdp.mjs`: **PASS** (bao gồm `account-dock-desktop-stage-vi-light.png` và `account-dock-quick-switcher-vi-light.png`, 0 runtime errors)
-  - `node tests/run-tauri-native-e2e.mjs`: **12/12 steps PASS, 0 failed** (`real_tauri_ipc_verified: true`, `webview_runtime_errors: 0`)
-- [ ] **Phiên bản Thực tế Chưa Kiểm chứng (`NOT_TESTED`)**:
-  - Đăng nhập QR thật và gọi WebRTC/thoại sau đăng nhập trên `WebIsolated` (`NOT_TESTED` trên tài khoản Zalo thật).
+  - `node apps/desktop/ui/tests/visual-cdp.mjs`: **PASS** (16 ma trận + scale 0/1/3/10/20 + Desktop Stage + Quick Switcher + 200% zoom, 0 runtime errors)
+  - `node tests/run-tauri-native-e2e.mjs`: **16/16 steps PASS, 0 failed** (`15/15` Windows native user journeys, `real_tauri_ipc_verified: true`, `webview_runtime_errors: 0`)
+- [ ] **Hạng mục Chưa Kiểm chứng / Cần Người dùng Xác nhận (`NOT_TESTED` / `BLOCKED_USER_ACTION`)**:
+  - Đăng nhập QR thật và gọi WebRTC/thoại sau đăng nhập trên `WebIsolated` (`BLOCKED_USER_ACTION` / `NOT_TESTED` — không chạm tài khoản Zalo thật).
+  - Kéo cửa sổ qua nhiều màn hình khác DPI (`multi-monitor DPI drag`) trên `dim-desktop.exe` thực tế (`BLOCKED_USER_ACTION` / `NOT_TESTED`).
   - Giao diện GUI vật lý trên **macOS** (`14+` / `<14`) và **Linux** (X11 / Wayland) (`NOT_TESTED` trên phần cứng ngoài Windows).
-  - Kéo cửa sổ qua nhiều màn hình khác DPI (`multi-monitor DPI drag`) trên `dim-desktop.exe` thực tế (`NOT_TESTED`).
+  - Đo lường RSS / CPU % tiến trình trong bài kiểm tải J15 (`NOT_TESTED` trong chạy E2E tự động — mới đo độ trễ `1601 ms` với 10 profile + 3 phiên hoạt động).
