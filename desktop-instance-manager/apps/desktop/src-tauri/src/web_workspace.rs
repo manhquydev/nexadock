@@ -215,6 +215,7 @@ pub fn is_allowed_zalo_web_url(raw: &str) -> bool {
 
 /// Returns `true` for subframe navigations permitted inside Zalo Web (`about:blank`, `about:srcdoc`,
 /// allowed Zalo `https://` origins, or `blob:` URLs scoped to an allowed Zalo `https://` origin).
+#[allow(dead_code)]
 pub fn is_allowed_zalo_web_subframe_url(raw: &str) -> bool {
     if raw == "about:srcdoc" || is_allowed_zalo_web_url(raw) {
         return true;
@@ -809,6 +810,7 @@ pub fn show_session(
 
         let bounds = make_physical_rect(x, y, width, height);
 
+        #[allow(unused_variables)]
         let (needs_rebuild, old_entry, cached_env) =
             WEB_MANAGER.with(|cell| -> Result<_, DimError> {
                 let mut mgr = cell.borrow_mut();
@@ -847,9 +849,6 @@ pub fn show_session(
             set_session_mounted_flag(&record.id, false);
             drop(old);
         }
-
-        #[cfg(not(target_os = "windows"))]
-        let _ = cached_env;
 
         let built = if needs_rebuild {
             Some(build_child_webview(
@@ -1001,6 +1000,7 @@ pub fn reload_session(
             Ok(Some((bounds, old, env)))
         })?;
 
+        #[allow(unused_variables)]
         let Some((bounds, old_entry, cached_env)) = action else {
             return Ok(());
         };
@@ -1009,9 +1009,6 @@ pub fn reload_session(
             set_session_mounted_flag(&record.id, false);
             drop(old);
         }
-
-        #[cfg(not(target_os = "windows"))]
-        let _ = cached_env;
 
         let main_window = app_handle
             .get_webview_window("main")
