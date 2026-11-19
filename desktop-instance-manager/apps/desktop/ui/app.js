@@ -63,6 +63,12 @@ const state = {
   webSyncChain: Promise.resolve(),
   initialized: false,
   banner: null,
+  toasts: [],
+  nextToastSeq: 1,
+  profileErrors: new Map(),
+  diagnosticsReturnView: 'settings',
+  lastNavTriggerEl: null,
+  contextMenuCleanup: null,
   pendingProfileActions: new Map(),
   pendingGlobalActions: new Set(),
   overlayBlockers: new Set(),
@@ -304,6 +310,8 @@ function renderBanner() {
   if (!state.banner) {
     banner.hidden = true;
     banner.className = 'banner';
+    banner.setAttribute('role', 'status');
+    banner.setAttribute('aria-live', 'polite');
     textEl.textContent = '';
     detailsEl.hidden = true;
     detailsEl.open = false;
@@ -311,7 +319,16 @@ function renderBanner() {
     return;
   }
 
-  banner.className = `banner banner-${state.banner.kind}`;
+  const behavior = state.banner.errorCode ? classifyErrorBehavior(state.banner.errorCode) : null;
+  const isAssertive = behavior
+    ? behavior.liveRole === 'alert'
+    : state.banner.kind === 'error';
+  const bannerTone = behavior && behavior.tone === 'info'
+    ? 'info'
+    : (behavior && behavior.tone === 'warn' ? 'warn' : state.banner.kind);
+  banner.className = `banner banner-${bannerTone}`;
+  banner.setAttribute('role', isAssertive ? 'alert' : 'status');
+  banner.setAttribute('aria-live', isAssertive ? 'assertive' : 'polite');
   if (state.banner.errorCode) {
     const info = resolveErrorInfo(state.banner.errorCode, state.banner.rawDetail);
     textEl.textContent = info.userMessage;
@@ -332,16 +349,249 @@ function renderBanner() {
   banner.hidden = false;
 }
 
+function dismissToast(id) {
+  const idx = state.toasts.findIndex((item) => item.id === id);
+  if (idx < 0) return;
+  const [removed] = state.toasts.splice(idx, 1);
+  if (removed?.timer) clearTimeout(removed.timer);
+  renderToasts();
+}
+
+function scheduleToastTimer(toastObj) {
+  if (toastObj.timer) clearTimeout(toastObj.timer);
+  toastObj.timer = null;
+  if (toastObj.hovered || toastObj.focused) return;
+  toastObj.timer = setTimeout(() => {
+    dismissToast(toastObj.id);
+  }, 4500);
+}
+
+function renderToasts() {
+  if (typeof document === 'undefined') return;
+  const region = document.getElementById('toast-region');
+  if (!region) return;
+  const activeToastEl = document.activeElement?.closest?.('.toast[data-toast-id]');
+  const focusedToastId = activeToastEl ? Number(activeToastEl.dataset.toastId) : null;
+  region.replaceChildren();
+
+  for (const toast of state.toasts) {
+    const item = document.createElement('div');
+    item.className = `toast toast-${toast.kind}`;
+    item.dataset.toastId = String(toast.id);
+    if (toast.dedupeKey) item.dataset.toastKey = toast.dedupeKey;
+
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('width', '16');
+    icon.setAttribute('height', '16');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('fill', 'none');
+    icon.setAttribute('stroke', 'currentColor');
+    icon.setAttribute('stroke-width', '2.2');
+    icon.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', toast.kind === 'error' ? 'M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z' : 'M20 6L9 17l-5-5');
+    icon.appendChild(path);
+
+    const text = document.createElement('span');
+    text.className = 'toast-text';
+    text.textContent = toast.text;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'toast-close';
+    closeBtn.setAttribute('aria-label', t('messages.dismissToast'));
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', () => dismissToast(toast.id));
+
+    item.addEventListener('mouseenter', () => {
+      toast.hovered = true;
+      if (toast.timer) {
+        clearTimeout(toast.timer);
+        toast.timer = null;
+      }
+    });
+    item.addEventListener('mouseleave', () => {
+      toast.hovered = false;
+      scheduleToastTimer(toast);
+    });
+    item.addEventListener('focusin', () => {
+      toast.focused = true;
+      if (toast.timer) {
+        clearTimeout(toast.timer);
+        toast.timer = null;
+      }
+    });
+    item.addEventListener('focusout', (ev) => {
+      if (!item.contains(ev.relatedTarget)) {
+        toast.focused = false;
+        scheduleToastTimer(toast);
+      }
+    });
+
+    item.appendChild(icon);
+    item.appendChild(text);
+    item.appendChild(closeBtn);
+    region.appendChild(item);
+    if (focusedToastId === toast.id) {
+      closeBtn.focus();
+    }
+  }
+}
+
+function showToast(messageKey, messageParams = {}, kind = 'success', dedupeKey = null) {
+  const text = t(messageKey, messageParams);
+  const key = dedupeKey || messageKey;
+  const existing = state.toasts.find((item) => item.dedupeKey === key);
+  if (existing) {
+    existing.text = text;
+    existing.kind = kind;
+    scheduleToastTimer(existing);
+    renderToasts();
+    return;
+  }
+  const toastObj = {
+    id: state.nextToastSeq++,
+    dedupeKey: key,
+    kind,
+    text,
+    timer: null
+  };
+  state.toasts.push(toastObj);
+  while (state.toasts.length > 3) {
+    const oldest = state.toasts.shift();
+    if (oldest?.timer) clearTimeout(oldest.timer);
+  }
+  scheduleToastTimer(toastObj);
+  renderToasts();
+}
+
+export function classifyErrorBehavior(errorCode) {
+  const code = String(errorCode || 'UNKNOWN').trim().toUpperCase();
+  if (
+    code === 'HOST_EXEC_FAILED' ||
+    code === 'HOST_TIMEOUT' ||
+    code === 'RUNTIME_UNAVAILABLE' ||
+    code === 'BRIDGE_DISCONNECTED' ||
+    code === 'INTERNAL_ERROR'
+  ) {
+    return {
+      category: 'critical_system',
+      retryable: true,
+      liveRole: 'alert',
+      tone: 'error',
+      action: 'open_diagnostics'
+    };
+  }
+  if (
+    code === 'PROTECTED_PRIMARY_PROCESS' ||
+    code === 'PROTECTED_PRIMARY_PATH' ||
+    code === 'PRIMARY_PROTECTED' ||
+    code === 'PRIMARY_NOT_RUNNING' ||
+    code === 'PRIMARY_IN_TRAY' ||
+    code === 'PRIMARY_HIDDEN_IN_TRAY' ||
+    code === 'PRIMARY_FOREGROUND_BLOCKED' ||
+    code.startsWith('PATH_TRAVERSAL') ||
+    code === 'COMPANION_SNAP_UNSUPPORTED' ||
+    code === 'WEB_SESSION_UNSUPPORTED' ||
+    code === 'WEB_WORKSPACE_REQUIRES_MACOS_14' ||
+    code === 'WEB_WORKSPACE_WAYLAND_UNSUPPORTED' ||
+    code === 'NOT_RUNNING'
+  ) {
+    return {
+      category: 'info_only',
+      retryable: false,
+      liveRole: 'status',
+      tone: 'info',
+      action: 'dismiss'
+    };
+  }
+  if (
+    code === 'INSTALL_NOT_FOUND' ||
+    code === 'FOLDER_REDIRECTION_DETECTED' ||
+    code === 'INSUFFICIENT_DISK_SPACE' ||
+    code === 'PROFILE_IDENTITY_MISMATCH' ||
+    code === 'PROFILE_MARKER_MISMATCH' ||
+    code === 'DUPLICATE_ZALO_USER_ID' ||
+    code === 'PROFILE_RUNNING' ||
+    code === 'UNVERIFIED_BINARY' ||
+    code === 'EXTERNAL_DB_OUTSIDE_PROFILE' ||
+    code === 'SHARED_EXTERNAL_DB_PATH'
+  ) {
+    return {
+      category: 'action_required',
+      retryable: false,
+      liveRole: 'status',
+      tone: 'warn',
+      action: code === 'PROFILE_RUNNING' ? 'dismiss' : 'open_diagnostics'
+    };
+  }
+  if (
+    code === 'NOT_FOUND' ||
+    code === 'PROFILE_NOT_FOUND' ||
+    code === 'BACKUP_NOT_FOUND' ||
+    code === 'INVALID_NAME' ||
+    code === 'INVALID_PROFILE_NAME' ||
+    code === 'DUPLICATE_NAME' ||
+    code === 'INVALID_INPUT' ||
+    code === 'CONFIRM_REQUIRED' ||
+    code === 'CONFIRMATION_REQUIRED' ||
+    code === 'SCHEMA_ERROR' ||
+    code === 'JSON_ERROR' ||
+    code === 'UNSUPPORTED_PLATFORM'
+  ) {
+    return {
+      category: 'non_retryable',
+      retryable: false,
+      liveRole: 'status',
+      tone: 'error',
+      action: 'dismiss'
+    };
+  }
+  return {
+    category: 'retryable',
+    retryable: true,
+    liveRole: 'alert',
+    tone: 'error',
+    action: 'retry'
+  };
+}
+
+function showProfileError(profileId, errorCode, rawDetail = '', retryFn = null) {
+  if (!profileId) {
+    showErrorBanner(errorCode, rawDetail);
+    return;
+  }
+  state.profileErrors.set(profileId, {
+    errorCode: errorCode || 'UNKNOWN',
+    rawDetail: rawDetail ? String(rawDetail) : '',
+    retryFn: typeof retryFn === 'function' ? retryFn : null
+  });
+}
+
+function clearProfileError(profileId) {
+  if (!profileId) return;
+  state.profileErrors.delete(profileId);
+}
+
 function showKeyBanner(messageKey, messageParams = {}, kind = 'info') {
+  if (kind === 'success') {
+    showToast(messageKey, messageParams, 'success', messageKey);
+    return;
+  }
   state.banner = { kind, messageKey, messageParams };
   renderBanner();
 }
 
 function showErrorBanner(errorCode, rawDetail = '') {
+  const code = errorCode || 'UNKNOWN';
+  const detail = rawDetail ? String(rawDetail) : '';
+  if (state.banner?.kind === 'error' && state.banner.errorCode === code && state.banner.rawDetail === detail) {
+    return;
+  }
   state.banner = {
     kind: 'error',
-    errorCode: errorCode || 'UNKNOWN',
-    rawDetail: rawDetail ? String(rawDetail) : ''
+    errorCode: code,
+    rawDetail: detail
   };
   renderBanner();
 }
@@ -604,6 +854,169 @@ function removeOverlayBlocker(key) {
   }
 }
 
+function closeAccountContextMenu({ restoreFocus = false } = {}) {
+  if (typeof document === 'undefined') return;
+  const menu = document.getElementById('account-context-menu');
+  if (typeof state.contextMenuCleanup === 'function') {
+    state.contextMenuCleanup();
+    state.contextMenuCleanup = null;
+  }
+  const targetAnchor = menu?._anchorEl || null;
+  if (menu) {
+    menu.hidden = true;
+    menu.replaceChildren();
+    menu._anchorEl = null;
+  }
+  removeOverlayBlocker('context-menu');
+  if (restoreFocus && targetAnchor && targetAnchor.isConnected) {
+    targetAnchor.focus();
+  }
+}
+
+function openAccountContextMenu(acc, anchorEl, { clientX = null, clientY = null } = {}) {
+  if (typeof document === 'undefined' || !acc) return;
+  const menu = document.getElementById('account-context-menu');
+  if (!menu) return;
+
+  closeAccountContextMenu({ restoreFocus: false });
+  menu._anchorEl = anchorEl || null;
+  menu.replaceChildren();
+  menu.setAttribute('aria-label', t('rail.contextMenuAria', { name: acc.display_name || acc.name || '' }));
+
+  const isPrimary = acc.kind === 'desktop_primary';
+  const isWeb = acc.kind === 'web_isolated';
+  const isRunning = acc.state === 'running' || acc.running === true;
+  const isPending = state.pendingProfileActions.has(acc.id);
+  const blockOfflineOps = isProfileActiveOrUnclean(acc);
+
+  const addItem = (label, onSelect, { disabled = false, danger = false } = {}) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = danger ? 'menu-item menu-item-danger' : 'menu-item';
+    btn.setAttribute('role', 'menuitem');
+    btn.tabIndex = -1;
+    btn.disabled = disabled || isPending;
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      closeAccountContextMenu({ restoreFocus: false });
+      onSelect();
+    });
+    menu.appendChild(btn);
+  };
+
+  const addSep = () => {
+    const hr = document.createElement('hr');
+    hr.className = 'menu-sep';
+    menu.appendChild(hr);
+  };
+
+  if (isPrimary) {
+    addItem(t('desktopStage.bringToFront'), () => activateAccount('primary', 'desktop_primary'), { disabled: !isRunning });
+    addItem(acc.pinned ? t('rail.unpin') : t('rail.pin'), () => toggleAccountPinned('primary', Boolean(acc.pinned)));
+  } else if (isWeb) {
+    addItem(t('webSession.openWeb'), () => activateAccount(acc.id, 'web_isolated'));
+    addItem(acc.pinned ? t('rail.unpin') : t('rail.pin'), () => toggleAccountPinned(acc.id, Boolean(acc.pinned)));
+    addItem(t('accounts.actions.rename'), () => openRenameDialog(acc, 'web_isolated'));
+    addItem(t('webSession.reset'), () => openResetWebDialog(acc));
+    addSep();
+    addItem(t('accounts.actions.delete'), () => openDeleteDialog(acc, 'web_isolated'), { danger: true });
+  } else {
+    const prof = (state.status?.profiles || []).find((p) => p.id === acc.id) || acc;
+    addItem(isRunning ? t('rail.bringToFront') : t('rail.openAccount'), () => activateAccount(acc.id, 'desktop_isolated'));
+    if (isRunning) {
+      addItem(t('accounts.actions.stop'), () => runProfileAction('stop', prof));
+    }
+    addSep();
+    addItem(acc.pinned ? t('rail.unpin') : t('rail.pin'), () => toggleAccountPinned(acc.id, Boolean(acc.pinned)));
+    addItem(t('accounts.actions.rename'), () => openRenameDialog(prof, 'desktop_isolated'));
+    addItem(t('accounts.actions.backup'), () => runProfileAction('backup', prof), { disabled: blockOfflineOps });
+    addItem(t('accounts.actions.details'), () => openDetailsDialog(prof));
+    addSep();
+    addItem(t('accounts.actions.delete'), () => openDeleteDialog(prof, 'desktop_isolated'), { disabled: blockOfflineOps, danger: true });
+  }
+
+  addOverlayBlocker('context-menu');
+  menu.hidden = false;
+
+  const menuWidth = menu.offsetWidth || 210;
+  const menuHeight = menu.offsetHeight || 220;
+  const anchorRect = anchorEl?.getBoundingClientRect?.();
+  const baseX = clientX != null ? clientX : (anchorRect ? anchorRect.right + 6 : 100);
+  const baseY = clientY != null ? clientY : (anchorRect ? anchorRect.top : 100);
+  const left = Math.max(8, Math.min(baseX, window.innerWidth - menuWidth - 8));
+  const top = Math.max(8, Math.min(baseY, window.innerHeight - menuHeight - 8));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+
+  const items = Array.from(menu.querySelectorAll('[role="menuitem"]:not(:disabled)'));
+  if (items.length > 0) items[0].focus();
+
+  const onKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeAccountContextMenu({ restoreFocus: true });
+      return;
+    }
+    if (event.key === 'Tab') {
+      closeAccountContextMenu({ restoreFocus: false });
+      return;
+    }
+    const enabled = Array.from(menu.querySelectorAll('[role="menuitem"]:not(:disabled)'));
+    if (enabled.length === 0) return;
+    const idx = enabled.indexOf(document.activeElement);
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      enabled[idx === -1 ? 0 : (idx + 1) % enabled.length].focus();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      enabled[idx <= 0 ? enabled.length - 1 : idx - 1].focus();
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      enabled[0].focus();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      enabled[enabled.length - 1].focus();
+    }
+  };
+
+  const onDocPointer = (event) => {
+    if (!menu.contains(event.target)) {
+      closeAccountContextMenu({ restoreFocus: false });
+    }
+  };
+
+  menu.addEventListener('keydown', onKeyDown);
+  const ptrTimer = setTimeout(() => {
+    if (!menu.hidden) document.addEventListener('pointerdown', onDocPointer);
+  }, 0);
+  state.contextMenuCleanup = () => {
+    clearTimeout(ptrTimer);
+    menu.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('pointerdown', onDocPointer);
+  };
+}
+
+function showRailFloatingTooltip(btn, text) {
+  const portal = document.getElementById('tooltip-portal');
+  if (!portal || !btn || !text) return;
+  const shell = document.getElementById('workspace-shell');
+  if (shell?.dataset.railExpanded === 'true') return;
+  portal.replaceChildren();
+  const tip = document.createElement('div');
+  tip.className = 'rail-tooltip is-floating-open';
+  tip.setAttribute('role', 'tooltip');
+  tip.textContent = text;
+  const rect = btn.getBoundingClientRect();
+  tip.style.top = `${Math.round(rect.top + rect.height / 2)}px`;
+  tip.style.left = `${Math.round(rect.right + 10)}px`;
+  portal.appendChild(tip);
+}
+
+function hideRailFloatingTooltip() {
+  const portal = document.getElementById('tooltip-portal');
+  if (portal) portal.replaceChildren();
+}
+
 function syncRailTooltipsForWebView(webviewActive) {
   const portal = document.getElementById('tooltip-portal');
   const buttons = document.querySelectorAll('.rail-account-btn');
@@ -618,30 +1031,23 @@ function syncRailTooltipsForWebView(webviewActive) {
     return;
   }
 
-  const supportsInterest = typeof HTMLButtonElement !== 'undefined'
-    && 'interestForElement' in HTMLButtonElement.prototype
-    && typeof CSS !== 'undefined'
-    && CSS.supports('position-area', 'inline-end');
-
-  if (!supportsInterest || !portal) return;
-
-  portal.replaceChildren();
-  buttons.forEach((btn, idx) => {
-    const tipText = btn.dataset.tooltipText || '';
-    if (!tipText) return;
-    const tipId = `rail-tip-${idx}`;
-    const tip = document.createElement('div');
-    tip.id = tipId;
-    tip.className = 'rail-tooltip';
-    tip.setAttribute('popover', 'hint');
-    tip.setAttribute('role', 'tooltip');
-    tip.textContent = tipText;
-    portal.appendChild(tip);
-
+  for (const btn of buttons) {
     btn.removeAttribute('title');
-    btn.setAttribute('interestfor', tipId);
-    btn.setAttribute('aria-describedby', tipId);
-  });
+    if (btn.dataset.tipWired === 'true') continue;
+    btn.dataset.tipWired = 'true';
+    btn.addEventListener('mouseenter', () => {
+      if (!isWebViewStageActive() || state.overlayBlockers.size > 0) {
+        showRailFloatingTooltip(btn, btn.dataset.tooltipText || '');
+      }
+    });
+    btn.addEventListener('focusin', () => {
+      if (!isWebViewStageActive() || state.overlayBlockers.size > 0) {
+        showRailFloatingTooltip(btn, btn.dataset.tooltipText || '');
+      }
+    });
+    btn.addEventListener('mouseleave', hideRailFloatingTooltip);
+    btn.addEventListener('focusout', hideRailFloatingTooltip);
+  }
 }
 
 function closeWebHeaderPopovers() {
@@ -658,15 +1064,35 @@ function closeWebHeaderPopovers() {
   }
 }
 
-function selectView(viewName) {
+function updateDiagnosticsBackBar() {
+  const backBtn = document.getElementById('btn-diag-back');
+  const backLabel = document.getElementById('diag-back-label');
+  if (!backBtn || !backLabel) return;
+  const target = state.diagnosticsReturnView || 'settings';
+  backBtn.setAttribute('data-back-to', target);
+  if (target === 'help') {
+    backLabel.setAttribute('data-i18n', 'nav.backToHelp');
+    backLabel.textContent = t('nav.backToHelp');
+  } else if (target === 'profiles' || target === 'desktop-stage') {
+    backLabel.setAttribute('data-i18n', 'nav.backToAccounts');
+    backLabel.textContent = t('nav.backToAccounts');
+  } else {
+    backLabel.setAttribute('data-i18n', 'diagnostics.backToSettings');
+    backLabel.textContent = t('diagnostics.backToSettings');
+  }
+}
+
+function selectView(viewName, { triggerEl = null, returnView = null } = {}) {
   const wasWebStage = state.activeView === 'web-stage';
+  if (viewName === 'diagnostics') {
+    state.diagnosticsReturnView = returnView || 'settings';
+  }
+  state.lastNavTriggerEl = triggerEl || null;
   state.activeView = viewName;
   if (wasWebStage && viewName !== 'web-stage') {
     closeWebHeaderPopovers();
   }
-  if (state.banner && state.banner.kind !== 'error') {
-    clearBanner();
-  }
+  closeAccountContextMenu({ restoreFocus: false });
 
   for (const btn of document.querySelectorAll('.top-nav-btn[data-view]')) {
     const active = btn.getAttribute('data-view') === viewName;
@@ -684,6 +1110,10 @@ function selectView(viewName) {
 
   const desktopStage = document.getElementById('stage-desktop-session');
   if (desktopStage) desktopStage.hidden = viewName !== 'desktop-stage';
+
+  if (viewName === 'diagnostics') {
+    updateDiagnosticsBackBar();
+  }
 
   const isStage = viewName === 'web-stage' || viewName === 'desktop-stage';
   if (!isStage) {
@@ -957,7 +1387,9 @@ function renderAccountRail() {
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'rail-account-btn';
+    btn.className = isPrimary
+      ? 'rail-account-btn'
+      : `rail-account-btn${acc.state === 'running' ? ' is-running' : ''}${acc.pinned ? ' is-pinned' : ''}`;
     btn.dataset.accountId = acc.id;
     btn.dataset.accountKind = acc.kind;
     btn.setAttribute('aria-pressed', String(isSelected));
@@ -1020,6 +1452,16 @@ function renderAccountRail() {
     btn.addEventListener('click', () => {
       if (btn.getAttribute('aria-disabled') === 'true') return;
       activateAccount(acc.id, acc.kind);
+    });
+    btn.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      openAccountContextMenu(acc, btn, { clientX: event.clientX, clientY: event.clientY });
+    });
+    btn.addEventListener('keydown', (event) => {
+      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+        event.preventDefault();
+        openAccountContextMenu(acc, btn);
+      }
     });
 
     return btn;
@@ -1104,7 +1546,7 @@ export async function activateAccount(id, kind) {
   if (state.pendingProfileActions.has(id)) return;
 
   const seq = ++state.activationSeq;
-  clearBanner();
+  clearProfileError(id);
   state.activeAccount = { id, kind };
   state.lastActivationResult = null;
   try {
@@ -1128,7 +1570,9 @@ export async function activateAccount(id, kind) {
       const env = await tauriInvokeEnvelope('activate_account', { id, kind });
       if (seq !== state.activationSeq) return;
       if (env && env.ok === false) {
-        showErrorBanner(env.error_code, env.message);
+        const isInfra = env.error_code === 'HOST_EXEC_FAILED' || env.error_code === 'HOST_TIMEOUT' || env.error_code === 'UNAUTHORIZED';
+        if (isInfra) showErrorBanner(env.error_code, env.message);
+        else showProfileError(id, env.error_code, env.message);
         state.lastActivationResult = {
           outcome: 'failed',
           remediation: { code: env.error_code, message: env.message }
@@ -1146,7 +1590,9 @@ export async function activateAccount(id, kind) {
       res = await apiCall(`/api/profiles/${encodeURIComponent(id)}/${action}`, 'POST', {});
       if (seq !== state.activationSeq) return;
       if (res && res.ok === false) {
-        showErrorBanner(res.error_code, res.message);
+        const isInfra = res.error_code === 'HOST_EXEC_FAILED' || res.error_code === 'HOST_TIMEOUT' || res.error_code === 'UNAUTHORIZED';
+        if (isInfra) showErrorBanner(res.error_code, res.message);
+        else showProfileError(id, res.error_code, res.message);
         state.lastActivationResult = {
           outcome: 'failed',
           remediation: { code: res.error_code, message: res.message }
@@ -1173,7 +1619,12 @@ export async function activateAccount(id, kind) {
     announceToScreenReader(findAccountDisplayName({ id, kind }));
   } catch (err) {
     if (seq !== state.activationSeq) return;
-    showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
+    const code = err?.errorCode || 'HOST_EXEC_FAILED';
+    if (code === 'HOST_EXEC_FAILED' || code === 'HOST_TIMEOUT' || code === 'UNAUTHORIZED') {
+      showErrorBanner(code, err?.message || '');
+    } else {
+      showProfileError(id, code, err?.message || '');
+    }
   } finally {
     state.pendingProfileActions.delete(id);
     renderTopbarSummary();
@@ -1314,6 +1765,8 @@ function renderDesktopStage() {
 
   const displayName = acc?.display_name || prof?.name || '';
   const isPending = state.pendingProfileActions.has(state.activeAccount.id);
+  const breadcrumbName = document.getElementById('desktop-breadcrumb-name');
+  if (breadcrumbName) breadcrumbName.textContent = displayName;
 
   if (avatar) {
     avatar.className = isPrimary ? 'account-avatar account-avatar-lg avatar-protected' : 'account-avatar account-avatar-lg';
@@ -1364,11 +1817,13 @@ function renderDesktopStage() {
   if (snapPanel && snapToggle && snapHint) {
     snapPanel.hidden = isPrimary;
     const isRunning = Boolean(prof?.running || acc?.state === 'running');
+    const platform = String(state.status?.platform || 'windows').toLowerCase();
+    const isWindows = platform === 'windows';
     snapToggle.checked = Boolean(acc?.companion_snapped);
-    snapToggle.disabled = isPrimary || !isRunning || isPending;
-    snapHint.textContent = isRunning
-      ? t('desktopStage.companionSnapHint')
-      : t('desktopStage.companionSnapStopped');
+    snapToggle.disabled = isPrimary || !isWindows || !isRunning || isPending;
+    snapHint.textContent = !isWindows
+      ? t('desktopStage.snapOsUnsupported')
+      : (isRunning ? t('desktopStage.companionSnapHint') : t('desktopStage.companionSnapStopped'));
   }
 
   if (secondaryTools) {
@@ -1399,24 +1854,38 @@ function renderDesktopStage() {
   }
 
   if (remediationCard && remTitle && remBody && remActions) {
-    const rem = state.lastActivationResult?.remediation;
-    const outcome = state.lastActivationResult?.outcome;
+    const profileErr = state.profileErrors.get(state.activeAccount.id);
+    const errBehavior = profileErr ? classifyErrorBehavior(profileErr.errorCode) : null;
+    const rem = profileErr
+      ? {
+          code: profileErr.errorCode,
+          message: profileErr.rawDetail,
+          suggested_action: errBehavior.action === 'open_diagnostics'
+            ? 'open_diagnostics'
+            : (errBehavior.retryable ? 'retry_after_stop' : 'dismiss')
+        }
+      : (state.lastActivationResult?.remediation || null);
+    const outcome = profileErr
+      ? (errBehavior.category === 'action_required' ? 'manual_action_required' : 'failed')
+      : (state.lastActivationResult?.outcome || null);
     if (rem && (outcome === 'manual_action_required' || outcome === 'blocked' || outcome === 'failed')) {
+      const remBehavior = classifyErrorBehavior(rem.code);
       remediationCard.hidden = false;
+      remediationCard.setAttribute('role', remBehavior.liveRole);
       remTitle.textContent = outcome === 'manual_action_required'
         ? t('desktopStage.manualActionTitle')
         : t('desktopStage.remediationTitle');
       const info = resolveErrorInfo(rem.code, rem.message);
       remBody.textContent = info.userMessage;
       remActions.replaceChildren();
-      if (rem.suggested_action === 'open_diagnostics') {
-        remActions.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary', () => selectView('diagnostics')));
-      } else if (rem.suggested_action === 'recover_profile') {
+      if (rem.suggested_action === 'open_diagnostics' || (!remBehavior.retryable && remBehavior.action === 'open_diagnostics')) {
+        remActions.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary', (ev) => selectView('diagnostics', { triggerEl: ev.currentTarget, returnView: 'desktop-stage' })));
+      } else if (rem.suggested_action === 'recover_profile' && remBehavior.retryable) {
         remActions.appendChild(makeButton(t('accounts.actions.recover'), 'btn-primary', () => {
           if (state.activeAccount) activateAccount(state.activeAccount.id, state.activeAccount.kind);
         }));
-        remActions.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary', () => selectView('diagnostics')));
-      } else if (rem.suggested_action === 'retry_after_stop') {
+        remActions.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary', (ev) => selectView('diagnostics', { triggerEl: ev.currentTarget, returnView: 'desktop-stage' })));
+      } else if (rem.suggested_action === 'retry_after_stop' && remBehavior.retryable) {
         remActions.appendChild(makeButton(t('desktopStage.retryAction'), 'btn-secondary', () => {
           if (state.activeAccount) activateAccount(state.activeAccount.id, state.activeAccount.kind);
         }));
@@ -1429,6 +1898,7 @@ function renderDesktopStage() {
       }
     } else {
       remediationCard.hidden = true;
+      remediationCard.removeAttribute('role');
       remActions.replaceChildren();
     }
   }
@@ -1799,12 +2269,23 @@ function renderProfiles() {
     const isPending = state.pendingProfileActions.has(prof.id);
     const accState = resolveAccountState(prof);
     const lcState = normalizeLifecycleState(prof);
+    const isSelected = state.activeAccount?.id === prof.id
+      && state.activeAccount?.kind === (isWebAccount ? 'web_isolated' : 'desktop_isolated');
 
     const li = document.createElement('li');
-    li.className = prof.running ? 'account-card is-running' : 'account-card';
+    li.className = `account-card${prof.running ? ' is-running' : ''}${isSelected ? ' is-selected' : ''}`;
     li.dataset.profileId = prof.id;
     li.dataset.accountKind = isWebAccount ? 'web_isolated' : 'desktop_isolated';
     li.dataset.lifecycle = lcState;
+    li.addEventListener('contextmenu', (event) => {
+      if (event.target?.closest?.('button, input, summary, a')) return;
+      event.preventDefault();
+      openAccountContextMenu(
+        { ...prof, kind: isWebAccount ? 'web_isolated' : 'desktop_isolated', display_name: prof.name },
+        li.querySelector('button[aria-haspopup="menu"]') || li,
+        { clientX: event.clientX, clientY: event.clientY }
+      );
+    });
 
     const head = document.createElement('div');
     head.className = 'account-card-head';
@@ -1881,7 +2362,7 @@ function renderProfiles() {
       } else if (isActiveLifecycle) {
         primaryActions.appendChild(makeButton(
           t('desktopStage.bringToFront'),
-          'btn-primary',
+          'btn-primary btn-tonal',
           () => activateAccount(prof.id, 'desktop_isolated'),
           {
             disabled: isPending || lcState === 'starting' || lcState === 'stopping',
@@ -1918,6 +2399,44 @@ function renderProfiles() {
       recHint.className = 'account-recovery-hint';
       recHint.textContent = t('accounts.recoveryHint');
       li.appendChild(recHint);
+    }
+    const inlineErr = state.profileErrors.get(prof.id);
+    if (inlineErr) {
+      const behavior = classifyErrorBehavior(inlineErr.errorCode);
+      const errBox = document.createElement('div');
+      errBox.className = 'account-inline-error' + (behavior.tone === 'info' ? ' is-info' : behavior.tone === 'warn' ? ' is-warn' : '');
+      errBox.setAttribute('role', behavior.liveRole);
+      errBox.dataset.profileError = inlineErr.errorCode;
+
+      const info = resolveErrorInfo(inlineErr.errorCode, inlineErr.rawDetail);
+      const errMsg = document.createElement('span');
+      errMsg.className = 'account-inline-error-text';
+      errMsg.textContent = info.userMessage;
+      errBox.appendChild(errMsg);
+
+      const errBtns = document.createElement('div');
+      errBtns.className = 'account-inline-error-actions';
+      if (behavior.retryable) {
+        errBtns.appendChild(makeButton(t('messages.retry'), 'btn-secondary btn-xs', () => {
+          const retryFn = inlineErr.retryFn;
+          clearProfileError(prof.id);
+          if (retryFn) retryFn();
+          else activateAccount(prof.id, isWebAccount ? 'web_isolated' : 'desktop_isolated');
+        }));
+      } else if (behavior.action === 'open_diagnostics') {
+        errBtns.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary btn-xs', (ev) => {
+          selectView('diagnostics', { triggerEl: ev.currentTarget, returnView: 'profiles' });
+        }));
+      }
+      errBtns.appendChild(makeButton(t('dialogs.close'), 'btn-link btn-xs', () => {
+        clearProfileError(prof.id);
+        renderProfiles();
+        const card = document.querySelector(`.account-card[data-profile-id="${CSS.escape(prof.id)}"]`);
+        const targetBtn = card?.querySelector('.btn-primary, .btn-secondary, .account-overflow-btn');
+        if (targetBtn instanceof HTMLElement) targetBtn.focus();
+      }));
+      errBox.appendChild(errBtns);
+      li.appendChild(errBox);
     }
     li.appendChild(actions);
     list.appendChild(li);
@@ -2015,17 +2534,95 @@ function renderDiagnostics() {
   const secList = document.getElementById('diag-security-list');
   const profList = document.getElementById('diag-profiles-list');
   const envList = document.getElementById('diag-env-list');
+  const healthList = document.getElementById('diag-health-list');
+  const isoSummaryList = document.getElementById('diag-isolation-summary-list');
+  const limitsSummaryList = document.getElementById('diag-limits-summary-list');
   if (!appList || !secList || !profList || !envList) return;
 
   appList.replaceChildren();
   secList.replaceChildren();
   profList.replaceChildren();
   envList.replaceChildren();
+  if (healthList) healthList.replaceChildren();
+  if (isoSummaryList) isoSummaryList.replaceChildren();
+  if (limitsSummaryList) limitsSummaryList.replaceChildren();
 
   const inst = state.status?.installation;
   const diag = state.diagnostics;
   const primary = state.status?.primary_zalo;
   const profiles = state.status?.profiles || [];
+  const checks = state.isolation?.checks || [];
+
+  if (healthList) {
+    const installAnswer = inst?.valid === true
+      ? t('diagnostics.summary.qInstallOk', { version: inst.version || '—' })
+      : (inst?.valid === false ? t('diagnostics.summary.qInstallMissing') : t('diagnostics.labels.installUnknown'));
+    appendKvRow(healthList, t('diagnostics.summary.qInstall'), installAnswer);
+
+    const passCount = checks.filter((c) => resolveIsolationCheckResult(c).raw === 'PASS').length;
+    const failCount = checks.filter((c) => resolveIsolationCheckResult(c).raw === 'FAIL').length;
+    const unverifiedCount = checks.filter((c) => {
+      const r = resolveIsolationCheckResult(c).raw;
+      return r === 'NOT_TESTED' || r === 'BLOCKED' || r === 'UNKNOWN';
+    }).length;
+    const hasFail = failCount > 0;
+    const hasUnverified = unverifiedCount > 0;
+    let isolationAnswer;
+    if (checks.length === 0) {
+      isolationAnswer = t('diagnostics.summary.qIsolationNoData');
+    } else if (hasFail) {
+      isolationAnswer = t('diagnostics.summary.qIsolationWarn', {
+        fail: formatNumber(failCount),
+        pass: formatNumber(passCount),
+        total: formatNumber(checks.length)
+      });
+    } else if (hasUnverified) {
+      isolationAnswer = t('diagnostics.summary.qIsolationPartial', {
+        pass: formatNumber(passCount),
+        total: formatNumber(checks.length),
+        unverified: formatNumber(unverifiedCount)
+      });
+    } else {
+      isolationAnswer = t('diagnostics.summary.qIsolationOk', {
+        pass: formatNumber(passCount),
+        total: formatNumber(checks.length)
+      });
+    }
+    appendKvRow(
+      healthList,
+      t('diagnostics.summary.qIsolation'),
+      isolationAnswer
+    );
+
+    const nextStep = inst?.valid === false
+      ? t('diagnostics.summary.qActionInstall')
+      : (checks.length === 0 || hasUnverified || hasFail ? t('diagnostics.summary.qActionUnverified') : t('diagnostics.summary.qActionReady'));
+    appendKvRow(healthList, t('diagnostics.summary.qAction'), nextStep);
+  }
+
+  if (isoSummaryList && limitsSummaryList) {
+    for (const chk of checks) {
+      const resInfo = resolveIsolationCheckResult(chk);
+      const li = document.createElement('li');
+      li.className = 'diag-check-card';
+      const top = document.createElement('div');
+      top.className = 'diag-check-card-head';
+      const title = document.createElement('span');
+      title.className = 'diag-check-card-name';
+      title.textContent = chk.check_name || '—';
+      top.appendChild(title);
+      top.appendChild(makeBadge(`${resInfo.label} (${resInfo.raw})`, resInfo.variant));
+      li.appendChild(top);
+      if (chk.detail) {
+        const det = document.createElement('p');
+        det.className = 'diag-check-card-detail';
+        det.textContent = chk.detail;
+        li.appendChild(det);
+      }
+      if (resInfo.raw === 'PASS') isoSummaryList.appendChild(li);
+      else limitsSummaryList.appendChild(li);
+    }
+  }
 
   const instText = inst?.valid === true
     ? t('diagnostics.labels.installDetected')
@@ -2330,6 +2927,9 @@ export async function refreshAll({ isVerify = false, quiet = false } = {}) {
       showErrorBanner(statusData.error_code || 'HOST_EXEC_FAILED', statusData.message || '');
     } else {
       state.status = statusData;
+      if (state.banner?.kind === 'error') {
+        clearBanner();
+      }
     }
     if (wsEnv && wsEnv.ok && wsEnv.data) {
       state.workspace = wsEnv.data;
@@ -2420,11 +3020,12 @@ async function toggleAccountPinned(id, currentlyPinned) {
     saveJsonStorage(PINNED_STORAGE_KEY, Array.from(set));
   }
   await refreshWorkspaceFast();
+  showToast(nextPinned ? 'messages.pinAdded' : 'messages.pinRemoved', {}, 'success', 'pin');
 }
 
 async function runProfileAction(action, prof) {
   if (state.pendingProfileActions.has(prof.id)) return;
-  clearBanner();
+  clearProfileError(prof.id);
   state.pendingProfileActions.set(prof.id, action);
   renderProfiles();
   renderAccountRail();
@@ -2443,12 +3044,31 @@ async function runProfileAction(action, prof) {
     }
     await refreshAll({ quiet: true });
     if (res && res.ok === false) {
-      showErrorBanner(res.error_code, res.message);
+      const code = res.error_code;
+      const isGlobalScope =
+        code === 'HOST_EXEC_FAILED' ||
+        code === 'HOST_TIMEOUT' ||
+        code === 'UNAUTHORIZED' ||
+        code === 'PROTECTED_PRIMARY_PROCESS' ||
+        code === 'PRIMARY_PROTECTED';
+      if (isGlobalScope) showErrorBanner(code, res.message);
+      else showProfileError(prof.id, code, res.message, () => runProfileAction(action, prof));
     } else if (action === 'backup' && res?.ok !== false) {
       showKeyBanner('messages.backupCreated', {}, 'success');
     }
   } catch (err) {
-    showErrorBanner(err?.errorCode || 'HOST_EXEC_FAILED', err?.message || '');
+    const code = err?.errorCode || 'HOST_EXEC_FAILED';
+    const isGlobalScope =
+      code === 'HOST_EXEC_FAILED' ||
+      code === 'HOST_TIMEOUT' ||
+      code === 'UNAUTHORIZED' ||
+      code === 'PROTECTED_PRIMARY_PROCESS' ||
+      code === 'PRIMARY_PROTECTED';
+    if (isGlobalScope) {
+      showErrorBanner(code, err?.message || '');
+    } else {
+      showProfileError(prof.id, code, err?.message || '', () => runProfileAction(action, prof));
+    }
   } finally {
     state.pendingProfileActions.delete(prof.id);
     renderProfiles();
@@ -2545,9 +3165,11 @@ function openRenameDialog(prof, kind = 'desktop_isolated') {
   document.getElementById('rename-profile-subtitle').textContent = t('dialogs.rename.subtitle', {
     name: displayName
   });
-  document.getElementById('rename-profile-name').value = displayName;
+  const renameInput = document.getElementById('rename-profile-name');
+  renameInput.value = displayName;
   renderRenameColorPalette(getAccountColorId(prof));
   showModalSafely(document.getElementById('rename-profile-dialog'));
+  renameInput?.select();
 }
 
 function openDeleteDialog(prof, kind = 'desktop_isolated') {
@@ -3027,6 +3649,7 @@ function wireDialogsAndFallbacks() {
       if (res && res.ok === false) {
         showErrorBanner(res.error_code, res.message);
       } else {
+        clearProfileError(targetId);
         removeAccountColor(targetId);
         if (state.activeAccount?.id === targetId && state.activeAccount?.kind === targetKind) {
           state.activeAccount = null;
@@ -3513,18 +4136,56 @@ export async function initApp() {
     });
   }
 
-  for (const btn of document.querySelectorAll('.back-link[data-back-to]')) {
+  for (const btn of document.querySelectorAll('.back-btn[data-back-to]')) {
     btn.addEventListener('click', () => {
-      selectView(btn.getAttribute('data-back-to'));
+      const targetView = btn.getAttribute('data-back-to') || 'profiles';
+      const triggerEl = state.lastNavTriggerEl;
+      state.lastNavTriggerEl = null;
+      selectView(targetView);
+      if (triggerEl && triggerEl.isConnected && !triggerEl.closest?.('[hidden]')) {
+        triggerEl.focus();
+      } else if (targetView === 'profiles') {
+        const cardBtn = state.activeAccount
+          ? document.querySelector(`#profiles-list .account-card[data-profile-id="${CSS.escape(state.activeAccount.id)}"] .btn-primary`)
+          : null;
+        if (cardBtn && !cardBtn.disabled) cardBtn.focus();
+        else document.getElementById('btn-overview-create')?.focus();
+      }
     });
   }
 
-  document.getElementById('btn-goto-diagnostics')?.addEventListener('click', () => {
-    selectView('diagnostics');
+  document.getElementById('btn-goto-diagnostics')?.addEventListener('click', (event) => {
+    selectView('diagnostics', { triggerEl: event.currentTarget, returnView: 'settings' });
   });
 
-  document.getElementById('btn-help-diagnostics')?.addEventListener('click', () => {
-    selectView('diagnostics');
+  document.getElementById('btn-help-diagnostics')?.addEventListener('click', (event) => {
+    selectView('diagnostics', { triggerEl: event.currentTarget, returnView: 'help' });
+  });
+
+  document.getElementById('btn-copy-diagnostics')?.addEventListener('click', async () => {
+    const installStateLabel = state.status?.installation?.valid
+      ? t('diagnostics.summary.copyDetected')
+      : t('diagnostics.summary.copyMissing');
+    const lines = [
+      t('diagnostics.summary.copyHeader', { appName: t('app.name') }),
+      `${t('diagnostics.summary.copyPlatform')}: ${state.status?.platform || 'unknown'} | ${t('diagnostics.summary.copyVersion')}: ${state.status?.app_version || UI_VERSION}`,
+      `${t('diagnostics.summary.copyDataDir')}: ${state.status?.data_dir || '—'}`,
+      `${t('diagnostics.summary.copyInstall')}: ${installStateLabel} (${state.status?.installation?.version || '—'})`,
+      `${t('diagnostics.summary.copyChecks')}:`,
+      ...(state.isolation?.checks || []).map((c) => `  - ${c.check_name}: ${resolveIsolationCheckResult(c).raw} (${c.detail || ''})`),
+      `${t('diagnostics.summary.copyLogs')}:`,
+      ...(state.diagnostics?.sanitized_logs || [])
+    ];
+    try {
+      if (!navigator.clipboard?.writeText) {
+        showToast('errors.UNKNOWN', {}, 'error', 'diag-copy-err');
+        return;
+      }
+      await navigator.clipboard.writeText(lines.join('\n'));
+      showToast('messages.diagnosticsCopied', {}, 'success', 'diag-copy');
+    } catch (_err) {
+      showToast('errors.UNKNOWN', {}, 'error', 'diag-copy-err');
+    }
   });
 
   const railFilterInput = document.getElementById('rail-filter-input');

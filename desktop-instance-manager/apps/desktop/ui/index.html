@@ -254,6 +254,17 @@
       <!-- Surface 2: Desktop Primary & Isolated Stage -->
       <section id="stage-desktop-session" class="stage stage-scroll stage-desktop" hidden>
         <div class="desktop-stage-inner">
+          <nav class="view-nav-bar" data-i18n-aria-label="nav.backNavAria" aria-label="Điều hướng quay lại">
+            <button type="button" class="back-btn" id="btn-desktop-back" data-back-to="profiles">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              <span data-i18n="nav.backToAccounts">Tài khoản</span>
+            </button>
+            <span class="view-breadcrumb-sep" aria-hidden="true">/</span>
+            <span class="view-breadcrumb-current" id="desktop-breadcrumb-name"></span>
+          </nav>
+
           <div class="panel desktop-hero-card">
             <div class="desktop-hero-head">
               <div class="account-avatar account-avatar-lg" id="desktop-stage-avatar" aria-hidden="true">Z</div>
@@ -293,7 +304,8 @@
             </div>
           </div>
 
-          <section class="panel" id="desktop-snap-panel" hidden>
+          <section class="panel stage-section" id="desktop-snap-panel" hidden>
+            <h2 class="stage-section-title" data-i18n="desktopStage.snapSectionTitle">Sắp xếp cửa sổ</h2>
             <label class="settings-toggle-row">
               <input type="checkbox" id="toggle-companion-snap">
               <span data-i18n="desktopStage.companionSnapLabel">Đặt cạnh KHOANG (tùy chọn)</span>
@@ -301,12 +313,16 @@
             <p class="settings-hint" id="desktop-snap-hint" data-i18n="desktopStage.companionSnapHint"></p>
           </section>
 
-          <section class="panel" id="desktop-secondary-tools" hidden>
+          <section class="panel stage-section" id="desktop-secondary-tools" hidden>
+            <h2 class="stage-section-title" data-i18n="desktopStage.manageSectionTitle">Quản lý tài khoản</h2>
             <div class="desktop-tools-row">
               <button type="button" class="btn btn-secondary btn-sm" id="btn-desktop-pin" data-i18n="desktopStage.pinAction">Ghim lên thanh</button>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-desktop-rename" data-i18n="accounts.actions.rename">Đổi tên</button>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-desktop-backup" data-i18n="accounts.actions.backup">Sao lưu</button>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-desktop-details" data-i18n="accounts.actions.details">Thông tin tài khoản</button>
+            </div>
+            <div class="stage-danger-zone">
+              <span class="stage-danger-label" data-i18n="desktopStage.dangerZoneTitle">Thao tác không thể hoàn tác</span>
               <button type="button" class="btn btn-subtle-danger btn-sm" id="btn-desktop-delete" data-i18n="accounts.actions.delete">Xóa tài khoản</button>
             </div>
             <details class="advanced-details">
@@ -387,9 +403,6 @@
 
       <!-- View 2: Backups -->
       <section id="view-backups" class="view stage-scroll" hidden>
-        <div class="view-back-bar">
-          <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
-        </div>
         <div class="page-header">
           <div>
             <h1 class="page-title" data-i18n="backups.title">Sao lưu</h1>
@@ -430,9 +443,6 @@
 
       <!-- View 3: Settings -->
       <section id="view-settings" class="view stage-scroll" hidden>
-        <div class="view-back-bar">
-          <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
-        </div>
         <div class="page-header">
           <div>
             <h1 class="page-title" data-i18n="settings.title">Cài đặt</h1>
@@ -511,84 +521,115 @@
 
       <!-- View 4: Advanced Diagnostics -->
       <section id="view-diagnostics" class="view stage-scroll" hidden>
-        <div class="view-back-bar">
-          <button type="button" class="btn-link back-link" data-back-to="settings" data-i18n="diagnostics.backToSettings">← Quay lại Cài đặt</button>
-        </div>
+        <nav class="view-nav-bar" data-i18n-aria-label="nav.backNavAria" aria-label="Điều hướng quay lại">
+          <button type="button" class="back-btn" id="btn-diag-back" data-back-to="settings">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            <span id="diag-back-label" data-i18n="diagnostics.backToSettings">Cài đặt</span>
+          </button>
+          <span class="view-breadcrumb-sep" aria-hidden="true">/</span>
+          <span class="view-breadcrumb-current" data-i18n="diagnostics.title">Kiểm tra sự cố</span>
+        </nav>
         <div class="page-header">
           <div>
             <h1 class="page-title" data-i18n="diagnostics.title">Kiểm tra sự cố</h1>
-            <p class="page-subtitle" data-i18n="diagnostics.subtitle">Thông tin nâng cao giúp kiểm tra cài đặt Zalo, bộ nhớ và khả năng tách biệt dữ liệu.</p>
+            <p class="page-subtitle" data-i18n="diagnostics.subtitle">Tổng quan sức khỏe hệ thống và kiểm tra tách biệt dữ liệu tài khoản.</p>
           </div>
           <div class="page-actions">
             <label class="inline-toggle">
               <input type="checkbox" id="toggle-sizes">
               <span data-i18n="diagnostics.measureDisk">Đo dung lượng đĩa của các tài khoản</span>
             </label>
-            <button type="button" class="btn btn-primary" id="btn-run-isolation" data-i18n="diagnostics.reverify">Kiểm tra lại</button>
+            <button type="button" class="btn btn-secondary" id="btn-copy-diagnostics" data-i18n="diagnostics.copyAction">Sao chép chẩn đoán</button>
             <button type="button" class="btn btn-secondary" id="btn-refresh-diagnostics" data-i18n="diagnostics.refresh">Làm mới</button>
+            <button type="button" class="btn btn-primary" id="btn-run-isolation" data-i18n="diagnostics.reverify">Kiểm tra lại</button>
           </div>
         </div>
 
         <div class="diag-stack">
-          <section class="panel">
-            <h2 class="panel-title" data-i18n="diagnostics.groups.application">Ứng dụng Zalo Desktop</h2>
-            <dl class="kv-list" id="diag-app-list"></dl>
+          <!-- Tier 1: Plain-language Health Summary -->
+          <section class="panel diag-health-panel" id="diag-health-summary">
+            <h2 class="panel-title" data-i18n="diagnostics.summary.title">Tóm tắt tình trạng hệ thống</h2>
+            <dl class="diag-health-grid" id="diag-health-list"></dl>
           </section>
 
-          <section class="panel">
-            <h2 class="panel-title" data-i18n="diagnostics.groups.security">Tách biệt &amp; bảo vệ dữ liệu</h2>
-            <dl class="kv-list" id="diag-security-list"></dl>
-            <div class="table-wrap table-wrap-spaced">
-              <table class="data-table">
-                <caption class="visually-hidden" data-i18n="diagnostics.checks.tableCaption">Kết quả kiểm tra tách biệt dữ liệu</caption>
-                <thead>
-                  <tr>
-                    <th scope="col" data-i18n="diagnostics.checks.check">Hạng mục</th>
-                    <th scope="col" data-i18n="diagnostics.checks.result">Kết quả</th>
-                    <th scope="col" data-i18n="diagnostics.checks.detail">Chi tiết</th>
-                  </tr>
-                </thead>
-                <tbody id="diagnostics-tbody"></tbody>
-              </table>
+          <!-- Tier 2: Practical Grouped Checks -->
+          <div class="diag-grouped-grid" id="diag-grouped-checks">
+            <section class="panel">
+              <h2 class="panel-title" data-i18n="diagnostics.groupsSummary.isolation">Tách biệt dữ liệu &amp; bảo vệ Zalo gốc</h2>
+              <ul class="diag-check-cards" id="diag-isolation-summary-list" role="list"></ul>
+            </section>
+            <section class="panel">
+              <h2 class="panel-title" data-i18n="diagnostics.groupsSummary.limits">Giới hạn nền tảng &amp; mục chưa kiểm thử</h2>
+              <ul class="diag-check-cards" id="diag-limits-summary-list" role="list"></ul>
+            </section>
+          </div>
+
+          <!-- Tier 3: Technical Disclosure -->
+          <details class="panel advanced-details diag-technical-disclosure" id="diag-technical-disclosure">
+            <summary data-i18n="diagnostics.technicalSummary">Chi tiết kỹ thuật &amp; nhật ký hệ thống</summary>
+            <div class="diag-tech-inner">
+              <div class="diag-summary-grid">
+                <section class="diag-subpanel">
+                  <h3 class="panel-title" data-i18n="diagnostics.groups.application">Ứng dụng Zalo Desktop</h3>
+                  <dl class="kv-list" id="diag-app-list"></dl>
+                </section>
+
+                <section class="diag-subpanel">
+                  <h3 class="panel-title" data-i18n="diagnostics.groups.profiles">Tổng quan tài khoản</h3>
+                  <dl class="kv-list" id="diag-profiles-list"></dl>
+                </section>
+              </div>
+
+              <section class="diag-subpanel">
+                <h3 class="panel-title" data-i18n="diagnostics.groups.security">Tách biệt &amp; bảo vệ dữ liệu</h3>
+                <dl class="kv-list" id="diag-security-list"></dl>
+                <div class="table-wrap table-wrap-spaced">
+                  <table class="data-table">
+                    <caption class="visually-hidden" data-i18n="diagnostics.checks.tableCaption">Kết quả kiểm tra tách biệt dữ liệu</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col" data-i18n="diagnostics.checks.check">Hạng mục</th>
+                        <th scope="col" data-i18n="diagnostics.checks.result">Kết quả</th>
+                        <th scope="col" data-i18n="diagnostics.checks.detail">Chi tiết</th>
+                      </tr>
+                    </thead>
+                    <tbody id="diagnostics-tbody"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="diag-subpanel">
+                <h3 class="panel-title" data-i18n="diagnostics.groups.environment">Môi trường &amp; hệ điều hành</h3>
+                <dl class="kv-list" id="diag-env-list"></dl>
+                <div class="table-wrap table-wrap-spaced">
+                  <table class="data-table">
+                    <caption class="visually-hidden" data-i18n="diagnostics.readiness.tableCaption">Mức độ hỗ trợ theo hệ điều hành</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col" data-i18n="diagnostics.readiness.platform">Nền tảng</th>
+                        <th scope="col" data-i18n="diagnostics.readiness.status">Mức độ hỗ trợ</th>
+                        <th scope="col" data-i18n="diagnostics.readiness.strategy">Cơ chế</th>
+                        <th scope="col" data-i18n="diagnostics.readiness.limits">Giới hạn</th>
+                      </tr>
+                    </thead>
+                    <tbody id="readiness-tbody"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="diag-subpanel">
+                <h3 class="panel-title" id="diag-logs-heading" data-i18n="diagnostics.groups.logs">Nhật ký hệ thống (đã lọc)</h3>
+                <pre class="log-box" id="sanitized-log-output" role="region" aria-labelledby="diag-logs-heading" tabindex="0"></pre>
+              </section>
             </div>
-          </section>
-
-          <section class="panel">
-            <h2 class="panel-title" data-i18n="diagnostics.groups.profiles">Tổng quan tài khoản</h2>
-            <dl class="kv-list" id="diag-profiles-list"></dl>
-          </section>
-
-          <section class="panel">
-            <h2 class="panel-title" data-i18n="diagnostics.groups.environment">Môi trường &amp; hệ điều hành</h2>
-            <dl class="kv-list" id="diag-env-list"></dl>
-            <div class="table-wrap table-wrap-spaced">
-              <table class="data-table">
-                <caption class="visually-hidden" data-i18n="diagnostics.readiness.tableCaption">Mức độ hỗ trợ theo hệ điều hành</caption>
-                <thead>
-                  <tr>
-                    <th scope="col" data-i18n="diagnostics.readiness.platform">Nền tảng</th>
-                    <th scope="col" data-i18n="diagnostics.readiness.status">Mức độ hỗ trợ</th>
-                    <th scope="col" data-i18n="diagnostics.readiness.strategy">Cơ chế</th>
-                    <th scope="col" data-i18n="diagnostics.readiness.limits">Giới hạn</th>
-                  </tr>
-                </thead>
-                <tbody id="readiness-tbody"></tbody>
-              </table>
-            </div>
-          </section>
-
-          <section class="panel">
-            <h2 class="panel-title" id="diag-logs-heading" data-i18n="diagnostics.groups.logs">Nhật ký hệ thống (đã lọc)</h2>
-            <pre class="log-box" id="sanitized-log-output" role="region" aria-labelledby="diag-logs-heading" tabindex="0"></pre>
-          </section>
+          </details>
         </div>
       </section>
 
       <!-- View 5: Help -->
       <section id="view-help" class="view stage-scroll" hidden>
-        <div class="view-back-bar">
-          <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
-        </div>
         <div class="page-header">
           <div>
             <h1 class="page-title" data-i18n="help.title">Hướng dẫn sử dụng</h1>
@@ -822,6 +863,8 @@
     <p id="quick-switcher-empty" class="switcher-empty" hidden data-i18n="quickSwitcher.empty">Không tìm thấy tài khoản phù hợp.</p>
   </dialog>
 
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-relevant="additions text"></div>
+  <div id="account-context-menu" class="overflow-menu context-menu" role="menu" hidden></div>
   <div id="tooltip-portal"></div>
   <p id="sr-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
 
