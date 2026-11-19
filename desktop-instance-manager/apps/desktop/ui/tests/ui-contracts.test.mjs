@@ -279,6 +279,38 @@ function contrastRatioAgainstWhite(hex) {
   return (1.0 + 0.05) / (lum + 0.05);
 }
 
+function contrastRatio(hexA, hexB) {
+  const lumA = relativeLuminance(hexA);
+  const lumB = relativeLuminance(hexB);
+  const lighter = Math.max(lumA, lumB);
+  const darker = Math.min(lumA, lumB);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+test('semantic button & accent tokens in styles.css meet WCAG 2.2 AA >= 4.5:1 in light and dark themes', () => {
+  const vars = new Map();
+  for (const match of css.matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/g)) {
+    vars.set(match[1], match[2]);
+  }
+  const pairs = [
+    ['light .btn-primary', '--accent-text-light', '--accent-light'],
+    ['dark .btn-primary', '--accent-text-dark', '--accent-dark'],
+    ['light .btn-primary.btn-tonal', '--accent-tonal-fg-light', '--accent-soft-light'],
+    ['dark .btn-primary.btn-tonal', '--accent-tonal-fg-dark', '--accent-soft-dark'],
+    ['light .btn-secondary', '--text-primary-light', '--bg-surface-light'],
+    ['dark .btn-secondary', '--text-primary-dark', '--bg-surface-dark'],
+    ['light .btn-subtle-danger', '--danger-fg-light', '--bg-surface-light'],
+    ['dark .btn-subtle-danger', '--danger-fg-dark', '--bg-surface-dark']
+  ];
+  for (const [label, fgToken, bgToken] of pairs) {
+    const fg = vars.get(fgToken);
+    const bg = vars.get(bgToken);
+    assert.ok(fg && bg, `Missing color token for ${label}: ${fgToken}=${fg}, ${bgToken}=${bg}`);
+    const ratio = contrastRatio(fg, bg);
+    assert.ok(ratio >= 4.5, `${label} (${fg} on ${bg}) contrast is ${ratio.toFixed(2)}:1, expected >= 4.5:1`);
+  }
+});
+
 test('all 8 account identity --id-* hex colors in styles.css meet WCAG 2.2 AA >= 4.5:1 against #ffffff', () => {
   const expectedTokens = [
     '--id-blue',

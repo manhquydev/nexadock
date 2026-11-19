@@ -359,6 +359,8 @@ function dismissToast(id) {
 
 function scheduleToastTimer(toastObj) {
   if (toastObj.timer) clearTimeout(toastObj.timer);
+  toastObj.timer = null;
+  if (toastObj.hovered || toastObj.focused) return;
   toastObj.timer = setTimeout(() => {
     dismissToast(toastObj.id);
   }, 4500);
@@ -368,6 +370,8 @@ function renderToasts() {
   if (typeof document === 'undefined') return;
   const region = document.getElementById('toast-region');
   if (!region) return;
+  const activeToastEl = document.activeElement?.closest?.('.toast[data-toast-id]');
+  const focusedToastId = activeToastEl ? Number(activeToastEl.dataset.toastId) : null;
   region.replaceChildren();
 
   for (const toast of state.toasts) {
@@ -400,24 +404,37 @@ function renderToasts() {
     closeBtn.addEventListener('click', () => dismissToast(toast.id));
 
     item.addEventListener('mouseenter', () => {
+      toast.hovered = true;
       if (toast.timer) {
         clearTimeout(toast.timer);
         toast.timer = null;
       }
     });
-    item.addEventListener('mouseleave', () => scheduleToastTimer(toast));
+    item.addEventListener('mouseleave', () => {
+      toast.hovered = false;
+      scheduleToastTimer(toast);
+    });
     item.addEventListener('focusin', () => {
+      toast.focused = true;
       if (toast.timer) {
         clearTimeout(toast.timer);
         toast.timer = null;
       }
     });
-    item.addEventListener('focusout', () => scheduleToastTimer(toast));
+    item.addEventListener('focusout', (ev) => {
+      if (!item.contains(ev.relatedTarget)) {
+        toast.focused = false;
+        scheduleToastTimer(toast);
+      }
+    });
 
     item.appendChild(icon);
     item.appendChild(text);
     item.appendChild(closeBtn);
     region.appendChild(item);
+    if (focusedToastId === toast.id) {
+      closeBtn.focus();
+    }
   }
 }
 
@@ -539,14 +556,15 @@ export function classifyErrorBehavior(errorCode) {
   };
 }
 
-function showProfileError(profileId, errorCode, rawDetail = '') {
+function showProfileError(profileId, errorCode, rawDetail = '', retryFn = null) {
   if (!profileId) {
     showErrorBanner(errorCode, rawDetail);
     return;
   }
   state.profileErrors.set(profileId, {
     errorCode: errorCode || 'UNKNOWN',
-    rawDetail: rawDetail ? String(rawDetail) : ''
+    rawDetail: rawDetail ? String(rawDetail) : '',
+    retryFn: typeof retryFn === 'function' ? retryFn : null
   });
 }
 
@@ -1838,14 +1856,18 @@ function renderDesktopStage() {
   if (remediationCard && remTitle && remBody && remActions) {
     const profileErr = state.profileErrors.get(state.activeAccount.id);
     const errBehavior = profileErr ? classifyErrorBehavior(profileErr.errorCode) : null;
-    const rem = state.lastActivationResult?.remediation || (profileErr ? {
-      code: profileErr.errorCode,
-      message: profileErr.rawDetail,
-      suggested_action: errBehavior.action === 'open_diagnostics'
-        ? 'open_diagnostics'
-        : (errBehavior.retryable ? 'retry_after_stop' : 'dismiss')
-    } : null);
-    const outcome = state.lastActivationResult?.outcome || (profileErr ? (errBehavior.category === 'action_required' ? 'manual_action_required' : 'failed') : null);
+    const rem = profileErr
+      ? {
+          code: profileErr.errorCode,
+          message: profileErr.rawDetail,
+          suggested_action: errBehavior.action === 'open_diagnostics'
+            ? 'open_diagnostics'
+            : (errBehavior.retryable ? 'retry_after_stop' : 'dismiss')
+        }
+      : (state.lastActivationResult?.remediation || null);
+    const outcome = profileErr
+      ? (errBehavior.category === 'action_required' ? 'manual_action_required' : 'failed')
+      : (state.lastActivationResult?.outcome || null);
     if (rem && (outcome === 'manual_action_required' || outcome === 'blocked' || outcome === 'failed')) {
       const remBehavior = classifyErrorBehavior(rem.code);
       remediationCard.hidden = false;
@@ -2396,12 +2418,14 @@ function renderProfiles() {
       errBtns.className = 'account-inline-error-actions';
       if (behavior.retryable) {
         errBtns.appendChild(makeButton(t('messages.retry'), 'btn-secondary btn-xs', () => {
+          const retryFn = inlineErr.retryFn;
           clearProfileError(prof.id);
-          activateAccount(prof.id, isWebAccount ? 'web_isolated' : 'desktop_isolated');
+          if (retryFn) retryFn();
+          else activateAccount(prof.id, isWebAccount ? 'web_isolated' : 'desktop_isolated');
         }));
       } else if (behavior.action === 'open_diagnostics') {
         errBtns.appendChild(makeButton(t('desktopStage.openDiagnostics'), 'btn-secondary btn-xs', (ev) => {
-          selectView('diagnostics', { triggerEl: ev.currentTarget, returnView: 'accounts' });
+          selectView('diagnostics', { triggerEl: ev.currentTarget, returnView: 'profiles' });
         }));
       }
       errBtns.appendChild(makeButton(t('dialogs.close'), 'btn-link btn-xs', () => {
@@ -2535,20 +2559,44 @@ function renderDiagnostics() {
       : (inst?.valid === false ? t('diagnostics.summary.qInstallMissing') : t('diagnostics.labels.installUnknown'));
     appendKvRow(healthList, t('diagnostics.summary.qInstall'), installAnswer);
 
-    const hasFail = checks.some((c) => resolveIsolationCheckResult(c).raw === 'FAIL');
-    const hasUnverified = checks.some((c) => {
+    const passCount = checks.filter((c) => resolveIsolationCheckResult(c).raw === 'PASS').length;
+    const failCount = checks.filter((c) => resolveIsolationCheckResult(c).raw === 'FAIL').length;
+    const unverifiedCount = checks.filter((c) => {
       const r = resolveIsolationCheckResult(c).raw;
       return r === 'NOT_TESTED' || r === 'BLOCKED' || r === 'UNKNOWN';
-    });
+    }).length;
+    const hasFail = failCount > 0;
+    const hasUnverified = unverifiedCount > 0;
+    let isolationAnswer;
+    if (checks.length === 0) {
+      isolationAnswer = t('diagnostics.summary.qIsolationNoData');
+    } else if (hasFail) {
+      isolationAnswer = t('diagnostics.summary.qIsolationWarn', {
+        fail: formatNumber(failCount),
+        pass: formatNumber(passCount),
+        total: formatNumber(checks.length)
+      });
+    } else if (hasUnverified) {
+      isolationAnswer = t('diagnostics.summary.qIsolationPartial', {
+        pass: formatNumber(passCount),
+        total: formatNumber(checks.length),
+        unverified: formatNumber(unverifiedCount)
+      });
+    } else {
+      isolationAnswer = t('diagnostics.summary.qIsolationOk', {
+        pass: formatNumber(passCount),
+        total: formatNumber(checks.length)
+      });
+    }
     appendKvRow(
       healthList,
       t('diagnostics.summary.qIsolation'),
-      hasFail ? t('diagnostics.summary.qIsolationWarn') : t('diagnostics.summary.qIsolationOk')
+      isolationAnswer
     );
 
     const nextStep = inst?.valid === false
       ? t('diagnostics.summary.qActionInstall')
-      : (hasUnverified || hasFail ? t('diagnostics.summary.qActionUnverified') : t('diagnostics.summary.qActionReady'));
+      : (checks.length === 0 || hasUnverified || hasFail ? t('diagnostics.summary.qActionUnverified') : t('diagnostics.summary.qActionReady'));
     appendKvRow(healthList, t('diagnostics.summary.qAction'), nextStep);
   }
 
@@ -2996,18 +3044,30 @@ async function runProfileAction(action, prof) {
     }
     await refreshAll({ quiet: true });
     if (res && res.ok === false) {
-      const isInfra = res.error_code === 'HOST_EXEC_FAILED' || res.error_code === 'HOST_TIMEOUT' || res.error_code === 'UNAUTHORIZED';
-      if (isInfra) showErrorBanner(res.error_code, res.message);
-      else showProfileError(prof.id, res.error_code, res.message);
+      const code = res.error_code;
+      const isGlobalScope =
+        code === 'HOST_EXEC_FAILED' ||
+        code === 'HOST_TIMEOUT' ||
+        code === 'UNAUTHORIZED' ||
+        code === 'PROTECTED_PRIMARY_PROCESS' ||
+        code === 'PRIMARY_PROTECTED';
+      if (isGlobalScope) showErrorBanner(code, res.message);
+      else showProfileError(prof.id, code, res.message, () => runProfileAction(action, prof));
     } else if (action === 'backup' && res?.ok !== false) {
       showKeyBanner('messages.backupCreated', {}, 'success');
     }
   } catch (err) {
     const code = err?.errorCode || 'HOST_EXEC_FAILED';
-    if (code === 'HOST_EXEC_FAILED' || code === 'HOST_TIMEOUT' || code === 'UNAUTHORIZED') {
+    const isGlobalScope =
+      code === 'HOST_EXEC_FAILED' ||
+      code === 'HOST_TIMEOUT' ||
+      code === 'UNAUTHORIZED' ||
+      code === 'PROTECTED_PRIMARY_PROCESS' ||
+      code === 'PRIMARY_PROTECTED';
+    if (isGlobalScope) {
       showErrorBanner(code, err?.message || '');
     } else {
-      showProfileError(prof.id, code, err?.message || '');
+      showProfileError(prof.id, code, err?.message || '', () => runProfileAction(action, prof));
     }
   } finally {
     state.pendingProfileActions.delete(prof.id);
@@ -4103,14 +4163,17 @@ export async function initApp() {
   });
 
   document.getElementById('btn-copy-diagnostics')?.addEventListener('click', async () => {
+    const installStateLabel = state.status?.installation?.valid
+      ? t('diagnostics.summary.copyDetected')
+      : t('diagnostics.summary.copyMissing');
     const lines = [
-      `${t('app.name')} Diagnostics`,
-      `Platform: ${state.status?.platform || 'unknown'} | Version: ${state.status?.app_version || UI_VERSION}`,
-      `DataDir: ${state.status?.data_dir || '—'}`,
-      `Install: ${state.status?.installation?.valid ? 'Detected' : 'Missing'} (${state.status?.installation?.version || '—'})`,
-      'Checks:',
+      t('diagnostics.summary.copyHeader', { appName: t('app.name') }),
+      `${t('diagnostics.summary.copyPlatform')}: ${state.status?.platform || 'unknown'} | ${t('diagnostics.summary.copyVersion')}: ${state.status?.app_version || UI_VERSION}`,
+      `${t('diagnostics.summary.copyDataDir')}: ${state.status?.data_dir || '—'}`,
+      `${t('diagnostics.summary.copyInstall')}: ${installStateLabel} (${state.status?.installation?.version || '—'})`,
+      `${t('diagnostics.summary.copyChecks')}:`,
       ...(state.isolation?.checks || []).map((c) => `  - ${c.check_name}: ${resolveIsolationCheckResult(c).raw} (${c.detail || ''})`),
-      'Logs:',
+      `${t('diagnostics.summary.copyLogs')}:`,
       ...(state.diagnostics?.sanitized_logs || [])
     ];
     try {

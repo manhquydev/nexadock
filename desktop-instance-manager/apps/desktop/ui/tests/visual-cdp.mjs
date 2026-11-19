@@ -831,6 +831,9 @@ try {
   const diagText = await evalJs(`document.getElementById('diagnostics-tbody').textContent`);
   assert.match(diagText, /NOT_TESTED/);
   assert.match(diagText, /BLOCKED/);
+  const diagSummaryText = await evalJs(`document.getElementById('diag-health-list').textContent`);
+  assert.match(diagSummaryText, /chưa thể kết luận an toàn toàn bộ/);
+  assert.doesNotMatch(diagSummaryText, /An toàn —/);
 
   // 4. Backups view
   await evalJs(`document.querySelector('.top-nav-btn[data-view="backups"]').click()`);
@@ -851,7 +854,33 @@ try {
   await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
   await new Promise((r) => setTimeout(r, 80));
 
+  // Primary protection guard must not blame secondary card or show Retry / assertive alert
   mockData.failNextAction = { ok: false, error_code: 'PROTECTED_PRIMARY_PROCESS', message: 'Target PID 4120 is primary Zalo' };
+  await evalJs(`document.querySelector('#profiles-list .account-card:first-child .btn-subtle-danger').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const guardCheck = await evalJs(`(() => {
+    const banner = document.getElementById('status-banner');
+    const card1Inline = document.querySelector('#profiles-list .account-card:first-child [data-profile-error]');
+    const btns = Array.from(banner?.querySelectorAll('button') || []).map((b) => b.textContent.trim());
+    return {
+      bannerVisible: !banner.hidden,
+      bannerRole: banner.getAttribute('role'),
+      bannerLive: banner.getAttribute('aria-live'),
+      bannerIsInfo: banner.classList.contains('banner-info'),
+      hasRetryBtn: btns.some((txt) => /Thử lại|Retry/i.test(txt)),
+      card1HasError: Boolean(card1Inline)
+    };
+  })()`);
+  assert.equal(guardCheck.bannerVisible, true);
+  assert.equal(guardCheck.bannerRole, 'status');
+  assert.equal(guardCheck.bannerLive, 'polite');
+  assert.equal(guardCheck.bannerIsInfo, true);
+  assert.equal(guardCheck.hasRetryBtn, false);
+  assert.equal(guardCheck.card1HasError, false);
+  await evalJs(`document.getElementById('btn-dismiss-banner')?.click()`);
+
+  // Recoverable per-account error renders inline on affected card with Retry + focus restoration
+  mockData.failNextAction = { ok: false, error_code: 'PROCESS_ERROR', message: 'Failed to stop child process 9901' };
   await evalJs(`document.querySelector('#profiles-list .account-card:first-child .btn-subtle-danger').click()`);
   await new Promise((r) => setTimeout(r, 150));
   const errCheck = await evalJs(`(() => {
@@ -860,19 +889,17 @@ try {
     return {
       code: inlineEl?.dataset.profileError || null,
       role: inlineEl?.getAttribute('role') || null,
-      isInfo: inlineEl?.classList.contains('is-info') || false,
       hasRetryBtn: btns.some((txt) => /Thử lại|Retry/i.test(txt)),
       text: inlineEl?.querySelector('.account-inline-error-text')?.textContent || '',
       globalBannerHidden: document.getElementById('status-banner').hidden,
       siblingDisabled: document.querySelector('#profiles-list .account-card:nth-child(2) .btn-primary')?.disabled || false
     };
   })()`);
-  assert.equal(errCheck.code, 'PROTECTED_PRIMARY_PROCESS');
-  assert.equal(errCheck.role, 'status');
-  assert.equal(errCheck.isInfo, true);
-  assert.equal(errCheck.hasRetryBtn, false);
+  assert.equal(errCheck.code, 'PROCESS_ERROR');
+  assert.equal(errCheck.role, 'alert');
+  assert.equal(errCheck.hasRetryBtn, true);
   assert.equal(errCheck.siblingDisabled, false);
-  assert.doesNotMatch(errCheck.text, /Target PID 4120/);
+  assert.doesNotMatch(errCheck.text, /9901/);
   assert.equal(errCheck.globalBannerHidden, true);
   await snap('account-dock-error-vi-light.png');
 
@@ -1338,6 +1365,10 @@ try {
     segoeLoaded: document.fonts ? document.fonts.check('14px "Segoe UI"') : false,
     toastRegionPresent: Boolean(document.getElementById('toast-region'))
   })`);
+  assert.equal(fontInfo.bodySize, '14px');
+  assert.equal(fontInfo.fontsStatus, 'loaded');
+  assert.match(fontInfo.computedBodyFont, /Segoe UI|Inter|Be Vietnam Pro/i);
+  assert.equal(fontInfo.toastRegionPresent, true);
   console.log('FONT_METRICS', JSON.stringify(fontInfo));
 
   await evalJs(`document.getElementById('btn-quick-switcher').click()`);

@@ -31,6 +31,7 @@
   --accent-hover-light: #12544d;
   --accent-text-light: #ffffff;
   --accent-soft-light: #bce5d8;
+  --accent-tonal-fg-light: #17675f;
   --accent-mint: #bce5d8;
   --ok-fg-light: #15683a;
   --ok-bg-light: #e9f5ee;
@@ -58,6 +59,7 @@
   --accent-hover-dark: #26998e;
   --accent-text-dark: #ffffff;
   --accent-soft-dark: #142e2c;
+  --accent-tonal-fg-dark: #5fd1c2;
   --ok-fg-dark: #4ade80;
   --ok-bg-dark: #132a1c;
   --ok-border-dark: #225438;
@@ -2594,7 +2596,7 @@ dialog.modal-switcher {
 
 .btn-primary.btn-tonal {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: light-dark(var(--accent-tonal-fg-light), var(--accent-tonal-fg-dark));
   border-color: var(--border-strong);
 }
 
