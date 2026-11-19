@@ -1,0 +1,298 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import WorkspaceShowcase from './WorkspaceShowcase.astro';
+import { SITE_COPY, type Lang } from '../data/site-copy';
+import release from '../data/release.json';
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const copy = SITE_COPY[lang];
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const fmtBytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+const winAssets = release.assets.filter((a) => /windows/i.test(a.name));
+const macAssets = release.assets.filter((a) => /macos/i.test(a.name));
+const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name));
+---
+<BaseLayout lang={lang} canonicalPath={lang === 'vi' ? '/' : '/en/'}>
+  <section class="hero-section">
+    <div class="container hero-grid">
+      <div>
+        <h1 class="hero-title">{copy.hero.title}</h1>
+        <p class="hero-lead">{copy.hero.lead}</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#download">
+            {copy.hero.primaryCta} ({release.tag})
+          </a>
+          <a class="btn btn-secondary" href="https://github.com/manhquydev/nexadock">
+            {copy.hero.secondaryCta}
+          </a>
+        </div>
+        <p class="hero-meta">{copy.hero.meta}</p>
+      </div>
+
+      <WorkspaceShowcase lang={lang} />
+    </div>
+  </section>
+
+  <section class="section" id="experience">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">{copy.shots.title}</h2>
+        <p class="section-desc">{copy.shots.desc}</p>
+      </div>
+
+      <div class="shots-grid">
+        <div class="shot-frame">
+          <img
+            src={`${base}/screenshots/${lang === 'vi' ? 'account-dock-3accounts-vi-light.png' : 'account-dock-en-US-light-1160x780.png'}`}
+            alt={lang === 'vi' ? 'Giao diện NexaDock chế độ sáng' : 'NexaDock light workspace'}
+            width="1160"
+            height="780"
+            loading="lazy"
+          />
+        </div>
+        <div class="shot-frame">
+          <img
+            src={`${base}/screenshots/account-dock-vi-VN-dark-1160x780.png`}
+            alt={lang === 'vi' ? 'Giao diện NexaDock chế độ tối' : 'NexaDock dark workspace'}
+            width="1160"
+            height="780"
+            loading="lazy"
+          />
+        </div>
+        <div class="shot-frame">
+          <img
+            src={`${base}/screenshots/account-dock-desktop-stage-vi-light.png`}
+            alt={lang === 'vi' ? 'Quản lý tài khoản trên Desktop Stage' : 'NexaDock Desktop Stage view'}
+            width="1160"
+            height="780"
+            loading="lazy"
+          />
+        </div>
+        <div class="shot-frame">
+          <img
+            src={`${base}/screenshots/account-dock-diagnostics-vi-light.png`}
+            alt={lang === 'vi' ? 'Kiểm tra tách biệt dữ liệu trên Diagnostics' : 'NexaDock Diagnostics isolation checks'}
+            width="1160"
+            height="780"
+            loading="lazy"
+          />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="safety">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">{copy.isolation.title}</h2>
+        <p class="section-desc">{copy.isolation.desc}</p>
+      </div>
+
+      <div class="mechanism-list">
+        {copy.isolation.items.map((item) => (
+          <div class="mechanism-row">
+            <h3>{item.name}</h3>
+            <p>{item.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">{copy.compat.title}</h2>
+        <p class="section-desc">{copy.compat.desc}</p>
+      </div>
+
+      <div class="table-wrap">
+        <table class="compat-table">
+          <thead>
+            <tr>
+              {copy.compat.headers.map((h) => (
+                <th>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {copy.compat.rows.map((row) => (
+              <tr>
+                <td data-label={copy.compat.headers[0]}><strong>{row.os}</strong></td>
+                <td data-label={copy.compat.headers[1]}>{row.zalo}</td>
+                <td data-label={copy.compat.headers[2]}>
+                  <span class={`state-tag ${row.kind === 'ok' ? 'is-ok' : row.kind === 'warn' ? 'is-warn' : 'is-neutral'}`}>
+                    {row.status}
+                  </span>
+                </td>
+                <td data-label={copy.compat.headers[3]}>{row.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="download">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">{copy.download.title} ({release.tag})</h2>
+        <p class="section-desc">
+          <span class="state-tag is-warn">{copy.download.prereleaseBadge}</span>
+        </p>
+      </div>
+
+      <div class="download-panel">
+        <div class="platform-tabs" role="tablist" aria-label={lang === 'vi' ? 'Chọn nền tảng' : 'Choose platform'}>
+          <button type="button" class="platform-tab" role="tab" id="dl-tab-windows" aria-controls="dl-panel-windows" aria-selected="true" tabindex="0" data-dl-tab="windows">
+            Windows 10/11 (x64)
+          </button>
+          <button type="button" class="platform-tab" role="tab" id="dl-tab-macos" aria-controls="dl-panel-macos" aria-selected="false" tabindex="-1" data-dl-tab="macos">
+            macOS Apple Silicon
+          </button>
+          <button type="button" class="platform-tab" role="tab" id="dl-tab-ubuntu" aria-controls="dl-panel-ubuntu" aria-selected="false" tabindex="-1" data-dl-tab="ubuntu">
+            {lang === 'vi' ? 'Ubuntu 24.04 (Thử nghiệm)' : 'Ubuntu 24.04 (Experimental)'}
+          </button>
+        </div>
+
+        <div id="dl-panel-windows" role="tabpanel" aria-labelledby="dl-tab-windows" data-dl-panel="windows">
+          <div class="asset-list">
+            {winAssets.map((a) => (
+              <div class="asset-row">
+                <div>
+                  <div class="asset-name">{a.name}</div>
+                  <div class="asset-meta">
+                    {fmtBytes(a.size)}{a.sha256 ? ` · SHA-256: ${a.sha256}` : ''}
+                  </div>
+                </div>
+                <a class="btn btn-primary" href={a.downloadUrl}>
+                  {lang === 'vi' ? 'Tải xuống' : 'Download'}
+                </a>
+              </div>
+            ))}
+          </div>
+          <div class="verify-box">
+            <strong>{copy.download.verifyTitle}</strong>
+            <p style="margin: 6px 0 0; color: var(--text-secondary);">{copy.download.verifyBody}</p>
+            <code class="verify-cmd">Get-FileHash .\NexaDock-{release.version}-windows-x64-setup.exe -Algorithm SHA256</code>
+          </div>
+        </div>
+
+        <div id="dl-panel-macos" role="tabpanel" aria-labelledby="dl-tab-macos" data-dl-panel="macos" hidden>
+          <div class="asset-list">
+            {macAssets.map((a) => (
+              <div class="asset-row">
+                <div>
+                  <div class="asset-name">{a.name}</div>
+                  <div class="asset-meta">
+                    {fmtBytes(a.size)}{a.sha256 ? ` · SHA-256: ${a.sha256}` : ''}
+                  </div>
+                </div>
+                <a class="btn btn-primary" href={a.downloadUrl}>
+                  {lang === 'vi' ? 'Tải xuống' : 'Download'}
+                </a>
+              </div>
+            ))}
+          </div>
+          <p style="margin: 14px 0 0; color: var(--text-secondary); font-size: 0.9375rem;">
+            {copy.download.missingIntel}
+          </p>
+          <div class="verify-box">
+            <strong>{copy.download.verifyTitle}</strong>
+            <code class="verify-cmd">shasum -a 256 NexaDock-{release.version}-macos-arm64.dmg</code>
+          </div>
+        </div>
+
+        <div id="dl-panel-ubuntu" role="tabpanel" aria-labelledby="dl-tab-ubuntu" data-dl-panel="ubuntu" hidden>
+          <div class="asset-list">
+            {linuxAssets.map((a) => (
+              <div class="asset-row">
+                <div>
+                  <div class="asset-name">{a.name}</div>
+                  <div class="asset-meta">
+                    {fmtBytes(a.size)}{a.sha256 ? ` · SHA-256: ${a.sha256}` : ''}
+                  </div>
+                </div>
+                <a class="btn btn-primary" href={a.downloadUrl}>
+                  {lang === 'vi' ? 'Tải xuống' : 'Download'}
+                </a>
+              </div>
+            ))}
+          </div>
+          <div class="verify-box">
+            <strong>{copy.download.verifyTitle}</strong>
+            <code class="verify-cmd">sha256sum -c SHA256SUMS.txt --ignore-missing</code>
+          </div>
+        </div>
+
+        <p style="margin: 20px 0 0; font-size: 0.9375rem; color: var(--text-secondary);">
+          {copy.download.upgradeNote}
+        </p>
+        <p style="margin: 10px 0 0; font-size: 0.875rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 16px;">
+          <a href={release.htmlUrl}>{lang === 'vi' ? 'Xem ghi chú phát hành' : 'Release notes'} ({release.tag})</a>
+          {release.sha256SumsUrl && (
+            <a href={release.sha256SumsUrl}>SHA256SUMS.txt</a>
+          )}
+          {release.provenanceUrl && (
+            <a href={release.provenanceUrl}>PROVENANCE.txt</a>
+          )}
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">{copy.faq.title}</h2>
+      </div>
+
+      <div class="faq-list">
+        {copy.faq.items.map((item) => (
+          <details class="faq-item">
+            <summary>{item.q}</summary>
+            <p>{item.a}</p>
+          </details>
+        ))}
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<script is:inline>
+  const dlTabs = Array.from(document.querySelectorAll('[data-dl-tab]'));
+  const dlPanels = document.querySelectorAll('[data-dl-panel]');
+  function activateDlTab(tab, focusTab = false) {
+    const target = tab.getAttribute('data-dl-tab');
+    dlTabs.forEach((t) => {
+      const active = t.getAttribute('data-dl-tab') === target;
+      t.setAttribute('aria-selected', String(active));
+      t.setAttribute('tabindex', active ? '0' : '-1');
+    });
+    dlPanels.forEach((p) => {
+      p.hidden = p.getAttribute('data-dl-panel') !== target;
+    });
+    if (focusTab) tab.focus();
+  }
+  dlTabs.forEach((tab, idx) => {
+    tab.addEventListener('click', () => activateDlTab(tab));
+    tab.addEventListener('keydown', (e) => {
+      let nextIdx = null;
+      if (e.key === 'ArrowRight') nextIdx = (idx + 1) % dlTabs.length;
+      else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + dlTabs.length) % dlTabs.length;
+      else if (e.key === 'Home') nextIdx = 0;
+      else if (e.key === 'End') nextIdx = dlTabs.length - 1;
+      if (nextIdx !== null) {
+        e.preventDefault();
+        activateDlTab(dlTabs[nextIdx], true);
+      }
+    });
+  });
+</script>

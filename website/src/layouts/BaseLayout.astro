@@ -1,0 +1,148 @@
+---
+import '../styles/tokens.css';
+import '../styles/global.css';
+import { SITE_COPY, type Lang } from '../data/site-copy';
+import release from '../data/release.json';
+
+interface Props {
+  lang: Lang;
+  title?: string;
+  description?: string;
+  canonicalPath?: string;
+  altPath?: string;
+}
+
+const { lang, title, description, canonicalPath = '', altPath } = Astro.props;
+const copy = SITE_COPY[lang];
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const pageTitle = title || copy.title;
+const pageDesc = description || copy.description;
+const canonicalUrl = `https://manhquydev.github.io${base}${canonicalPath}`;
+const ogImageUrl = `https://manhquydev.github.io${base}/og-preview.png`;
+const homeHref = lang === 'vi' ? `${base}/` : `${base}/en/`;
+const docsHref = lang === 'vi' ? `${base}/docs/` : `${base}/en/docs/`;
+const viHref = altPath && lang === 'en' ? `${base}${altPath}` : `${base}/`;
+const enHref = altPath && lang === 'vi' ? `${base}${altPath}` : `${base}/en/`;
+---
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="page-type" content="software" />
+    <meta name="site-kind" content="software" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDesc} />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
+    <link rel="alternate icon" href={`${base}/favicon.ico`} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDesc} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDesc} />
+    <meta name="twitter:image" content={ogImageUrl} />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">
+      {lang === 'vi' ? 'Chuyển đến nội dung chính' : 'Skip to main content'}
+    </a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand-link" href={homeHref}>
+          <img src={`${base}/brand/nexadock-mark.svg`} alt="" width="24" height="24" />
+          <span>NexaDock</span>
+        </a>
+
+        <nav class="nav-links" aria-label={lang === 'vi' ? 'Điều hướng chính' : 'Primary navigation'}>
+          <a href={`${homeHref}#experience`}>{copy.nav.experience}</a>
+          <a href={`${homeHref}#safety`}>{copy.nav.safety}</a>
+          <a href={`${homeHref}#download`}>{copy.nav.download}</a>
+          <a href={docsHref}>{copy.nav.docs}</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" role="group" aria-label={lang === 'vi' ? 'Ngôn ngữ' : 'Language'}>
+            <a href={viHref} aria-current={lang === 'vi' ? 'page' : undefined}>VI</a>
+            <a href={enHref} aria-current={lang === 'en' ? 'page' : undefined}>EN</a>
+          </div>
+          <a class="btn btn-primary header-cta" href={`${homeHref}#download`}>
+            {copy.nav.cta} ({release.tag})
+          </a>
+          <button
+            type="button"
+            class="mobile-menu-btn"
+            id="mobile-menu-toggle"
+            aria-expanded="false"
+            aria-controls="mobile-drawer"
+          >
+            {copy.nav.menu}
+          </button>
+        </div>
+      </div>
+
+      <div class="mobile-drawer" id="mobile-drawer">
+        <a href={`${homeHref}#experience`}>{copy.nav.experience}</a>
+        <a href={`${homeHref}#safety`}>{copy.nav.safety}</a>
+        <a href={`${homeHref}#download`}>{copy.nav.download}</a>
+        <a href={docsHref}>{copy.nav.docs}</a>
+        <a class="btn btn-primary" href={`${homeHref}#download`}>
+          {copy.nav.cta} ({release.tag})
+        </a>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div>
+          <a class="brand-link" href={homeHref}>
+            <img src={`${base}/brand/nexadock-mark.svg`} alt="" width="22" height="22" />
+            <span>NexaDock</span>
+          </a>
+          <p style="margin-top: 12px; max-width: 52ch;">{copy.footer.disclaimer}</p>
+        </div>
+        <div>
+          <strong>{copy.footer.projectHeading}</strong>
+          <ul class="footer-links">
+            <li><a href="https://github.com/manhquydev/nexadock">GitHub Repository</a></li>
+            <li><a href="https://github.com/manhquydev/nexadock/releases">GitHub Releases ({release.tag})</a></li>
+            <li><a href="https://github.com/manhquydev/nexadock/issues">{lang === 'vi' ? 'Báo lỗi' : 'Report an Issue'}</a></li>
+          </ul>
+        </div>
+        <div>
+          <strong>{copy.footer.resourcesHeading}</strong>
+          <ul class="footer-links">
+            <li><a href={docsHref}>{copy.nav.docs}</a></li>
+            <li><a href="https://github.com/manhquydev/nexadock/blob/main/CONTRIBUTING.md">Contributing</a></li>
+            <li><a href="https://github.com/manhquydev/nexadock/blob/main/desktop-instance-manager/docs/architecture/ADR-001-unified-workspace.md">ADR-001</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+
+    <script is:inline>
+      const btn = document.getElementById('mobile-menu-toggle');
+      const drawer = document.getElementById('mobile-drawer');
+      if (btn && drawer) {
+        btn.addEventListener('click', () => {
+          const open = drawer.classList.toggle('is-open');
+          btn.setAttribute('aria-expanded', String(open));
+        });
+        drawer.querySelectorAll('a').forEach((link) => {
+          link.addEventListener('click', () => {
+            drawer.classList.remove('is-open');
+            btn.setAttribute('aria-expanded', 'false');
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://manhquydev.github.io/nexadock/sitemap-index.xml

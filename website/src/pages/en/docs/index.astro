@@ -1,0 +1,48 @@
+---
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import { SITE_COPY } from '../../../data/site-copy';
+import release from '../../../data/release.json';
+
+const copy = SITE_COPY.en;
+---
+<BaseLayout
+  lang="en"
+  title={copy.docsTitle}
+  description={copy.docsDescription}
+  canonicalPath="/en/docs/"
+  altPath="/docs/"
+>
+  <section class="section" style="border-top: 0; padding-top: 48px;">
+    <div class="container" style="max-width: 820px;">
+      <h1 class="section-title" style="font-size: clamp(1.85rem, 3vw, 2.5rem);">
+        NexaDock Installation &amp; Operations Guide
+      </h1>
+      <p class="section-desc" style="margin-bottom: 32px;">
+        Current published build: <strong>{release.tag}</strong> (Unsigned Development Pre-release).
+      </p>
+
+      <div class="mechanism-list">
+        <div class="mechanism-row">
+          <h3>1. Windows Installation</h3>
+          <p>
+            Download <span class="code-inline">NexaDock-{release.version}-windows-x64-setup.exe</span> or <span class="code-inline">.msi</span> and verify its SHA-256 hash against <span class="code-inline">SHA256SUMS.txt</span>. On Smart App Control (<span class="code-inline">SAC=1</span>) machines, keep SAC enabled and run via the signed host bridge: <span class="code-inline">node apps/desktop/ui-server.mjs</span>.
+          </p>
+        </div>
+
+        <div class="mechanism-row">
+          <h3>2. Upgrading from KHOANG</h3>
+          <p>
+            NexaDock preserves <span class="code-inline">com.multizalodesktop.manager</span>, <span class="code-inline">%LOCALAPPDATA%\MultiZaloDesktop</span>, and <span class="code-inline">khoang-preferences.json</span>. Existing accounts, backups, and WebIsolated profiles remain intact.
+          </p>
+        </div>
+
+        <div class="mechanism-row">
+          <h3>3. Diagnostics &amp; Recovery</h3>
+          <p>
+            Use the built-in Diagnostics screen to inspect client discovery, isolation checks, and sanitized logs. Guards such as <span class="code-inline">PROTECTED_PRIMARY_PROCESS</span> confirm that primary Zalo protection is active.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
