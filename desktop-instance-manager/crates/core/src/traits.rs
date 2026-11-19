@@ -4,9 +4,10 @@ use std::path::Path;
 
 use crate::error::DimError;
 use crate::models::{
-    ApplicationInstallation, BackupManifest, BackupResult, LaunchTarget, PlatformCapabilityReport,
-    PlatformKind, PrimaryInstanceStatus, ProfileRecord, ProfileRuntimeState, ProfilesDocument,
-    RecoveryReport, VerifiedDeletionState,
+    AccountActivationResult, AccountKind, ActionableRemediation, ActivationOutcome,
+    ApplicationInstallation, BackupManifest, BackupResult, CompanionSnapResult, LaunchTarget,
+    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileRecord,
+    ProfileRuntimeState, ProfilesDocument, RecoveryReport, VerifiedDeletionState, WindowRect,
 };
 
 /// Discovers target desktop applications and validates their binary metadata/signatures.
@@ -111,6 +112,96 @@ pub trait InstanceMonitor {
         profile: &ProfileRecord,
         profile_dir: &Path,
     ) -> Result<ProfileRuntimeState, DimError>;
+
+    /// Inspects the runtime status of a managed profile with optional disk-usage calculation.
+    ///
+    /// When `include_size == false`, implementations should skip recursive directory walks and set
+    /// `disk_usage_bytes = 0` for fast UI rail/snapshot refreshes.
+    fn inspect_profile_with_options(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        include_size: bool,
+    ) -> Result<ProfileRuntimeState, DimError> {
+        let _ = include_size;
+        self.inspect_profile(profile, profile_dir)
+    }
+}
+
+/// Optional read-only primary focus and verified-secondary companion window orchestration.
+pub trait WindowController {
+    /// Strictly read-only, non-spawning focus/restore of an already-visible or minimized primary window.
+    fn focus_primary_window(
+        &self,
+        primary: &PrimaryInstanceStatus,
+    ) -> Result<AccountActivationResult, DimError> {
+        let code = if primary.running {
+            "PRIMARY_HIDDEN_IN_TRAY"
+        } else {
+            "PRIMARY_NOT_RUNNING"
+        };
+        Ok(AccountActivationResult {
+            account_id: "primary".to_owned(),
+            account_kind: AccountKind::DesktopPrimary,
+            outcome: ActivationOutcome::ManualActionRequired,
+            method: Some("read_only_unsupported".to_owned()),
+            os_foreground_confirmed: Some(false),
+            window_handle: primary.window_handle,
+            window_title: primary.window_title.clone(),
+            message: "Read-only primary window focus is not supported on this platform adapter."
+                .to_owned(),
+            remediation: Some(ActionableRemediation {
+                code: code.to_owned(),
+                message: "Open or restore primary Zalo manually from the desktop or system tray."
+                    .to_owned(),
+                suggested_action: Some("open_primary_manually".to_owned()),
+            }),
+        })
+    }
+
+    /// Snaps a verified secondary desktop window beside the host KHOANG window.
+    fn companion_snap_secondary(
+        &self,
+        _profile: &ProfileRecord,
+        _profile_dir: &Path,
+        _host_hwnd: u64,
+        _rail_width_px: i32,
+    ) -> Result<CompanionSnapResult, DimError> {
+        Err(DimError::UnsupportedPlatform(
+            "UNSUPPORTED_OPERATION: companion_snap_secondary is not supported on this platform"
+                .to_owned(),
+        ))
+    }
+
+    /// Restores a previously companion-snapped secondary desktop window to `restore_rect`.
+    fn companion_unsnap_secondary(
+        &self,
+        _profile: &ProfileRecord,
+        _profile_dir: &Path,
+        _restore_rect: WindowRect,
+    ) -> Result<CompanionSnapResult, DimError> {
+        Err(DimError::UnsupportedPlatform(
+            "UNSUPPORTED_OPERATION: companion_unsnap_secondary is not supported on this platform"
+                .to_owned(),
+        ))
+    }
+
+    /// Returns `true` if `hwnd` is currently minimized.
+    fn is_window_minimized(&self, _hwnd: u64) -> bool {
+        false
+    }
+
+    /// Attempts direct PID-verified focus/restore on an already-visible or minimized window.
+    ///
+    /// Returns `Ok(Some((was_minimized, os_foreground_confirmed)))` when handled directly,
+    /// or `Ok(None)` when the platform adapter delegates to `InstanceLauncher::focus_or_restore`.
+    fn try_focus_verified_window(
+        &self,
+        _hwnd: u64,
+        _allowed_pids: &[u32],
+    ) -> Result<Option<(bool, bool)>, DimError> {
+        Ok(None)
+    }
 }
 
 /// Reports OS capability status, disk space, Folder Redirection, and safe junction unlinking.

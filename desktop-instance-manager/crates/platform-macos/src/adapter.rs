@@ -15,10 +15,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dim_core::{
-    detect_zalo_user_id, now_rfc3339_utc, ApplicationInstallation, ApplicationLocator, DimError,
-    InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities,
-    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileRecord,
-    ProfileRuntimeState, RecoveryManager, RecoveryReport, SupportStatus,
+    detect_zalo_user_id, now_rfc3339_utc, AccountActivationResult, AccountKind,
+    ActionableRemediation, ActivationOutcome, ApplicationInstallation, ApplicationLocator,
+    DimError, InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities,
+    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, PrimaryWindowState,
+    ProfileRecord, ProfileRuntimeState, RecoveryManager, RecoveryReport, SupportStatus,
+    WindowController,
 };
 use dim_profile_store::{
     is_symlink_or_reparse, unlink_reparse_points_safe, verify_profile_id_marker,
@@ -384,6 +386,15 @@ impl InstanceMonitor for MacOsPlatformAdapter {
         profile: &ProfileRecord,
         profile_dir: &Path,
     ) -> Result<ProfileRuntimeState, DimError> {
+        self.inspect_profile_with_options(profile, profile_dir, true)
+    }
+
+    fn inspect_profile_with_options(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        include_size: bool,
+    ) -> Result<ProfileRuntimeState, DimError> {
         validate_macos_path(profile_dir)?;
         let real_home = self.ops.user_home_dir();
         ensure_not_macos_primary_path(profile_dir, real_home.as_deref())?;
@@ -412,7 +423,11 @@ impl InstanceMonitor for MacOsPlatformAdapter {
         let running = tree.main_pid.is_some();
         let win = inspect_profile_window(&*self.ops, &zalo_data, &tree.process_ids);
         let detected_uid = detect_zalo_user_id(&zalo_data);
-        let disk_usage_bytes = compute_profile_disk_usage_bytes(profile_dir);
+        let disk_usage_bytes = if include_size {
+            compute_profile_disk_usage_bytes(profile_dir)
+        } else {
+            0
+        };
 
         let has_lock_artifact = fs::symlink_metadata(zalo_data.join("SingletonLock")).is_ok()
             || fs::symlink_metadata(zalo_data.join("lockfile")).is_ok();
@@ -1022,4 +1037,66 @@ fn count_regular_files_shallow_or_nested(root: &Path, max_depth: usize) -> usize
         }
     }
     count
+}
+
+impl WindowController for MacOsPlatformAdapter {
+    fn focus_primary_window(
+        &self,
+        _primary: &PrimaryInstanceStatus,
+    ) -> Result<AccountActivationResult, DimError> {
+        let live = inspect_primary_macos(&*self.ops)?;
+        if !live.running || live.protected_pids.is_empty() {
+            return Ok(AccountActivationResult {
+                account_id: "primary".to_owned(),
+                account_kind: AccountKind::DesktopPrimary,
+                outcome: ActivationOutcome::ManualActionRequired,
+                method: Some("read_only_inspect".to_owned()),
+                os_foreground_confirmed: Some(false),
+                window_handle: None,
+                window_title: None,
+                message: "Primary Zalo is not currently running.".to_owned(),
+                remediation: Some(ActionableRemediation {
+                    code: "PRIMARY_NOT_RUNNING".to_owned(),
+                    message: "Primary Zalo is not running. Launch Zalo.app manually when needed."
+                        .to_owned(),
+                    suggested_action: Some("launch_primary_manually".to_owned()),
+                }),
+            });
+        }
+
+        if live.window_state == PrimaryWindowState::Visible {
+            if let Some(&pid) = live.protected_pids.first() {
+                if activate_profile_window(&*self.ops, &live.zalo_data_dir, pid).is_ok() {
+                    return Ok(AccountActivationResult {
+                        account_id: "primary".to_owned(),
+                        account_kind: AccountKind::DesktopPrimary,
+                        outcome: ActivationOutcome::Focused,
+                        method: Some("cooperative_activate".to_owned()),
+                        os_foreground_confirmed: Some(true),
+                        window_handle: live.window_handle,
+                        window_title: live.window_title.clone(),
+                        message: "Focused primary Zalo window (read-only).".to_owned(),
+                        remediation: None,
+                    });
+                }
+            }
+        }
+
+        Ok(AccountActivationResult {
+            account_id: "primary".to_owned(),
+            account_kind: AccountKind::DesktopPrimary,
+            outcome: ActivationOutcome::ManualActionRequired,
+            method: Some("read_only_inspect".to_owned()),
+            os_foreground_confirmed: Some(false),
+            window_handle: live.window_handle,
+            window_title: live.window_title,
+            message: "Primary Zalo window could not be brought to front automatically.".to_owned(),
+            remediation: Some(ActionableRemediation {
+                code: "PRIMARY_HIDDEN_IN_TRAY".to_owned(),
+                message: "Click the Zalo icon in the macOS Dock or menu bar to restore it."
+                    .to_owned(),
+                suggested_action: Some("click_primary_dock_icon".to_owned()),
+            }),
+        })
+    }
 }

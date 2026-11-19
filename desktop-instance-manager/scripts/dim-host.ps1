@@ -142,6 +142,24 @@ namespace DesktopInstanceManager.Host
             public int Bottom;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WINDOWPLACEMENT
+        {
+            public int length;
+            public int flags;
+            public int showCmd;
+            public POINT ptMinPosition;
+            public POINT ptMaxPosition;
+            public RECT rcNormalPosition;
+        }
+
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -265,6 +283,10 @@ namespace DesktopInstanceManager.Host
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -2181,7 +2203,23 @@ namespace DesktopInstanceManager.Host
                 if ((NativeWin32.GetWindowExStyle(hWnd) & NativeWin32.WS_EX_TOOLWINDOW) != 0L) return true;
 
                 NativeWin32.RECT rect;
-                if (!NativeWin32.GetWindowRect(hWnd, out rect)) return true;
+                if (NativeWin32.IsIconic(hWnd))
+                {
+                    NativeWin32.WINDOWPLACEMENT wp = new NativeWin32.WINDOWPLACEMENT();
+                    wp.length = Marshal.SizeOf(typeof(NativeWin32.WINDOWPLACEMENT));
+                    if (NativeWin32.GetWindowPlacement(hWnd, ref wp))
+                    {
+                        rect = wp.rcNormalPosition;
+                    }
+                    else if (!NativeWin32.GetWindowRect(hWnd, out rect))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    if (!NativeWin32.GetWindowRect(hWnd, out rect)) return true;
+                }
                 int w = rect.Right - rect.Left;
                 int h = rect.Bottom - rect.Top;
                 if (w < 400 || h < 400) return true;

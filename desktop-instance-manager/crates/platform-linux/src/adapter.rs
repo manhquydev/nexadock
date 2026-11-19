@@ -19,9 +19,11 @@ use std::path::{Path, PathBuf};
 
 use dim_core::{
     detect_zalo_user_id, ensure_not_primary_zalo_path, now_rfc3339_utc, validate_directory_input,
+    AccountActivationResult, AccountKind, ActionableRemediation, ActivationOutcome,
     ApplicationInstallation, ApplicationLocator, DimError, InstanceLauncher, InstanceMonitor,
     LaunchTarget, PlatformCapabilities, PlatformCapabilityReport, PlatformKind,
-    PrimaryInstanceStatus, ProfileRecord, ProfileRuntimeState, SupportStatus,
+    PrimaryInstanceStatus, PrimaryWindowState, ProfileRecord, ProfileRuntimeState, SupportStatus,
+    WindowController,
 };
 use dim_profile_store::{is_symlink_or_reparse, unlink_reparse_points_safe};
 
@@ -555,14 +557,22 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             let tree =
                 collect_primary_process_tree(&venv.proc_root, &zalo_data, Some(venv.effective_uid));
             let detected_uid = detect_zalo_user_id(&zalo_data);
+            let running = tree.main_pid.is_some();
             return Ok(PrimaryInstanceStatus {
                 zalo_data_dir: zalo_data,
                 lockfile_path: lock_path,
-                running: tree.main_pid.is_some(),
+                running,
                 protected_pids: tree.process_ids.clone(),
                 process_count: tree.process_ids.len(),
                 working_set_bytes: tree.working_set_bytes,
                 detected_zalo_user_id: detected_uid,
+                window_handle: None,
+                window_title: None,
+                window_state: if running {
+                    PrimaryWindowState::HiddenInTray
+                } else {
+                    PrimaryWindowState::None
+                },
                 notes: vec!["Primary Linux XDG config ZaloData PIDs are protected.".to_owned()],
             });
         }
@@ -584,14 +594,31 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             let tree = collect_primary_process_tree(Path::new("/proc"), &zalo_data, Some(euid));
             let detected_uid = detect_zalo_user_id(&zalo_data);
 
+            let running = tree.main_pid.is_some();
+            let (window_handle, window_title) = if running {
+                query_x11_window_for_pids(&tree.process_ids)
+            } else {
+                (None, None)
+            };
+            let window_state = if !running {
+                PrimaryWindowState::None
+            } else if window_handle.is_some() {
+                PrimaryWindowState::Visible
+            } else {
+                PrimaryWindowState::HiddenInTray
+            };
+
             Ok(PrimaryInstanceStatus {
                 zalo_data_dir: zalo_data,
                 lockfile_path: lock_path,
-                running: tree.main_pid.is_some(),
+                running,
                 protected_pids: tree.process_ids.clone(),
                 process_count: tree.process_ids.len(),
                 working_set_bytes: tree.working_set_bytes,
                 detected_zalo_user_id: detected_uid,
+                window_handle,
+                window_title,
+                window_state,
                 notes: vec!["Primary Linux config dir PIDs are protected.".to_owned()],
             })
         }
@@ -607,6 +634,15 @@ impl InstanceMonitor for LinuxPlatformAdapter {
         &self,
         profile: &ProfileRecord,
         profile_dir: &Path,
+    ) -> Result<ProfileRuntimeState, DimError> {
+        self.inspect_profile_with_options(profile, profile_dir, true)
+    }
+
+    fn inspect_profile_with_options(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        include_size: bool,
     ) -> Result<ProfileRuntimeState, DimError> {
         let zalo_data = linux_zalo_data_dir(profile_dir);
         let singleton_lock = zalo_data.join("SingletonLock");
@@ -635,7 +671,11 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             } else {
                 runtime_pid_file
             };
-            let disk_usage_bytes = measure_profile_disk_usage_bytes(profile_dir);
+            let disk_usage_bytes = if include_size {
+                measure_profile_disk_usage_bytes(profile_dir)
+            } else {
+                0
+            };
 
             return Ok(ProfileRuntimeState {
                 profile_id: profile.id.clone(),
@@ -698,7 +738,11 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             } else {
                 (None, None)
             };
-            let disk_usage_bytes = measure_profile_disk_usage_bytes(profile_dir);
+            let disk_usage_bytes = if include_size {
+                measure_profile_disk_usage_bytes(profile_dir)
+            } else {
+                0
+            };
 
             Ok(ProfileRuntimeState {
                 profile_id: profile.id.clone(),
@@ -737,6 +781,7 @@ impl InstanceMonitor for LinuxPlatformAdapter {
                 fixture_lock,
                 runtime_pid_file,
                 detected_uid,
+                include_size,
             );
             Err(DimError::UnsupportedPlatform(
                 "Linux runtime inspection requires Linux".to_owned(),
@@ -1460,5 +1505,48 @@ fn unix_free_disk_bytes(path: &Path) -> Result<u64, DimError> {
             return Err(DimError::Io(std::io::Error::last_os_error()));
         }
         Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+    }
+}
+
+impl WindowController for LinuxPlatformAdapter {
+    fn focus_primary_window(
+        &self,
+        _primary: &PrimaryInstanceStatus,
+    ) -> Result<AccountActivationResult, DimError> {
+        let live = self.inspect_primary()?;
+        if !live.running || live.protected_pids.is_empty() {
+            return Ok(AccountActivationResult {
+                account_id: "primary".to_owned(),
+                account_kind: AccountKind::DesktopPrimary,
+                outcome: ActivationOutcome::ManualActionRequired,
+                method: Some("read_only_inspect".to_owned()),
+                os_foreground_confirmed: Some(false),
+                window_handle: None,
+                window_title: None,
+                message: "Primary Zalo is not currently running on Linux.".to_owned(),
+                remediation: Some(ActionableRemediation {
+                    code: "PRIMARY_NOT_RUNNING".to_owned(),
+                    message: "Official Zalo Desktop is not running on Linux.".to_owned(),
+                    suggested_action: Some("use_web_or_appimage".to_owned()),
+                }),
+            });
+        }
+
+        Ok(AccountActivationResult {
+            account_id: "primary".to_owned(),
+            account_kind: AccountKind::DesktopPrimary,
+            outcome: ActivationOutcome::ManualActionRequired,
+            method: Some("read_only_inspect".to_owned()),
+            os_foreground_confirmed: Some(false),
+            window_handle: live.window_handle,
+            window_title: live.window_title,
+            message: "Primary instance window must be focused manually on Linux.".to_owned(),
+            remediation: Some(ActionableRemediation {
+                code: "PRIMARY_HIDDEN_IN_TRAY".to_owned(),
+                message: "Focus or restore the primary window via your desktop panel or tray."
+                    .to_owned(),
+                suggested_action: Some("click_primary_tray_icon".to_owned()),
+            }),
+        })
     }
 }

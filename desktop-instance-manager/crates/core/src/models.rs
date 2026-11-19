@@ -367,6 +367,144 @@ impl ProfileRuntimeState {
 /// Alias for [`ProfileRuntimeState`] exposing explicit [`ProfileLifecycleState`].
 pub type RuntimeStatus = ProfileRuntimeState;
 
+/// Observed window visibility state of the untouched primary Zalo Desktop installation.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PrimaryWindowState {
+    /// A visible, non-minimized main window was detected.
+    Visible,
+    /// A minimized (`IsIconic`) main window was detected.
+    Minimized,
+    /// Primary process is running, but no visible/minimized main window was found (hidden in tray).
+    HiddenInTray,
+    /// Primary process is not running or no window state is available.
+    #[default]
+    None,
+}
+
+/// Account kind in the unified KHOANG workspace rail.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountKind {
+    /// Untouched primary Zalo Desktop installation (strictly read-only).
+    DesktopPrimary,
+    /// Managed isolated desktop Zalo profile (`Profiles/<slug>_<id>/`).
+    DesktopIsolated,
+    /// Isolated web session (`WebSessions/<id>/`).
+    WebIsolated,
+}
+
+/// Outcome of a unified account activation request.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivationOutcome {
+    /// Existing visible window was brought to focus.
+    Focused,
+    /// Minimized or tray-hidden window was restored and focused.
+    Restored,
+    /// Stopped profile was launched.
+    Launched,
+    /// Activation is already in flight and coalesced.
+    Pending,
+    /// User must perform a manual action (e.g. primary Zalo is hidden in tray or not running).
+    ManualActionRequired,
+    /// Activation was blocked by a safety guard (e.g. recovery required, duplicate UID).
+    Blocked,
+    /// Activation failed due to an unexpected error.
+    Failed,
+}
+
+/// Structured remediation guidance when activation is blocked or requires manual action.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActionableRemediation {
+    /// Machine-readable remediation code (e.g. `PRIMARY_HIDDEN_IN_TRAY`, `RECOVERY_REQUIRED`).
+    pub code: String,
+    /// Human-readable explanation of the issue.
+    pub message: String,
+    /// Optional suggested next step for the user or UI.
+    #[serde(default)]
+    pub suggested_action: Option<String>,
+}
+
+/// Result of activating an account in the unified workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountActivationResult {
+    /// Account identifier (`"primary"` or profile/session ID).
+    pub account_id: String,
+    /// Kind of account activated.
+    pub account_kind: AccountKind,
+    /// Outcome classification.
+    pub outcome: ActivationOutcome,
+    /// Activation mechanism used (e.g. `"direct_focus"`, `"direct_restore"`, `"tray_handoff"`, `"launch"`).
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Whether OS foreground ownership was confirmed after activation.
+    #[serde(default)]
+    pub os_foreground_confirmed: Option<bool>,
+    /// Native window handle if applicable.
+    #[serde(default)]
+    pub window_handle: Option<u64>,
+    /// Window title if applicable.
+    #[serde(default)]
+    pub window_title: Option<String>,
+    /// Human-readable status or error message.
+    pub message: String,
+    /// Optional structured remediation when blocked or manual action is required.
+    #[serde(default)]
+    pub remediation: Option<ActionableRemediation>,
+}
+
+/// Screen-space rectangle in physical pixels.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WindowRect {
+    /// Left edge X coordinate.
+    pub left: i32,
+    /// Top edge Y coordinate.
+    pub top: i32,
+    /// Right edge X coordinate.
+    pub right: i32,
+    /// Bottom edge Y coordinate.
+    pub bottom: i32,
+}
+
+/// Result of companion side-by-side snap or unsnap on a verified secondary desktop window.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompanionSnapResult {
+    /// Target secondary profile ID.
+    pub profile_id: String,
+    /// True if the secondary window is currently snapped beside the host window.
+    pub snapped: bool,
+    /// Original window rectangle before snapping (used for unsnap restore).
+    #[serde(default)]
+    pub previous_rect: Option<WindowRect>,
+    /// Applied snapped rectangle if `snapped == true`.
+    #[serde(default)]
+    pub applied_rect: Option<WindowRect>,
+    /// Human-readable status message.
+    pub message: String,
+}
+
+/// Persisted metadata for an isolated Zalo Web session (`WebSessions/<id>/`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WebSessionRecord {
+    /// Unique session identifier.
+    pub id: String,
+    /// User-facing display name.
+    pub display_name: String,
+    /// Optional UI accent color token.
+    #[serde(default)]
+    pub color_token: Option<String>,
+    /// Monotonic generation counter incremented on session reset.
+    pub profile_generation: u32,
+    /// Optional platform-specific data store UUID (e.g. macOS 14+ `WKWebsiteDataStore`).
+    #[serde(default)]
+    pub data_store_uuid: Option<String>,
+    /// Creation timestamp formatted as RFC 3339 UTC.
+    pub created_at: String,
+    /// Last update timestamp formatted as RFC 3339 UTC.
+    pub updated_at: String,
+}
+
 /// Inspection status of the user's untouched primary Zalo Desktop installation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PrimaryInstanceStatus {
@@ -386,6 +524,15 @@ pub struct PrimaryInstanceStatus {
     /// Detected numeric Zalo user ID in primary `ZaloData`, if present.
     #[serde(default)]
     pub detected_zalo_user_id: Option<String>,
+    /// Native window handle if detected read-only on the primary instance.
+    #[serde(default)]
+    pub window_handle: Option<u64>,
+    /// Visible or minimized main window title if detected read-only.
+    #[serde(default)]
+    pub window_title: Option<String>,
+    /// Read-only window visibility classification (`visible`, `minimized`, `hidden_in_tray`, `none`).
+    #[serde(default)]
+    pub window_state: PrimaryWindowState,
     /// Diagnostic observations.
     pub notes: Vec<String>,
 }
