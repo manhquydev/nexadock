@@ -10,6 +10,11 @@ on:
         description: "Release tag to build and publish (e.g. v0.1.1-beta.1)"
         required: true
         type: string
+      allow_unsigned_dev_artifacts:
+        description: "Allow unsigned macOS development artifact (workflow_dispatch only; NEVER production-ready)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -26,9 +31,11 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
+      base_version: ${{ steps.meta.outputs.base_version }}
       product_name: ${{ steps.meta.outputs.product_name }}
       is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
       commit_sha: ${{ steps.meta.outputs.commit_sha }}
+      allow_unsigned_dev: ${{ steps.meta.outputs.allow_unsigned_dev }}
     steps:
       - name: Determine and validate target ref
         id: ref
@@ -90,9 +97,15 @@ jobs:
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${RELEASE_VER}" >> "$GITHUB_OUTPUT"
+          echo "base_version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "product_name=${PRODUCT}" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=${IS_PRE}" >> "$GITHUB_OUTPUT"
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.allow_unsigned_dev_artifacts }}" = "true" ]; then
+            echo "allow_unsigned_dev=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "allow_unsigned_dev=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run brand & UI contract gates
         run: |
@@ -217,10 +230,12 @@ jobs:
           retention-days: 7
 
   build-macos-arm64:
-    name: Build macOS Apple Silicon arm64 (.dmg)
+    name: Build, Sign, Notarize & Verify macOS Apple Silicon arm64 (.dmg)
     needs: prepare-release
     runs-on: macos-15
-    timeout-minutes: 35
+    timeout-minutes: 40
+    outputs:
+      macos_signing_status: ${{ steps.sign_gate.outputs.signing_status }}
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v4
@@ -236,8 +251,59 @@ jobs:
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Validate Apple Developer signing & notarization gate
+        id: sign_gate
+        shell: bash
+        env:
+          ALLOW_UNSIGNED_DEV: ${{ needs.prepare-release.outputs.allow_unsigned_dev }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          MISSING=()
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER APPLE_API_PRIVATE_KEY; do
+            if [ -z "${!var:-}" ]; then
+              MISSING+=("${var}")
+            fi
+          done
+
+          if [ "${#MISSING[@]}" -eq 0 ]; then
+            KEY_DIR="${RUNNER_TEMP}/apple-keys"
+            mkdir -p "${KEY_DIR}"
+            chmod 700 "${KEY_DIR}"
+            KEY_PATH="${KEY_DIR}/AuthKey_${APPLE_API_KEY}.p8"
+            if [[ "${APPLE_API_PRIVATE_KEY}" == *"-----BEGIN"* ]]; then
+              printf '%s\n' "${APPLE_API_PRIVATE_KEY}" > "${KEY_PATH}"
+            else
+              printf '%s' "${APPLE_API_PRIVATE_KEY}" | base64 --decode > "${KEY_PATH}"
+            fi
+            chmod 600 "${KEY_PATH}"
+            echo "signed_mode=true" >> "$GITHUB_OUTPUT"
+            echo "signing_status=SIGNED_AND_NOTARIZED" >> "$GITHUB_OUTPUT"
+            echo "api_key_path=${KEY_PATH}" >> "$GITHUB_OUTPUT"
+          elif [ "${ALLOW_UNSIGNED_DEV}" = "true" ]; then
+            echo "::warning::Apple Developer secrets missing (${MISSING[*]}). Proceeding in dev-only unsigned mode."
+            echo "signed_mode=false" >> "$GITHUB_OUTPUT"
+            echo "signing_status=UNSIGNED_DEVELOPMENT_ARTIFACT" >> "$GITHUB_OUTPUT"
+            echo "api_key_path=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::BLOCKED_BY_EXTERNAL_DEPENDENCY: Missing required Apple Developer secrets (${MISSING[*]}). Refusing to publish unsigned macOS DMG."
+            exit 1
+          fi
+
       - name: Build Tauri macOS arm64 bundle (.dmg)
         working-directory: desktop-instance-manager/apps/desktop/src-tauri
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ steps.sign_gate.outputs.api_key_path }}
         run: |
           npx --yes "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --bundles dmg -- --locked
 
@@ -257,6 +323,55 @@ jobs:
             exit 1
           fi
           cp "${DMG}" "${OUT}/${PROD}-${VER}-macos-arm64.dmg"
+
+      - name: Notarize & staple .dmg (production signed mode)
+        if: steps.sign_gate.outputs.signed_mode == 'true'
+        shell: bash
+        env:
+          VER: ${{ needs.prepare-release.outputs.version }}
+          PROD: ${{ needs.prepare-release.outputs.product_name }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ steps.sign_gate.outputs.api_key_path }}
+        run: |
+          set -euo pipefail
+          DMG_OUT="release-assets-macos-arm64/${PROD}-${VER}-macos-arm64.dmg"
+          if ! xcrun stapler validate "${DMG_OUT}" >/dev/null 2>&1; then
+            xcrun notarytool submit "${DMG_OUT}" \
+              --key "${APPLE_API_KEY_PATH}" \
+              --key-id "${APPLE_API_KEY}" \
+              --issuer "${APPLE_API_ISSUER}" \
+              --wait
+            xcrun stapler staple "${DMG_OUT}"
+          fi
+          xcrun stapler validate "${DMG_OUT}"
+
+      - name: Clean up temporary Apple API key material
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "${RUNNER_TEMP}/apple-keys"
+
+      - name: Run macOS release acceptance gate
+        shell: bash
+        env:
+          VER: ${{ needs.prepare-release.outputs.version }}
+          BASE_VER: ${{ needs.prepare-release.outputs.base_version }}
+          PROD: ${{ needs.prepare-release.outputs.product_name }}
+          SIGNED_MODE: ${{ steps.sign_gate.outputs.signed_mode }}
+        run: |
+          set -euo pipefail
+          DMG_OUT="release-assets-macos-arm64/${PROD}-${VER}-macos-arm64.dmg"
+          ACCEPT_MODE="dev-unsigned"
+          if [ "${SIGNED_MODE}" = "true" ]; then
+            ACCEPT_MODE="production"
+          fi
+          node desktop-instance-manager/scripts/ci-cross-platform/macos-release-acceptance.mjs \
+            --dmg "${DMG_OUT}" \
+            --arch arm64 \
+            --mode "${ACCEPT_MODE}" \
+            --expected-version "${BASE_VER}" \
+            --out "release-assets-macos-arm64/macos-arm64-acceptance.json"
 
       - name: Upload macOS arm64 release assets
         uses: actions/upload-artifact@v4
@@ -308,6 +423,7 @@ jobs:
           PROD: ${{ needs.prepare-release.outputs.product_name }}
           TAG: ${{ needs.prepare-release.outputs.tag }}
           COMMIT_SHA: ${{ needs.prepare-release.outputs.commit_sha }}
+          MACOS_SIGNING_STATUS: ${{ needs.build-macos-arm64.outputs.macos_signing_status }}
         run: |
           set -euo pipefail
           cd dist-staging
@@ -316,7 +432,8 @@ jobs:
             "${PROD}-${VER}-linux-x86_64.AppImage" \
             "${PROD}-${VER}-windows-x64-setup.exe" \
             "${PROD}-${VER}-windows-x64.msi" \
-            "${PROD}-${VER}-macos-arm64.dmg"; do
+            "${PROD}-${VER}-macos-arm64.dmg" \
+            "macos-arm64-acceptance.json"; do
             if [ ! -s "${expected}" ]; then
               echo "::error::Missing or empty staged artifact: ${expected}"
               exit 1
@@ -330,7 +447,9 @@ jobs:
           commit=${COMMIT_SHA}
           repository=${GITHUB_REPOSITORY}
           workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          signing_status=UNSIGNED_DEVELOPMENT_ARTIFACT
+          macos_arm64_signing_status=${MACOS_SIGNING_STATUS}
+          windows_x64_signing_status=UNSIGNED_DEVELOPMENT_ARTIFACT
+          linux_x64_signing_status=UNSIGNED_DEVELOPMENT_ARTIFACT
           EOF
           cat SHA256SUMS.txt
           cat PROVENANCE.txt
@@ -343,25 +462,25 @@ jobs:
           PROD: ${{ needs.prepare-release.outputs.product_name }}
           IS_PRE: ${{ needs.prepare-release.outputs.is_prerelease }}
           COMMIT_SHA: ${{ needs.prepare-release.outputs.commit_sha }}
+          MACOS_SIGNING_STATUS: ${{ needs.build-macos-arm64.outputs.macos_signing_status }}
         shell: bash
         run: |
           set -euo pipefail
           PRE_FLAG=""
-          if [ "${IS_PRE}" = "true" ]; then
+          if [ "${IS_PRE}" = "true" ] || [ "${MACOS_SIGNING_STATUS}" != "SIGNED_AND_NOTARIZED" ]; then
             PRE_FLAG="--prerelease"
           fi
           NOTES_FILE="release-notes.md"
           cat <<EOF > "${NOTES_FILE}"
           ## ${PROD} ${TAG}
 
-          **Independent Account Workspace** — isolated multi-instance manager compatible with officially installed Zalo Desktop on Windows and macOS (Ubuntu 24.04 is Experimental for manager/fixtures only; official VNG Zalo Desktop is not released for Linux; macOS Intel x64 is not included in this pre-release).
+          - **Commit:** \`${COMMIT_SHA}\`
+          - **Build Run:** ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - **Supported Artifacts:** Windows x64 (\`.exe\`, \`.msi\`), macOS Apple Silicon \`arm64\` (\`.dmg\`), Ubuntu 24.04 \`x86_64\` (\`.deb\`, \`.AppImage\`). *(macOS Intel \`x86_64\` is not built in this release.)*
 
-          > **Unsigned Development Pre-release (\`UNSIGNED_DEVELOPMENT_ARTIFACT\`):** Installers are built directly from commit \`${COMMIT_SHA}\` via GitHub Actions without Authenticode OV/EV or Apple Notarization signatures. Always verify checksums in \`SHA256SUMS.txt\`.
-
-          ### Highlights in ${TAG}
-          - Rebranded product, icons, UI, and repository to **${PROD}** (\`https://github.com/${GITHUB_REPOSITORY}\`).
-          - Preserved **KHOANG / Multi-Zalo Desktop** upgrade compatibility (\`com.multizalodesktop.manager\`, \`%LOCALAPPDATA%\\MultiZaloDesktop\`, \`khoang-preferences.json\`, and existing isolated profiles remain intact).
-          - Component-level UX reconstruction: non-blocking toast queue, contextual error classification (\`classifyErrorBehavior\`), Dark Mode WCAG AA tonal button contrast, accurate Diagnostics health summary, contextual back navigation, and Account Rail context menu.
+          ### Signing & Verification Status
+          - **macOS Apple Silicon (\`arm64\`):** \`${MACOS_SIGNING_STATUS}\` (see \`macos-arm64-acceptance.json\` for bundle, Gatekeeper, and automated launch verification; physical Mac interactive GUI & live \`/Applications/Zalo.app\` multi-account login remain \`NOT_TESTED\` unless noted).
+          - **Windows x64 / Linux x64:** \`UNSIGNED_DEVELOPMENT_ARTIFACT\` (no Authenticode OV/EV certificate configured).
 
           ### Checksums & Provenance
           See attached \`SHA256SUMS.txt\` and \`PROVENANCE.txt\`.
@@ -393,6 +512,7 @@ jobs:
             "${PROD}-${VER}-windows-x64-setup.exe" \
             "${PROD}-${VER}-windows-x64.msi" \
             "${PROD}-${VER}-macos-arm64.dmg" \
+            "macos-arm64-acceptance.json" \
             "SHA256SUMS.txt" \
             "PROVENANCE.txt"; do
             SIZE=$(gh release view "${TAG}" --json assets --jq ".assets[] | select(.name == \"${expected}\") | .size")

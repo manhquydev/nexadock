@@ -116,7 +116,9 @@ jobs:
           node --check scripts/generate-build-provenance.mjs
 
       - name: Run brand consistency & release gates
-        run: node tests/brand-release-gates.mjs
+        run: |
+          node tests/brand-release-gates.mjs
+          node --test tests/macos-release-gates.test.mjs
 
       - name: Run cross-platform fixture smoke check
         shell: bash
@@ -194,3 +196,62 @@ jobs:
       - name: Run Tauri desktop unit & concurrency tests
         timeout-minutes: 5
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked -- --nocapture --test-threads=1
+
+  macos-bundle-acceptance:
+    name: macOS arm64 Bundle & Clean-Install Launch Acceptance (macos-15)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Diagnose historical v0.1.1-beta.2 macOS DMG (root-cause evidence)
+        working-directory: .
+        run: |
+          mkdir -p "${RUNNER_TEMP}/macos-acceptance"
+          if curl -fsSL -o "${RUNNER_TEMP}/macos-acceptance/v0.1.1-beta.2.dmg" "https://github.com/manhquydev/nexadock/releases/download/v0.1.1-beta.2/NexaDock-0.1.1-beta.2-macos-arm64.dmg"; then
+            node desktop-instance-manager/scripts/ci-cross-platform/macos-release-acceptance.mjs \
+              --dmg "${RUNNER_TEMP}/macos-acceptance/v0.1.1-beta.2.dmg" \
+              --arch arm64 \
+              --mode dev-unsigned \
+              --expected-version 0.1.1 \
+              --skip-launch \
+              --out "${RUNNER_TEMP}/macos-acceptance/v0.1.1-beta.2-diagnosis.json" || true
+          else
+            echo "Historical v0.1.1-beta.2 DMG not reachable; skipping baseline download"
+          fi
+
+      - name: Build Tauri macOS arm64 bundle (.dmg)
+        working-directory: desktop-instance-manager/apps/desktop/src-tauri
+        run: npx --yes "@tauri-apps/cli@2.12.5" build --bundles dmg -- --locked
+
+      - name: Run clean-install bundle & launch acceptance (dev-unsigned mode)
+        working-directory: .
+        run: |
+          DMG=$(find desktop-instance-manager/apps/desktop/src-tauri/target/release/bundle/dmg -name "*.dmg" | head -n1)
+          if [ -z "${DMG}" ] || [ ! -s "${DMG}" ]; then
+            echo "::error::Missing or empty .dmg bundle"
+            exit 1
+          fi
+          node desktop-instance-manager/scripts/ci-cross-platform/macos-release-acceptance.mjs \
+            --dmg "${DMG}" \
+            --arch arm64 \
+            --mode dev-unsigned \
+            --expected-version 0.1.1 \
+            --out "${RUNNER_TEMP}/macos-acceptance/pr-macos-arm64-acceptance.json"
+
+      - name: Upload macOS acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-acceptance-reports
+          path: ${{ runner.temp }}/macos-acceptance/*.json
+          retention-days: 7
