@@ -1,0 +1,24 @@
+{
+  "name": "nexadock-website",
+  "version": "0.1.1-beta.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync-release": "node scripts/sync-release.mjs",
+    "dev": "astro dev",
+    "prebuild": "node scripts/sync-release.mjs",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test:site": "node scripts/verify-site.mjs"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@astrojs/sitemap": "^3.3.0",
+    "astro": "^5.5.0",
+    "typescript": "^5.8.2"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.1"
+  }
+}

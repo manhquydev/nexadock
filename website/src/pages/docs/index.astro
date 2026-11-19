@@ -1,0 +1,48 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { SITE_COPY } from '../../data/site-copy';
+import release from '../../data/release.json';
+
+const copy = SITE_COPY.vi;
+---
+<BaseLayout
+  lang="vi"
+  title={copy.docsTitle}
+  description={copy.docsDescription}
+  canonicalPath="/docs/"
+  altPath="/en/docs/"
+>
+  <section class="section" style="border-top: 0; padding-top: 48px;">
+    <div class="container" style="max-width: 820px;">
+      <h1 class="section-title" style="font-size: clamp(1.85rem, 3vw, 2.5rem);">
+        Tài liệu cài đặt và vận hành NexaDock
+      </h1>
+      <p class="section-desc" style="margin-bottom: 32px;">
+        Phiên bản hiện hành: <strong>{release.tag}</strong> (Pre-release chưa ký số).
+      </p>
+
+      <div class="mechanism-list">
+        <div class="mechanism-row">
+          <h3>1. Cài đặt trên Windows</h3>
+          <p>
+            Tải <span class="code-inline">NexaDock-{release.version}-windows-x64-setup.exe</span> hoặc <span class="code-inline">.msi</span>, kiểm tra SHA-256 khớp với <span class="code-inline">SHA256SUMS.txt</span>. Trên máy bật Smart App Control (<span class="code-inline">SAC=1</span>), không tắt SAC mà chạy trực tiếp từ mã nguồn qua <span class="code-inline">node apps/desktop/ui-server.mjs</span>.
+          </p>
+        </div>
+
+        <div class="mechanism-row">
+          <h3>2. Nâng cấp từ KHOANG</h3>
+          <p>
+            NexaDock giữ nguyên mã định danh <span class="code-inline">com.multizalodesktop.manager</span>, thư mục dữ liệu <span class="code-inline">%LOCALAPPDATA%\MultiZaloDesktop</span>, và tệp <span class="code-inline">khoang-preferences.json</span>. Toàn bộ tài khoản, phiên WebIsolated và sao lưu hiện có được bảo toàn.
+          </p>
+        </div>
+
+        <div class="mechanism-row">
+          <h3>3. Khôi phục sự cố và Diagnostics</h3>
+          <p>
+            Mở mục Kiểm tra sự cố trong NexaDock để xem trạng thái phát hiện Zalo Desktop, quyền thư mục và xuất báo cáo chẩn đoán đã ẩn thông tin nhạy cảm. Các mã như <span class="code-inline">PROTECTED_PRIMARY_PROCESS</span> là rào chắn bảo vệ Zalo chính hoạt động đúng thiết kế.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

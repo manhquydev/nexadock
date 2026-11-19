@@ -8,7 +8,7 @@
 
 **Your accounts. Their own space.** *(Independent Account Workspace — cross-platform isolated multi-instance profile manager for Zalo Desktop on Windows, macOS, and Ubuntu)*
 
-[Tiếng Việt](README.md) · [Pre-release Downloads](https://github.com/manhquydev/nexadock/releases) · [Installation & Testing Guide (VI)](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md) · [Report an Issue](https://github.com/manhquydev/nexadock/issues)
+[Official Website](https://manhquydev.github.io/nexadock/en/) · [Tiếng Việt](README.md) · [Pre-release Downloads](https://github.com/manhquydev/nexadock/releases) · [Installation & Testing Guide (VI)](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md) · [Report an Issue](https://github.com/manhquydev/nexadock/issues)
 
 [![CI](https://github.com/manhquydev/nexadock/actions/workflows/ci.yml/badge.svg)](https://github.com/manhquydev/nexadock/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-16a34a?style=flat-square)

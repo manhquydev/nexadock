@@ -1,0 +1,48 @@
+{
+  "repository": "manhquydev/nexadock",
+  "tag": "v0.1.1-beta.2",
+  "version": "0.1.1-beta.2",
+  "name": "NexaDock v0.1.1-beta.2 (Pre-release)",
+  "isPrerelease": true,
+  "publishedAt": "2026-11-19T18:15:20Z",
+  "htmlUrl": "https://github.com/manhquydev/nexadock/releases/tag/v0.1.1-beta.2",
+  "signingStatus": "UNSIGNED_DEVELOPMENT_ARTIFACT",
+  "commitSha": "559bf95187a8097f0f114901341011d8e0dcecfc",
+  "workflowRunUrl": "https://github.com/manhquydev/nexadock/actions/runs/44581529022",
+  "syncStatus": "live-github-api",
+  "syncedAt": "2026-11-19T18:59:16.555Z",
+  "sha256SumsUrl": "https://github.com/manhquydev/nexadock/releases/download/v0.1.1-beta.2/SHA256SUMS.txt",
+  "provenanceUrl": "https://github.com/manhquydev/nexadock/releases/download/v0.1.1-beta.2/PROVENANCE.txt",
+  "assets": [
+    {
+      "name": "NexaDock-0.1.1-beta.2-linux-x86_64.AppImage",
+      "size": 82926072,
+      "downloadUrl": "https://github.com/manhquydev/nexadock/releases/download/v0.1.1-beta.2/NexaDock-0.1.1-beta.2-linux-x86_64.AppImage",
+      "sha256": "51c58e23c157e1f8c33eb97a696527f22a20757a67bf4b1a277891ca8ac526de"
+    },
+    {
+      "name": "NexaDock-0.1.1-beta.2-macos-arm64.dmg",
+      "size": 4016859,
+      "downloadUrl": "https://github.com/manhquydev/nexadock/releases/download/v0.1.1-beta.2/NexaDock-0.1.1-beta.2-macos-arm64.dmg",
+      "sha256": "a9995457039456db428ed4dd04fbc069c12e9c1a1af95f4f5344a4bcb9c30941"
+    },
+    {
+      "name": "NexaDock-0.1.1-beta.2-ubuntu24.04-amd64.deb",
+      "size": 4238788,
+      "downloadUrl": "https://github.com/manhquydev/nexadock/releases/download/v0.1.1-beta.2/NexaDock-0.1.1-beta.2-ubuntu24.04-amd64.deb",
+      "sha256": "09069f86379eb529f7b156ceee23fd357c6b737bc5522f855a755e98b5f3c063"
+    },
+    {
+      "name": "NexaDock-0.1.1-beta.2-windows-x64-setup.exe",
+      "size": 2673942,
+      "downloadUrl": "https://github.com/manhquydev/nexadock/releases/download/v0.1.1-beta.2/NexaDock-0.1.1-beta.2-windows-x64-setup.exe",
+      "sha256": "d8f8b2fc4eeb9a55c939e7a5bc58c3c4595f4ec8fb56306ee9014a2129b1d0c8"
+    },
+    {
+      "name": "NexaDock-0.1.1-beta.2-windows-x64.msi",
+      "size": 3960832,
+      "downloadUrl": "https://github.com/manhquydev/nexadock/releases/download/v0.1.1-beta.2/NexaDock-0.1.1-beta.2-windows-x64.msi",
+      "sha256": "7496ac216255e06150a653dd759ce8aa737beb5f1ca0863be79d8cb21f2cd698"
+    }
+  ]
+}

@@ -8,7 +8,7 @@
 
 **Một máy. Nhiều tài khoản. Không trộn dữ liệu.** *(Independent Account Workspace — trình quản lý đa tài khoản Zalo Desktop cô lập dữ liệu hoàn toàn trên Windows, macOS và Ubuntu)*
 
-[English README](README.en.md) · [Tải bản Pre-release](https://github.com/manhquydev/nexadock/releases) · [Hướng dẫn cài đặt & kiểm thử](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md) · [Báo lỗi](https://github.com/manhquydev/nexadock/issues)
+[Trang chủ chính thức](https://manhquydev.github.io/nexadock/) · [English README](README.en.md) · [Tải bản Pre-release](https://github.com/manhquydev/nexadock/releases) · [Hướng dẫn cài đặt & kiểm thử](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md) · [Báo lỗi](https://github.com/manhquydev/nexadock/issues)
 
 [![CI](https://github.com/manhquydev/nexadock/actions/workflows/ci.yml/badge.svg)](https://github.com/manhquydev/nexadock/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-16a34a?style=flat-square)
