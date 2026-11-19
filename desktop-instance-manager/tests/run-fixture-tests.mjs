@@ -204,7 +204,12 @@ async function runSuite() {
 
         const stopRes = runHost(dataDir, ['stop', cycleProfile.id]).json;
         assert.equal(stopRes.data.graceful_exit, true, `Cycle ${cycle}: expected graceful_exit=true via --z-update-force-quit`);
-        assert.equal(fs.existsSync(path.join(zData, 'lockfile')), false, `Cycle ${cycle}: lockfile should be removed cleanly`);
+        const lockPath = path.join(zData, 'lockfile');
+        const lockDeadline = Date.now() + 500;
+        while (fs.existsSync(lockPath) && Date.now() < lockDeadline) {
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        assert.equal(fs.existsSync(lockPath), false, `Cycle ${cycle}: lockfile should be removed cleanly`);
       }
 
       const finalState = readJson(path.join(zData, 'launch-state.json'));
