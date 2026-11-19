@@ -75,8 +75,8 @@ jobs:
             -o Dpkg::Options::="--force-confold"
           )
           for attempt in 1 2 3; do
-            if timeout 150s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" update && \
-               timeout 150s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
+            if timeout 240s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" update && \
+               timeout 300s sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
                  build-essential \
                  pkg-config \
                  libssl-dev \
@@ -89,7 +89,6 @@ jobs:
             if [ "${attempt}" -eq 3 ]; then
               exit 1
             fi
-            sudo apt-get clean
             sleep 5
           done
 
