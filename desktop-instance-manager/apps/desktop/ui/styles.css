@@ -14,70 +14,71 @@
   --radius-lg: 14px;
   --radius-pill: 999px;
 
-  --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Noto Sans", system-ui, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+  --font-sans: "Be Vietnam Pro", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
 
-  /* Light theme tokens */
-  --bg-app-light: #f5f6f8;
+  /* KHOANG Calm Precision — Light theme tokens (Locked Palette) */
+  --bg-app-light: #f6f5f2;
   --bg-surface-light: #ffffff;
-  --bg-subtle-light: #eef0f4;
-  --bg-hover-light: #e7eaf0;
-  --border-light: #dfe3ea;
-  --border-strong-light: #c6cdd8;
-  --text-primary-light: #16191f;
-  --text-secondary-light: #525b6c;
-  --text-muted-light: #6b7485;
-  --accent-light: #0f6cbd;
-  --accent-hover-light: #0c5aa0;
+  --bg-subtle-light: #efece5;
+  --bg-hover-light: #eae6dd;
+  --border-light: #e2ddd3;
+  --border-strong-light: #c7c0b3;
+  --text-primary-light: #192a26;
+  --text-secondary-light: #57534e;
+  --text-muted-light: #6e6a63;
+  --accent-light: #17675f;
+  --accent-hover-light: #12544d;
   --accent-text-light: #ffffff;
-  --accent-soft-light: #ebf3fc;
-  --ok-fg-light: #0e7a3a;
-  --ok-bg-light: #edf8f1;
-  --ok-border-light: #b6e3c6;
-  --warn-fg-light: #8a5300;
-  --warn-bg-light: #fef6e7;
-  --warn-border-light: #f4d399;
-  --danger-fg-light: #b42318;
-  --danger-bg-light: #fef2f2;
-  --danger-border-light: #f6c4c0;
-  --shadow-card-light: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-menu-light: 0 8px 24px rgba(16, 24, 40, 0.12);
+  --accent-soft-light: #bce5d8;
+  --accent-mint: #bce5d8;
+  --ok-fg-light: #15683a;
+  --ok-bg-light: #e9f5ee;
+  --ok-border-light: #b7dfc6;
+  --warn-fg-light: #9a4d06;
+  --warn-bg-light: #fef3c7;
+  --warn-border-light: #e5a93c;
+  --danger-fg-light: #b91c1c;
+  --danger-bg-light: #fee2e2;
+  --danger-border-light: #fca5a5;
+  --shadow-card-light: 0 1px 2px rgba(25, 42, 38, 0.04);
+  --shadow-menu-light: 0 8px 24px rgba(25, 42, 38, 0.12);
 
-  /* Dark theme tokens */
-  --bg-app-dark: #131519;
-  --bg-surface-dark: #1b1e24;
-  --bg-subtle-dark: #232730;
-  --bg-hover-dark: #2b303b;
-  --border-dark: #2c313c;
-  --border-strong-dark: #3f4656;
-  --text-primary-dark: #f0f2f5;
-  --text-secondary-dark: #a8b1c2;
-  --text-muted-dark: #8791a4;
-  --accent-dark: #4f9ef8;
-  --accent-hover-dark: #6ab0ff;
-  --accent-text-dark: #0a1420;
-  --accent-soft-dark: #1a2c42;
-  --ok-fg-dark: #5dd38c;
-  --ok-bg-dark: #13281d;
-  --ok-border-dark: #225437;
-  --warn-fg-dark: #f5b942;
-  --warn-bg-dark: #2a2110;
-  --warn-border-dark: #5c4217;
+  /* KHOANG Calm Precision — Dark theme tokens (Locked Palette) */
+  --bg-app-dark: #121210;
+  --bg-surface-dark: #1b1b18;
+  --bg-subtle-dark: #23231f;
+  --bg-hover-dark: #2a2a25;
+  --border-dark: #2f2f2a;
+  --border-strong-dark: #44443d;
+  --text-primary-dark: #f2f0ea;
+  --text-secondary-dark: #b5b0a6;
+  --text-muted-dark: #918c82;
+  --accent-dark: #1d8278;
+  --accent-hover-dark: #26998e;
+  --accent-text-dark: #ffffff;
+  --accent-soft-dark: #142e2c;
+  --ok-fg-dark: #4ade80;
+  --ok-bg-dark: #132a1c;
+  --ok-border-dark: #225438;
+  --warn-fg-dark: #fbbf24;
+  --warn-bg-dark: #2d220b;
+  --warn-border-dark: #855812;
   --danger-fg-dark: #f87171;
-  --danger-bg-dark: #2d1618;
-  --danger-border-dark: #5f272c;
+  --danger-bg-dark: #2e1414;
+  --danger-border-dark: #7f1d1d;
   --shadow-card-dark: 0 1px 2px rgba(0, 0, 0, 0.28);
-  --shadow-menu-dark: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-menu-dark: 0 10px 28px rgba(0, 0, 0, 0.48);
 
   /* Curated account identity palette (WCAG 2.2 AA >= 4.5:1 against #ffffff) */
-  --id-blue: #1d4ed8;
-  --id-teal: #0f766e;
-  --id-green: #15803d;
-  --id-amber: #b45309;
-  --id-coral: #be123c;
-  --id-plum: #7e22ce;
-  --id-indigo: #4338ca;
-  --id-slate: #475569;
+  --id-blue: #1e56a0;
+  --id-teal: #0f6b66;
+  --id-green: #1c6e3b;
+  --id-amber: #a14a0a;
+  --id-coral: #a92b5b;
+  --id-plum: #6d3b9e;
+  --id-indigo: #4b468e;
+  --id-slate: #0e6488;
 
   /* Default resolved tokens (light) */
   --bg-app: var(--bg-app-light);
@@ -1435,4 +1436,165 @@ dialog::backdrop {
   *, *::before, *::after {
     transition: none !important;
   }
+}
+
+/* ========================================================================
+ * KHOANG Phase 3 Upgrade Additions (Grid/List, Recovery, Protected Badge)
+ * ======================================================================== */
+[hidden] {
+  display: none !important;
+}
+
+.account-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18.5rem), 1fr));
+  align-items: stretch;
+}
+
+.account-grid[data-view-mode="list"] {
+  grid-template-columns: 1fr;
+  gap: var(--sp-2);
+}
+
+.account-card {
+  container-type: inline-size;
+  min-inline-size: 0;
+}
+
+.account-card[data-lifecycle="recovery_required"] {
+  border-color: var(--warn-border);
+}
+
+.account-state-row[data-lifecycle="recovery_required"] {
+  color: var(--warn-fg);
+}
+
+.account-state-row[data-lifecycle="recovery_required"] .state-dot {
+  background: var(--warn-fg);
+}
+
+.account-recovery-hint {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border: 1px solid var(--warn-border);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.account-state-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.account-grid[data-view-mode="list"] .account-card {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: var(--sp-3) var(--sp-4);
+  gap: var(--sp-3);
+}
+
+.account-grid[data-view-mode="list"] .account-card-head {
+  flex: 1 1 14rem;
+  min-inline-size: 0;
+}
+
+.account-grid[data-view-mode="list"] .account-card-actions {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+  flex-shrink: 0;
+}
+
+.view-segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.view-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 1.875rem;
+  padding: 0 var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.view-seg-btn[aria-pressed="true"] {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+.primary-zalo-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.primary-zalo-protected-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+@media (max-width: 960px) and (min-width: 720px) {
+  .topbar-inner {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+  }
+
+  .account-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  }
+}
+
+.settings-toggle-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 1.75rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.settings-toggle-row:has(input:disabled) {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.settings-hint {
+  margin: var(--sp-2) 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }

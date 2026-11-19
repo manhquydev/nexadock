@@ -1,4 +1,4 @@
-name: MultiZaloDesktop CI
+name: KHOANG CI
 
 on:
   push:
@@ -112,7 +112,11 @@ jobs:
           node --check apps/desktop/ui/app.js
           node --check tests/run-fixture-tests.mjs
           node --check tests/run-contract-parity-tests.mjs
+          node --check tests/brand-release-gates.mjs
           node --check scripts/generate-build-provenance.mjs
+
+      - name: Run brand consistency & release gates
+        run: node tests/brand-release-gates.mjs
 
       - name: Run cross-platform fixture smoke check
         shell: bash

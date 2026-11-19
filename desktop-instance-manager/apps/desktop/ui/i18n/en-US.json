@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "Multi-Zalo",
-    "windowTitle": "Multi-Zalo — Accounts",
-    "subtitle": "Multiple Zalo accounts on one computer",
+    "name": "KHOANG",
+    "windowTitle": "KHOANG — Accounts",
+    "subtitle": "Your accounts. Their own space.",
     "modeTauri": "Desktop app",
     "modeBridge": "Local bridge",
     "connecting": "Connecting...",
@@ -33,6 +33,10 @@
     "searchPlaceholder": "Search accounts...",
     "searchAria": "Search accounts",
     "add": "Add account",
+    "viewGrid": "Grid",
+    "viewList": "List",
+    "stopAll": "Stop all",
+    "recoveryHint": "Previous session ended uncleanly. Reopen to clean locks.",
     "emptyTitle": "Use multiple Zalo accounts on one computer",
     "emptyHint": "Create a separate space to open and sign in to another existing Zalo account without signing out.",
     "countSummary": "Showing {shown} of {total} accounts",
@@ -50,6 +54,8 @@
     "actions": {
       "launch": "Open Zalo",
       "launchAria": "Open Zalo — {name}",
+      "recover": "Recover & Open",
+      "recoverAria": "Recover & Open — {name}",
       "focus": "Switch to window",
       "focusAria": "Switch to window — {name}",
       "stop": "Close Zalo",
@@ -64,6 +70,7 @@
     },
     "primaryZalo": {
       "heading": "Zalo already on this computer",
+      "protectedBadge": "Protected · Read-only",
       "running": "Window open · Protected; cannot be closed or removed from here",
       "stopped": "Closed · Your main Zalo installation always stays untouched",
       "unknown": "Unknown · Could not verify your main Zalo status right now"
@@ -181,6 +188,12 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Customize language, appearance, and advanced troubleshooting.",
+    "behavior": {
+      "heading": "Desktop Behavior",
+      "keepInTray": "Keep running in system tray when closing window",
+      "autostart": "Launch KHOANG on system startup",
+      "desktopOnlyHint": "Available only in the KHOANG desktop app."
+    },
     "language": {
       "heading": "Display language",
       "description": "Applies immediately. Your account names stay unchanged.",
@@ -216,7 +229,7 @@
     "cards": {
       "mentalModel": {
         "title": "1. What this app does (and doesn't do)",
-        "body": "Multi-Zalo creates separate data spaces so you can run multiple Zalo Desktop windows side by side. It does not register new Zalo accounts and never asks for or stores your passwords, OTP codes, or messages."
+        "body": "KHOANG creates separate data spaces so you can run multiple Zalo Desktop windows side by side. It does not register new Zalo accounts and never asks for or stores your passwords, OTP codes, or messages."
       },
       "signIn": {
         "title": "2. Adding and signing in to an account",
@@ -268,7 +281,7 @@
     },
     "delete": {
       "title": "Remove this account?",
-      "warning": "This deletes all local data for \"{name}\" from Multi-Zalo. Back it up first if you want to keep local history.",
+      "warning": "This deletes all local data for \"{name}\" from KHOANG. Back it up first if you want to keep local history.",
       "confirmText": "Close Zalo before removing account data.",
       "submit": "Remove account"
     },
@@ -280,10 +293,10 @@
       "submit": "Restore"
     },
     "help": {
-      "title": "How Multi-Zalo works",
+      "title": "How KHOANG works",
       "items": [
         "Each account you add opens Zalo Desktop in its own separate space.",
-        "You sign in directly inside Zalo (QR or password); Multi-Zalo never collects credentials.",
+        "You sign in directly inside Zalo (QR or password); KHOANG never collects credentials.",
         "Any Zalo already installed on your computer stays untouched and protected.",
         "You can back up any account whenever its Zalo window is closed."
       ]
@@ -336,7 +349,7 @@
     "UNSUPPORTED_PLATFORM": "This feature is not supported on your operating system yet.",
     "BACKUP_ERROR": "Cannot back up while Zalo is open or the folder is busy.",
     "SHARED_EXTERNAL_DB_PATH": "This account shares an external Zalo storage folder with another open account. Please configure separate storage folders inside Zalo.",
-    "EXTERNAL_DB_OUTSIDE_PROFILE": "This account stores Zalo messages in an external folder outside Multi-Zalo, so standard backup is paused to protect your history.",
+    "EXTERNAL_DB_OUTSIDE_PROFILE": "This account stores Zalo messages in an external folder outside KHOANG, so standard backup is paused to protect your history.",
     "RESTORE_ERROR": "Could not restore because this backup is missing files, damaged, or failed integrity verification.",
     "PROCESS_ERROR": "Could not open Zalo. Try again.",
     "LAUNCH_FAILED": "Zalo closed before finishing startup. Please try opening this account again.",

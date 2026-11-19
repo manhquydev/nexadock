@@ -766,6 +766,8 @@ function renderProfiles() {
   const emptyTitle = document.getElementById('profiles-empty-title');
   const emptyHint = document.getElementById('profiles-empty-hint');
   const emptyBtn = document.getElementById('btn-empty-create');
+  const openCreateBtn = document.getElementById('btn-open-create');
+  const stopAllBtn = document.getElementById('btn-stop-all');
   const searchWrap = document.getElementById('search-wrap');
   const countSummary = document.getElementById('accounts-count-summary');
   if (!list || !emptyEl) return;
@@ -777,6 +779,27 @@ function renderProfiles() {
   const allProfiles = state.status?.profiles || [];
   const filtered = filterProfiles(allProfiles, state.searchQuery);
   const hasQuery = state.searchQuery.trim().length > 0;
+  const runningProfiles = allProfiles.filter((p) => Boolean(p.running) || normalizeLifecycleState(p) === 'running');
+
+  if (openCreateBtn) {
+    openCreateBtn.hidden = allProfiles.length === 0;
+  }
+  if (stopAllBtn) {
+    stopAllBtn.hidden = runningProfiles.length < 2;
+    stopAllBtn.disabled = state.pendingGlobalActions.has('stop-all');
+  }
+
+  try {
+    const savedMode = typeof localStorage !== 'undefined' ? localStorage.getItem('khoang.viewMode') : null;
+    if (savedMode === 'list' || savedMode === 'grid') {
+      list.dataset.viewMode = savedMode;
+    }
+  } catch (_err) {
+    // Ignore storage access errors
+  }
+  const activeMode = list.dataset.viewMode === 'list' ? 'list' : 'grid';
+  document.getElementById('btn-view-grid')?.setAttribute('aria-pressed', String(activeMode === 'grid'));
+  document.getElementById('btn-view-list')?.setAttribute('aria-pressed', String(activeMode === 'list'));
 
   if (searchWrap) {
     searchWrap.hidden = allProfiles.length < 2;
@@ -819,10 +842,12 @@ function renderProfiles() {
   for (const prof of filtered) {
     const isPending = state.pendingProfileActions.has(prof.id);
     const accState = resolveAccountState(prof);
+    const lcState = normalizeLifecycleState(prof);
 
     const li = document.createElement('li');
     li.className = prof.running ? 'account-card is-running' : 'account-card';
     li.dataset.profileId = prof.id;
+    li.dataset.lifecycle = lcState;
 
     const head = document.createElement('div');
     head.className = 'account-card-head';
@@ -843,6 +868,7 @@ function renderProfiles() {
 
     const stateRow = document.createElement('div');
     stateRow.className = `account-state-row is-${accState.kind}`;
+    stateRow.dataset.lifecycle = lcState;
     const dot = document.createElement('span');
     dot.className = 'state-dot';
     dot.setAttribute('aria-hidden', 'true');
@@ -871,7 +897,6 @@ function renderProfiles() {
     const secondaryActions = document.createElement('div');
     secondaryActions.className = 'account-actions-secondary';
 
-    const lcState = normalizeLifecycleState(prof);
     const isActiveLifecycle = Boolean(prof.running) || lcState === 'starting' || lcState === 'running' || lcState === 'stopping';
     if (isActiveLifecycle) {
       primaryActions.appendChild(makeButton(
@@ -892,6 +917,13 @@ function renderProfiles() {
           ariaLabel: t('accounts.actions.stopAria', { name: prof.name })
         }
       ));
+    } else if (lcState === 'recovery_required') {
+      primaryActions.appendChild(makeButton(
+        t('accounts.actions.recover'),
+        'btn-primary',
+        () => runProfileAction('launch', prof),
+        { disabled: isPending, ariaLabel: t('accounts.actions.recoverAria', { name: prof.name }) }
+      ));
     } else {
       primaryActions.appendChild(makeButton(
         t('accounts.actions.launch'),
@@ -907,6 +939,12 @@ function renderProfiles() {
     actions.appendChild(secondaryActions);
 
     li.appendChild(head);
+    if (lcState === 'recovery_required') {
+      const recHint = document.createElement('p');
+      recHint.className = 'account-recovery-hint';
+      recHint.textContent = t('accounts.recoveryHint');
+      li.appendChild(recHint);
+    }
     li.appendChild(actions);
     list.appendChild(li);
   }
@@ -1794,6 +1832,40 @@ export async function initApp() {
   });
 
   document.getElementById('btn-refresh')?.addEventListener('click', () => refreshAll());
+  document.getElementById('btn-view-grid')?.addEventListener('click', () => {
+    const list = document.getElementById('profiles-list');
+    if (list) list.dataset.viewMode = 'grid';
+    try { localStorage.setItem('khoang.viewMode', 'grid'); } catch (_err) {}
+    renderProfiles();
+  });
+  document.getElementById('btn-view-list')?.addEventListener('click', () => {
+    const list = document.getElementById('profiles-list');
+    if (list) list.dataset.viewMode = 'list';
+    try { localStorage.setItem('khoang.viewMode', 'list'); } catch (_err) {}
+    renderProfiles();
+  });
+  document.getElementById('btn-stop-all')?.addEventListener('click', async () => {
+    if (state.pendingGlobalActions.has('stop-all')) return;
+    state.pendingGlobalActions.add('stop-all');
+    updatePendingControls();
+    try {
+      const invoke = getTauriInvoke();
+      if (invoke) {
+        await invoke('stop_all_profiles', {});
+      } else {
+        const running = (state.status?.profiles || []).filter((p) => Boolean(p.running));
+        for (const p of running) {
+          await apiCall(`/api/profiles/${encodeURIComponent(p.id)}/stop`, 'POST', {});
+        }
+      }
+      await refreshAll();
+    } catch (err) {
+      showErrorBanner(err.errorCode || 'UNKNOWN_ERROR', err.message || String(err));
+    } finally {
+      state.pendingGlobalActions.delete('stop-all');
+      updatePendingControls();
+    }
+  });
   document.getElementById('btn-refresh-backups')?.addEventListener('click', () => refreshAll());
   document.getElementById('btn-run-isolation')?.addEventListener('click', () => refreshAll({ isVerify: true }));
   document.getElementById('btn-refresh-diagnostics')?.addEventListener('click', () => refreshAll());
@@ -1807,10 +1879,72 @@ export async function initApp() {
     });
   }
 
-  onLocaleChange(() => {
+  onLocaleChange((nextLocale) => {
     applyDomTranslations();
     renderAll();
+    const invoke = getTauriInvoke();
+    if (invoke) {
+      invoke('set_tray_locale', { locale: nextLocale }).catch(() => {});
+    }
   });
+
+  const keepInTrayEl = document.getElementById('toggle-keep-in-tray');
+  const autostartEl = document.getElementById('toggle-autostart');
+  const behaviorHintEl = document.getElementById('settings-behavior-hint');
+  const tauriInvoke = getTauriInvoke();
+  if (tauriInvoke) {
+    if (behaviorHintEl) behaviorHintEl.hidden = true;
+    tauriInvoke('set_tray_locale', { locale: getLocale() }).catch(() => {});
+    tauriInvoke('get_desktop_preferences', {})
+      .then((prefs) => {
+        if (keepInTrayEl && prefs && typeof prefs.keep_in_tray === 'boolean') {
+          keepInTrayEl.checked = prefs.keep_in_tray;
+        }
+      })
+      .catch(() => {});
+    tauriInvoke('get_autostart_enabled', {})
+      .then((enabled) => {
+        if (autostartEl) autostartEl.checked = Boolean(enabled);
+      })
+      .catch(() => {});
+    keepInTrayEl?.addEventListener('change', async (event) => {
+      const next = Boolean(event.target.checked);
+      keepInTrayEl.disabled = true;
+      try {
+        await tauriInvoke('set_keep_in_tray', { keepInTray: next });
+      } catch (err) {
+        keepInTrayEl.checked = !next;
+        showErrorBanner(err.errorCode || 'UNKNOWN_ERROR', err.message || String(err));
+      } finally {
+        keepInTrayEl.disabled = false;
+      }
+    });
+    autostartEl?.addEventListener('change', async (event) => {
+      const next = Boolean(event.target.checked);
+      autostartEl.disabled = true;
+      try {
+        await tauriInvoke('set_autostart_enabled', { enabled: next });
+      } catch (err) {
+        autostartEl.checked = !next;
+        showErrorBanner(err.errorCode || 'UNKNOWN_ERROR', err.message || String(err));
+      } finally {
+        autostartEl.disabled = false;
+      }
+    });
+    const tauriListen = typeof window !== 'undefined' ? window.__TAURI__?.event?.listen : null;
+    if (typeof tauriListen === 'function') {
+      tauriListen('khoang://navigate', (event) => {
+        const target = event?.payload;
+        if (target === 'profiles' || target === 'settings' || target === 'backups' || target === 'help' || target === 'diagnostics') {
+          selectView(target);
+        }
+      }).catch(() => {});
+    }
+  } else {
+    if (keepInTrayEl) keepInTrayEl.disabled = true;
+    if (autostartEl) autostartEl.disabled = true;
+    if (behaviorHintEl) behaviorHintEl.hidden = false;
+  }
 
   for (const input of document.querySelectorAll('input[name="ui-theme"]')) {
     input.addEventListener('change', (event) => {

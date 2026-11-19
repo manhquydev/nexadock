@@ -13,7 +13,10 @@ use dim_core::{
 use serde::Serialize;
 use tauri::State;
 
+use crate::autostart;
+use crate::preferences::{DesktopPreferences, DesktopPrefsState};
 pub use crate::state::AppState;
+use crate::tray;
 
 fn current_user_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
@@ -608,6 +611,42 @@ pub async fn verify_isolation(state: State<'_, AppState>) -> Result<serde_json::
     })
     .await
     .map_err(redact_err_text)?
+}
+
+#[tauri::command]
+pub async fn get_desktop_preferences(
+    prefs: State<'_, DesktopPrefsState>,
+) -> Result<DesktopPreferences, String> {
+    Ok(prefs.snapshot())
+}
+
+#[tauri::command]
+pub async fn set_keep_in_tray(
+    enabled: bool,
+    prefs: State<'_, DesktopPrefsState>,
+) -> Result<DesktopPreferences, String> {
+    prefs.set_keep_in_tray(enabled).map_err(redact_dim_err)
+}
+
+#[tauri::command]
+pub async fn set_tray_locale(
+    locale: String,
+    app: tauri::AppHandle,
+    prefs: State<'_, DesktopPrefsState>,
+) -> Result<DesktopPreferences, String> {
+    let updated = prefs.set_locale(&locale).map_err(redact_dim_err)?;
+    tray::update_tray_locale(&app, &updated.locale).map_err(redact_err_text)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub async fn get_autostart_enabled() -> Result<bool, String> {
+    autostart::is_autostart_enabled().map_err(redact_dim_err)
+}
+
+#[tauri::command]
+pub async fn set_autostart_enabled(enabled: bool) -> Result<bool, String> {
+    autostart::set_autostart_enabled(enabled).map_err(redact_dim_err)
 }
 
 #[cfg(test)]

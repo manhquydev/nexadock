@@ -1,6 +1,6 @@
-# Contributing to Multi-Zalo Desktop
+# Contributing to KHOANG
 
-Thank you for contributing to Multi-Zalo Desktop (`desktop-instance-manager/`).
+Thank you for contributing to **KHOANG** (`desktop-instance-manager/`, formerly Multi-Zalo Desktop).
 
 ## Licensing (`Inbound = Outbound`)
 

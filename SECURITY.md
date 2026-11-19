@@ -13,7 +13,7 @@ When reporting a vulnerability, **never** include:
 
 ## Security Boundaries & Guarantees
 
-- **Primary Zalo Protection:** This project isolates secondary profiles strictly in dedicated directories (`%LOCALAPPDATA%\MultiZaloDesktop\Profiles` on Windows, `~/Library/Application Support/MultiZaloDesktop/Profiles` on macOS, `$XDG_DATA_HOME/MultiZaloDesktop/Profiles` on Linux) and blocks any mutation targeting the primary `%APPDATA%\ZaloData` / `~/Library/Application Support/ZaloData` path or primary Zalo processes.
-- **No Binary Modification & No Credential Collection:** Multi-Zalo Desktop never unpacks, patches, or redistributes VNG proprietary binaries (`Zalo.exe`, `Zalo.app`, `app.asar`, `ZaloCall`), and never intercepts or stores Zalo login credentials, cookies, or messages.
+- **Primary Zalo Protection:** KHOANG isolates secondary profiles strictly in dedicated directories (`%LOCALAPPDATA%\MultiZaloDesktop\Profiles` on Windows, `~/Library/Application Support/MultiZaloDesktop/Profiles` on macOS, `$XDG_DATA_HOME/MultiZaloDesktop/Profiles` on Linux) and blocks any mutation targeting the primary `%APPDATA%\ZaloData` / `~/Library/Application Support/ZaloData` path or primary Zalo processes.
+- **No Binary Modification & No Credential Collection:** KHOANG never unpacks, patches, or redistributes VNG proprietary binaries (`Zalo.exe`, `Zalo.app`, `app.asar`, `ZaloCall`), and never intercepts or stores Zalo login credentials, cookies, or messages.
 - **Publisher Verification:** Official Zalo Desktop binaries are verified before launch (Cryptographic Authenticode + `CN/O=VNG GROUP JSC` pinning on Windows; 5-tier code-signature checks on macOS).
 - **Local HTTP Bridge:** When running the Signed-Host Bridge (`ui-server.mjs`), the server binds exclusively to `127.0.0.1` and enforces a per-session 256-bit `X-DIM-Session-Token`, `Host`/`Origin`/`Sec-Fetch-Site` checks, and `Content-Type: application/json`.

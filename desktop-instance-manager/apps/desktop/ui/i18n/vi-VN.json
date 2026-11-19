@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "Multi-Zalo",
-    "windowTitle": "Multi-Zalo — Tài khoản",
-    "subtitle": "Nhiều tài khoản Zalo trên một máy",
+    "name": "KHOANG",
+    "windowTitle": "KHOANG — Tài khoản",
+    "subtitle": "Một máy. Nhiều tài khoản. Không trộn dữ liệu.",
     "modeTauri": "Ứng dụng máy tính",
     "modeBridge": "Kết nối cục bộ",
     "connecting": "Đang kết nối...",
@@ -33,6 +33,10 @@
     "searchPlaceholder": "Tìm tài khoản...",
     "searchAria": "Tìm kiếm tài khoản",
     "add": "Thêm tài khoản",
+    "viewGrid": "Lưới",
+    "viewList": "Danh sách",
+    "stopAll": "Đóng tất cả",
+    "recoveryHint": "Phiên trước đóng chưa sạch. Mở lại để tự động dọn khóa.",
     "emptyTitle": "Dùng nhiều tài khoản Zalo trên một máy",
     "emptyHint": "Tạo một không gian riêng để mở và đăng nhập thêm tài khoản Zalo có sẵn mà không cần đăng xuất.",
     "countSummary": "Hiển thị {shown} / {total} tài khoản",
@@ -50,6 +54,8 @@
     "actions": {
       "launch": "Mở Zalo",
       "launchAria": "Mở Zalo — {name}",
+      "recover": "Khôi phục & Mở",
+      "recoverAria": "Khôi phục & Mở — {name}",
       "focus": "Chuyển đến",
       "focusAria": "Chuyển đến — {name}",
       "stop": "Đóng Zalo",
@@ -64,6 +70,7 @@
     },
     "primaryZalo": {
       "heading": "Zalo đang dùng trên máy",
+      "protectedBadge": "Được bảo vệ · Chỉ đọc",
       "running": "Cửa sổ đang mở · Được bảo vệ, không thể đóng hoặc xóa từ đây",
       "stopped": "Đã đóng · Tài khoản Zalo gốc của máy luôn được giữ nguyên",
       "unknown": "Chưa xác định · Chưa kiểm tra được trạng thái Zalo gốc trên máy"
@@ -181,6 +188,12 @@
   "settings": {
     "title": "Cài đặt",
     "subtitle": "Tùy chỉnh ngôn ngữ, giao diện và kiểm tra nâng cao.",
+    "behavior": {
+      "heading": "Hành vi ứng dụng",
+      "keepInTray": "Tiếp tục chạy trong khay hệ thống khi đóng cửa sổ",
+      "autostart": "Khởi động KHOANG cùng hệ thống",
+      "desktopOnlyHint": "Chỉ khả dụng trong ứng dụng máy tính KHOANG."
+    },
     "language": {
       "heading": "Ngôn ngữ hiển thị",
       "description": "Áp dụng ngay lập tức. Tên tài khoản bạn đặt được giữ nguyên.",
@@ -216,7 +229,7 @@
     "cards": {
       "mentalModel": {
         "title": "1. Công cụ này làm gì (và không làm gì)?",
-        "body": "Multi-Zalo tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn."
+        "body": "KHOANG tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn."
       },
       "signIn": {
         "title": "2. Cách thêm và đăng nhập tài khoản",
@@ -268,7 +281,7 @@
     },
     "delete": {
       "title": "Xóa tài khoản này?",
-      "warning": "Thao tác này sẽ xóa toàn bộ dữ liệu cục bộ của tài khoản \"{name}\" khỏi Multi-Zalo. Hãy sao lưu trước nếu cần giữ lại lịch sử trên máy.",
+      "warning": "Thao tác này sẽ xóa toàn bộ dữ liệu cục bộ của tài khoản \"{name}\" khỏi KHOANG. Hãy sao lưu trước nếu cần giữ lại lịch sử trên máy.",
       "confirmText": "Hãy đóng Zalo trước khi xóa dữ liệu tài khoản.",
       "submit": "Xóa tài khoản"
     },
@@ -280,10 +293,10 @@
       "submit": "Khôi phục"
     },
     "help": {
-      "title": "Cách hoạt động của Multi-Zalo",
+      "title": "Cách hoạt động của KHOANG",
       "items": [
         "Mỗi tài khoản bạn thêm sẽ mở Zalo Desktop trong một không gian riêng.",
-        "Bạn đăng nhập trực tiếp trong ứng dụng Zalo (QR hoặc mật khẩu); Multi-Zalo không thu thập thông tin đăng nhập.",
+        "Bạn đăng nhập trực tiếp trong ứng dụng Zalo (QR hoặc mật khẩu); KHOANG không thu thập thông tin đăng nhập.",
         "Zalo đang dùng sẵn trên máy luôn được giữ nguyên và bảo vệ.",
         "Bạn có thể sao lưu tài khoản bất cứ lúc nào khi tài khoản đó đang đóng."
       ]
@@ -336,7 +349,7 @@
     "UNSUPPORTED_PLATFORM": "Tính năng này chưa hỗ trợ trên hệ điều hành hiện tại.",
     "BACKUP_ERROR": "Không thể sao lưu khi Zalo đang mở hoặc thư mục đang bận.",
     "SHARED_EXTERNAL_DB_PATH": "Tài khoản này đang dùng chung thư mục lưu trữ ngoài với một cửa sổ Zalo khác. Hãy chọn thư mục lưu trữ riêng trong cài đặt Zalo.",
-    "EXTERNAL_DB_OUTSIDE_PROFILE": "Tài khoản này đang đặt thư mục tin nhắn Zalo ở ổ đĩa ngoài Multi-Zalo, nên sao lưu tự động tạm dừng để tránh thiếu dữ liệu.",
+    "EXTERNAL_DB_OUTSIDE_PROFILE": "Tài khoản này đang đặt thư mục tin nhắn Zalo ở ổ đĩa ngoài KHOANG, nên sao lưu tự động tạm dừng để tránh thiếu dữ liệu.",
     "RESTORE_ERROR": "Không thể khôi phục vì bản sao lưu bị thiếu tệp, hỏng định dạng hoặc không còn nguyên vẹn.",
     "PROCESS_ERROR": "Không thể mở Zalo. Thử lại.",
     "LAUNCH_FAILED": "Cửa sổ Zalo đã đóng trước khi khởi động xong. Vui lòng thử mở lại tài khoản này.",

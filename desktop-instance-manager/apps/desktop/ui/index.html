@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="text-scale" content="scale">
   <meta name="color-scheme" content="light dark">
-  <title>Multi-Zalo — Tài khoản</title>
+  <title>KHOANG — Tài khoản</title>
   <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -17,15 +17,17 @@
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand-cluster">
-          <button type="button" class="brand-home-btn" id="btn-brand-home" aria-label="Multi-Zalo">
+          <button type="button" class="brand-home-btn" id="btn-brand-home" aria-label="KHOANG">
             <span class="brand-mark" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="12" height="12" rx="3"/>
-                <path d="M9 15v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-6a3 3 0 0 0-3-3h-3"/>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <rect x="2" y="2" width="20" height="20" rx="5" stroke="currentColor" stroke-width="1.75"/>
+                <rect x="5.5" y="5.5" width="5.5" height="13" rx="1.75" fill="currentColor"/>
+                <rect x="13" y="5.5" width="5.5" height="6" rx="1.5" fill="var(--accent, currentColor)"/>
+                <rect x="13" y="13" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
               </svg>
             </span>
             <span class="brand-text">
-              <span class="brand-name" data-i18n="app.name">Multi-Zalo</span>
+              <span class="brand-name" data-i18n="app.name">KHOANG</span>
               <span class="brand-sub" id="topbar-open-summary" data-i18n="app.connecting">Đang kết nối...</span>
             </span>
           </button>
@@ -112,17 +114,24 @@
                 placeholder="Tìm tài khoản..."
               >
             </div>
+            <div class="view-segmented" role="group" aria-label="Chế độ hiển thị">
+              <button type="button" class="view-seg-btn" id="btn-view-grid" data-mode="grid" aria-pressed="true" data-i18n="accounts.viewGrid">Lưới</button>
+              <button type="button" class="view-seg-btn" id="btn-view-list" data-mode="list" aria-pressed="false" data-i18n="accounts.viewList">Danh sách</button>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-stop-all" hidden data-i18n="accounts.stopAll">Đóng tất cả</button>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh" data-i18n="accounts.actions.refresh">Làm mới</button>
           </div>
         </div>
 
-        <ul id="profiles-list" class="account-grid" role="list"></ul>
+        <ul id="profiles-list" class="account-grid" data-view-mode="grid" role="list"></ul>
 
         <div id="profiles-empty" class="empty-state empty-hero" hidden>
           <div class="empty-icon" aria-hidden="true">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="12" height="12" rx="3"/>
-              <path d="M9 15v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-6a3 3 0 0 0-3-3h-3"/>
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+              <rect x="2" y="2" width="20" height="20" rx="5" stroke="currentColor" stroke-width="1.75"/>
+              <rect x="5.5" y="5.5" width="5.5" height="13" rx="1.75" fill="currentColor"/>
+              <rect x="13" y="5.5" width="5.5" height="6" rx="1.5" fill="var(--accent, currentColor)"/>
+              <rect x="13" y="13" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
             </svg>
           </div>
           <h2 class="empty-title" id="profiles-empty-title" data-i18n="accounts.emptyTitle">Dùng nhiều tài khoản Zalo trên một máy</h2>
@@ -135,7 +144,15 @@
           <div class="primary-zalo-card">
             <div class="account-avatar avatar-protected" aria-hidden="true">Z</div>
             <div class="primary-zalo-meta">
-              <div class="primary-zalo-title" data-i18n="accounts.primaryZalo.heading">Zalo đang dùng trên máy</div>
+              <div class="primary-zalo-heading-row">
+                <div class="primary-zalo-title" data-i18n="accounts.primaryZalo.heading">Zalo đang dùng trên máy</div>
+                <span class="primary-zalo-protected-badge">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                  <span data-i18n="accounts.primaryZalo.protectedBadge">Được bảo vệ · Chỉ đọc</span>
+                </span>
+              </div>
               <div class="account-state-row is-unknown" id="primary-zalo-state-row">
                 <span class="state-dot" aria-hidden="true"></span>
                 <span class="primary-zalo-desc" id="primary-zalo-desc"></span>
@@ -237,6 +254,21 @@
                 </label>
               </div>
             </fieldset>
+          </section>
+
+          <section class="panel settings-panel" id="settings-behavior-section">
+            <h2 class="settings-title" data-i18n="settings.behavior.heading">Hành vi ứng dụng</h2>
+            <div class="settings-toggle-stack">
+              <label class="settings-toggle-row">
+                <input type="checkbox" id="toggle-keep-in-tray">
+                <span data-i18n="settings.behavior.keepInTray">Tiếp tục chạy trong khay hệ thống khi đóng cửa sổ</span>
+              </label>
+              <label class="settings-toggle-row">
+                <input type="checkbox" id="toggle-autostart">
+                <span data-i18n="settings.behavior.autostart">Khởi động KHOANG cùng hệ thống</span>
+              </label>
+            </div>
+            <p class="settings-hint" id="settings-behavior-hint" hidden data-i18n="settings.behavior.desktopOnlyHint">Chỉ khả dụng trong ứng dụng máy tính KHOANG.</p>
           </section>
 
           <section class="panel settings-panel">
@@ -344,7 +376,7 @@
         <div class="help-grid">
           <section class="panel">
             <h2 class="panel-title" data-i18n="help.cards.mentalModel.title">1. Công cụ này làm gì (và không làm gì)?</h2>
-            <p class="help-body" data-i18n="help.cards.mentalModel.body">Multi-Zalo tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn.</p>
+            <p class="help-body" data-i18n="help.cards.mentalModel.body">KHOANG tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn.</p>
           </section>
 
           <section class="panel">

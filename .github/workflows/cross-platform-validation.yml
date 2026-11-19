@@ -1,4 +1,4 @@
-name: Multi-Zalo Cross-Platform Build & Packaging Validation
+name: KHOANG Cross-Platform Build & Packaging Validation
 
 # Manual-only native cross-platform build, runtime fixture, packaging, and Section 7 provenance workflow.
 # Separated from `.github/workflows/ci.yml` (which handles push/PR source checks):
