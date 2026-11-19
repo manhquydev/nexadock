@@ -64,7 +64,6 @@ jobs:
       - name: Install Ubuntu 24.04 WebKitGTK & Ayatana AppIndicator headers
         timeout-minutes: 10
         run: |
-          sudo find /etc/apt -type f -exec sed -i -E 's|https?://[^/[:space:]]*ec2\.archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' {} + 2>/dev/null || true
           APT_OPTS=(
             -o Acquire::ForceIPv4=true
             -o Acquire::Retries=3
@@ -200,7 +199,6 @@ jobs:
       - name: Install Ubuntu 24.04 LTS Tauri, Xvfb & packaging build dependencies
         timeout-minutes: 12
         run: |
-          sudo find /etc/apt -type f -exec sed -i -E 's|https?://[^/[:space:]]*ec2\.archive\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' {} + 2>/dev/null || true
           APT_OPTS=(
             -o Acquire::ForceIPv4=true
             -o Acquire::Retries=3
