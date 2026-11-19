@@ -18,12 +18,30 @@ Pull requests will be rejected if they contain:
 
 ## Local Verification Before Opening a PR
 
-Run from `desktop-instance-manager/`:
+`apps/desktop/src-tauri` and `tests/cross-platform` are **excluded** from the root Cargo workspace, so `--workspace` alone will miss Tauri and C2 harness regressions. Run all three manifests plus the Node gates from `desktop-instance-manager/` before pushing:
 
 ```sh
+# 1. Workspace (core, platform adapters, process-manager, profile-store)
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
-node apps/desktop/ui/tests/i18n.test.mjs
-node apps/desktop/ui/tests/ui-contracts.test.mjs
+
+# 2. Tauri desktop crate (excluded from workspace)
+cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+
+# 3. Cross-platform C2 harness (excluded from workspace; catches dim_core struct drift)
+cargo fmt --manifest-path tests/cross-platform/Cargo.toml -- --check
+cargo clippy --manifest-path tests/cross-platform/Cargo.toml --all-targets --locked -- -D warnings
+cargo check --manifest-path tests/cross-platform/Cargo.toml --tests --locked
+
+# 4. UI, i18n, and brand release gates
+node --test apps/desktop/ui/tests/i18n.test.mjs apps/desktop/ui/tests/ui-contracts.test.mjs tests/brand-release-gates.mjs
 ```
+
+### Cross-OS `#[cfg]` & Clippy Hygiene
+
+CI runs `clippy -D warnings` on **Ubuntu, Windows, and macOS**. When editing platform-gated code (`crates/platform-*`, `apps/desktop/src-tauri/src/{web_workspace,commands,autostart}.rs`):
+- Gate OS-specific imports, helpers, and `mut` bindings under the matching `#[cfg(target_os = "...")]` (or `#[allow(dead_code)]` where intentionally shared).
+- Avoid `let _ = unit_var;` on `#[cfg(not(target_os = "windows"))]` paths where the binding is `()` (`clippy::let_unit_value`).
