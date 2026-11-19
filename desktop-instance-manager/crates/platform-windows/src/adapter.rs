@@ -6,12 +6,15 @@ use std::path::{Path, PathBuf};
 #[cfg(windows)]
 use dim_core::{
     build_runtime_lease, remove_runtime_lease, verify_runtime_lease, write_runtime_lease,
-    LeaseVerification, ProfileLifecycleState, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
+    AccountKind, ActionableRemediation, ActivationOutcome, LeaseVerification, PrimaryWindowState,
+    ProfileLifecycleState, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
 };
 use dim_core::{
-    detect_zalo_user_id, ApplicationInstallation, ApplicationLocator, DimError, InstanceLauncher,
-    InstanceMonitor, LaunchTarget, PlatformCapabilities, PlatformCapabilityReport, PlatformKind,
-    PrimaryInstanceStatus, ProfileRecord, ProfileRuntimeState, SupportStatus,
+    detect_zalo_user_id, AccountActivationResult, ApplicationInstallation, ApplicationLocator,
+    CompanionSnapResult, DimError, InstanceLauncher, InstanceMonitor, LaunchTarget,
+    PlatformCapabilities, PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus,
+    ProfileRecord, ProfileRuntimeState, SupportStatus, WindowActivationState, WindowController,
+    WindowRect,
 };
 use dim_profile_store::unlink_reparse_points_safe;
 
@@ -477,6 +480,23 @@ impl InstanceMonitor for WindowsPlatformAdapter {
             let detected_zalo_user_id = detect_zalo_user_id(&zalo_data);
             let running =
                 !protected.is_empty() || crate::win32_ffi::is_file_exclusively_locked(&lockfile);
+            let (window_handle, window_title, window_state) = if !protected.is_empty() {
+                if let Some((hwnd, title)) = crate::win32_ffi::find_main_window_for_pids(&protected)
+                {
+                    let state = if crate::win32_ffi::is_window_minimized(hwnd) {
+                        PrimaryWindowState::Minimized
+                    } else {
+                        PrimaryWindowState::Visible
+                    };
+                    (Some(hwnd), Some(title), state)
+                } else {
+                    (None, None, PrimaryWindowState::HiddenInTray)
+                }
+            } else if running {
+                (None, None, PrimaryWindowState::HiddenInTray)
+            } else {
+                (None, None, PrimaryWindowState::None)
+            };
 
             Ok(PrimaryInstanceStatus {
                 zalo_data_dir: zalo_data,
@@ -486,6 +506,9 @@ impl InstanceMonitor for WindowsPlatformAdapter {
                 process_count: protected.len(),
                 working_set_bytes,
                 detected_zalo_user_id,
+                window_handle,
+                window_title,
+                window_state,
                 notes: vec![
                     "Primary Zalo PIDs are permanently protected against stop/kill.".to_owned(),
                 ],
@@ -503,6 +526,15 @@ impl InstanceMonitor for WindowsPlatformAdapter {
         &self,
         profile: &ProfileRecord,
         profile_dir: &Path,
+    ) -> Result<ProfileRuntimeState, DimError> {
+        self.inspect_profile_with_options(profile, profile_dir, true)
+    }
+
+    fn inspect_profile_with_options(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        include_size: bool,
     ) -> Result<ProfileRuntimeState, DimError> {
         let zalo_data = windows_zalo_data_dir(profile_dir);
         let lockfile = zalo_data.join("lockfile");
@@ -642,13 +674,17 @@ impl InstanceMonitor for WindowsPlatformAdapter {
                 window_handle,
                 window_title,
                 detected_zalo_user_id: detected_uid,
-                disk_usage_bytes: dir_size_no_follow(profile_dir),
+                disk_usage_bytes: if include_size {
+                    dir_size_no_follow(profile_dir)
+                } else {
+                    0
+                },
                 status_label,
             })
         }
         #[cfg(not(windows))]
         {
-            let _ = (profile, detected_uid, lockfile);
+            let _ = (profile, detected_uid, lockfile, include_size);
             Err(DimError::UnsupportedPlatform(
                 "Windows runtime inspection requires Windows".to_owned(),
             ))
@@ -759,11 +795,18 @@ impl InstanceLauncher for WindowsPlatformAdapter {
         #[cfg(windows)]
         {
             if let Some(hwnd) = state.window_handle {
-                if crate::win32_ffi::focus_window(hwnd) {
+                let mut allowed_pids = state.process_ids.clone();
+                if let Some(mpid) = state.main_pid {
+                    if !allowed_pids.contains(&mpid) {
+                        allowed_pids.push(mpid);
+                    }
+                }
+                if let Ok((_, true)) = crate::win32_ffi::focus_window_verified(hwnd, &allowed_pids)
+                {
                     return Ok(());
                 }
-                // Win32 Foreground Lock rejected direct `SetForegroundWindow`; fall through to
-                // isolated `second-instance` process handoff (`IR-WIN-01`).
+                // Win32 Foreground Lock rejected direct `SetForegroundWindow`, or HWND PID changed;
+                // fall through to isolated `second-instance` process handoff (`IR-WIN-01`).
             }
 
             let base_env: Vec<(String, String)> = std::env::vars().collect();
@@ -1137,4 +1180,322 @@ fn dir_size_no_follow(root: &Path) -> u64 {
         }
     }
     total
+}
+
+impl WindowController for WindowsPlatformAdapter {
+    fn focus_primary_window(
+        &self,
+        _primary: &PrimaryInstanceStatus,
+    ) -> Result<AccountActivationResult, DimError> {
+        #[cfg(windows)]
+        {
+            // Strictly read-only, non-spawning: always re-inspect live protected primary state.
+            let live = self.inspect_primary()?;
+            if !live.running || live.protected_pids.is_empty() {
+                return Ok(AccountActivationResult {
+                    account_id: "primary".to_owned(),
+                    account_kind: AccountKind::DesktopPrimary,
+                    outcome: ActivationOutcome::ManualActionRequired,
+                    method: Some("read_only_inspect".to_owned()),
+                    os_foreground_confirmed: Some(false),
+                    window_handle: None,
+                    window_title: None,
+                    message: "Primary Zalo is not currently running.".to_owned(),
+                    remediation: Some(ActionableRemediation {
+                        code: "PRIMARY_NOT_RUNNING".to_owned(),
+                        message: "Primary Zalo is not running. Launch your primary Zalo Desktop manually when needed.".to_owned(),
+                        suggested_action: Some("launch_primary_manually".to_owned()),
+                    }),
+                });
+            }
+
+            if let Some(hwnd) = live.window_handle {
+                if matches!(
+                    live.window_state,
+                    PrimaryWindowState::Visible | PrimaryWindowState::Minimized
+                ) {
+                    if let Ok((was_minimized, mut fg_confirmed)) =
+                        crate::win32_ffi::focus_window_verified(hwnd, &live.protected_pids)
+                    {
+                        if !fg_confirmed {
+                            for _ in 0..10 {
+                                if let Some(p) =
+                                    crate::win32_ffi::probe_window_activation_state(hwnd)
+                                {
+                                    if p.is_foreground {
+                                        fg_confirmed = true;
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(30));
+                            }
+                        }
+                        let final_probe = crate::win32_ffi::probe_window_activation_state(hwnd);
+                        if final_probe.is_some_and(|p| p.is_foreground) {
+                            fg_confirmed = true;
+                        }
+                        let blocked_by_foreground_lock = !fg_confirmed
+                            && final_probe.is_none_or(|p| {
+                                p.foreign_foreground_present || !p.is_visible || p.is_minimized
+                            });
+                        if blocked_by_foreground_lock {
+                            return Ok(AccountActivationResult {
+                                account_id: "primary".to_owned(),
+                                account_kind: AccountKind::DesktopPrimary,
+                                outcome: ActivationOutcome::ManualActionRequired,
+                                method: Some("direct_focus_blocked".to_owned()),
+                                os_foreground_confirmed: Some(false),
+                                window_handle: Some(hwnd),
+                                window_title: live.window_title.clone(),
+                                message: "Windows Foreground Lock prevented activating the primary Zalo window.".to_owned(),
+                                remediation: Some(ActionableRemediation {
+                                    code: "PRIMARY_FOREGROUND_BLOCKED".to_owned(),
+                                    message: "Primary Zalo is open, but Windows Foreground Lock prevented bringing it to front. Click its taskbar or tray icon directly.".to_owned(),
+                                    suggested_action: Some("click_primary_tray_icon".to_owned()),
+                                }),
+                            });
+                        }
+
+                        let outcome = if was_minimized {
+                            ActivationOutcome::Restored
+                        } else {
+                            ActivationOutcome::Focused
+                        };
+                        let method = if was_minimized {
+                            "direct_restore"
+                        } else {
+                            "direct_focus"
+                        };
+                        return Ok(AccountActivationResult {
+                            account_id: "primary".to_owned(),
+                            account_kind: AccountKind::DesktopPrimary,
+                            outcome,
+                            method: Some(method.to_owned()),
+                            os_foreground_confirmed: Some(fg_confirmed),
+                            window_handle: Some(hwnd),
+                            window_title: live.window_title.clone(),
+                            message: if was_minimized {
+                                "Restored and focused primary Zalo window (read-only).".to_owned()
+                            } else {
+                                "Focused primary Zalo window (read-only).".to_owned()
+                            },
+                            remediation: None,
+                        });
+                    }
+                }
+            }
+
+            Ok(AccountActivationResult {
+                account_id: "primary".to_owned(),
+                account_kind: AccountKind::DesktopPrimary,
+                outcome: ActivationOutcome::ManualActionRequired,
+                method: Some("read_only_inspect".to_owned()),
+                os_foreground_confirmed: Some(false),
+                window_handle: None,
+                window_title: None,
+                message: "Primary Zalo is running in the system tray.".to_owned(),
+                remediation: Some(ActionableRemediation {
+                    code: "PRIMARY_HIDDEN_IN_TRAY".to_owned(),
+                    message: "Primary Zalo is hidden in the Windows system tray. Click the Zalo tray icon to restore it without spawning a second process.".to_owned(),
+                    suggested_action: Some("click_primary_tray_icon".to_owned()),
+                }),
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            Err(DimError::UnsupportedPlatform(
+                "Windows primary focus requires Windows".to_owned(),
+            ))
+        }
+    }
+
+    fn companion_snap_secondary(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        host_hwnd: u64,
+        rail_width_px: i32,
+    ) -> Result<CompanionSnapResult, DimError> {
+        #[cfg(windows)]
+        {
+            let live_primary = self.inspect_primary()?;
+            let state = self.inspect_profile_with_options(profile, profile_dir, false)?;
+
+            if state
+                .main_pid
+                .is_some_and(|p| live_primary.protected_pids.contains(&p))
+                || state
+                    .process_ids
+                    .iter()
+                    .any(|p| live_primary.protected_pids.contains(p))
+            {
+                return Err(DimError::ProtectedPrimaryProcess(
+                    "PRIMARY_PROTECTED: companion snap is strictly forbidden on primary Zalo"
+                        .to_owned(),
+                ));
+            }
+
+            if !state.running {
+                return Err(DimError::NotRunning(profile.name.clone()));
+            }
+
+            let hwnd = state.window_handle.ok_or_else(|| {
+                DimError::ProcessError(format!(
+                    "WINDOW_UNVERIFIED: profile '{}' has no verified visible or minimized main window to snap",
+                    profile.name
+                ))
+            })?;
+
+            let mut allowed_pids = state.process_ids.clone();
+            if let Some(mpid) = state.main_pid {
+                if !allowed_pids.contains(&mpid) {
+                    allowed_pids.push(mpid);
+                }
+            }
+            let win_pid = crate::win32_ffi::get_window_pid(hwnd).ok_or_else(|| {
+                DimError::ProcessError("WINDOW_UNVERIFIED: secondary HWND has no PID".to_owned())
+            })?;
+            if live_primary.protected_pids.contains(&win_pid) {
+                return Err(DimError::ProtectedPrimaryProcess(
+                    "PRIMARY_PROTECTED: target HWND belongs to protected primary PID".to_owned(),
+                ));
+            }
+            if !allowed_pids.contains(&win_pid) {
+                return Err(DimError::ProcessError(format!(
+                    "WINDOW_UNVERIFIED: HWND {hwnd} PID {win_pid} does not belong to profile '{}'",
+                    profile.name
+                )));
+            }
+
+            let (previous_rect, applied_rect) =
+                crate::win32_ffi::companion_snap_window(hwnd, host_hwnd, rail_width_px)?;
+            Ok(CompanionSnapResult {
+                profile_id: profile.id.clone(),
+                snapped: true,
+                previous_rect: Some(previous_rect),
+                applied_rect: Some(applied_rect),
+                message: format!("Snapped profile '{}' beside KHOANG.", profile.name),
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (profile, profile_dir, host_hwnd, rail_width_px);
+            Err(DimError::UnsupportedPlatform(
+                "companion_snap_secondary requires Windows".to_owned(),
+            ))
+        }
+    }
+
+    fn companion_unsnap_secondary(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        restore_rect: WindowRect,
+    ) -> Result<CompanionSnapResult, DimError> {
+        #[cfg(windows)]
+        {
+            let live_primary = self.inspect_primary()?;
+            let state = self.inspect_profile_with_options(profile, profile_dir, false)?;
+
+            if state
+                .main_pid
+                .is_some_and(|p| live_primary.protected_pids.contains(&p))
+                || state
+                    .process_ids
+                    .iter()
+                    .any(|p| live_primary.protected_pids.contains(p))
+            {
+                return Err(DimError::ProtectedPrimaryProcess(
+                    "PRIMARY_PROTECTED: companion unsnap is strictly forbidden on primary Zalo"
+                        .to_owned(),
+                ));
+            }
+
+            let hwnd = state.window_handle.ok_or_else(|| {
+                DimError::ProcessError(format!(
+                    "WINDOW_UNVERIFIED: profile '{}' has no verified main window to unsnap",
+                    profile.name
+                ))
+            })?;
+
+            let mut allowed_pids = state.process_ids.clone();
+            if let Some(mpid) = state.main_pid {
+                if !allowed_pids.contains(&mpid) {
+                    allowed_pids.push(mpid);
+                }
+            }
+            let win_pid = crate::win32_ffi::get_window_pid(hwnd).ok_or_else(|| {
+                DimError::ProcessError("WINDOW_UNVERIFIED: secondary HWND has no PID".to_owned())
+            })?;
+            if live_primary.protected_pids.contains(&win_pid) {
+                return Err(DimError::ProtectedPrimaryProcess(
+                    "PRIMARY_PROTECTED: target HWND belongs to protected primary PID".to_owned(),
+                ));
+            }
+            if !allowed_pids.contains(&win_pid) {
+                return Err(DimError::ProcessError(format!(
+                    "WINDOW_UNVERIFIED: HWND {hwnd} PID {win_pid} does not belong to profile '{}'",
+                    profile.name
+                )));
+            }
+
+            crate::win32_ffi::companion_unsnap_window(hwnd, restore_rect)?;
+            Ok(CompanionSnapResult {
+                profile_id: profile.id.clone(),
+                snapped: false,
+                previous_rect: Some(restore_rect),
+                applied_rect: None,
+                message: format!("Restored profile '{}' window position.", profile.name),
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (profile, profile_dir, restore_rect);
+            Err(DimError::UnsupportedPlatform(
+                "companion_unsnap_secondary requires Windows".to_owned(),
+            ))
+        }
+    }
+
+    fn is_window_minimized(&self, hwnd: u64) -> bool {
+        #[cfg(windows)]
+        {
+            crate::win32_ffi::is_window_minimized(hwnd)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = hwnd;
+            false
+        }
+    }
+
+    fn try_focus_verified_window(
+        &self,
+        hwnd: u64,
+        allowed_pids: &[u32],
+    ) -> Result<Option<(bool, bool)>, DimError> {
+        #[cfg(windows)]
+        {
+            crate::win32_ffi::focus_window_verified(hwnd, allowed_pids).map(Some)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (hwnd, allowed_pids);
+            Ok(None)
+        }
+    }
+
+    fn probe_window_activation_state(&self, hwnd: u64) -> Option<WindowActivationState> {
+        #[cfg(windows)]
+        {
+            crate::win32_ffi::probe_window_activation_state(hwnd)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = hwnd;
+            None
+        }
+    }
 }

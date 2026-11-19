@@ -5,104 +5,328 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="text-scale" content="scale">
   <meta name="color-scheme" content="light dark">
-  <title>Multi-Zalo — Tài khoản</title>
+  <title>KHOANG — Tài khoản</title>
   <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <a href="#main-content" class="skip-link visually-hidden" data-i18n="nav.skipToMain">Chuyển đến nội dung chính</a>
+  <a href="#workspace-main" class="skip-link visually-hidden" data-i18n="nav.skipToMain">Chuyển đến nội dung chính</a>
 
-  <div class="app-shell">
-    <!-- Compact Top Application Bar -->
-    <header class="topbar">
-      <div class="topbar-inner">
-        <div class="brand-cluster">
-          <button type="button" class="brand-home-btn" id="btn-brand-home" aria-label="Multi-Zalo">
-            <span class="brand-mark" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="12" height="12" rx="3"/>
-                <path d="M9 15v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-6a3 3 0 0 0-3-3h-3"/>
-              </svg>
-            </span>
-            <span class="brand-text">
-              <span class="brand-name" data-i18n="app.name">Multi-Zalo</span>
-              <span class="brand-sub" id="topbar-open-summary" data-i18n="app.connecting">Đang kết nối...</span>
-            </span>
-          </button>
-          <span class="conn-indicator" id="connection-pill" role="status" aria-live="polite" hidden>
-            <span class="conn-dot" aria-hidden="true"></span>
-            <span id="connection-label"></span>
+  <div class="workspace-shell" id="workspace-shell" data-rail-expanded="false" data-webview-active="false">
+    <!-- Left Account Rail -->
+    <aside class="account-rail" id="account-rail" data-i18n-aria-label="rail.ariaLabel" aria-label="Thanh tài khoản">
+      <div class="rail-header">
+        <button type="button" class="rail-brand-btn" id="btn-brand-home" aria-label="KHOANG" data-i18n-title="nav.accounts">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <rect x="2" y="2" width="20" height="20" rx="5" stroke="currentColor" stroke-width="1.75"/>
+              <rect x="5.5" y="5.5" width="5.5" height="13" rx="1.75" fill="currentColor"/>
+              <rect x="13" y="5.5" width="5.5" height="6" rx="1.5" fill="var(--accent, currentColor)"/>
+              <rect x="13" y="13" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
           </span>
-        </div>
+          <span class="rail-brand-text">
+            <span class="brand-name" data-i18n="app.name">KHOANG</span>
+            <span class="brand-sub" id="topbar-open-summary" data-i18n="app.connecting">Đang kết nối...</span>
+          </span>
+        </button>
 
-        <nav class="topbar-nav" data-i18n-aria-label="nav.ariaLabel" aria-label="Chính">
-          <button type="button" class="top-nav-btn is-active" data-view="profiles" aria-current="page">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        <div class="rail-header-tools">
+          <button
+            type="button"
+            class="rail-icon-btn"
+            id="btn-quick-switcher"
+            aria-keyshortcuts="Control+K"
+            data-i18n-aria-label="quickSwitcher.triggerAria"
+            aria-label="Chuyển nhanh tài khoản (Ctrl+K)"
+            data-i18n-title="quickSwitcher.triggerAria"
+            title="Chuyển nhanh tài khoản (Ctrl+K)"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
-            <span data-i18n="nav.accounts">Tài khoản</span>
           </button>
-          <button type="button" class="top-nav-btn" data-view="backups">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
+          <button
+            type="button"
+            class="rail-icon-btn rail-expand-toggle"
+            id="btn-rail-toggle"
+            aria-pressed="false"
+            aria-keyshortcuts="Control+B"
+            data-i18n-aria-label="rail.expand"
+            aria-label="Mở rộng thanh tài khoản"
+            data-i18n-title="rail.expand"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="3"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
             </svg>
-            <span data-i18n="nav.backups">Sao lưu</span>
           </button>
-          <button type="button" class="top-nav-btn" data-view="settings">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-            <span data-i18n="nav.settings">Cài đặt</span>
-          </button>
-          <button type="button" class="top-nav-btn" id="btn-nav-help" data-view="help">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-            <span data-i18n="nav.help">Trợ giúp</span>
-          </button>
-        </nav>
-
-        <div class="topbar-actions">
-          <button type="button" class="btn btn-primary btn-sm" id="btn-open-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
         </div>
       </div>
-    </header>
 
-    <!-- Main Workspace -->
-    <main id="main-content" class="main-content" tabindex="-1">
-      <div id="status-banner" class="banner" role="status" aria-live="polite" hidden>
-        <div class="banner-row">
-          <span id="status-banner-text"></span>
-          <button type="button" class="btn-link banner-dismiss" id="btn-dismiss-banner" data-i18n="dialogs.close">Đóng</button>
+      <search class="rail-filter-wrap" id="rail-filter-wrap">
+        <label for="rail-filter-input" class="visually-hidden" data-i18n="rail.filterAria">Lọc tài khoản trên thanh bên</label>
+        <input
+          type="search"
+          id="rail-filter-input"
+          class="rail-filter-input"
+          data-i18n-placeholder="rail.filterPlaceholder"
+          placeholder="Lọc nhanh..."
+        >
+      </search>
+
+      <div class="rail-scroll-region" id="rail-scroll-region">
+        <div
+          id="rail-accounts"
+          class="rail-accounts"
+          role="toolbar"
+          aria-orientation="vertical"
+          focusgroup="toolbar wrap block"
+          data-i18n-aria-label="rail.accountsAria"
+          aria-label="Danh sách chuyển nhanh tài khoản"
+        >
+          <div class="rail-group" role="group" data-group="primary" data-i18n-aria-label="rail.groupPrimary" aria-label="Zalo gốc"></div>
+          <span class="rail-sep" role="separator" aria-orientation="horizontal" data-sep-for="pinned" hidden></span>
+          <div class="rail-group" role="group" data-group="pinned" data-i18n-aria-label="rail.groupPinned" aria-label="Ghim" hidden></div>
+          <span class="rail-sep" role="separator" aria-orientation="horizontal" data-sep-for="desktop" hidden></span>
+          <div class="rail-group" role="group" data-group="desktop" data-i18n-aria-label="rail.groupDesktop" aria-label="Zalo Desktop" hidden></div>
+          <span class="rail-sep" role="separator" aria-orientation="horizontal" data-sep-for="web" hidden></span>
+          <div class="rail-group-heading" data-heading-for="web" data-i18n="rail.groupWeb" hidden>Zalo Web (Thử nghiệm)</div>
+          <div class="rail-group" role="group" data-group="web" data-i18n-aria-label="rail.groupWeb" aria-label="Zalo Web (Thử nghiệm)" hidden></div>
         </div>
-        <details id="status-banner-details" class="banner-details" hidden>
-          <summary data-i18n="errors.technicalDetails">Chi tiết kỹ thuật</summary>
-          <pre id="status-banner-raw" class="banner-raw"></pre>
-        </details>
       </div>
 
-      <div id="zalo-install-alert" class="banner banner-warn" role="status" aria-live="polite" hidden>
-        <span id="zalo-install-alert-text"></span>
+      <div class="rail-add-slot">
+        <button
+          type="button"
+          class="rail-add-btn"
+          id="btn-open-create"
+          command="show-modal"
+          commandfor="create-profile-dialog"
+          aria-keyshortcuts="Control+N"
+          data-i18n-aria-label="accounts.add"
+          aria-label="Thêm tài khoản"
+          data-i18n-title="accounts.add"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          <span class="rail-btn-label" data-i18n="accounts.add">Thêm tài khoản</span>
+        </button>
       </div>
 
-      <!-- View 1: Accounts Home -->
-      <section id="view-profiles" class="view">
+      <nav class="rail-utility-nav" data-i18n-aria-label="nav.ariaLabel" aria-label="Chính">
+        <button type="button" class="rail-util-btn top-nav-btn is-active" data-view="profiles" aria-current="page" data-i18n-title="nav.accounts" title="Tài khoản" data-i18n-aria-label="nav.accounts" aria-label="Tài khoản">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          <span class="rail-btn-label" data-i18n="nav.accounts">Tài khoản</span>
+        </button>
+        <button type="button" class="rail-util-btn top-nav-btn" data-view="backups" data-i18n-title="nav.backups" title="Sao lưu" data-i18n-aria-label="nav.backups" aria-label="Sao lưu">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span class="rail-btn-label" data-i18n="nav.backups">Sao lưu</span>
+        </button>
+        <button type="button" class="rail-util-btn top-nav-btn" data-view="settings" data-i18n-title="nav.settings" title="Cài đặt" data-i18n-aria-label="nav.settings" aria-label="Cài đặt">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span class="rail-btn-label" data-i18n="nav.settings">Cài đặt</span>
+        </button>
+        <button type="button" class="rail-util-btn top-nav-btn" data-view="diagnostics" data-i18n-title="diagnostics.title" title="Kiểm tra sự cố" data-i18n-aria-label="diagnostics.title" aria-label="Kiểm tra sự cố">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <span class="rail-btn-label" data-i18n="diagnostics.title">Kiểm tra sự cố</span>
+        </button>
+        <button type="button" class="rail-util-btn top-nav-btn" id="btn-nav-help" data-view="help" data-i18n-title="nav.help" title="Trợ giúp" data-i18n-aria-label="nav.help" aria-label="Trợ giúp">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span class="rail-btn-label" data-i18n="nav.help">Trợ giúp</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Right Unified Content Surface -->
+    <main id="workspace-main" class="workspace-main" tabindex="-1">
+      <div class="workspace-alerts" id="workspace-alerts">
+        <span class="conn-indicator" id="connection-pill" role="status" aria-live="polite" hidden>
+          <span class="conn-dot" aria-hidden="true"></span>
+          <span id="connection-label"></span>
+        </span>
+
+        <div id="status-banner" class="banner" role="status" aria-live="polite" hidden>
+          <div class="banner-row">
+            <span id="status-banner-text"></span>
+            <button type="button" class="btn-link banner-dismiss" id="btn-dismiss-banner" data-i18n="dialogs.close">Đóng</button>
+          </div>
+          <details id="status-banner-details" class="banner-details" hidden>
+            <summary data-i18n="errors.technicalDetails">Chi tiết kỹ thuật</summary>
+            <pre id="status-banner-raw" class="banner-raw" role="region" tabindex="0" data-i18n-aria-label="errors.technicalDetails"></pre>
+          </details>
+        </div>
+
+        <div id="zalo-install-alert" class="banner banner-warn" role="status" aria-live="polite" hidden>
+          <span id="zalo-install-alert-text"></span>
+        </div>
+      </div>
+
+      <!-- Surface 1: Isolated Web Session Stage -->
+      <section id="stage-web-session" class="stage stage-web" hidden>
+        <header class="web-session-header" id="web-session-header">
+          <div class="web-session-identity">
+            <span class="account-avatar account-avatar-sm" id="web-stage-avatar" aria-hidden="true">W</span>
+            <h1 class="web-stage-title" id="web-stage-name">Zalo Web</h1>
+            <span class="badge badge-warn web-session-badge">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="2" y1="12" x2="22" y2="12"/>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              </svg>
+              <span data-i18n="webSession.badge">Phiên Web (Tách biệt · Thử nghiệm)</span>
+            </span>
+          </div>
+
+          <div class="web-session-actions" role="toolbar" focusgroup="toolbar wrap" data-i18n-aria-label="webSession.moreAria" aria-label="Tùy chọn phiên Web">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-web-reload" data-i18n="webSession.reload" data-i18n-aria-label="webSession.reloadAria">Tải lại</button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              id="btn-web-info"
+              interestfor="web-limits-tip"
+              popovertarget="web-limits-tip"
+              popovertargetaction="toggle"
+              aria-expanded="false"
+              data-i18n-aria-label="webSession.limitsTriggerAria"
+              aria-label="Giới hạn của phiên Web"
+            >?</button>
+            <div id="web-limits-tip" class="toggletip-popover" popover="hint" role="tooltip">
+              <strong class="toggletip-title" data-i18n="webSession.limitsTitle">Giới hạn của Zalo Web tách biệt</strong>
+              <p class="toggletip-body" data-i18n="webSession.limitsBody"></p>
+            </div>
+
+            <div class="menu-wrap">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                id="btn-web-more"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                command="toggle-popover"
+                commandfor="web-session-menu"
+                data-i18n-aria-label="webSession.moreAria"
+                aria-label="Tùy chọn phiên Web"
+              >⋯</button>
+              <div id="web-session-menu" class="overflow-menu" popover="auto">
+                <div focusgroup="menu nomemory" aria-labelledby="btn-web-more">
+                  <button type="button" class="menu-item" id="btn-web-pin" data-i18n="rail.pin">Ghim lên đầu</button>
+                  <button type="button" class="menu-item" id="btn-web-rename" data-i18n="accounts.actions.rename">Đổi tên</button>
+                  <button type="button" class="menu-item" id="btn-web-reset" data-i18n="webSession.reset">Đặt lại phiên Web</button>
+                  <hr class="menu-sep">
+                  <button type="button" class="menu-item menu-item-danger" id="btn-web-delete" data-i18n="accounts.actions.delete">Xóa tài khoản</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div class="web-session-viewport" id="web-session-viewport">
+          <div class="web-viewport-placeholder" id="web-viewport-placeholder">
+            <progress class="stage-progress" id="web-stage-progress" hidden></progress>
+            <h2 class="web-placeholder-title" id="web-placeholder-title" data-i18n="webSession.loading">Đang mở phiên Zalo Web tách biệt...</h2>
+            <p class="web-placeholder-body" id="web-placeholder-body"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Surface 2: Desktop Primary & Isolated Stage -->
+      <section id="stage-desktop-session" class="stage stage-scroll stage-desktop" hidden>
+        <div class="desktop-stage-inner">
+          <div class="panel desktop-hero-card">
+            <div class="desktop-hero-head">
+              <div class="account-avatar account-avatar-lg" id="desktop-stage-avatar" aria-hidden="true">Z</div>
+              <div class="desktop-hero-meta">
+                <div class="primary-zalo-heading-row">
+                  <h1 class="page-title" id="desktop-stage-name">Zalo</h1>
+                  <span class="badge" id="desktop-stage-kind-badge">Desktop</span>
+                </div>
+                <div class="account-state-row is-stopped" id="desktop-stage-state-row">
+                  <span class="state-dot" aria-hidden="true"></span>
+                  <span id="desktop-stage-state-label"></span>
+                </div>
+                <p class="desktop-honest-notice" id="desktop-honest-notice" data-i18n="desktopStage.honestNotice">
+                  Đang chạy trong cửa sổ Zalo Desktop độc lập — không nhúng vào KHOANG.
+                </p>
+              </div>
+            </div>
+
+            <progress class="stage-progress" id="desktop-stage-progress" hidden></progress>
+
+            <div class="desktop-stage-actions" id="desktop-stage-actions">
+              <button type="button" class="btn btn-primary" id="btn-desktop-activate" data-i18n="desktopStage.bringToFront">Đưa cửa sổ lên trên</button>
+              <button type="button" class="btn btn-subtle-danger" id="btn-desktop-stop" hidden data-i18n="accounts.actions.stop">Đóng Zalo</button>
+            </div>
+          </div>
+
+          <div class="notice-box" id="desktop-primary-notice" role="note" hidden>
+            <strong data-i18n="accounts.primaryZalo.protectedBadge">Được bảo vệ · Chỉ đọc</strong>
+            <span data-i18n="desktopStage.primaryNotice"></span>
+          </div>
+
+          <div class="banner banner-warn" id="desktop-remediation-card" role="alert" hidden>
+            <div class="remediation-content">
+              <strong id="desktop-remediation-title"></strong>
+              <p id="desktop-remediation-body" class="remediation-body"></p>
+              <div class="remediation-actions" id="desktop-remediation-actions"></div>
+            </div>
+          </div>
+
+          <section class="panel" id="desktop-snap-panel" hidden>
+            <label class="settings-toggle-row">
+              <input type="checkbox" id="toggle-companion-snap">
+              <span data-i18n="desktopStage.companionSnapLabel">Đặt cạnh KHOANG (tùy chọn)</span>
+            </label>
+            <p class="settings-hint" id="desktop-snap-hint" data-i18n="desktopStage.companionSnapHint"></p>
+          </section>
+
+          <section class="panel" id="desktop-secondary-tools" hidden>
+            <div class="desktop-tools-row">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-desktop-pin" data-i18n="desktopStage.pinAction">Ghim lên thanh</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-desktop-rename" data-i18n="accounts.actions.rename">Đổi tên</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-desktop-backup" data-i18n="accounts.actions.backup">Sao lưu</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-desktop-details" data-i18n="accounts.actions.details">Thông tin tài khoản</button>
+              <button type="button" class="btn btn-subtle-danger btn-sm" id="btn-desktop-delete" data-i18n="accounts.actions.delete">Xóa tài khoản</button>
+            </div>
+            <details class="advanced-details">
+              <summary data-i18n="desktopStage.sessionDetailsSummary">Chi tiết phiên &amp; lưu trữ</summary>
+              <dl class="kv-list kv-list-spaced" id="desktop-stage-kv"></dl>
+            </details>
+          </section>
+        </div>
+      </section>
+
+      <!-- Surface 3: All Accounts Overview -->
+      <section id="view-profiles" class="view stage-scroll">
         <div class="page-header">
           <div>
             <h1 class="page-title" data-i18n="accounts.title">Tài khoản Zalo</h1>
-            <p class="page-subtitle" data-i18n="accounts.subtitle">Mở nhiều tài khoản Zalo cùng lúc trong các cửa sổ riêng.</p>
+            <p class="page-subtitle" data-i18n="accounts.subtitle">Mỗi mục dưới đây là một không gian riêng để bạn đăng nhập tài khoản Zalo có sẵn.</p>
           </div>
           <div class="page-actions" id="home-toolbar">
             <span id="accounts-count-summary" class="accounts-count-summary" hidden></span>
-            <div class="header-search-wrap" id="search-wrap">
+            <search class="header-search-wrap" id="search-wrap">
               <label for="profile-search" class="visually-hidden" data-i18n="accounts.searchAria">Tìm kiếm tài khoản</label>
               <input
                 type="search"
@@ -111,22 +335,30 @@
                 data-i18n-placeholder="accounts.searchPlaceholder"
                 placeholder="Tìm tài khoản..."
               >
+            </search>
+            <div class="view-segmented" role="group" data-i18n-aria-label="accounts.viewModeAria" aria-label="Chế độ hiển thị">
+              <button type="button" class="view-seg-btn" id="btn-view-grid" data-mode="grid" aria-pressed="true" data-i18n="accounts.viewGrid">Lưới</button>
+              <button type="button" class="view-seg-btn" id="btn-view-list" data-mode="list" aria-pressed="false" data-i18n="accounts.viewList">Danh sách</button>
             </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-stop-all" hidden data-i18n="accounts.stopAll">Đóng tất cả</button>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh" data-i18n="accounts.actions.refresh">Làm mới</button>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-overview-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
           </div>
         </div>
 
-        <ul id="profiles-list" class="account-grid" role="list"></ul>
+        <ul id="profiles-list" class="account-grid" data-view-mode="grid" role="list"></ul>
 
         <div id="profiles-empty" class="empty-state empty-hero" hidden>
           <div class="empty-icon" aria-hidden="true">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="12" height="12" rx="3"/>
-              <path d="M9 15v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-6a3 3 0 0 0-3-3h-3"/>
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+              <rect x="2" y="2" width="20" height="20" rx="5" stroke="currentColor" stroke-width="1.75"/>
+              <rect x="5.5" y="5.5" width="5.5" height="13" rx="1.75" fill="currentColor"/>
+              <rect x="13" y="5.5" width="5.5" height="6" rx="1.5" fill="var(--accent, currentColor)"/>
+              <rect x="13" y="13" width="5.5" height="5.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
             </svg>
           </div>
           <h2 class="empty-title" id="profiles-empty-title" data-i18n="accounts.emptyTitle">Dùng nhiều tài khoản Zalo trên một máy</h2>
-          <p class="empty-hint" id="profiles-empty-hint" data-i18n="accounts.emptyHint">Thêm một tài khoản để mở Zalo trong cửa sổ riêng mà không cần đăng xuất.</p>
+          <p class="empty-hint" id="profiles-empty-hint" data-i18n="accounts.emptyHint">Tạo một không gian riêng để mở và đăng nhập thêm tài khoản Zalo có sẵn mà không cần đăng xuất.</p>
           <button type="button" class="btn btn-primary" id="btn-empty-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
         </div>
 
@@ -135,7 +367,15 @@
           <div class="primary-zalo-card">
             <div class="account-avatar avatar-protected" aria-hidden="true">Z</div>
             <div class="primary-zalo-meta">
-              <div class="primary-zalo-title" data-i18n="accounts.primaryZalo.heading">Zalo đang dùng trên máy</div>
+              <div class="primary-zalo-heading-row">
+                <div class="primary-zalo-title" data-i18n="accounts.primaryZalo.heading">Zalo đang dùng trên máy</div>
+                <span class="primary-zalo-protected-badge">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                  <span data-i18n="accounts.primaryZalo.protectedBadge">Được bảo vệ · Chỉ đọc</span>
+                </span>
+              </div>
               <div class="account-state-row is-unknown" id="primary-zalo-state-row">
                 <span class="state-dot" aria-hidden="true"></span>
                 <span class="primary-zalo-desc" id="primary-zalo-desc"></span>
@@ -146,7 +386,7 @@
       </section>
 
       <!-- View 2: Backups -->
-      <section id="view-backups" class="view" hidden>
+      <section id="view-backups" class="view stage-scroll" hidden>
         <div class="view-back-bar">
           <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
         </div>
@@ -189,7 +429,7 @@
       </section>
 
       <!-- View 3: Settings -->
-      <section id="view-settings" class="view" hidden>
+      <section id="view-settings" class="view stage-scroll" hidden>
         <div class="view-back-bar">
           <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
         </div>
@@ -239,6 +479,21 @@
             </fieldset>
           </section>
 
+          <section class="panel settings-panel" id="settings-behavior-section">
+            <h2 class="settings-title" data-i18n="settings.behavior.heading">Hành vi ứng dụng</h2>
+            <div class="settings-toggle-stack">
+              <label class="settings-toggle-row">
+                <input type="checkbox" id="toggle-keep-in-tray">
+                <span data-i18n="settings.behavior.keepInTray">Tiếp tục chạy trong khay hệ thống khi đóng cửa sổ</span>
+              </label>
+              <label class="settings-toggle-row">
+                <input type="checkbox" id="toggle-autostart">
+                <span data-i18n="settings.behavior.autostart">Khởi động KHOANG cùng hệ thống</span>
+              </label>
+            </div>
+            <p class="settings-hint" id="settings-behavior-hint" hidden data-i18n="settings.behavior.desktopOnlyHint">Chỉ khả dụng trong ứng dụng máy tính KHOANG.</p>
+          </section>
+
           <section class="panel settings-panel">
             <h2 class="settings-title" data-i18n="settings.about.heading">Thông tin ứng dụng</h2>
             <dl class="kv-list" id="settings-about-list"></dl>
@@ -254,8 +509,8 @@
         </div>
       </section>
 
-      <!-- View 4: Advanced Diagnostics (nested under Settings -> Advanced) -->
-      <section id="view-diagnostics" class="view" hidden>
+      <!-- View 4: Advanced Diagnostics -->
+      <section id="view-diagnostics" class="view stage-scroll" hidden>
         <div class="view-back-bar">
           <button type="button" class="btn-link back-link" data-back-to="settings" data-i18n="diagnostics.backToSettings">← Quay lại Cài đặt</button>
         </div>
@@ -281,7 +536,7 @@
           </section>
 
           <section class="panel">
-            <h2 class="panel-title" data-i18n="diagnostics.groups.security">Tách biệt & bảo vệ dữ liệu</h2>
+            <h2 class="panel-title" data-i18n="diagnostics.groups.security">Tách biệt &amp; bảo vệ dữ liệu</h2>
             <dl class="kv-list" id="diag-security-list"></dl>
             <div class="table-wrap table-wrap-spaced">
               <table class="data-table">
@@ -304,7 +559,7 @@
           </section>
 
           <section class="panel">
-            <h2 class="panel-title" data-i18n="diagnostics.groups.environment">Môi trường & hệ điều hành</h2>
+            <h2 class="panel-title" data-i18n="diagnostics.groups.environment">Môi trường &amp; hệ điều hành</h2>
             <dl class="kv-list" id="diag-env-list"></dl>
             <div class="table-wrap table-wrap-spaced">
               <table class="data-table">
@@ -323,14 +578,14 @@
           </section>
 
           <section class="panel">
-            <h2 class="panel-title" data-i18n="diagnostics.groups.logs">Nhật ký hệ thống (đã lọc)</h2>
-            <pre class="log-box" id="sanitized-log-output"></pre>
+            <h2 class="panel-title" id="diag-logs-heading" data-i18n="diagnostics.groups.logs">Nhật ký hệ thống (đã lọc)</h2>
+            <pre class="log-box" id="sanitized-log-output" role="region" aria-labelledby="diag-logs-heading" tabindex="0"></pre>
           </section>
         </div>
       </section>
 
       <!-- View 5: Help -->
-      <section id="view-help" class="view" hidden>
+      <section id="view-help" class="view stage-scroll" hidden>
         <div class="view-back-bar">
           <button type="button" class="btn-link back-link" data-back-to="profiles" data-i18n="nav.backToAccounts">← Quay lại Tài khoản</button>
         </div>
@@ -344,25 +599,22 @@
         <div class="help-grid">
           <section class="panel">
             <h2 class="panel-title" data-i18n="help.cards.mentalModel.title">1. Công cụ này làm gì (và không làm gì)?</h2>
-            <p class="help-body" data-i18n="help.cards.mentalModel.body">Multi-Zalo tạo các không gian dữ liệu tách biệt để bạn mở nhiều cửa sổ Zalo Desktop cùng lúc. Công cụ không tạo tài khoản Zalo mới và không bao giờ hỏi hay lưu mật khẩu, mã OTP hay tin nhắn của bạn.</p>
+            <p class="help-body" data-i18n="help.cards.mentalModel.body"></p>
           </section>
 
           <section class="panel">
             <h2 class="panel-title" data-i18n="help.cards.signIn.title">2. Cách thêm và đăng nhập tài khoản</h2>
-            <p class="help-body" data-i18n="help.cards.signIn.body">Nhấn Thêm tài khoản, đặt tên dễ nhớ (ví dụ: Công việc, Bán hàng) và chọn màu nhận diện, sau đó nhấn Mở Zalo để đăng nhập trực tiếp trong cửa sổ Zalo Desktop bằng mã QR hoặc mật khẩu.</p>
+            <p class="help-body" data-i18n="help.cards.signIn.body"></p>
           </section>
 
           <section class="panel">
             <h2 class="panel-title" data-i18n="help.cards.windowState.title">3. Ý nghĩa trạng thái &amp; bảo vệ Zalo gốc</h2>
-            <p class="help-body" data-i18n="help.cards.windowState.body">Trạng thái "Cửa sổ đang mở" cho biết cửa sổ Zalo đang chạy trên máy, không mặc định bạn đã đăng nhập bên trong. Ứng dụng Zalo bạn cài sẵn từ trước luôn được bảo vệ riêng, không thể đóng hoặc xóa từ đây.</p>
+            <p class="help-body" data-i18n="help.cards.windowState.body"></p>
           </section>
 
           <section class="panel">
             <h2 class="panel-title" data-i18n="help.cards.commonIssues.title">4. Xử lý lỗi thường gặp &amp; giới hạn thực tế</h2>
-            <p class="help-body" data-i18n="help.cards.commonIssues.body">• Không mở được Zalo: hãy kiểm tra máy đã cài Zalo Desktop chính thức chưa.
-• Không sao lưu hoặc xóa được: hãy nhấn Đóng Zalo trên thẻ tài khoản trước.
-• Báo trùng tài khoản: cùng một tài khoản Zalo không nên đăng nhập ở hai cửa sổ cùng lúc.
-• Giới hạn cuộc gọi: Zalo Desktop dùng chung kênh cuộc gọi hệ thống nên gọi thoại/video đồng thời trên nhiều cửa sổ có thể bị giới hạn.</p>
+            <p class="help-body" data-i18n="help.cards.commonIssues.body"></p>
           </section>
         </div>
 
@@ -374,12 +626,38 @@
     </main>
   </div>
 
-  <!-- Dialog 1: Add Account (2-Step Onboarding) -->
-  <dialog id="create-profile-dialog" class="modal" aria-labelledby="create-dialog-title">
+  <!-- Dialog 1: Add Account (Desktop Isolated or Web Isolated) -->
+  <dialog id="create-profile-dialog" class="modal modal-wide" aria-labelledby="create-dialog-title">
     <div id="create-step-1">
       <h2 id="create-dialog-title" class="modal-title" data-i18n="dialogs.create.title">Thêm tài khoản Zalo</h2>
-      <p class="modal-subtitle" data-i18n="dialogs.create.subtitle">Đặt tên để phân biệt tài khoản này. Bạn sẽ đăng nhập trực tiếp trong ứng dụng Zalo.</p>
+      <p class="modal-subtitle" data-i18n="dialogs.create.subtitle">Tạo không gian Zalo riêng trên máy.</p>
       <form id="create-profile-form">
+        <fieldset class="mode-fieldset">
+          <legend data-i18n="dialogs.create.modeLegend">Chế độ hoạt động</legend>
+          <div class="mode-options">
+            <label class="mode-card">
+              <input type="radio" name="create-session-mode" value="desktop_isolated" checked>
+              <span class="mode-card-body">
+                <span class="mode-card-title-row">
+                  <strong data-i18n="dialogs.create.modeDesktopTitle">Zalo Desktop (Tách biệt)</strong>
+                  <span class="badge badge-pass" data-i18n="dialogs.create.modeDesktopRecommended">Khuyên dùng</span>
+                </span>
+                <span class="mode-card-desc" data-i18n="dialogs.create.modeDesktopDesc"></span>
+              </span>
+            </label>
+            <label class="mode-card" id="create-mode-web-card">
+              <input type="radio" name="create-session-mode" value="web_isolated" id="create-mode-web-radio">
+              <span class="mode-card-body">
+                <span class="mode-card-title-row">
+                  <strong data-i18n="dialogs.create.modeWebTitle">Zalo Web (Tách biệt trong KHOANG)</strong>
+                  <span class="badge" data-i18n="dialogs.create.modeWebBeta">Thử nghiệm</span>
+                </span>
+                <span class="mode-card-desc" id="create-mode-web-desc" data-i18n="dialogs.create.modeWebDesc"></span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
         <div class="form-field">
           <label for="create-profile-name" data-i18n="dialogs.create.nameLabel">Tên tài khoản</label>
           <input
@@ -404,7 +682,7 @@
           <div class="color-palette" id="create-color-palette"></div>
         </fieldset>
 
-        <div class="form-field">
+        <div class="form-field" id="create-notes-field">
           <label for="create-profile-notes" data-i18n="dialogs.create.notesLabel">Ghi chú ngắn (không bắt buộc)</label>
           <input
             type="text"
@@ -427,7 +705,7 @@
     <div id="create-step-2" hidden>
       <div class="step2-badge" id="create-step2-avatar" aria-hidden="true">Z</div>
       <h2 class="modal-title" id="create-step2-title"></h2>
-      <p class="modal-subtitle" data-i18n="dialogs.create.step2Body">Không gian dữ liệu riêng đã được tạo. Hãy mở Zalo Desktop để đăng nhập tài khoản này.</p>
+      <p class="modal-subtitle" data-i18n="dialogs.create.step2Body">Không gian dùng Zalo riêng đã tạo xong.</p>
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="btn-create-later" data-i18n="dialogs.create.step2Later">Để sau</button>
         <button type="button" class="btn btn-primary" id="btn-create-launch" data-i18n="dialogs.create.step2Launch">Mở Zalo để đăng nhập</button>
@@ -459,7 +737,7 @@
   <dialog id="delete-profile-dialog" class="modal" aria-labelledby="delete-dialog-title">
     <h2 id="delete-dialog-title" class="modal-title" data-i18n="dialogs.delete.title">Xóa tài khoản này?</h2>
     <p class="modal-warning" id="delete-profile-warning"></p>
-    <p class="modal-subtitle" data-i18n="dialogs.delete.confirmText">Hãy đóng Zalo trước khi xóa dữ liệu tài khoản.</p>
+    <p class="modal-subtitle" id="delete-profile-confirm-text" data-i18n="dialogs.delete.confirmText">Hãy đóng Zalo trước khi xóa dữ liệu tài khoản.</p>
     <form method="dialog" id="delete-profile-form">
       <div class="dialog-actions">
         <button type="submit" class="btn btn-secondary" value="cancel" autofocus data-i18n="dialogs.cancel">Hủy</button>
@@ -468,7 +746,19 @@
     </form>
   </dialog>
 
-  <!-- Dialog 4: Restore Backup -->
+  <!-- Dialog 4: Reset Web Session -->
+  <dialog id="reset-web-dialog" class="modal" aria-labelledby="reset-web-dialog-title">
+    <h2 id="reset-web-dialog-title" class="modal-title" data-i18n="dialogs.resetWeb.title">Đặt lại phiên Web này?</h2>
+    <p class="modal-warning" id="reset-web-warning"></p>
+    <form method="dialog" id="reset-web-form">
+      <div class="dialog-actions">
+        <button type="submit" class="btn btn-secondary" value="cancel" autofocus data-i18n="dialogs.cancel">Hủy</button>
+        <button type="submit" class="btn btn-danger" value="reset" data-i18n="dialogs.resetWeb.submit">Đặt lại phiên</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog 5: Restore Backup -->
   <dialog id="restore-backup-dialog" class="modal" aria-labelledby="restore-dialog-title">
     <h2 id="restore-dialog-title" class="modal-title" data-i18n="dialogs.restore.title">Khôi phục thành tài khoản mới</h2>
     <p class="modal-subtitle" id="restore-backup-subtitle"></p>
@@ -491,8 +781,8 @@
     </form>
   </dialog>
 
-  <!-- Dialog 5: Account Info (Progressive Disclosure) -->
-  <dialog id="profile-details-dialog" class="modal modal-wide" aria-labelledby="details-dialog-title">
+  <!-- Dialog 6: Account Info -->
+  <dialog id="profile-details-dialog" class="modal modal-wide" closedby="any" aria-labelledby="details-dialog-title">
     <h2 id="details-dialog-title" class="modal-title" data-i18n="accounts.details.title">Thông tin tài khoản</h2>
     <p class="modal-subtitle" data-i18n="accounts.details.subtitle">Thông tin lưu trữ và phiên chạy của tài khoản này.</p>
     <dl class="kv-list" id="profile-details-list"></dl>
@@ -506,6 +796,34 @@
       </div>
     </form>
   </dialog>
+
+  <!-- Dialog 7: Quick Switcher (Ctrl+K) -->
+  <dialog id="quick-switcher-dialog" class="modal modal-switcher" closedby="any" aria-labelledby="quick-switcher-title">
+    <div class="switcher-header">
+      <h2 id="quick-switcher-title" class="modal-title" data-i18n="quickSwitcher.title">Chuyển nhanh tài khoản</h2>
+      <button type="button" class="btn btn-secondary btn-sm" command="close" commandfor="quick-switcher-dialog" data-i18n="dialogs.close">Đóng</button>
+    </div>
+    <search class="switcher-search">
+      <label for="quick-switcher-input" class="visually-hidden" data-i18n="quickSwitcher.searchLabel">Tìm theo tên, ghi chú hoặc loại phiên</label>
+      <input
+        type="search"
+        id="quick-switcher-input"
+        class="search-input switcher-input"
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="quick-switcher-list"
+        aria-autocomplete="list"
+        autofocus
+        data-i18n-placeholder="quickSwitcher.searchPlaceholder"
+        placeholder="Gõ tên tài khoản..."
+      >
+    </search>
+    <ul id="quick-switcher-list" class="switcher-list" role="listbox" data-i18n-aria-label="quickSwitcher.title" aria-label="Chuyển nhanh tài khoản"></ul>
+    <p id="quick-switcher-empty" class="switcher-empty" hidden data-i18n="quickSwitcher.empty">Không tìm thấy tài khoản phù hợp.</p>
+  </dialog>
+
+  <div id="tooltip-portal"></div>
+  <p id="sr-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
 
   <script type="module" src="./app.js"></script>
 </body>

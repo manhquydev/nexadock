@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>KHOANG Web Workspace Spike Rail</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #141820;
+      color: #e6ebf2;
+      font-size: 13px;
+    }
+    h1 { font-size: 14px; margin: 0 0 8px 0; }
+    .pill {
+      padding: 6px 8px;
+      margin: 4px 0;
+      border-radius: 6px;
+      background: #1f2633;
+      border: 1px solid #2f394a;
+    }
+    #status { font-family: monospace; font-size: 11px; color: #9ecbff; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>KHOANG Rail (Local UI)</h1>
+  <div class="pill">Account A (Isolated)</div>
+  <div class="pill">Account B (Isolated)</div>
+  <div class="pill">Raw Wry Child (Zero-IPC)</div>
+  <div id="status">initializing...</div>
+  <script>
+    (async () => {
+      const status = document.getElementById('status');
+      const info = {
+        origin: location.origin,
+        hasGlobalTauri: typeof window.__TAURI__ !== 'undefined',
+        hasTauriInternals: typeof window.__TAURI_INTERNALS__ !== 'undefined',
+        hasIpc: typeof window.ipc !== 'undefined',
+        isTauri: Boolean(window.isTauri),
+        pingResult: null,
+        pingError: null
+      };
+      try {
+        if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+          info.pingResult = await window.__TAURI_INTERNALS__.invoke('secret_backend_ping', { caller: 'local-rail' });
+        }
+      } catch (e) {
+        info.pingError = String(e);
+      }
+      status.textContent = JSON.stringify(info, null, 2);
+      window.__RAIL_REPORT__ = info;
+    })();
+  </script>
+</body>
+</html>

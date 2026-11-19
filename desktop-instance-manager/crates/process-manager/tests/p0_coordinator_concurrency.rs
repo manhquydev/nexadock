@@ -100,6 +100,9 @@ impl InstanceMonitor for ConcurrencyTestAdapter {
             process_count: 1,
             working_set_bytes: 0,
             detected_zalo_user_id: None,
+            window_handle: None,
+            window_title: None,
+            window_state: dim_core::PrimaryWindowState::None,
             notes: Vec::new(),
         })
     }

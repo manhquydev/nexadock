@@ -137,7 +137,7 @@ function Get-PrimaryZaloSnapshot {
 
 function Get-ManagerProcessPids {
     $pids = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.ProcessName -match '^(dim-desktop|dim-cli|Multi-Zalo Desktop|MultiZaloDesktop)$'
+        $_.ProcessName -match '^(dim-desktop|dim-cli|KHOANG|Multi-Zalo Desktop|MultiZaloDesktop)$'
     } | Select-Object -ExpandProperty Id | Sort-Object)
     return ,([object[]]$pids)
 }
@@ -498,7 +498,7 @@ if (Test-Path -LiteralPath $icoPath -PathType Leaf) {
 }
 $srcTauriVngHits = Scan-DirectoryForVngBinaries -RootDir $srcTauriDir
 $bundleConfigOk = (
-    $tauriConf.productName -eq "Multi-Zalo Desktop" -and
+    $tauriConf.productName -eq "KHOANG" -and
     $tauriConf.identifier -eq "com.multizalodesktop.manager" -and
     [bool]$tauriConf.bundle.active -and
     $missingIcons.Count -eq 0 -and
@@ -728,7 +728,7 @@ if (-not [string]::IsNullOrWhiteSpace($effectiveCandidate)) {
                 foreach ($sRoot in @($startMenuDir, $desktopDir)) {
                     if (-not [string]::IsNullOrWhiteSpace($sRoot) -and (Test-Path -LiteralPath $sRoot -PathType Container)) {
                         $shortcutsBefore += @(Get-ChildItem -LiteralPath $sRoot -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | Where-Object {
-                            $_.Name -match '(?i)Multi-Zalo|MultiZalo'
+                            $_.Name -match '(?i)KHOANG|Multi-Zalo|MultiZalo'
                         } | Select-Object -ExpandProperty FullName)
                     }
                 }
@@ -773,7 +773,7 @@ if (-not [string]::IsNullOrWhiteSpace($effectiveCandidate)) {
                             foreach ($sRoot in @($startMenuDir, $desktopDir)) {
                                 if (-not [string]::IsNullOrWhiteSpace($sRoot) -and (Test-Path -LiteralPath $sRoot -PathType Container)) {
                                     $shortcutsDuring += @(Get-ChildItem -LiteralPath $sRoot -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | Where-Object {
-                                        $_.Name -match '(?i)Multi-Zalo|MultiZalo'
+                                        $_.Name -match '(?i)KHOANG|Multi-Zalo|MultiZalo'
                                     } | Select-Object -ExpandProperty FullName)
                                 }
                             }
@@ -796,7 +796,7 @@ if (-not [string]::IsNullOrWhiteSpace($effectiveCandidate)) {
                             foreach ($sRoot in @($startMenuDir, $desktopDir)) {
                                 if (-not [string]::IsNullOrWhiteSpace($sRoot) -and (Test-Path -LiteralPath $sRoot -PathType Container)) {
                                     $shortcutsAfter += @(Get-ChildItem -LiteralPath $sRoot -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | Where-Object {
-                                        $_.Name -match '(?i)Multi-Zalo|MultiZalo'
+                                        $_.Name -match '(?i)KHOANG|Multi-Zalo|MultiZalo'
                                     } | Select-Object -ExpandProperty FullName)
                                 }
                             }

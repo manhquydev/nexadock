@@ -46,6 +46,9 @@ mod tests {
                     process_count: 1,
                     working_set_bytes: 0,
                     detected_zalo_user_id: None,
+                    window_handle: None,
+                    window_title: None,
+                    window_state: dim_core::PrimaryWindowState::None,
                     notes: Vec::new(),
                 },
                 running_pids: Mutex::new(HashMap::new()),
@@ -178,6 +181,8 @@ mod tests {
         }
     }
 
+    impl dim_core::WindowController for MockAdapter {}
+
     #[test]
     fn primary_protection_guard_blocks_primary_pid_and_path() {
         let primary = PrimaryInstanceStatus {
@@ -188,6 +193,9 @@ mod tests {
             process_count: 2,
             working_set_bytes: 0,
             detected_zalo_user_id: None,
+            window_handle: None,
+            window_title: None,
+            window_state: dim_core::PrimaryWindowState::None,
             notes: Vec::new(),
         };
         let state = ProfileRuntimeState {

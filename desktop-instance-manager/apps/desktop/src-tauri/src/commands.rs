@@ -6,14 +6,21 @@ use std::path::PathBuf;
 
 use dim_core::{
     ensure_not_primary_zalo_path, redact_sensitive_text, resolve_safe_child,
-    validate_directory_input, ApplicationLocator, BackupManager, BackupManifest, DimError,
-    InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities, PlatformKind,
-    ProfileStore,
+    validate_directory_input, AccountActivationResult, AccountKind, ActionableRemediation,
+    ActivationOutcome, ApplicationLocator, BackupManager, BackupManifest, CompanionSnapResult,
+    DimError, InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities, PlatformKind,
+    PrimaryWindowState, ProfileStore, WebSessionRecord,
 };
+#[cfg(target_os = "windows")]
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::autostart;
+use crate::preferences::{DesktopPreferences, DesktopPrefsState};
 pub use crate::state::AppState;
+use crate::tray;
+use crate::web_workspace::{self, WebWorkspaceSupport};
 
 fn current_user_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
@@ -132,6 +139,7 @@ pub struct BackupsResponse {
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
     pub ok: bool,
+    pub app_version: String,
     pub platform: String,
     pub data_dir: String,
     pub installation: serde_json::Value,
@@ -211,6 +219,7 @@ pub async fn get_status(
 
         Ok(StatusResponse {
             ok: true,
+            app_version: env!("CARGO_PKG_VERSION").to_owned(),
             platform: app.adapter.platform().as_str().to_owned(),
             data_dir: app.store.data_dir().display().to_string(),
             installation: installation_json,
@@ -230,12 +239,13 @@ pub async fn get_status(
 
 #[tauri::command]
 pub async fn create_profile(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     name: String,
     notes: Option<String>,
 ) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
     let app = state.inner().clone();
-    Ok(tauri::async_runtime::spawn_blocking(move || {
+    let res = tauri::async_runtime::spawn_blocking(move || {
         match app
             .store
             .create_profile(&name, notes.as_deref().unwrap_or(""))
@@ -250,47 +260,81 @@ pub async fn create_profile(
         }
     })
     .await
-    .unwrap_or_else(join_err_envelope))
+    .unwrap_or_else(join_err_envelope);
+    if res.ok {
+        tray::refresh_tray_accounts(&app_handle);
+        emit_snapshot_changed(&app_handle);
+    }
+    Ok(res)
 }
 
 #[tauri::command]
 pub async fn rename_profile(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     id: String,
     new_name: String,
 ) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
     let app = state.inner().clone();
-    Ok(tauri::async_runtime::spawn_blocking(move || {
+    let res = tauri::async_runtime::spawn_blocking(move || {
         match app.store.rename_profile(&id, &new_name) {
             Ok(rec) => ApiEnvelope::ok(format!("Renamed profile to '{}'.", rec.name), rec),
             Err(err) => ApiEnvelope::err(&err),
         }
     })
     .await
-    .unwrap_or_else(join_err_envelope))
+    .unwrap_or_else(join_err_envelope);
+    if res.ok {
+        tray::refresh_tray_accounts(&app_handle);
+        emit_snapshot_changed(&app_handle);
+    }
+    Ok(res)
 }
 
 #[tauri::command]
 pub async fn delete_profile(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
+    prefs: State<'_, DesktopPrefsState>,
     id: String,
     confirm: Option<bool>,
 ) -> Result<ApiEnvelope<serde_json::Value>, String> {
     let app = state.inner().clone();
-    Ok(tauri::async_runtime::spawn_blocking(move || {
+    let prefs_inner = prefs.inner().clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        let canonical_id = app
+            .store
+            .get_profile(&id)
+            .map(|p| p.id)
+            .unwrap_or_else(|_| id.clone());
         match app
             .coordinator
             .delete_profile(&id, confirm.unwrap_or(false))
         {
-            Ok(()) => ApiEnvelope::ok(
-                "Deleted profile.",
-                serde_json::json!({ "deleted_profile_id": id }),
-            ),
+            Ok(()) => {
+                let _ = prefs_inner.set_account_pinned(&canonical_id, false);
+                if canonical_id != id {
+                    let _ = prefs_inner.set_account_pinned(&id, false);
+                }
+                if let Ok(mut guard) = app.companion_snapped.lock() {
+                    guard.remove(&canonical_id);
+                    guard.remove(&id);
+                }
+                ApiEnvelope::ok(
+                    "Deleted profile.",
+                    serde_json::json!({ "deleted_profile_id": canonical_id }),
+                )
+            }
             Err(err) => ApiEnvelope::err(&err),
         }
     })
     .await
-    .unwrap_or_else(join_err_envelope))
+    .unwrap_or_else(join_err_envelope);
+    if res.ok {
+        tray::refresh_tray_accounts(&app_handle);
+        emit_snapshot_changed(&app_handle);
+    }
+    Ok(res)
 }
 
 #[tauri::command]
@@ -430,12 +474,13 @@ pub fn list_backups(state: State<'_, AppState>) -> BackupsResponse {
 
 #[tauri::command]
 pub async fn restore_backup(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     backup_dir: String,
     name: Option<String>,
 ) -> Result<ApiEnvelope<dim_core::ProfileRecord>, String> {
     let app = state.inner().clone();
-    Ok(tauri::async_runtime::spawn_blocking(move || {
+    let res = tauri::async_runtime::spawn_blocking(move || {
         let trimmed_dir = backup_dir.trim();
         let candidate = PathBuf::from(trimmed_dir);
         if let Err(err) = validate_directory_input(&candidate) {
@@ -481,7 +526,12 @@ pub async fn restore_backup(
         }
     })
     .await
-    .unwrap_or_else(join_err_envelope))
+    .unwrap_or_else(join_err_envelope);
+    if res.ok {
+        tray::refresh_tray_accounts(&app_handle);
+        emit_snapshot_changed(&app_handle);
+    }
+    Ok(res)
 }
 
 #[tauri::command]
@@ -585,6 +635,12 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, 
                 "limits": "Official VNG Linux package does not exist.",
             },
             linux_appimage_row,
+            {
+                "platform": "WebIsolated (Zalo Web Child WebView)",
+                "status": "EXPERIMENTAL",
+                "strategy": "Raw wry::WebViewBuilder::build_as_child (zero Tauri IPC; per-profile WebView2 / WKWebsiteDataStore / WebKitGTK data dir)",
+                "limits": "Requires Windows WebView2, macOS 14+ WKWebsiteDataStore, or Linux X11; Wayland unsupported.",
+            },
         ],
         "sanitized_logs": sanitized_logs,
     }))
@@ -608,6 +664,576 @@ pub async fn verify_isolation(state: State<'_, AppState>) -> Result<serde_json::
     })
     .await
     .map_err(redact_err_text)?
+}
+
+#[tauri::command]
+pub async fn get_desktop_preferences(
+    prefs: State<'_, DesktopPrefsState>,
+) -> Result<DesktopPreferences, String> {
+    Ok(prefs.snapshot())
+}
+
+#[tauri::command]
+pub async fn set_keep_in_tray(
+    enabled: bool,
+    prefs: State<'_, DesktopPrefsState>,
+) -> Result<DesktopPreferences, String> {
+    prefs.set_keep_in_tray(enabled).map_err(redact_dim_err)
+}
+
+#[tauri::command]
+pub async fn set_tray_locale(
+    locale: String,
+    app: tauri::AppHandle,
+    prefs: State<'_, DesktopPrefsState>,
+) -> Result<DesktopPreferences, String> {
+    let updated = prefs.set_locale(&locale).map_err(redact_dim_err)?;
+    tray::update_tray_locale(&app, &updated.locale).map_err(redact_err_text)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub async fn get_autostart_enabled() -> Result<bool, String> {
+    autostart::is_autostart_enabled().map_err(redact_dim_err)
+}
+
+#[tauri::command]
+pub async fn set_autostart_enabled(enabled: bool) -> Result<bool, String> {
+    autostart::set_autostart_enabled(enabled).map_err(redact_dim_err)
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkspacePrimarySnapshot {
+    pub detected: bool,
+    pub running: bool,
+    pub window_state: PrimaryWindowState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_title: Option<String>,
+    pub pinned: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkspaceAccountItem {
+    pub id: String,
+    pub kind: AccountKind,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_token: Option<String>,
+    pub pinned: bool,
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_state: Option<PrimaryWindowState>,
+    pub companion_snapped: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zalo_user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_title: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkspaceSnapshot {
+    pub primary: WorkspacePrimarySnapshot,
+    pub accounts: Vec<WorkspaceAccountItem>,
+    pub web_workspace: WebWorkspaceSupport,
+}
+
+fn build_workspace_snapshot_core(
+    app: &AppState,
+    prefs: &DesktopPrefsState,
+    web_workspace: WebWorkspaceSupport,
+) -> Result<WorkspaceSnapshot, DimError> {
+    let primary = app.adapter.inspect_primary()?;
+    let desktop_profiles = app.coordinator.inspect_all_profiles_fast()?;
+    let web_sessions = app.web_sessions.list();
+    let prefs_snap = prefs.snapshot();
+
+    let mut snapped_map = app
+        .companion_snapped
+        .lock()
+        .map_err(|_| DimError::Io(std::io::Error::other("companion_snapped lock poisoned")))?;
+
+    let mut accounts = Vec::with_capacity(desktop_profiles.len() + web_sessions.len());
+    for (rec, rt) in desktop_profiles {
+        let lifecycle = rt.lifecycle_state();
+        if !rt.running {
+            snapped_map.remove(&rec.id);
+        }
+        let is_snapped = snapped_map.contains_key(&rec.id);
+        let window_state = if rt.running {
+            if rt.window_handle.is_some() {
+                Some(PrimaryWindowState::Visible)
+            } else {
+                Some(PrimaryWindowState::HiddenInTray)
+            }
+        } else {
+            Some(PrimaryWindowState::None)
+        };
+        accounts.push(WorkspaceAccountItem {
+            id: rec.id.clone(),
+            kind: AccountKind::DesktopIsolated,
+            display_name: rec.name,
+            color_token: None,
+            pinned: prefs_snap.pinned_accounts.iter().any(|p| p == &rec.id),
+            state: lifecycle.as_str().to_owned(),
+            window_state,
+            companion_snapped: is_snapped,
+            zalo_user_id: rt.detected_zalo_user_id.or(rec.zalo_user_id),
+            window_title: rt.window_title,
+        });
+    }
+
+    for ws in web_sessions {
+        let state_str = if web_workspace::is_session_mounted(&ws.id) {
+            "running"
+        } else {
+            "stopped"
+        };
+        accounts.push(WorkspaceAccountItem {
+            id: ws.id.clone(),
+            kind: AccountKind::WebIsolated,
+            display_name: ws.display_name,
+            color_token: ws.color_token,
+            pinned: prefs_snap.pinned_accounts.iter().any(|p| p == &ws.id),
+            state: state_str.to_owned(),
+            window_state: None,
+            companion_snapped: false,
+            zalo_user_id: None,
+            window_title: None,
+        });
+    }
+
+    Ok(WorkspaceSnapshot {
+        primary: WorkspacePrimarySnapshot {
+            detected: primary.running || primary.zalo_data_dir.exists(),
+            running: primary.running,
+            window_state: primary.window_state,
+            window_title: primary.window_title,
+            pinned: prefs_snap.pinned_accounts.iter().any(|p| p == "primary"),
+        },
+        accounts,
+        web_workspace,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn host_window_handle_u64(app: &AppHandle) -> u64 {
+    let Some(win) = app.get_webview_window("main") else {
+        return 0;
+    };
+    let Ok(handle) = win.window_handle() else {
+        return 0;
+    };
+    match handle.as_raw() {
+        RawWindowHandle::Win32(h) => h.hwnd.get() as u64,
+        _ => 0,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn host_window_handle_u64(_app: &AppHandle) -> u64 {
+    0
+}
+
+fn emit_snapshot_changed(app: &AppHandle) {
+    let _ = app.emit("khoang://snapshot-changed", ());
+}
+
+#[tauri::command]
+pub async fn get_workspace_snapshot(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    prefs: State<'_, DesktopPrefsState>,
+) -> Result<ApiEnvelope<WorkspaceSnapshot>, String> {
+    let app = state.inner().clone();
+    let prefs = prefs.inner().clone();
+    let support = web_workspace::detect_support(app_handle.get_webview_window("main").as_ref());
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match build_workspace_snapshot_core(&app, &prefs, support) {
+            Ok(snapshot) => ApiEnvelope::ok("Workspace snapshot ready.", snapshot),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope))
+}
+
+#[tauri::command]
+pub async fn activate_account(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    kind: AccountKind,
+) -> Result<ApiEnvelope<AccountActivationResult>, String> {
+    let app = state.inner().clone();
+    if kind == AccountKind::WebIsolated {
+        let support = web_workspace::detect_support(app_handle.get_webview_window("main").as_ref());
+        let rec = match app.web_sessions.get(&id) {
+            Ok(r) => r,
+            Err(err) => return Ok(ApiEnvelope::err(&err)),
+        };
+        if !support.supported {
+            let code = support
+                .reason_code
+                .unwrap_or_else(|| "WEB_WORKSPACE_UNSUPPORTED".to_owned());
+            return Ok(ApiEnvelope::ok(
+                "Web session is unavailable on this platform.",
+                AccountActivationResult {
+                    account_id: rec.id,
+                    account_kind: AccountKind::WebIsolated,
+                    outcome: ActivationOutcome::Blocked,
+                    method: Some("platform_gate".to_owned()),
+                    os_foreground_confirmed: Some(false),
+                    window_handle: None,
+                    window_title: Some(rec.display_name),
+                    message: format!("Web workspace is not supported ({code})."),
+                    remediation: Some(ActionableRemediation {
+                        code,
+                        message: "Use an isolated Desktop account on this platform.".to_owned(),
+                        suggested_action: Some("use_desktop_isolated".to_owned()),
+                    }),
+                },
+            ));
+        }
+        return Ok(ApiEnvelope::ok(
+            "Web session ready.",
+            AccountActivationResult {
+                account_id: rec.id,
+                account_kind: AccountKind::WebIsolated,
+                outcome: ActivationOutcome::Focused,
+                method: Some("web_workspace".to_owned()),
+                os_foreground_confirmed: Some(true),
+                window_handle: None,
+                window_title: Some(rec.display_name),
+                message: "Web session activated.".to_owned(),
+                remediation: None,
+            },
+        ));
+    }
+
+    let _ = web_workspace::hide_all_sessions(&app_handle);
+
+    let target_id = if kind == AccountKind::DesktopPrimary || id.eq_ignore_ascii_case("primary") {
+        "primary".to_owned()
+    } else {
+        id
+    };
+
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        let (_, launch_target) = resolve_tauri_launch_target();
+        let target_opt = if target_id == "primary" {
+            None
+        } else {
+            Some(&launch_target)
+        };
+        match app
+            .coordinator
+            .activate_desktop_account(&target_id, target_opt)
+        {
+            Ok(result) => ApiEnvelope::ok(result.message.clone(), result),
+            Err(err) => ApiEnvelope::err(&err),
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope);
+
+    emit_snapshot_changed(&app_handle);
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn set_account_pinned(
+    app_handle: AppHandle,
+    prefs: State<'_, DesktopPrefsState>,
+    id: String,
+    pinned: bool,
+) -> Result<ApiEnvelope<DesktopPreferences>, String> {
+    match prefs.set_account_pinned(&id, pinned) {
+        Ok(updated) => {
+            emit_snapshot_changed(&app_handle);
+            Ok(ApiEnvelope::ok("Updated pinned accounts.", updated))
+        }
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+fn companion_snap_primary_rejected() -> ApiEnvelope<CompanionSnapResult> {
+    ApiEnvelope {
+        ok: false,
+        error_code: Some("PRIMARY_PROTECTED".to_owned()),
+        message: "Companion snap is strictly forbidden on primary Zalo.".to_owned(),
+        data: None,
+    }
+}
+
+fn clamp_rail_width_px(rail_width_px: Option<u32>) -> i32 {
+    rail_width_px.unwrap_or(240).clamp(48, 480) as i32
+}
+
+#[tauri::command]
+pub async fn set_companion_snap(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+    rail_width_px: Option<u32>,
+) -> Result<ApiEnvelope<CompanionSnapResult>, String> {
+    if id.trim().eq_ignore_ascii_case("primary") {
+        return Ok(companion_snap_primary_rejected());
+    }
+
+    let app = state.inner().clone();
+    let host_hwnd = host_window_handle_u64(&app_handle);
+    let rail_width = clamp_rail_width_px(rail_width_px);
+
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        if enabled {
+            match app
+                .coordinator
+                .companion_snap_profile(&id, host_hwnd, rail_width)
+            {
+                Ok(snap_res) => {
+                    if snap_res.snapped {
+                        if let Some(prev) = snap_res.previous_rect {
+                            if let Ok(mut guard) = app.companion_snapped.lock() {
+                                guard.insert(snap_res.profile_id.clone(), prev);
+                            }
+                        }
+                    }
+                    ApiEnvelope::ok(snap_res.message.clone(), snap_res)
+                }
+                Err(err) => ApiEnvelope::err(&err),
+            }
+        } else {
+            let restore_rect = app
+                .companion_snapped
+                .lock()
+                .ok()
+                .and_then(|g| g.get(&id).copied());
+            let Some(rect) = restore_rect else {
+                return ApiEnvelope::ok(
+                    "Profile is not companion-snapped.",
+                    CompanionSnapResult {
+                        profile_id: id,
+                        snapped: false,
+                        previous_rect: None,
+                        applied_rect: None,
+                        message: "Profile is not companion-snapped.".to_owned(),
+                    },
+                );
+            };
+            match app.coordinator.companion_unsnap_profile(&id, rect) {
+                Ok(unsnap_res) => {
+                    if let Ok(mut guard) = app.companion_snapped.lock() {
+                        guard.remove(&unsnap_res.profile_id);
+                    }
+                    ApiEnvelope::ok(unsnap_res.message.clone(), unsnap_res)
+                }
+                Err(err) => ApiEnvelope::err(&err),
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(join_err_envelope);
+
+    emit_snapshot_changed(&app_handle);
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn web_session_create(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    display_name: String,
+    color_token: Option<String>,
+) -> Result<ApiEnvelope<WebSessionRecord>, String> {
+    match state
+        .web_sessions
+        .create(&display_name, color_token.as_deref())
+    {
+        Ok(rec) => {
+            tray::refresh_tray_accounts(&app_handle);
+            emit_snapshot_changed(&app_handle);
+            Ok(ApiEnvelope::ok(
+                format!("Created web session '{}'.", rec.display_name),
+                rec,
+            ))
+        }
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+#[tauri::command]
+pub async fn web_session_show(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<ApiEnvelope<WebSessionRecord>, String> {
+    let rec = match state.web_sessions.get(&id) {
+        Ok(r) => r,
+        Err(err) => return Ok(ApiEnvelope::err(&err)),
+    };
+    let pending = state.web_sessions.pending_profile_deletes();
+    match web_workspace::show_session(
+        &app_handle,
+        state.store.data_dir(),
+        &rec,
+        &pending,
+        x,
+        y,
+        width,
+        height,
+    ) {
+        Ok(()) => {
+            emit_snapshot_changed(&app_handle);
+            Ok(ApiEnvelope::ok("Web session shown.", rec))
+        }
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+#[tauri::command]
+pub async fn web_session_set_bounds(
+    app_handle: AppHandle,
+    id: String,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    match web_workspace::set_bounds(&app_handle, &id, x, y, width, height) {
+        Ok(()) => Ok(ApiEnvelope::ok(
+            "Updated web session bounds.",
+            serde_json::json!({ "id": id, "x": x, "y": y, "width": width, "height": height }),
+        )),
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+#[tauri::command]
+pub async fn web_session_hide(
+    app_handle: AppHandle,
+    id: String,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    match web_workspace::hide_session(&app_handle, &id) {
+        Ok(()) => Ok(ApiEnvelope::ok(
+            "Hid web session.",
+            serde_json::json!({ "id": id }),
+        )),
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+#[tauri::command]
+pub async fn web_session_hide_all(
+    app_handle: AppHandle,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    match web_workspace::hide_all_sessions(&app_handle) {
+        Ok(()) => Ok(ApiEnvelope::ok(
+            "Hid all web sessions.",
+            serde_json::json!({ "hidden": true }),
+        )),
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+#[tauri::command]
+pub async fn web_session_reload(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    let rec = match state.web_sessions.get(&id) {
+        Ok(r) => r,
+        Err(err) => return Ok(ApiEnvelope::err(&err)),
+    };
+    let pending = state.web_sessions.pending_profile_deletes();
+    match web_workspace::reload_session(&app_handle, state.store.data_dir(), &rec, &pending) {
+        Ok(()) => Ok(ApiEnvelope::ok(
+            "Reloaded web session.",
+            serde_json::json!({ "id": id }),
+        )),
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+#[tauri::command]
+pub async fn web_session_reset(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ApiEnvelope<WebSessionRecord>, String> {
+    let rec = match state.web_sessions.get(&id) {
+        Ok(r) => r,
+        Err(err) => return Ok(ApiEnvelope::err(&err)),
+    };
+    let pending =
+        match web_workspace::teardown_and_delete_profile(&app_handle, state.store.data_dir(), &rec)
+        {
+            Ok(p) => p,
+            Err(err) => return Ok(ApiEnvelope::err(&err)),
+        };
+    match state.web_sessions.bump_generation_for_reset(&id, pending) {
+        Ok(updated) => {
+            emit_snapshot_changed(&app_handle);
+            Ok(ApiEnvelope::ok("Reset web session.", updated))
+        }
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+#[tauri::command]
+pub async fn web_session_delete(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    prefs: State<'_, DesktopPrefsState>,
+    id: String,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    let rec = match state.web_sessions.get(&id) {
+        Ok(r) => r,
+        Err(err) => return Ok(ApiEnvelope::err(&err)),
+    };
+    let pending =
+        match web_workspace::teardown_and_delete_profile(&app_handle, state.store.data_dir(), &rec)
+        {
+            Ok(p) => p,
+            Err(err) => return Ok(ApiEnvelope::err(&err)),
+        };
+    match state.web_sessions.delete(&id, pending) {
+        Ok(_) => {
+            let _ = prefs.set_account_pinned(&id, false);
+            tray::refresh_tray_accounts(&app_handle);
+            emit_snapshot_changed(&app_handle);
+            Ok(ApiEnvelope::ok(
+                "Deleted web session.",
+                serde_json::json!({ "deleted_session_id": id }),
+            ))
+        }
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
+}
+
+#[tauri::command]
+pub async fn web_session_rename(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    display_name: String,
+) -> Result<ApiEnvelope<WebSessionRecord>, String> {
+    match state.web_sessions.rename(&id, &display_name) {
+        Ok(updated) => {
+            tray::refresh_tray_accounts(&app_handle);
+            emit_snapshot_changed(&app_handle);
+            Ok(ApiEnvelope::ok(
+                format!("Renamed web session to '{}'.", updated.display_name),
+                updated,
+            ))
+        }
+        Err(err) => Ok(ApiEnvelope::err(&err)),
+    }
 }
 
 #[cfg(test)]
@@ -642,5 +1268,102 @@ mod tests {
     fn redact_dim_err_preserves_error_code_prefix() {
         let formatted = redact_dim_err(DimError::SchemaError("bad schema_version".to_owned()));
         assert!(formatted.starts_with("[SCHEMA_ERROR] "));
+    }
+
+    #[test]
+    fn workspace_snapshot_fast_path_includes_desktop_web_and_pinned() {
+        let data_dir = std::env::temp_dir().join(format!("khoang-cmd-snap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&data_dir);
+        fs::create_dir_all(&data_dir).expect("create temp dir");
+
+        let state = AppState::from_data_dir(Some(&data_dir)).expect("init AppState");
+        let prefs = DesktopPrefsState::initialize(&data_dir);
+        let desktop_prof = state
+            .store
+            .create_profile("Snapshot Desktop", "")
+            .expect("create desktop profile");
+        let web_sess = state
+            .web_sessions
+            .create("Snapshot Web", Some("emerald"))
+            .expect("create web session");
+        prefs
+            .set_account_pinned(&web_sess.id, true)
+            .expect("pin web session");
+
+        let snap = build_workspace_snapshot_core(
+            &state,
+            &prefs,
+            WebWorkspaceSupport {
+                supported: true,
+                reason_code: None,
+            },
+        )
+        .expect("build workspace snapshot");
+
+        assert!(snap.web_workspace.supported);
+        assert_eq!(snap.accounts.len(), 2);
+        let d_item = snap
+            .accounts
+            .iter()
+            .find(|a| a.id == desktop_prof.id)
+            .expect("desktop account present");
+        assert_eq!(d_item.kind, AccountKind::DesktopIsolated);
+        assert!(!d_item.pinned);
+
+        let w_item = snap
+            .accounts
+            .iter()
+            .find(|a| a.id == web_sess.id)
+            .expect("web account present");
+        assert_eq!(w_item.kind, AccountKind::WebIsolated);
+        assert!(w_item.pinned);
+        assert_eq!(w_item.color_token.as_deref(), Some("emerald"));
+        assert_eq!(w_item.state, "stopped");
+
+        web_workspace::set_session_mounted_for_test(&web_sess.id, true);
+        let snap_mounted = build_workspace_snapshot_core(
+            &state,
+            &prefs,
+            WebWorkspaceSupport {
+                supported: true,
+                reason_code: None,
+            },
+        )
+        .expect("build workspace snapshot when mounted");
+        let w_mounted = snap_mounted
+            .accounts
+            .iter()
+            .find(|a| a.id == web_sess.id)
+            .expect("web account present");
+        assert_eq!(w_mounted.state, "running");
+        web_workspace::set_session_mounted_for_test(&web_sess.id, false);
+
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn companion_snap_rejects_primary_with_primary_protected() {
+        let env = companion_snap_primary_rejected();
+        assert!(!env.ok);
+        assert_eq!(env.error_code.as_deref(), Some("PRIMARY_PROTECTED"));
+        assert_eq!(clamp_rail_width_px(None), 240);
+        assert_eq!(clamp_rail_width_px(Some(12)), 48);
+        assert_eq!(clamp_rail_width_px(Some(320)), 320);
+        assert_eq!(clamp_rail_width_px(Some(999)), 480);
+    }
+
+    #[test]
+    fn capabilities_default_json_grants_only_event_listen_and_unlisten() {
+        let cap_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("capabilities")
+            .join("default.json");
+        let raw = fs::read_to_string(&cap_path).expect("read capabilities/default.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&raw).expect("parse capabilities/default.json");
+        assert_eq!(parsed["windows"], serde_json::json!(["main"]));
+        assert_eq!(
+            parsed["permissions"],
+            serde_json::json!(["core:event:allow-listen", "core:event:allow-unlisten"])
+        );
     }
 }

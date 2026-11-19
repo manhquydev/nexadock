@@ -11,12 +11,13 @@ use std::time::{Duration, Instant};
 use dim_core::{
     check_duplicate_zalo_user_id, detect_zalo_user_id, ensure_min_free_disk_space,
     ensure_not_primary_zalo_path, is_existing_lock_contended, now_rfc3339_utc,
-    read_live_launch_admission_claims, write_launch_admission_claim, AdvisoryFileLock,
-    ApplicationLocator, DimError, InstanceLauncher, InstanceMonitor, IsolationCheckItem,
+    read_live_launch_admission_claims, write_launch_admission_claim, AccountActivationResult,
+    AccountKind, ActionableRemediation, ActivationOutcome, AdvisoryFileLock, ApplicationLocator,
+    CompanionSnapResult, DimError, InstanceLauncher, InstanceMonitor, IsolationCheckItem,
     IsolationVerificationReport, LaunchAdmissionClaim, LaunchTarget, PlatformCapabilities,
     PlatformKind, ProfileLifecycleState, ProfileRecord, ProfileRuntimeState, ProfileStore,
-    RecoveryManager, SupportStatus, VerifiedDeletionState, DEFAULT_ADVISORY_LOCK_TIMEOUT,
-    PROFILE_OP_LOCK_FILE,
+    RecoveryManager, SupportStatus, VerifiedDeletionState, WindowController, WindowRect,
+    DEFAULT_ADVISORY_LOCK_TIMEOUT, PROFILE_OP_LOCK_FILE,
 };
 use dim_profile_store::{is_symlink_or_reparse, verify_profile_id_marker, JsonProfileStore};
 
@@ -157,6 +158,7 @@ struct ProfileSyncEntry {
     state: Mutex<ProfileSyncState>,
     cv: Condvar,
     op_mutex: Mutex<()>,
+    last_tray_handoff_at: Mutex<Option<Instant>>,
 }
 
 impl ProfileSyncEntry {
@@ -170,6 +172,7 @@ impl ProfileSyncEntry {
             }),
             cv: Condvar::new(),
             op_mutex: Mutex::new(()),
+            last_tray_handoff_at: Mutex::new(None),
         }
     }
 
@@ -304,7 +307,23 @@ where
             st.launch_epoch
         };
 
-        let result = self.execute_serialized_launch(&profile_id, target, &entry);
+        let op_guard = entry
+            .op_mutex
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("profile op mutex poisoned")))?;
+        self.finish_leader_launch(&profile_id, target, &entry, leader_epoch, op_guard)
+    }
+
+    fn finish_leader_launch(
+        &self,
+        profile_id: &str,
+        target: &LaunchTarget,
+        entry: &ProfileSyncEntry,
+        leader_epoch: u64,
+        op_guard: std::sync::MutexGuard<'_, ()>,
+    ) -> Result<ProfileRuntimeState, DimError> {
+        let result =
+            self.execute_serialized_launch_with_op_guard(profile_id, target, entry, op_guard);
 
         if let Ok(mut st) = entry.state.lock() {
             let stored = match &result {
@@ -321,17 +340,13 @@ where
         result
     }
 
-    fn execute_serialized_launch(
+    fn execute_serialized_launch_with_op_guard(
         &self,
         profile_id: &str,
         target: &LaunchTarget,
         entry: &ProfileSyncEntry,
+        _op_guard: std::sync::MutexGuard<'_, ()>,
     ) -> Result<ProfileRuntimeState, DimError> {
-        let _op_guard = entry
-            .op_mutex
-            .lock()
-            .map_err(|_| DimError::Io(std::io::Error::other("profile op mutex poisoned")))?;
-
         // Acquire cross-process per-profile lock in `<data_dir>/locks/<id>.lock` (outside `Profiles/`)
         // BEFORE re-verifying `get_profile` or creating `profile_dir`, preventing deleted-profile
         // directory resurrection and `ERROR_DIR_NOT_EMPTY` mid-delete races across OS processes.
@@ -614,13 +629,53 @@ where
         profile: &ProfileRecord,
         profile_dir: &Path,
     ) -> Result<ProfileRuntimeState, DimError> {
-        let mut rt = self.adapter.inspect_profile(profile, profile_dir)?;
+        self.inspect_profile_record_with_options(profile, profile_dir, true)
+    }
+
+    /// Inspects runtime state of an already-loaded [`ProfileRecord`] with optional disk-size calculation.
+    pub fn inspect_profile_record_with_options(
+        &self,
+        profile: &ProfileRecord,
+        profile_dir: &Path,
+        include_size: bool,
+    ) -> Result<ProfileRuntimeState, DimError> {
+        let mut rt =
+            self.adapter
+                .inspect_profile_with_options(profile, profile_dir, include_size)?;
         if let Ok(entry) = self.sync_entry_for(&profile.id) {
             if entry.current_phase() == InFlightPhase::Stopping && rt.main_pid.is_some() {
                 rt.set_lifecycle_state(ProfileLifecycleState::Stopping);
             }
         }
         Ok(rt)
+    }
+
+    /// Inspects all registered profiles including disk usage (`include_size = true`).
+    pub fn inspect_all_profiles(
+        &self,
+    ) -> Result<Vec<(ProfileRecord, ProfileRuntimeState)>, DimError> {
+        self.inspect_all_profiles_inner(true)
+    }
+
+    /// Fast inspection of all registered profiles skipping recursive disk-size walks (`include_size = false`).
+    pub fn inspect_all_profiles_fast(
+        &self,
+    ) -> Result<Vec<(ProfileRecord, ProfileRuntimeState)>, DimError> {
+        self.inspect_all_profiles_inner(false)
+    }
+
+    fn inspect_all_profiles_inner(
+        &self,
+        include_size: bool,
+    ) -> Result<Vec<(ProfileRecord, ProfileRuntimeState)>, DimError> {
+        let records = self.store.list_profiles()?;
+        let mut out = Vec::with_capacity(records.len());
+        for rec in records {
+            let dir = self.store.profile_dir_for(&rec)?;
+            let rt = self.inspect_profile_record_with_options(&rec, &dir, include_size)?;
+            out.push((rec, rt));
+        }
+        Ok(out)
     }
 
     /// Inspects runtime state of a single profile, reflecting in-flight `Stopping` transitions.
@@ -1159,6 +1214,537 @@ where
             &running_others,
             &protected_dirs,
         )
+    }
+}
+
+const TRAY_HANDOFF_DEBOUNCE: Duration = Duration::from_millis(250);
+const TRAY_HANDOFF_POLL_ATTEMPTS: usize = 20;
+const TRAY_HANDOFF_POLL_INTERVAL: Duration = Duration::from_millis(60);
+const FOREGROUND_VERIFY_POLL_ATTEMPTS: usize = 10;
+const FOREGROUND_VERIFY_POLL_INTERVAL: Duration = Duration::from_millis(30);
+
+fn map_launch_activation_result(
+    profile: &ProfileRecord,
+    launch_res: Result<ProfileRuntimeState, DimError>,
+) -> AccountActivationResult {
+    match launch_res {
+        Ok(launched) => AccountActivationResult {
+            account_id: profile.id.clone(),
+            account_kind: AccountKind::DesktopIsolated,
+            outcome: ActivationOutcome::Launched,
+            method: Some("launch".to_owned()),
+            os_foreground_confirmed: None,
+            window_handle: launched.window_handle,
+            window_title: launched.window_title,
+            message: format!("Launched profile '{}'.", profile.name),
+            remediation: None,
+        },
+        Err(err) => {
+            let code = err.code();
+            let is_guard_block = matches!(
+                code,
+                "DUPLICATE_ZALO_USER_ID"
+                    | "SHARED_EXTERNAL_DB_PATH"
+                    | "PROTECTED_PRIMARY_PROCESS"
+                    | "PROTECTED_PRIMARY_PATH"
+                    | "PROFILE_RUNNING"
+                    | "PROFILE_MARKER_MISMATCH"
+                    | "INSUFFICIENT_DISK_SPACE"
+                    | "FOLDER_REDIRECTION_DETECTED"
+                    | "UNVERIFIED_BINARY"
+            );
+            AccountActivationResult {
+                account_id: profile.id.clone(),
+                account_kind: AccountKind::DesktopIsolated,
+                outcome: if is_guard_block {
+                    ActivationOutcome::Blocked
+                } else {
+                    ActivationOutcome::Failed
+                },
+                method: Some("launch".to_owned()),
+                os_foreground_confirmed: Some(false),
+                window_handle: None,
+                window_title: None,
+                message: err.to_string(),
+                remediation: Some(ActionableRemediation {
+                    code: code.to_owned(),
+                    message: err.to_string(),
+                    suggested_action: None,
+                }),
+            }
+        }
+    }
+}
+
+impl<A> InstanceCoordinator<A>
+where
+    A: InstanceLauncher + InstanceMonitor + PlatformCapabilities + WindowController,
+{
+    /// Unified `AccountActivationService` entry point for `DesktopPrimary` (`"primary"`) and
+    /// `DesktopIsolated` accounts.
+    ///
+    /// - `"primary"` is strictly read-only and non-spawning.
+    /// - Secondary profiles are serialized per-profile via `ProfileSyncEntry` with a 250ms
+    ///   tray-handoff debounce and fail-closed remediation on `RecoveryRequired`/guards.
+    pub fn activate_desktop_account(
+        &self,
+        target_id: &str,
+        launch_target: Option<&LaunchTarget>,
+    ) -> Result<AccountActivationResult, DimError> {
+        if target_id.eq_ignore_ascii_case("primary") {
+            let primary = self.adapter.inspect_primary()?;
+            return self.adapter.focus_primary_window(&primary);
+        }
+
+        let profile = self.store.get_profile(target_id)?;
+        let entry = self.sync_entry_for(&profile.id)?;
+
+        if entry.current_phase() == InFlightPhase::Launching {
+            if let Some(target) = launch_target {
+                return Ok(map_launch_activation_result(
+                    &profile,
+                    self.launch_profile(&profile.id, target),
+                ));
+            }
+            return Ok(AccountActivationResult {
+                account_id: profile.id,
+                account_kind: AccountKind::DesktopIsolated,
+                outcome: ActivationOutcome::Pending,
+                method: Some("coalesced_launch".to_owned()),
+                os_foreground_confirmed: None,
+                window_handle: None,
+                window_title: None,
+                message: format!("Profile '{}' is already launching.", profile.name),
+                remediation: None,
+            });
+        }
+
+        let op_guard = entry
+            .op_mutex
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("profile op mutex poisoned")))?;
+
+        let fresh_profile = self.store.get_profile(&profile.id)?;
+        let profile_dir = self.store.profile_dir_for(&fresh_profile)?;
+        let state =
+            self.inspect_profile_record_with_options(&fresh_profile, &profile_dir, false)?;
+
+        match state.lifecycle_state() {
+            ProfileLifecycleState::Starting => Ok(AccountActivationResult {
+                account_id: fresh_profile.id,
+                account_kind: AccountKind::DesktopIsolated,
+                outcome: ActivationOutcome::Pending,
+                method: Some("starting".to_owned()),
+                os_foreground_confirmed: None,
+                window_handle: state.window_handle,
+                window_title: state.window_title,
+                message: format!("Profile '{}' is starting.", fresh_profile.name),
+                remediation: None,
+            }),
+            ProfileLifecycleState::Stopping => Ok(AccountActivationResult {
+                account_id: fresh_profile.id,
+                account_kind: AccountKind::DesktopIsolated,
+                outcome: ActivationOutcome::Blocked,
+                method: Some("stopping".to_owned()),
+                os_foreground_confirmed: None,
+                window_handle: None,
+                window_title: None,
+                message: format!("Profile '{}' is currently stopping.", fresh_profile.name),
+                remediation: Some(ActionableRemediation {
+                    code: "PROFILE_STOPPING".to_owned(),
+                    message: "Wait for the profile to finish stopping before activating it again."
+                        .to_owned(),
+                    suggested_action: Some("retry_after_stop".to_owned()),
+                }),
+            }),
+            ProfileLifecycleState::RecoveryRequired => Ok(AccountActivationResult {
+                account_id: fresh_profile.id,
+                account_kind: AccountKind::DesktopIsolated,
+                outcome: ActivationOutcome::Blocked,
+                method: Some("recovery_required".to_owned()),
+                os_foreground_confirmed: None,
+                window_handle: None,
+                window_title: None,
+                message: format!(
+                    "Profile '{}' requires recovery before activation.",
+                    fresh_profile.name
+                ),
+                remediation: Some(ActionableRemediation {
+                    code: "RECOVERY_REQUIRED".to_owned(),
+                    message:
+                        "Indeterminate lockfile or marker mismatch detected. Run recovery instead of forcing launch."
+                            .to_owned(),
+                    suggested_action: Some("recover_profile".to_owned()),
+                }),
+            }),
+            ProfileLifecycleState::Running => {
+                if let Some(hwnd) = state.window_handle {
+                    let mut allowed_pids = state.process_ids.clone();
+                    if let Some(mpid) = state.main_pid {
+                        if !allowed_pids.contains(&mpid) {
+                            allowed_pids.push(mpid);
+                        }
+                    }
+                    match self
+                        .adapter
+                        .try_focus_verified_window(hwnd, &allowed_pids)
+                    {
+                        Ok(Some((was_minimized, mut fg_confirmed))) => {
+                            let mut used_handoff = false;
+                            if !fg_confirmed {
+                                if let Some(target) = launch_target {
+                                    if !self.is_tray_handoff_debounced(&entry) {
+                                        self.mark_tray_handoff(&entry);
+                                        used_handoff = self
+                                            .adapter
+                                            .focus_or_restore(
+                                                target,
+                                                &fresh_profile,
+                                                &profile_dir,
+                                                &state,
+                                            )
+                                            .is_ok();
+                                    }
+                                }
+                                for _ in 0..FOREGROUND_VERIFY_POLL_ATTEMPTS {
+                                    let Some(probe) =
+                                        self.adapter.probe_window_activation_state(hwnd)
+                                    else {
+                                        break;
+                                    };
+                                    if probe.is_foreground {
+                                        fg_confirmed = true;
+                                        break;
+                                    }
+                                    std::thread::sleep(FOREGROUND_VERIFY_POLL_INTERVAL);
+                                }
+                            }
+                            let final_probe = self.adapter.probe_window_activation_state(hwnd);
+                            if final_probe.is_some_and(|p| p.is_foreground) {
+                                fg_confirmed = true;
+                            }
+                            let blocked_by_foreground_lock = !fg_confirmed
+                                && final_probe.is_none_or(|p| {
+                                    p.foreign_foreground_present || !p.is_visible || p.is_minimized
+                                });
+                            if blocked_by_foreground_lock {
+                                return Ok(AccountActivationResult {
+                                    account_id: fresh_profile.id,
+                                    account_kind: AccountKind::DesktopIsolated,
+                                    outcome: ActivationOutcome::ManualActionRequired,
+                                    method: Some(if used_handoff {
+                                        "foreground_handoff_unconfirmed".to_owned()
+                                    } else {
+                                        "foreground_lock_blocked".to_owned()
+                                    }),
+                                    os_foreground_confirmed: Some(false),
+                                    window_handle: Some(hwnd),
+                                    window_title: state.window_title,
+                                    message: format!(
+                                        "Windows Foreground Lock prevented activating '{}' window.",
+                                        fresh_profile.name
+                                    ),
+                                    remediation: Some(ActionableRemediation {
+                                        code: "FOREGROUND_LOCKED".to_owned(),
+                                        message: "The account window is open, but the OS prevented bringing it to the foreground. Click its taskbar or tray icon directly."
+                                            .to_owned(),
+                                        suggested_action: Some("click_taskbar_icon".to_owned()),
+                                    }),
+                                });
+                            }
+
+                            let outcome = if was_minimized {
+                                ActivationOutcome::Restored
+                            } else {
+                                ActivationOutcome::Focused
+                            };
+                            let method = if used_handoff && fg_confirmed {
+                                "second_instance_handoff"
+                            } else if was_minimized {
+                                "direct_restore"
+                            } else {
+                                "direct_focus"
+                            };
+                            return Ok(AccountActivationResult {
+                                account_id: fresh_profile.id,
+                                account_kind: AccountKind::DesktopIsolated,
+                                outcome,
+                                method: Some(method.to_owned()),
+                                os_foreground_confirmed: Some(fg_confirmed),
+                                window_handle: Some(hwnd),
+                                window_title: state.window_title,
+                                message: if was_minimized {
+                                    format!("Restored profile '{}' window.", fresh_profile.name)
+                                } else {
+                                    format!("Focused profile '{}' window.", fresh_profile.name)
+                                },
+                                remediation: None,
+                            });
+                        }
+                        Ok(None) => {
+                            if let Some(target) = launch_target {
+                                self.adapter.focus_or_restore(
+                                    target,
+                                    &fresh_profile,
+                                    &profile_dir,
+                                    &state,
+                                )?;
+                            }
+                            return Ok(AccountActivationResult {
+                                account_id: fresh_profile.id,
+                                account_kind: AccountKind::DesktopIsolated,
+                                outcome: ActivationOutcome::Focused,
+                                method: Some("adapter_focus".to_owned()),
+                                os_foreground_confirmed: None,
+                                window_handle: Some(hwnd),
+                                window_title: state.window_title,
+                                message: format!("Focused profile '{}' window.", fresh_profile.name),
+                                remediation: None,
+                            });
+                        }
+                        Err(err) => {
+                            return Ok(AccountActivationResult {
+                                account_id: fresh_profile.id,
+                                account_kind: AccountKind::DesktopIsolated,
+                                outcome: ActivationOutcome::Blocked,
+                                method: Some("window_verification_failed".to_owned()),
+                                os_foreground_confirmed: Some(false),
+                                window_handle: None,
+                                window_title: None,
+                                message: err.to_string(),
+                                remediation: Some(ActionableRemediation {
+                                    code: "WINDOW_UNVERIFIED".to_owned(),
+                                    message: "Window handle failed live PID verification."
+                                        .to_owned(),
+                                    suggested_action: Some("refresh_status".to_owned()),
+                                }),
+                            });
+                        }
+                    }
+                }
+
+                // Running but no visible/minimized window (hidden in tray).
+                if self.is_tray_handoff_debounced(&entry) {
+                    return Ok(AccountActivationResult {
+                        account_id: fresh_profile.id,
+                        account_kind: AccountKind::DesktopIsolated,
+                        outcome: ActivationOutcome::Pending,
+                        method: Some("tray_handoff_debounced".to_owned()),
+                        os_foreground_confirmed: None,
+                        window_handle: None,
+                        window_title: None,
+                        message: format!(
+                            "Tray restore already in progress for '{}'.",
+                            fresh_profile.name
+                        ),
+                        remediation: None,
+                    });
+                }
+
+                let Some(target) = launch_target else {
+                    return Ok(AccountActivationResult {
+                        account_id: fresh_profile.id,
+                        account_kind: AccountKind::DesktopIsolated,
+                        outcome: ActivationOutcome::ManualActionRequired,
+                        method: Some("tray_handoff".to_owned()),
+                        os_foreground_confirmed: Some(false),
+                        window_handle: None,
+                        window_title: None,
+                        message: format!(
+                            "Profile '{}' is hidden in tray and no launch target was provided.",
+                            fresh_profile.name
+                        ),
+                        remediation: Some(ActionableRemediation {
+                            code: "LAUNCH_TARGET_REQUIRED".to_owned(),
+                            message: "Configure a launch target to wake tray-hidden profiles."
+                                .to_owned(),
+                            suggested_action: Some("configure_launch_target".to_owned()),
+                        }),
+                    });
+                };
+
+                self.mark_tray_handoff(&entry);
+                self.adapter
+                    .focus_or_restore(target, &fresh_profile, &profile_dir, &state)?;
+
+                for _ in 0..TRAY_HANDOFF_POLL_ATTEMPTS {
+                    std::thread::sleep(TRAY_HANDOFF_POLL_INTERVAL);
+                    let polled = self.inspect_profile_record_with_options(
+                        &fresh_profile,
+                        &profile_dir,
+                        false,
+                    )?;
+                    if let Some(hwnd) = polled.window_handle {
+                        let fg_confirmed = self
+                            .adapter
+                            .probe_window_activation_state(hwnd)
+                            .map(|p| p.is_foreground);
+                        return Ok(AccountActivationResult {
+                            account_id: fresh_profile.id,
+                            account_kind: AccountKind::DesktopIsolated,
+                            outcome: ActivationOutcome::Restored,
+                            method: Some("tray_handoff".to_owned()),
+                            os_foreground_confirmed: fg_confirmed,
+                            window_handle: Some(hwnd),
+                            window_title: polled.window_title,
+                            message: format!(
+                                "Restored profile '{}' from system tray.",
+                                fresh_profile.name
+                            ),
+                            remediation: None,
+                        });
+                    }
+                }
+
+                Ok(AccountActivationResult {
+                    account_id: fresh_profile.id,
+                    account_kind: AccountKind::DesktopIsolated,
+                    outcome: ActivationOutcome::ManualActionRequired,
+                    method: Some("tray_handoff".to_owned()),
+                    os_foreground_confirmed: Some(false),
+                    window_handle: None,
+                    window_title: None,
+                    message: format!(
+                        "Sent restore signal to '{}', but no verified window appeared.",
+                        fresh_profile.name
+                    ),
+                    remediation: Some(ActionableRemediation {
+                        code: "TRAY_RESTORE_UNVERIFIED".to_owned(),
+                        message: "Restore the window manually from the system tray if needed."
+                            .to_owned(),
+                        suggested_action: Some("click_tray_icon".to_owned()),
+                    }),
+                })
+            }
+            ProfileLifecycleState::Stopped => {
+                let Some(target) = launch_target else {
+                    drop(op_guard);
+                    return Ok(AccountActivationResult {
+                        account_id: fresh_profile.id,
+                        account_kind: AccountKind::DesktopIsolated,
+                        outcome: ActivationOutcome::ManualActionRequired,
+                        method: Some("launch".to_owned()),
+                        os_foreground_confirmed: Some(false),
+                        window_handle: None,
+                        window_title: None,
+                        message: format!(
+                            "Profile '{}' is stopped and no launch target was provided.",
+                            fresh_profile.name
+                        ),
+                        remediation: Some(ActionableRemediation {
+                            code: "LAUNCH_TARGET_REQUIRED".to_owned(),
+                            message: "Provide a valid launch target to start this profile."
+                                .to_owned(),
+                            suggested_action: Some("configure_launch_target".to_owned()),
+                        }),
+                    });
+                };
+
+                // Transition `Idle -> Launching` atomically while still holding `op_guard` so no
+                // concurrent `activate_desktop_account` or `launch_profile` caller can slip through
+                // between releasing `op_guard` and entering `launch_profile`.
+                let claimed_epoch = {
+                    let mut st = entry.state.lock().map_err(|_| {
+                        DimError::Io(std::io::Error::other("profile sync mutex poisoned"))
+                    })?;
+                    if st.phase == InFlightPhase::Idle {
+                        st.launch_epoch = st.launch_epoch.wrapping_add(1);
+                        st.phase = InFlightPhase::Launching;
+                        st.stop_requested = false;
+                        Some(st.launch_epoch)
+                    } else {
+                        None
+                    }
+                };
+
+                let launch_res = if let Some(leader_epoch) = claimed_epoch {
+                    self.finish_leader_launch(
+                        &fresh_profile.id,
+                        target,
+                        &entry,
+                        leader_epoch,
+                        op_guard,
+                    )
+                } else {
+                    drop(op_guard);
+                    self.launch_profile(&fresh_profile.id, target)
+                };
+
+                Ok(map_launch_activation_result(&fresh_profile, launch_res))
+            }
+        }
+    }
+
+    /// Snaps a verified secondary desktop profile window beside the host window.
+    ///
+    /// Strictly refuses `"primary"` with `ProtectedPrimaryProcess` (`PRIMARY_PROTECTED`).
+    pub fn companion_snap_profile(
+        &self,
+        id_or_name: &str,
+        host_hwnd: u64,
+        rail_width_px: i32,
+    ) -> Result<CompanionSnapResult, DimError> {
+        if id_or_name.eq_ignore_ascii_case("primary") {
+            return Err(DimError::ProtectedPrimaryProcess(
+                "PRIMARY_PROTECTED: companion snap is strictly forbidden on primary Zalo"
+                    .to_owned(),
+            ));
+        }
+        let profile = self.store.get_profile(id_or_name)?;
+        let entry = self.sync_entry_for(&profile.id)?;
+        let _op_guard = entry
+            .op_mutex
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("profile op mutex poisoned")))?;
+        let fresh_profile = self.store.get_profile(&profile.id)?;
+        let profile_dir = self.store.profile_dir_for(&fresh_profile)?;
+        self.adapter.companion_snap_secondary(
+            &fresh_profile,
+            &profile_dir,
+            host_hwnd,
+            rail_width_px,
+        )
+    }
+
+    /// Restores a previously companion-snapped secondary desktop profile window to `restore_rect`.
+    ///
+    /// Strictly refuses `"primary"` with `ProtectedPrimaryProcess` (`PRIMARY_PROTECTED`).
+    pub fn companion_unsnap_profile(
+        &self,
+        id_or_name: &str,
+        restore_rect: WindowRect,
+    ) -> Result<CompanionSnapResult, DimError> {
+        if id_or_name.eq_ignore_ascii_case("primary") {
+            return Err(DimError::ProtectedPrimaryProcess(
+                "PRIMARY_PROTECTED: companion unsnap is strictly forbidden on primary Zalo"
+                    .to_owned(),
+            ));
+        }
+        let profile = self.store.get_profile(id_or_name)?;
+        let entry = self.sync_entry_for(&profile.id)?;
+        let _op_guard = entry
+            .op_mutex
+            .lock()
+            .map_err(|_| DimError::Io(std::io::Error::other("profile op mutex poisoned")))?;
+        let fresh_profile = self.store.get_profile(&profile.id)?;
+        let profile_dir = self.store.profile_dir_for(&fresh_profile)?;
+        self.adapter
+            .companion_unsnap_secondary(&fresh_profile, &profile_dir, restore_rect)
+    }
+
+    fn is_tray_handoff_debounced(&self, entry: &ProfileSyncEntry) -> bool {
+        entry
+            .last_tray_handoff_at
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .is_some_and(|t| t.elapsed() < TRAY_HANDOFF_DEBOUNCE)
+    }
+
+    fn mark_tray_handoff(&self, entry: &ProfileSyncEntry) {
+        if let Ok(mut g) = entry.last_tray_handoff_at.lock() {
+            *g = Some(Instant::now());
+        }
     }
 }
 

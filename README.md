@@ -1,8 +1,12 @@
 <div align="center">
 
-# Multi-Zalo Desktop
+<img src="docs/brand/assets/marketing/github-readme-hero.svg" alt="KHOANG — Một máy. Nhiều tài khoản. Không trộn dữ liệu." width="880" />
 
-**Trình quản lý đa tài khoản Zalo Desktop cô lập dữ liệu hoàn toàn trên Windows, macOS và Ubuntu**
+<br />
+
+# KHOANG
+
+**Một máy. Nhiều tài khoản. Không trộn dữ liệu.** *(Independent Account Workspace — trình quản lý đa tài khoản Zalo Desktop cô lập dữ liệu hoàn toàn trên Windows, macOS và Ubuntu)*
 
 [English README](README.en.md) · [Tải bản Pre-release](https://github.com/manhquydev/zalo/releases) · [Hướng dẫn cài đặt & kiểm thử](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md) · [Báo lỗi](https://github.com/manhquydev/zalo/issues)
 
@@ -20,15 +24,15 @@
 ---
 
 > [!IMPORTANT]
-> **Tuyên bố phi liên kết & nguyên tắc an toàn:** **Multi-Zalo Desktop** (`desktop-instance-manager`) là dự án mã nguồn mở độc lập (`MIT OR Apache-2.0`), **không liên kết, không được tài trợ hay chứng thực bởi VNG Corporation hay Zalo**. `"Zalo"` là nhãn hiệu của VNG Corporation. Kho mã nguồn và các gói cài đặt **không** đóng gói, không chỉnh sửa và không phân phối lại nhị phân của VNG — người dùng tự cài đặt ứng dụng Zalo Desktop chính thức từ nhà phát hành.
+> **Tuyên bố phi liên kết & nguyên tắc an toàn:** **KHOANG** (`desktop-instance-manager`, trước đây là Multi-Zalo Desktop) là dự án mã nguồn mở độc lập (`MIT OR Apache-2.0`), **không liên kết, không được tài trợ hay chứng thực bởi VNG Corporation hay Zalo**. `"Zalo"` là nhãn hiệu của VNG Corporation. Kho mã nguồn và các gói cài đặt **không** đóng gói, không chỉnh sửa và không phân phối lại nhị phân của VNG — người dùng tự cài đặt ứng dụng Zalo Desktop chính thức từ nhà phát hành.
 
 ---
 
 ## Tổng quan
 
-**Multi-Zalo Desktop** giúp bạn mở và quản lý nhiều tài khoản Zalo Desktop song song trên cùng một máy tính mà **không đụng chạm vào Zalo chính đang sử dụng**, không dùng bản crack hay sửa đổi tệp thực thi của VNG.
+**KHOANG** giúp bạn mở và quản lý nhiều tài khoản Zalo Desktop song song trên cùng một máy tính mà **không đụng chạm vào Zalo chính đang sử dụng**, không dùng bản crack hay sửa đổi tệp thực thi của VNG.
 
-Mỗi tài khoản được đặt trong một không gian lưu trữ riêng (`Profiles/<slug>_<id>/`) bằng cơ chế tách biệt biến môi trường và thư mục dữ liệu ở cấp hệ điều hành, đi kèm giao diện **Account Dock** (Tiếng Việt / English, Sáng / Tối) xây dựng trên **Rust + Tauri 2**.
+Mỗi tài khoản được đặt trong một không gian lưu trữ riêng ("khoang", `Profiles/<slug>_<id>/`) bằng cơ chế tách biệt biến môi trường và thư mục dữ liệu ở cấp hệ điều hành, đi kèm giao diện **KHOANG** (Tiếng Việt / English, Sáng / Tối, hướng thiết kế *Calm Precision* — xem [`docs/brand/BRAND_GUIDELINES.md`](docs/brand/BRAND_GUIDELINES.md)) xây dựng trên **Rust + Tauri 2**.
 
 <details>
 <summary><strong>Xem thêm ảnh chụp màn hình giao diện thực tế (Tối, Tiếng Anh, Thêm tài khoản, Sao lưu, Kiểm tra sự cố)</strong></summary>
@@ -82,12 +86,12 @@ Tải gói cài đặt mới nhất tại trang **[GitHub Releases (Pre-release)
 <details>
 <summary><strong>1. Windows 10 / 11 (x64) — <code>.exe</code> / <code>.msi</code> / Signed-Host Bridge</strong></summary>
 
-1. Tải **`Multi-Zalo-0.1.0-beta.1-windows-x64-setup.exe`** (khuyến nghị) hoặc **`Multi-Zalo-0.1.0-beta.1-windows-x64.msi`**.
+1. Tải **`KHOANG-0.1.0-beta.1-windows-x64-setup.exe`** (khuyến nghị) hoặc **`KHOANG-0.1.0-beta.1-windows-x64.msi`**.
 2. Kiểm tra `SHA-256` bằng PowerShell:
    ```powershell
-   Get-FileHash .\Multi-Zalo-0.1.0-beta.1-windows-x64-setup.exe -Algorithm SHA256
+   Get-FileHash .\KHOANG-0.1.0-beta.1-windows-x64-setup.exe -Algorithm SHA256
    ```
-3. Cài đặt **Multi-Zalo Desktop**. Nếu Windows SmartScreen hiện cảnh báo do bản thử nghiệm chưa ký số Authenticode, hãy đối chiếu khớp `SHA-256` với `SHA256SUMS.txt` trước khi cho phép chạy (yêu cầu sẵn Microsoft Edge WebView2 Runtime).
+3. Cài đặt **KHOANG**. Nếu Windows SmartScreen hiện cảnh báo do bản thử nghiệm chưa ký số Authenticode, hãy đối chiếu khớp `SHA-256` với `SHA256SUMS.txt` trước khi cho phép chạy (yêu cầu sẵn Microsoft Edge WebView2 Runtime).
 4. **Trên máy bật Smart App Control (`SAC=1`):** Không tắt Smart App Control — chạy thẳng giao diện Account Dock qua PowerShell và Node.js đã được ký số của hệ thống:
    ```powershell
    cd desktop-instance-manager
@@ -100,9 +104,9 @@ Tải gói cài đặt mới nhất tại trang **[GitHub Releases (Pre-release)
 <details>
 <summary><strong>2. macOS (Apple Silicon arm64) — <code>.dmg</code></strong></summary>
 
-1. Tải **`Multi-Zalo-0.1.0-beta.1-macos-arm64.dmg`** và kiểm tra `SHA-256`:
+1. Tải **`KHOANG-0.1.0-beta.1-macos-arm64.dmg`** và kiểm tra `SHA-256`:
    ```bash
-   shasum -a 256 Multi-Zalo-0.1.0-beta.1-macos-arm64.dmg
+   shasum -a 256 KHOANG-0.1.0-beta.1-macos-arm64.dmg
    ```
 2. Đảm bảo đã cài sẵn `/Applications/Zalo.app` chính thức từ VNG.
 3. **Lưu ý Gatekeeper:** Do bản Pre-release chưa có chứng chỉ Apple Developer ID / Notarization (`UNSIGNED_DEVELOPMENT_ARTIFACT`), macOS Gatekeeper mặc định có thể từ chối mở file nhị phân tải từ Internet. Để kiểm thử phát triển cục bộ mà không hạ cấp bảo mật hệ điều hành, có thể tự build từ mã nguồn với Xcode Command Line Tools & Rust:
@@ -117,19 +121,19 @@ Tải gói cài đặt mới nhất tại trang **[GitHub Releases (Pre-release)
 <details>
 <summary><strong>3. Ubuntu 24.04 LTS (x64) — <code>.deb</code> & <code>.AppImage</code></strong></summary>
 
-1. Tải **`Multi-Zalo-0.1.0-beta.1-ubuntu24.04-amd64.deb`** hoặc **`Multi-Zalo-0.1.0-beta.1-linux-x86_64.AppImage`** và kiểm tra `SHA-256`:
+1. Tải **`KHOANG-0.1.0-beta.1-ubuntu24.04-amd64.deb`** hoặc **`KHOANG-0.1.0-beta.1-linux-x86_64.AppImage`** và kiểm tra `SHA-256`:
    ```bash
    sha256sum -c SHA256SUMS.txt --ignore-missing
    ```
 2. Cài đặt gói `.deb`:
    ```bash
    sudo apt-get update
-   sudo apt-get install -y ./Multi-Zalo-0.1.0-beta.1-ubuntu24.04-amd64.deb bubblewrap
+   sudo apt-get install -y ./KHOANG-0.1.0-beta.1-ubuntu24.04-amd64.deb bubblewrap
    ```
    Hoặc chạy bản `.AppImage`:
    ```bash
-   chmod +x Multi-Zalo-0.1.0-beta.1-linux-x86_64.AppImage
-   ./Multi-Zalo-0.1.0-beta.1-linux-x86_64.AppImage
+   chmod +x KHOANG-0.1.0-beta.1-linux-x86_64.AppImage
+   ./KHOANG-0.1.0-beta.1-linux-x86_64.AppImage
    ```
 3. **Lưu ý:** VNG không cung cấp Zalo Desktop cho Linux; bản Ubuntu dành cho chạy thử giao diện Account Dock (WebKitGTK 4.1), fixture kiểm thử vòng đời `bwrap`/`XDG_*` hoặc AppImage cục bộ. Xem chi tiết: [Ubuntu AppImage Compatibility](desktop-instance-manager/docs/platform/ubuntu/appimage-compatibility.md).
 

@@ -451,6 +451,9 @@ fn lc_04_protect_unmanaged_and_primary() -> Result<CaseSuccess, String> {
         working_set_bytes: 0,
         detected_zalo_user_id: Some("9990001".to_owned()),
         notes: Vec::new(),
+        window_handle: None,
+        window_state: dim_core::PrimaryWindowState::None,
+        window_title: None,
     };
     let guard_err = PrimaryProtectionGuard::ensure_safe_to_stop(&forged_state, &synth_primary)
         .expect_err("PrimaryProtectionGuard must block protected PID");

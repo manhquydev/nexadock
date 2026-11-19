@@ -473,6 +473,20 @@ pub fn inspect_primary_macos(ops: &dyn MacOsSystemOps) -> Result<PrimaryInstance
     let working_set_bytes = sum_working_set_bytes(&protected_pids, &processes);
     let detected_uid = detect_zalo_user_id(&primary_zalo_data);
     let running = !protected_pids.is_empty();
+    let (window_handle, window_title, window_state) = if running {
+        let win = crate::window::inspect_profile_window(ops, &primary_zalo_data, &protected_pids);
+        if let Some(w) = win {
+            (
+                Some(w.window_id),
+                w.title,
+                dim_core::PrimaryWindowState::Visible,
+            )
+        } else {
+            (None, None, dim_core::PrimaryWindowState::HiddenInTray)
+        }
+    } else {
+        (None, None, dim_core::PrimaryWindowState::None)
+    };
 
     Ok(PrimaryInstanceStatus {
         zalo_data_dir: primary_zalo_data,
@@ -482,6 +496,9 @@ pub fn inspect_primary_macos(ops: &dyn MacOsSystemOps) -> Result<PrimaryInstance
         protected_pids,
         working_set_bytes,
         detected_zalo_user_id: detected_uid,
+        window_handle,
+        window_title,
+        window_state,
         notes: vec![
             "Primary macOS ZaloData path and all unmanaged Zalo.app PIDs are strictly protected."
                 .to_owned(),

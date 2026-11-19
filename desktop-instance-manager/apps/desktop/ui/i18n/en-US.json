@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "Multi-Zalo",
-    "windowTitle": "Multi-Zalo — Accounts",
-    "subtitle": "Multiple Zalo accounts on one computer",
+    "name": "KHOANG",
+    "windowTitle": "KHOANG — Accounts",
+    "subtitle": "Your accounts. Their own space.",
     "modeTauri": "Desktop app",
     "modeBridge": "Local bridge",
     "connecting": "Connecting...",
@@ -33,6 +33,11 @@
     "searchPlaceholder": "Search accounts...",
     "searchAria": "Search accounts",
     "add": "Add account",
+    "viewGrid": "Grid",
+    "viewList": "List",
+    "viewModeAria": "View layout",
+    "stopAll": "Stop all",
+    "recoveryHint": "Previous session ended uncleanly. Reopen to clean locks.",
     "emptyTitle": "Use multiple Zalo accounts on one computer",
     "emptyHint": "Create a separate space to open and sign in to another existing Zalo account without signing out.",
     "countSummary": "Showing {shown} of {total} accounts",
@@ -50,6 +55,8 @@
     "actions": {
       "launch": "Open Zalo",
       "launchAria": "Open Zalo — {name}",
+      "recover": "Recover & Open",
+      "recoverAria": "Recover & Open — {name}",
       "focus": "Switch to window",
       "focusAria": "Switch to window — {name}",
       "stop": "Close Zalo",
@@ -64,6 +71,7 @@
     },
     "primaryZalo": {
       "heading": "Zalo already on this computer",
+      "protectedBadge": "Protected · Read-only",
       "running": "Window open · Protected; cannot be closed or removed from here",
       "stopped": "Closed · Your main Zalo installation always stays untouched",
       "unknown": "Unknown · Could not verify your main Zalo status right now"
@@ -181,6 +189,12 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Customize language, appearance, and advanced troubleshooting.",
+    "behavior": {
+      "heading": "Desktop Behavior",
+      "keepInTray": "Keep running in system tray when closing window",
+      "autostart": "Launch KHOANG on system startup",
+      "desktopOnlyHint": "Available only in the KHOANG desktop app."
+    },
     "language": {
       "heading": "Display language",
       "description": "Applies immediately. Your account names stay unchanged.",
@@ -216,7 +230,7 @@
     "cards": {
       "mentalModel": {
         "title": "1. What this app does (and doesn't do)",
-        "body": "Multi-Zalo creates separate data spaces so you can run multiple Zalo Desktop windows side by side. It does not register new Zalo accounts and never asks for or stores your passwords, OTP codes, or messages."
+        "body": "KHOANG creates separate data spaces so you can run multiple Zalo Desktop windows side by side. It does not register new Zalo accounts and never asks for or stores your passwords, OTP codes, or messages."
       },
       "signIn": {
         "title": "2. Adding and signing in to an account",
@@ -255,6 +269,14 @@
       "notesPlaceholder": "e.g. Storefront or team groups",
       "submit": "Continue",
       "submitting": "Creating...",
+      "modeLegend": "Session mode",
+      "modeDesktopTitle": "Zalo Desktop (Isolated)",
+      "modeDesktopRecommended": "Recommended",
+      "modeDesktopDesc": "Opens an independent Zalo Desktop window with full voice/video calls and offline KHOANG backups.",
+      "modeWebTitle": "Zalo Web (Isolated in KHOANG)",
+      "modeWebBeta": "Experimental",
+      "modeWebDesc": "Runs directly inside KHOANG with isolated storage. One active Web session per account; no offline local backup; browser-based calls.",
+      "modeWebUnsupported": "Unavailable on this platform.",
       "step2Title": "Space \"{name}\" is ready",
       "step2Body": "Its separate Zalo space is ready. Open Zalo Desktop now to sign in with QR or password (or open it anytime from the main screen).",
       "step2Launch": "Open Zalo to sign in",
@@ -268,7 +290,7 @@
     },
     "delete": {
       "title": "Remove this account?",
-      "warning": "This deletes all local data for \"{name}\" from Multi-Zalo. Back it up first if you want to keep local history.",
+      "warning": "This deletes all local data for \"{name}\" from KHOANG. Back it up first if you want to keep local history.",
       "confirmText": "Close Zalo before removing account data.",
       "submit": "Remove account"
     },
@@ -279,11 +301,16 @@
       "namePlaceholder": "Leave blank to auto-name",
       "submit": "Restore"
     },
+    "resetWeb": {
+      "title": "Reset this Web session?",
+      "warning": "This clears local cookies and sign-in cache for \"{name}\". You will need to scan QR code to sign in again.",
+      "submit": "Reset session"
+    },
     "help": {
-      "title": "How Multi-Zalo works",
+      "title": "How KHOANG works",
       "items": [
         "Each account you add opens Zalo Desktop in its own separate space.",
-        "You sign in directly inside Zalo (QR or password); Multi-Zalo never collects credentials.",
+        "You sign in directly inside Zalo (QR or password); KHOANG never collects credentials.",
         "Any Zalo already installed on your computer stays untouched and protected.",
         "You can back up any account whenever its Zalo window is closed."
       ]
@@ -316,6 +343,70 @@
     "NOT_TESTED": "Not tested",
     "UNKNOWN": "Unknown"
   },
+  "rail": {
+    "ariaLabel": "Account rail",
+    "accountsAria": "Quick account switcher list",
+    "expand": "Expand account rail",
+    "collapse": "Collapse account rail",
+    "filterPlaceholder": "Filter...",
+    "filterAria": "Filter accounts in rail",
+    "groupPrimary": "Main Zalo",
+    "groupPinned": "Pinned",
+    "groupDesktop": "Zalo Desktop",
+    "groupWeb": "Zalo Web (Experimental)",
+    "kindPrimary": "Main · Read-only",
+    "kindDesktop": "Desktop",
+    "kindWeb": "Web · Experimental",
+    "pin": "Pin to top",
+    "unpin": "Unpin",
+    "pinnedBadge": "Pinned"
+  },
+  "webSession": {
+    "badge": "Web Session (Isolated · Experimental)",
+    "openWeb": "Open Web session",
+    "openWebAria": "Open Web session — {name}",
+    "reload": "Reload",
+    "reloadAria": "Reload Web session",
+    "limitsTriggerAria": "Web session limitations",
+    "limitsTitle": "Isolated Zalo Web limitations",
+    "limitsBody": "• Zalo allows only 1 active Zalo Web session per account at a time.\n• No local KHOANG backup/export; resetting this session requires scanning QR again.\n• Voice/video calls run in the browser and require separate mic/camera permission.",
+    "reset": "Reset Web session",
+    "moreAria": "Web session options",
+    "loading": "Opening isolated Zalo Web session...",
+    "pausedForOverlay": "Web view is paused while an overlay is open.",
+    "previewNotice": "Isolated Zalo Web sessions render inside the KHOANG desktop app.",
+    "unsupportedTitle": "Web session is unavailable on this platform",
+    "unsupportedBody": "Use an isolated Zalo Desktop account for full features and data isolation."
+  },
+  "desktopStage": {
+    "honestNotice": "Running in an independent Zalo Desktop window — not embedded inside KHOANG.",
+    "primaryNotice": "Your main Zalo installation is protected in read-only mode. KHOANG never closes, removes, overwrites, or repositions its window.",
+    "bringToFront": "Bring window to front",
+    "openAndFocus": "Open & Bring to front",
+    "activating": "Activating account...",
+    "manualActionTitle": "Manual action needed",
+    "remediationTitle": "Action needed before opening",
+    "openDiagnostics": "Open Troubleshoot",
+    "retryAction": "Try again",
+    "refreshAction": "Refresh status",
+    "useDesktopAction": "Add Desktop account",
+    "companionSnapLabel": "Snap beside KHOANG (optional)",
+    "companionSnapHint": "Positions this secondary Zalo Desktop window beside KHOANG; turn off to restore its previous position. Not embedded.",
+    "companionSnapPrimaryBlocked": "Disabled for protected main Zalo.",
+    "companionSnapStopped": "Open Zalo first to snap its window beside KHOANG.",
+    "sessionDetailsSummary": "Session & storage details",
+    "pinAction": "Pin to rail",
+    "unpinAction": "Unpin"
+  },
+  "quickSwitcher": {
+    "title": "Quick account switcher",
+    "triggerAria": "Quick account switcher (Ctrl+K)",
+    "searchLabel": "Search by name, note, or session type",
+    "searchPlaceholder": "Type an account name...",
+    "empty": "No matching accounts.",
+    "addAction": "+ Add new account",
+    "shortcutHint": "Ctrl+{num}"
+  },
   "errors": {
     "technicalDetails": "Technical details",
     "rawCodeLabel": "Error code",
@@ -336,7 +427,7 @@
     "UNSUPPORTED_PLATFORM": "This feature is not supported on your operating system yet.",
     "BACKUP_ERROR": "Cannot back up while Zalo is open or the folder is busy.",
     "SHARED_EXTERNAL_DB_PATH": "This account shares an external Zalo storage folder with another open account. Please configure separate storage folders inside Zalo.",
-    "EXTERNAL_DB_OUTSIDE_PROFILE": "This account stores Zalo messages in an external folder outside Multi-Zalo, so standard backup is paused to protect your history.",
+    "EXTERNAL_DB_OUTSIDE_PROFILE": "This account stores Zalo messages in an external folder outside KHOANG, so standard backup is paused to protect your history.",
     "RESTORE_ERROR": "Could not restore because this backup is missing files, damaged, or failed integrity verification.",
     "PROCESS_ERROR": "Could not open Zalo. Try again.",
     "LAUNCH_FAILED": "Zalo closed before finishing startup. Please try opening this account again.",
@@ -353,6 +444,21 @@
     "HOST_TIMEOUT": "The app took too long to respond. Please try again in a moment.",
     "UNAUTHORIZED": "Local connection session expired. Please reload the app.",
     "RATE_LIMITED": "Too many actions at once. Please wait a few seconds and try again.",
+    "PRIMARY_IN_TRAY": "Main Zalo is minimized to the system tray. Click the Zalo icon in the system tray to reopen it.",
+    "PRIMARY_HIDDEN_IN_TRAY": "Main Zalo is minimized to the system tray. Click the Zalo icon in the system tray to reopen it.",
+    "PRIMARY_FOREGROUND_BLOCKED": "Windows temporarily blocked bringing main Zalo to the front. Click the Zalo icon on your taskbar.",
+    "FOREGROUND_LOCKED": "Windows is temporarily holding window focus. Try clicking again or select the Zalo window from the taskbar.",
+    "PROFILE_STOPPING": "This account's Zalo window is still closing. Wait a moment and try opening it again.",
+    "RECOVERY_REQUIRED": "This account's previous session ended uncleanly. Click Recover & Open or check Troubleshoot in Settings.",
+    "PRIMARY_NOT_RUNNING": "Main Zalo is not running right now. Open Zalo from your Start Menu or Desktop.",
+    "PRIMARY_PROTECTED": "Main Zalo is protected in read-only mode and cannot be repositioned or closed here.",
+    "WINDOW_UNVERIFIED": "Could not verify a matching Zalo window for this account.",
+    "WEB_SESSION_UNSUPPORTED": "Isolated Web sessions are not supported on this platform.",
+    "WEB_SESSION_ERROR": "Could not load the isolated Zalo Web session.",
+    "WEB_SESSION_BUSY": "This Web session is busy. Please try again in a moment.",
+    "WEB_WORKSPACE_REQUIRES_MACOS_14": "Isolated Web sessions on macOS require macOS 14 or later.",
+    "WEB_WORKSPACE_WAYLAND_UNSUPPORTED": "Isolated Web sessions are not supported on Wayland yet.",
+    "COMPANION_SNAP_UNSUPPORTED": "Side-by-side window snap is not supported on this platform.",
     "UNKNOWN": "Something went wrong. Try again or check technical details."
   }
 }

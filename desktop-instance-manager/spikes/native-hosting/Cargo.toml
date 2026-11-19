@@ -1,0 +1,20 @@
+[workspace]
+
+[package]
+name = "native-hosting-spike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Empirical feasibility spike for Option A: Win32 Native Window Hosting (SetParent) against controlled fixtures + strictly read-only Zalo window architecture inspection"
+
+[[bin]]
+name = "zalo-inspect"
+path = "src/bin/zalo_inspect.rs"
+
+[[bin]]
+name = "native-fixture"
+path = "src/bin/native_fixture.rs"
+
+[[bin]]
+name = "host-poc"
+path = "src/bin/host_poc.rs"

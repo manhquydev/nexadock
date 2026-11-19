@@ -25,9 +25,13 @@ const WM_CLOSE: u32 = 0x0010;
 const SW_RESTORE: i32 = 9;
 const SW_SHOW: i32 = 5;
 const GW_OWNER: u32 = 4;
+const GWL_STYLE: i32 = -16;
 const GWL_EXSTYLE: i32 = -20;
 const WS_EX_TOOLWINDOW: isize = 0x0000_0080;
 const MIN_MAIN_WINDOW_DIM: i32 = 400;
+const MONITOR_DEFAULTTONEAREST: u32 = 2;
+const SWP_NOZORDER: u32 = 0x0004;
+const SWP_NOACTIVATE: u32 = 0x0010;
 const KEY_READ: u32 = 0x20019;
 const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
 const HKEY_LOCAL_MACHINE: isize = 0x8000_0002_u32 as i32 as isize;
@@ -126,6 +130,36 @@ struct RECT {
     top: i32,
     right: i32,
     bottom: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
+struct POINT {
+    x: i32,
+    y: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
+struct WINDOWPLACEMENT {
+    length: u32,
+    flags: u32,
+    show_cmd: u32,
+    pt_min_position: POINT,
+    pt_max_position: POINT,
+    rc_normal_position: RECT,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
+struct MONITORINFO {
+    cb_size: u32,
+    rc_monitor: RECT,
+    rc_work: RECT,
+    dw_flags: u32,
 }
 
 #[repr(C)]
@@ -429,6 +463,7 @@ extern "system" {
         lp_enum_func: unsafe extern "system" fn(*mut c_void, isize) -> i32,
         l_param: isize,
     ) -> i32;
+    fn IsWindow(h_wnd: *mut c_void) -> i32;
     fn IsWindowVisible(h_wnd: *mut c_void) -> i32;
     fn IsIconic(h_wnd: *mut c_void) -> i32;
     fn GetWindowThreadProcessId(h_wnd: *mut c_void, lpdw_process_id: *mut u32) -> u32;
@@ -439,11 +474,26 @@ extern "system" {
     #[cfg(not(target_pointer_width = "64"))]
     fn GetWindowLongW(h_wnd: *mut c_void, n_index: i32) -> i32;
     fn GetWindowRect(h_wnd: *mut c_void, lp_rect: *mut RECT) -> i32;
+    fn GetWindowPlacement(h_wnd: *mut c_void, lpwndpl: *mut WINDOWPLACEMENT) -> i32;
     fn GetWindowTextLengthW(h_wnd: *mut c_void) -> i32;
     fn GetWindowTextW(h_wnd: *mut c_void, lp_string: *mut u16, n_max_count: i32) -> i32;
     fn ShowWindow(h_wnd: *mut c_void, n_cmd_show: i32) -> i32;
+    fn ShowWindowAsync(h_wnd: *mut c_void, n_cmd_show: i32) -> i32;
+    fn AllowSetForegroundWindow(dw_process_id: u32) -> i32;
     fn SetForegroundWindow(h_wnd: *mut c_void) -> i32;
     fn GetForegroundWindow() -> *mut c_void;
+    fn MonitorFromWindow(h_wnd: *mut c_void, dw_flags: u32) -> *mut c_void;
+    fn GetMonitorInfoW(h_monitor: *mut c_void, lpmi: *mut MONITORINFO) -> i32;
+    fn SetWindowPos(
+        h_wnd: *mut c_void,
+        h_wnd_insert_after: *mut c_void,
+        x: i32,
+        y: i32,
+        cx: i32,
+        cy: i32,
+        u_flags: u32,
+    ) -> i32;
+    fn GetParent(h_wnd: *mut c_void) -> *mut c_void;
     fn PostMessageW(h_wnd: *mut c_void, msg: u32, w_param: usize, l_param: isize) -> i32;
 }
 
@@ -1086,7 +1136,18 @@ pub fn classify_window_for_pid(hwnd_val: u64) -> Option<(u32, ZaloWindowRole, St
         let is_toolwindow = (ex_style & WS_EX_TOOLWINDOW) != 0;
 
         let mut rect: RECT = zeroed();
-        let has_rect = GetWindowRect(hwnd, &mut rect) != 0;
+        let has_rect = if IsIconic(hwnd) != 0 {
+            let mut wp: WINDOWPLACEMENT = zeroed();
+            wp.length = size_of::<WINDOWPLACEMENT>() as u32;
+            if GetWindowPlacement(hwnd, &mut wp) != 0 {
+                rect = wp.rc_normal_position;
+                true
+            } else {
+                GetWindowRect(hwnd, &mut rect) != 0
+            }
+        } else {
+            GetWindowRect(hwnd, &mut rect) != 0
+        };
         let width = if has_rect { rect.right - rect.left } else { 0 };
         let height = if has_rect { rect.bottom - rect.top } else { 0 };
 
@@ -1180,6 +1241,117 @@ pub fn find_main_window_for_pids(pids: &[u32]) -> Option<(u64, String)> {
     find_main_window_for_profile(main_pid, pids)
 }
 
+/// Returns `true` if `hwnd_val` is currently minimized (`IsIconic`).
+pub fn is_window_minimized(hwnd_val: u64) -> bool {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return false;
+    }
+    // SAFETY: Read-only Win32 `IsIconic` query on a window handle.
+    unsafe { IsIconic(hwnd) != 0 }
+}
+
+/// Probes the live foreground, visibility, and minimized state of `hwnd_val`.
+///
+/// Returns `None` if `hwnd_val` is null or no longer a valid window (`IsWindow == 0`).
+pub fn probe_window_activation_state(hwnd_val: u64) -> Option<dim_core::WindowActivationState> {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return None;
+    }
+    // SAFETY: Read-only Win32 user32 queries on a window handle.
+    unsafe {
+        if IsWindow(hwnd) == 0 {
+            return None;
+        }
+        let fg = GetForegroundWindow();
+        let is_foreground = !fg.is_null() && fg == hwnd;
+        let foreign_foreground_present = !fg.is_null() && fg != hwnd;
+        let is_visible = IsWindowVisible(hwnd) != 0;
+        let is_minimized = IsIconic(hwnd) != 0;
+        Some(dim_core::WindowActivationState {
+            is_foreground,
+            foreign_foreground_present,
+            is_visible,
+            is_minimized,
+        })
+    }
+}
+
+/// Returns the owning PID of `hwnd_val` via `GetWindowThreadProcessId`, or `None` if invalid.
+pub fn get_window_pid(hwnd_val: u64) -> Option<u32> {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return None;
+    }
+    let mut pid: u32 = 0;
+    // SAFETY: Read-only Win32 `GetWindowThreadProcessId` query.
+    unsafe {
+        let _ = GetWindowThreadProcessId(hwnd, &mut pid);
+    }
+    if pid > 0 {
+        Some(pid)
+    } else {
+        None
+    }
+}
+
+/// Returns the screen-space `WindowRect` of `hwnd_val` via `GetWindowRect`.
+pub fn get_window_rect(hwnd_val: u64) -> Option<dim_core::WindowRect> {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return None;
+    }
+    // SAFETY: Read-only Win32 `GetWindowRect` query.
+    unsafe {
+        let mut rect: RECT = zeroed();
+        if GetWindowRect(hwnd, &mut rect) != 0 {
+            Some(dim_core::WindowRect {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// Returns the parent HWND of `hwnd_val` via `GetParent` (`0` if top-level).
+pub fn get_window_parent(hwnd_val: u64) -> u64 {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return 0;
+    }
+    // SAFETY: Read-only Win32 `GetParent` query.
+    unsafe { GetParent(hwnd) as u64 }
+}
+
+/// Returns `(GWL_STYLE, GWL_EXSTYLE)` for `hwnd_val`.
+pub fn get_window_styles(hwnd_val: u64) -> (isize, isize) {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return (0, 0);
+    }
+    #[cfg(target_pointer_width = "64")]
+    // SAFETY: Read-only `GetWindowLongPtrW` query.
+    unsafe {
+        (
+            GetWindowLongPtrW(hwnd, GWL_STYLE),
+            GetWindowLongPtrW(hwnd, GWL_EXSTYLE),
+        )
+    }
+    #[cfg(not(target_pointer_width = "64"))]
+    // SAFETY: Read-only `GetWindowLongW` query.
+    unsafe {
+        (
+            GetWindowLongW(hwnd, GWL_STYLE) as isize,
+            GetWindowLongW(hwnd, GWL_EXSTYLE) as isize,
+        )
+    }
+}
+
 /// Restores and activates a visible window handle, returning `true` ONLY when `GetForegroundWindow()`
 /// confirms foreground ownership (`IR-WIN-01`). When Win32 Foreground Lock blocks activation,
 /// returns `false` so callers fall back to isolated `second-instance` handoff cleanly.
@@ -1190,10 +1362,15 @@ pub fn focus_window(hwnd_val: u64) -> bool {
     }
     // SAFETY: Caller supplies a verified main-window handle returned by `EnumWindows`.
     unsafe {
+        let mut pid: u32 = 0;
+        let _ = GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid > 0 {
+            let _ = AllowSetForegroundWindow(pid);
+        }
         if IsIconic(hwnd) != 0 {
-            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = ShowWindowAsync(hwnd, SW_RESTORE);
         } else {
-            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = ShowWindowAsync(hwnd, SW_SHOW);
         }
         let _ = SetForegroundWindow(hwnd);
         if GetForegroundWindow() == hwnd {
@@ -1202,6 +1379,161 @@ pub fn focus_window(hwnd_val: u64) -> bool {
         std::thread::sleep(std::time::Duration::from_millis(35));
         GetForegroundWindow() == hwnd
     }
+}
+
+/// Re-verifies `GetWindowThreadProcessId(hwnd) ∈ allowed_pids`, then restores/shows and focuses
+/// the window via `AllowSetForegroundWindow` + `ShowWindowAsync` + `SetForegroundWindow`.
+///
+/// Returns `Ok((was_minimized, os_foreground_confirmed))`.
+pub fn focus_window_verified(
+    hwnd_val: u64,
+    allowed_pids: &[u32],
+) -> Result<(bool, bool), DimError> {
+    let hwnd = hwnd_val as *mut c_void;
+    if hwnd.is_null() {
+        return Err(DimError::ProcessError(
+            "WINDOW_UNVERIFIED: null window handle".to_owned(),
+        ));
+    }
+    let Some(pid) = get_window_pid(hwnd_val) else {
+        return Err(DimError::ProcessError(
+            "WINDOW_UNVERIFIED: window handle no longer has a valid owning PID".to_owned(),
+        ));
+    };
+    if !allowed_pids.contains(&pid) {
+        return Err(DimError::ProcessError(format!(
+            "WINDOW_UNVERIFIED: window HWND {hwnd_val} belongs to PID {pid}, not verified PIDs {allowed_pids:?}"
+        )));
+    }
+    // SAFETY: `hwnd` has just been verified to belong to `pid ∈ allowed_pids`.
+    unsafe {
+        let was_minimized = IsIconic(hwnd) != 0;
+        let _ = AllowSetForegroundWindow(pid);
+        let _ = ShowWindowAsync(hwnd, if was_minimized { SW_RESTORE } else { SW_SHOW });
+        let _ = SetForegroundWindow(hwnd);
+        if GetForegroundWindow() == hwnd {
+            return Ok((was_minimized, true));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(35));
+        Ok((was_minimized, GetForegroundWindow() == hwnd))
+    }
+}
+
+/// Moves a verified secondary window beside `host_hwnd` using `MonitorFromWindow` +
+/// `GetMonitorInfoW(rcWork)` + `SetWindowPos(..., SWP_NOZORDER | SWP_NOACTIVATE)`.
+///
+/// NEVER calls `SetParent`, NEVER mutates `GWL_STYLE` or `GWL_EXSTYLE`.
+/// Returns `(previous_rect, applied_rect)`.
+pub fn companion_snap_window(
+    secondary_hwnd_val: u64,
+    host_hwnd_val: u64,
+    rail_width_px: i32,
+) -> Result<(dim_core::WindowRect, dim_core::WindowRect), DimError> {
+    let sec_hwnd = secondary_hwnd_val as *mut c_void;
+    if sec_hwnd.is_null() {
+        return Err(DimError::ProcessError(
+            "WINDOW_UNVERIFIED: null secondary window handle".to_owned(),
+        ));
+    }
+    let previous_rect = get_window_rect(secondary_hwnd_val).ok_or_else(|| {
+        DimError::ProcessError("GetWindowRect failed for secondary window".to_owned())
+    })?;
+    let host_hwnd = host_hwnd_val as *mut c_void;
+    // SAFETY: `sec_hwnd` is a verified secondary window handle; `SetWindowPos` only adjusts geometry.
+    unsafe {
+        let monitor_anchor = if !host_hwnd.is_null() {
+            host_hwnd
+        } else {
+            sec_hwnd
+        };
+        let hmon = MonitorFromWindow(monitor_anchor, MONITOR_DEFAULTTONEAREST);
+        if hmon.is_null() {
+            return Err(DimError::ProcessError(
+                "MonitorFromWindow returned null".to_owned(),
+            ));
+        }
+        let mut mi: MONITORINFO = zeroed();
+        mi.cb_size = size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(hmon, &mut mi) == 0 {
+            return Err(DimError::ProcessError("GetMonitorInfoW failed".to_owned()));
+        }
+        let work = mi.rc_work;
+        let work_w = (work.right - work.left).max(MIN_MAIN_WINDOW_DIM);
+        let rail = rail_width_px.clamp(0, work_w / 2);
+        let mut target_left = work.left + rail;
+        if !host_hwnd.is_null() {
+            let mut host_rect: RECT = zeroed();
+            if GetWindowRect(host_hwnd, &mut host_rect) != 0 {
+                let right_space = work.right - host_rect.right;
+                if right_space >= MIN_MAIN_WINDOW_DIM {
+                    target_left = host_rect.right.max(work.left);
+                }
+            }
+        }
+        let target_top = work.top;
+        let target_w = (work.right - target_left).max(MIN_MAIN_WINDOW_DIM);
+        let target_h = (work.bottom - work.top).max(MIN_MAIN_WINDOW_DIM);
+
+        if IsIconic(sec_hwnd) != 0 {
+            let _ = ShowWindowAsync(sec_hwnd, SW_RESTORE);
+        }
+        if SetWindowPos(
+            sec_hwnd,
+            std::ptr::null_mut(),
+            target_left,
+            target_top,
+            target_w,
+            target_h,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        ) == 0
+        {
+            return Err(DimError::ProcessError(format!(
+                "SetWindowPos snap failed with Win32 error {}",
+                GetLastError()
+            )));
+        }
+        let applied_rect = dim_core::WindowRect {
+            left: target_left,
+            top: target_top,
+            right: target_left + target_w,
+            bottom: target_top + target_h,
+        };
+        Ok((previous_rect, applied_rect))
+    }
+}
+
+/// Restores a previously companion-snapped secondary window to `restore_rect` via `SetWindowPos`.
+pub fn companion_unsnap_window(
+    secondary_hwnd_val: u64,
+    restore_rect: dim_core::WindowRect,
+) -> Result<(), DimError> {
+    let sec_hwnd = secondary_hwnd_val as *mut c_void;
+    if sec_hwnd.is_null() {
+        return Err(DimError::ProcessError(
+            "WINDOW_UNVERIFIED: null secondary window handle".to_owned(),
+        ));
+    }
+    let w = (restore_rect.right - restore_rect.left).max(MIN_MAIN_WINDOW_DIM);
+    let h = (restore_rect.bottom - restore_rect.top).max(MIN_MAIN_WINDOW_DIM);
+    // SAFETY: `sec_hwnd` is a verified secondary window handle; `SetWindowPos` only restores geometry.
+    unsafe {
+        if SetWindowPos(
+            sec_hwnd,
+            std::ptr::null_mut(),
+            restore_rect.left,
+            restore_rect.top,
+            w,
+            h,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        ) == 0
+        {
+            return Err(DimError::ProcessError(format!(
+                "SetWindowPos unsnap failed with Win32 error {}",
+                GetLastError()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Passively checks whether global Zalo call named pipes (`PipeZCallRecv` / `PipeZCallSend`) are

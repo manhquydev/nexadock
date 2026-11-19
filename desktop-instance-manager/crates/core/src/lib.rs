@@ -24,14 +24,16 @@ pub use lease::{
     ProcessIdentity, ProcessIdentityProbe, ProfileLockActivity, RuntimeLease,
 };
 pub use models::{
-    resolve_data_dir, resolve_data_dir_for_platform, ApplicationInstallation, BackupFileEntry,
-    BackupManifest, BackupResult, IsolationCheckItem, IsolationVerificationReport, LaunchTarget,
-    PlatformCapabilityReport, PlatformKind, PrimaryInstanceStatus, ProfileLifecycleState,
-    ProfileRecord, ProfileRuntimeState, ProfilesDocument, RecoveryReport, RuntimeOwnershipState,
-    RuntimeStatus, SupportStatus, VerifiedDeletionState, APP_DIR_NAME, BACKUP_SCHEMA_VERSION,
-    DIM_DATA_DIR_ENV, LAUNCH_ADMISSION_LOCK_FILE, MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE,
-    PROFILES_SCHEMA_VERSION, PROFILE_LOCKS_DIR, PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE,
-    RUNTIME_PID_FILE, ZALO_PROFILE_ID_FILE,
+    resolve_data_dir, resolve_data_dir_for_platform, AccountActivationResult, AccountKind,
+    ActionableRemediation, ActivationOutcome, ApplicationInstallation, BackupFileEntry,
+    BackupManifest, BackupResult, CompanionSnapResult, IsolationCheckItem,
+    IsolationVerificationReport, LaunchTarget, PlatformCapabilityReport, PlatformKind,
+    PrimaryInstanceStatus, PrimaryWindowState, ProfileLifecycleState, ProfileRecord,
+    ProfileRuntimeState, ProfilesDocument, RecoveryReport, RuntimeOwnershipState, RuntimeStatus,
+    SupportStatus, VerifiedDeletionState, WebSessionRecord, WindowActivationState, WindowRect,
+    APP_DIR_NAME, BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, LAUNCH_ADMISSION_LOCK_FILE,
+    MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION, PROFILE_LOCKS_DIR,
+    PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE, ZALO_PROFILE_ID_FILE,
 };
 pub use path_guard::{
     check_disk_space_bytes, ensure_min_free_disk_space, ensure_not_primary_zalo_path,
@@ -47,7 +49,7 @@ pub use time_util::{
 };
 pub use traits::{
     ApplicationLocator, BackupManager, InstanceLauncher, InstanceMonitor, PlatformCapabilities,
-    ProfileStore, RecoveryManager,
+    ProfileStore, RecoveryManager, WindowController,
 };
 pub use zalo_identity::{
     check_duplicate_zalo_user_id, detect_zalo_user_id, external_paths_for_profile_all_layouts,

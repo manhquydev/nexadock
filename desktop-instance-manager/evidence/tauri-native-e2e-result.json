@@ -1,15 +1,92 @@
 {
   "ok": true,
-  "executed_at_utc": "2026-11-18T12:09:50.560Z",
+  "executed_at_utc": "2026-11-19T07:46:00.311Z",
   "platform": "win32",
   "node_version": "v26.13.1",
   "tauri_binary": "apps/desktop/src-tauri/target/release/dim-desktop.exe",
   "fixture_script": "fixtures/cross-platform/xf-fixture.mjs",
   "isolated_data_dir": "<TEMP_E2E_ROOT>/dim-data",
   "real_tauri_ipc_verified": true,
-  "total_steps": 12,
-  "passed_steps": 12,
+  "total_steps": 16,
+  "passed_steps": 16,
   "failed_steps": 0,
+  "journeys_1_to_15": [
+    {
+      "journey": 1,
+      "name": "First open KHOANG on Windows (Win32 + WebView2)",
+      "status": "PASS"
+    },
+    {
+      "journey": 2,
+      "name": "Display Primary Zalo + secondary profiles in Unified Workspace",
+      "status": "PASS"
+    },
+    {
+      "journey": 3,
+      "name": "Switch Primary -> Secondary A -> Secondary B -> Primary",
+      "status": "PASS"
+    },
+    {
+      "journey": 4,
+      "name": "Click closed profile in Account Rail -> one-click launch",
+      "status": "PASS"
+    },
+    {
+      "journey": 5,
+      "name": "Click running/background profile -> restore & focus handoff",
+      "status": "PASS"
+    },
+    {
+      "journey": 6,
+      "name": "Create two WebIsolated sessions (Web A & Web B)",
+      "status": "PASS"
+    },
+    {
+      "journey": 7,
+      "name": "Show Web A & Web B in Unified Workspace with Experimental badges",
+      "status": "PASS"
+    },
+    {
+      "journey": 8,
+      "name": "Switch back & forth between Web A, Web B, and Desktop stage/overview",
+      "status": "PASS"
+    },
+    {
+      "journey": 9,
+      "name": "Restart KHOANG -> profiles, Web sessions, pinned state, theme & locale persist",
+      "status": "PASS"
+    },
+    {
+      "journey": 10,
+      "name": "Reset & delete Web A without affecting Web B",
+      "status": "PASS"
+    },
+    {
+      "journey": 11,
+      "name": "Abnormal close / corrupt lease recovery_required & pending Web profile sweep",
+      "status": "PASS"
+    },
+    {
+      "journey": 12,
+      "name": "Open dialog / menu / popover over visible WebView without z-order overlap",
+      "status": "PASS"
+    },
+    {
+      "journey": 13,
+      "name": "Vietnamese diacritics & IME composition Enter guard in search/switcher/forms",
+      "status": "PASS"
+    },
+    {
+      "journey": 14,
+      "name": "Rail toggle & viewport resize bounds sync without overlapping rail or header",
+      "status": "PASS"
+    },
+    {
+      "journey": 15,
+      "name": "3 active sessions (2 Desktop + 1 Web) & 10 profiles scale/latency check",
+      "status": "PASS"
+    }
+  ],
   "steps": [
     {
       "step": 1,
@@ -41,7 +118,7 @@
           "RestrictiveNtfsAcls:PASS",
           "FolderRedirectionCheck:PASS"
         ],
-        "diagnostics_matrix_rows": 4
+        "diagnostics_matrix_rows": 5
       }
     },
     {
@@ -49,8 +126,8 @@
       "name": "Create isolated profile via Account Dock UI",
       "status": "PASS",
       "details": {
-        "profile_id": "ff374aa2",
-        "directory_name": "duc-e2e-tauri-that_ff374aa2",
+        "profile_id": "a183c374",
+        "directory_name": "duc-e2e-tauri-that_a183c374",
         "dom_card_rendered": true
       }
     },
@@ -59,9 +136,9 @@
       "name": "Rename profile and preserve directory_name + identity color",
       "status": "PASS",
       "details": {
-        "profile_id": "ff374aa2",
+        "profile_id": "a183c374",
         "new_name": "Đức — Tauri Đã Đổi Tên",
-        "preserved_directory_name": "duc-e2e-tauri-that_ff374aa2"
+        "preserved_directory_name": "duc-e2e-tauri-that_a183c374"
       }
     },
     {
@@ -69,11 +146,11 @@
       "name": "Launch isolated fixture instance via Tauri coordinator",
       "status": "PASS",
       "details": {
-        "profile_id": "ff374aa2",
+        "profile_id": "a183c374",
         "running": true,
         "lifecycle_state": "running",
         "fixture_pid_alive": true,
-        "detected_zalo_user_id": "2168617"
+        "detected_zalo_user_id": "4792660"
       }
     },
     {
@@ -81,7 +158,7 @@
       "name": "Focus running instance and verify fixture focus handoff",
       "status": "PASS",
       "details": {
-        "profile_id": "ff374aa2",
+        "profile_id": "a183c374",
         "focus_count": 1
       }
     },
@@ -90,7 +167,7 @@
       "name": "Stop running instance cleanly and verify zero orphan PIDs or leases",
       "status": "PASS",
       "details": {
-        "profile_id": "ff374aa2",
+        "profile_id": "a183c374",
         "clean_shutdown": true,
         "pid_terminated": true,
         "runtime_lease_removed": true
@@ -101,10 +178,10 @@
       "name": "Create offline atomic SHA-256 backup via Tauri IPC",
       "status": "PASS",
       "details": {
-        "backup_id": "f937147b",
-        "backup_name": "duc-tauri-da-doi-ten_20261118T120943Z",
+        "backup_id": "6f472080",
+        "backup_name": "duc-tauri-da-doi-ten_20261119T074538Z",
         "file_count": 13,
-        "total_bytes": 4440
+        "total_bytes": 4430
       }
     },
     {
@@ -112,9 +189,9 @@
       "name": "Restore verified backup into a new isolated profile",
       "status": "PASS",
       "details": {
-        "source_profile_id": "ff374aa2",
-        "restored_profile_id": "baed01f4",
-        "restored_directory_name": "duc-khoi-phuc-e2e_baed01f4",
+        "source_profile_id": "a183c374",
+        "restored_profile_id": "8e170698",
+        "restored_directory_name": "duc-khoi-phuc-e2e_8e170698",
         "total_profiles": 2
       }
     },
@@ -123,14 +200,14 @@
       "name": "Delete profile with confirmation and verify directory removal + survivor intact",
       "status": "PASS",
       "details": {
-        "deleted_profile_id": "baed01f4",
+        "deleted_profile_id": "8e170698",
         "deleted_dir_removed": true,
-        "survivor_profile_id": "ff374aa2"
+        "survivor_profile_id": "a183c374"
       }
     },
     {
       "step": 11,
-      "name": "Restart dim-desktop.exe and verify profile, UID, color, theme, and locale persistence",
+      "name": "Restart dim-desktop.exe and verify profile, Web session, pinned state, UID, color, theme, and locale persistence (J9)",
       "status": "PASS",
       "details": {
         "restarted_new_process": true,
@@ -138,8 +215,11 @@
         "persisted_lang": "en",
         "persisted_avatar_token": "var(--id-coral)",
         "persisted_profile_name": "Đức — Tauri Đã Đổi Tên",
-        "persisted_zalo_user_id": "2168617",
-        "persisted_backup_count": 1
+        "persisted_zalo_user_id": "4792660",
+        "persisted_backup_count": 1,
+        "persisted_web_session_name": "Zalo Web — Lưu Trữ Khởi Động Lại",
+        "persisted_web_pinned": true,
+        "pending_profile_deletes_count_after_cleanup": 0
       }
     },
     {
@@ -155,6 +235,54 @@
         "stop_all_profiles_ok": true,
         "stopped_profiles_count": 1,
         "webview_runtime_errors": 0
+      }
+    },
+    {
+      "step": 13,
+      "name": "Verify Windows Journeys J1-J5 (Primary + Secondary A/B rail listing, one-click launch, switch, and restore/focus handoff)",
+      "status": "PASS",
+      "details": {
+        "primary_stage_verified": true,
+        "secondary_a_launched_from_rail": true,
+        "secondary_b_launched_from_rail": true,
+        "secondary_a_focus_handoff_incremented": true
+      }
+    },
+    {
+      "step": 14,
+      "name": "Verify Windows Journeys J6-J8 (Create Web A & Web B, Experimental labeling, unified rail/overview, switch Web A <-> Web B <-> Overview)",
+      "status": "PASS",
+      "details": {
+        "web_a_id": "web-7138df16",
+        "web_b_id": "web-e3083f13",
+        "experimental_badge_text": "Web Session (Isolated · Experimental)",
+        "overview_web_card_count": 2,
+        "webview_hidden_on_overview": true
+      }
+    },
+    {
+      "step": 15,
+      "name": "Verify Windows Journeys J10, J12, J13, J14 (Overlay z-order hiding, Vietnamese IME, rail/DPI bounds sync, reset/delete Web A preserving Web B)",
+      "status": "PASS",
+      "details": {
+        "hidden_during_dialog": true,
+        "ime_enter_guarded": true,
+        "hidden_during_popover": true,
+        "expanded_and_collapsed_bounds_valid": true,
+        "web_a_reset_generation": 2,
+        "web_a_deleted_web_b_intact": true
+      }
+    },
+    {
+      "step": 16,
+      "name": "Verify Windows Journeys J11 & J15 (Corrupt lease recovery_required auto-recovery + 10-profile / 3-active-session scale & latency)",
+      "status": "PASS",
+      "details": {
+        "corrupt_lease_detected_recovery_required": true,
+        "auto_recovered_and_launched": true,
+        "total_desktop_profiles_tested": 10,
+        "concurrent_active_sessions": 3,
+        "snapshot_latency_ms": 1601
       }
     }
   ]

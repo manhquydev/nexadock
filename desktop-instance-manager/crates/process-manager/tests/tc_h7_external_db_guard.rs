@@ -108,6 +108,9 @@ impl InstanceMonitor for SyntheticRuntime {
             process_count: 0,
             working_set_bytes: 0,
             detected_zalo_user_id: None,
+            window_handle: None,
+            window_title: None,
+            window_state: dim_core::PrimaryWindowState::None,
             notes: Vec::new(),
         })
     }

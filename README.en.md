@@ -1,8 +1,12 @@
 <div align="center">
 
-# Multi-Zalo Desktop
+<img src="docs/brand/assets/marketing/github-readme-hero.svg" alt="KHOANG — Your accounts. Their own space." width="880" />
 
-**Cross-platform isolated multi-instance profile manager for Zalo Desktop on Windows, macOS, and Ubuntu**
+<br />
+
+# KHOANG
+
+**Your accounts. Their own space.** *(Independent Account Workspace — cross-platform isolated multi-instance profile manager for Zalo Desktop on Windows, macOS, and Ubuntu)*
 
 [Tiếng Việt](README.md) · [Pre-release Downloads](https://github.com/manhquydev/zalo/releases) · [Installation & Testing Guide (VI)](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md) · [Report an Issue](https://github.com/manhquydev/zalo/issues)
 
@@ -20,15 +24,15 @@
 ---
 
 > [!IMPORTANT]
-> **Non-Affiliation Notice:** **Multi-Zalo Desktop** (`desktop-instance-manager`) is an independent open-source project (`MIT OR Apache-2.0`). It is **not affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo**. `"Zalo"` is a trademark of VNG Corporation. This repository and its installers **never** bundle, patch, or redistribute proprietary VNG binaries — users install the official Zalo Desktop client directly from VNG.
+> **Non-Affiliation Notice:** **KHOANG** (`desktop-instance-manager`, formerly Multi-Zalo Desktop) is an independent open-source project (`MIT OR Apache-2.0`). It is **not affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo**. `"Zalo"` is a trademark of VNG Corporation. This repository and its installers **never** bundle, patch, or redistribute proprietary VNG binaries — users install the official Zalo Desktop client directly from VNG.
 
 ---
 
 ## Overview
 
-**Multi-Zalo Desktop** lets you run and organize multiple isolated **Zalo Desktop** sessions side-by-side on a single machine **without interfering with your existing primary Zalo installation** (`%APPDATA%\ZaloData` on Windows or `~/Library/Application Support/ZaloData` on macOS).
+**KHOANG** lets you run and organize multiple isolated **Zalo Desktop** sessions side-by-side on a single machine **without interfering with your existing primary Zalo installation** (`%APPDATA%\ZaloData` on Windows or `~/Library/Application Support/ZaloData` on macOS).
 
-Each account resides in its own dedicated profile directory (`Profiles/<slug>_<id>/`) enforced via OS-level environment and filesystem redirection, managed through the **Account Dock** UI (Vietnamese & English, Light & Dark mode) built with **Rust + Tauri 2**.
+Each account resides in its own dedicated space ("khoang", `Profiles/<slug>_<id>/`) enforced via OS-level environment and filesystem redirection, managed through the **KHOANG** UI (Vietnamese & English, Light & Dark mode, *Calm Precision* design system — see [`docs/brand/BRAND_GUIDELINES.md`](docs/brand/BRAND_GUIDELINES.md)) built with **Rust + Tauri 2**.
 
 <details>
 <summary><strong>More UI screenshots (Dark mode, Account creation wizard, Safe Backup &amp; Restore, Diagnostics)</strong></summary>
@@ -76,9 +80,9 @@ Each account resides in its own dedicated profile directory (`Profiles/<slug>_<i
 
 Download installers from **[GitHub Releases](https://github.com/manhquydev/zalo/releases)** and verify checksums against **`SHA256SUMS.txt`**.
 
-- **Windows 10/11:** Run `Multi-Zalo-0.1.0-beta.1-windows-x64-setup.exe` (or `.msi`). On machines with Smart App Control (`SAC=1`), launch from source with `cd desktop-instance-manager && node apps/desktop/ui-server.mjs`.
-- **macOS (`arm64`):** Download `Multi-Zalo-0.1.0-beta.1-macos-arm64.dmg`. Because the pre-release `.dmg` is unsigned/unnotarized, Gatekeeper blocks downloaded unsigned bundles by default; developers can run locally from source via `cargo run --manifest-path desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml`.
-- **Ubuntu 24.04 LTS (`x64`):** Install `Multi-Zalo-0.1.0-beta.1-ubuntu24.04-amd64.deb` (`sudo apt-get install -y ./Multi-Zalo-0.1.0-beta.1-ubuntu24.04-amd64.deb bubblewrap`) or execute the `.AppImage`.
+- **Windows 10/11:** Run `KHOANG-0.1.0-beta.1-windows-x64-setup.exe` (or `.msi`). On machines with Smart App Control (`SAC=1`), launch from source with `cd desktop-instance-manager && node apps/desktop/ui-server.mjs`.
+- **macOS (`arm64`):** Download `KHOANG-0.1.0-beta.1-macos-arm64.dmg`. Because the pre-release `.dmg` is unsigned/unnotarized, Gatekeeper blocks downloaded unsigned bundles by default; developers can run locally from source via `cargo run --manifest-path desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml`.
+- **Ubuntu 24.04 LTS (`x64`):** Install `KHOANG-0.1.0-beta.1-ubuntu24.04-amd64.deb` (`sudo apt-get install -y ./KHOANG-0.1.0-beta.1-ubuntu24.04-amd64.deb bubblewrap`) or execute `KHOANG-0.1.0-beta.1-linux-x86_64.AppImage`.
 
 ---
 
