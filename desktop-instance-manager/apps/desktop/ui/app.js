@@ -15,11 +15,18 @@ import {
 } from './i18n/index.js';
 
 const UI_VERSION = '0.1.0';
-const THEME_STORAGE_KEY = 'multi-zalo.theme';
-const ACCOUNT_COLORS_STORAGE_KEY = 'multi-zalo.accountColors';
-const PINNED_STORAGE_KEY = 'khoang.pinnedAccounts';
-const RAIL_EXPANDED_KEY = 'khoang.railExpanded';
-const ACTIVE_ACCOUNT_KEY = 'khoang.activeAccountId';
+const THEME_STORAGE_KEY = 'nexadock.theme';
+const LEGACY_THEME_STORAGE_KEY = 'multi-zalo.theme';
+const ACCOUNT_COLORS_STORAGE_KEY = 'nexadock.accountColors';
+const LEGACY_ACCOUNT_COLORS_STORAGE_KEY = 'multi-zalo.accountColors';
+const PINNED_STORAGE_KEY = 'nexadock.pinnedAccounts';
+const LEGACY_PINNED_STORAGE_KEY = 'khoang.pinnedAccounts';
+const RAIL_EXPANDED_KEY = 'nexadock.railExpanded';
+const LEGACY_RAIL_EXPANDED_KEY = 'khoang.railExpanded';
+const ACTIVE_ACCOUNT_KEY = 'nexadock.activeAccountId';
+const LEGACY_ACTIVE_ACCOUNT_KEY = 'khoang.activeAccountId';
+const VIEW_MODE_KEY = 'nexadock.viewMode';
+const LEGACY_VIEW_MODE_KEY = 'khoang.viewMode';
 
 const ACCOUNT_COLORS = [
   { id: 'blue', cssVar: '--id-blue' },
@@ -84,12 +91,32 @@ export function getTauriInvoke() {
   return null;
 }
 
-function loadJsonStorage(key, fallback) {
+function readMigratedStorage(key, legacyKey = null) {
   try {
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(key);
-      if (raw) return JSON.parse(raw);
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(key);
+    if (raw !== null) return raw;
+    if (legacyKey) {
+      const legacy = localStorage.getItem(legacyKey);
+      if (legacy !== null) {
+        try {
+          localStorage.setItem(key, legacy);
+        } catch (_writeErr) {
+          // Ignore storage write errors
+        }
+        return legacy;
+      }
     }
+  } catch (_err) {
+    // Ignore storage errors
+  }
+  return null;
+}
+
+function loadJsonStorage(key, fallback, legacyKey = null) {
+  try {
+    const raw = readMigratedStorage(key, legacyKey);
+    if (raw) return JSON.parse(raw);
   } catch (_err) {
     // Ignore storage errors
   }
@@ -107,7 +134,7 @@ function saveJsonStorage(key, value) {
 }
 
 function loadAccountColorsMap() {
-  const parsed = loadJsonStorage(ACCOUNT_COLORS_STORAGE_KEY, {});
+  const parsed = loadJsonStorage(ACCOUNT_COLORS_STORAGE_KEY, {}, LEGACY_ACCOUNT_COLORS_STORAGE_KEY);
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
 }
 
@@ -609,15 +636,9 @@ function getSystemThemePreference() {
 }
 
 export function getSavedThemePreference() {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem(THEME_STORAGE_KEY);
-      if (saved === 'light' || saved === 'dark' || saved === 'system') {
-        return saved;
-      }
-    }
-  } catch (_err) {
-    // Ignore storage errors
+  const saved = readMigratedStorage(THEME_STORAGE_KEY, LEGACY_THEME_STORAGE_KEY);
+  if (saved === 'light' || saved === 'dark' || saved === 'system') {
+    return saved;
   }
   return 'system';
 }
@@ -1199,7 +1220,7 @@ export function resolveIsolationCheckResult(check) {
 }
 
 function buildWorkspaceFallbackFromStatus(statusData) {
-  const pinnedList = loadJsonStorage(PINNED_STORAGE_KEY, []);
+  const pinnedList = loadJsonStorage(PINNED_STORAGE_KEY, [], LEGACY_PINNED_STORAGE_KEY);
   const pinnedSet = new Set(Array.isArray(pinnedList) ? pinnedList : []);
   const primary = statusData?.primary_zalo;
   const profiles = Array.isArray(statusData?.profiles) ? statusData.profiles : [];
@@ -2214,13 +2235,9 @@ function renderProfiles() {
     stopAllBtn.disabled = state.pendingGlobalActions.has('stop-all');
   }
 
-  try {
-    const savedMode = typeof localStorage !== 'undefined' ? localStorage.getItem('khoang.viewMode') : null;
-    if (savedMode === 'list' || savedMode === 'grid') {
-      list.dataset.viewMode = savedMode;
-    }
-  } catch (_err) {
-    // Ignore storage access errors
+  const savedMode = readMigratedStorage(VIEW_MODE_KEY, LEGACY_VIEW_MODE_KEY);
+  if (savedMode === 'list' || savedMode === 'grid') {
+    list.dataset.viewMode = savedMode;
   }
   const activeMode = list.dataset.viewMode === 'list' ? 'list' : 'grid';
   document.getElementById('btn-view-grid')?.setAttribute('aria-pressed', String(activeMode === 'grid'));
@@ -3013,7 +3030,7 @@ async function toggleAccountPinned(id, currentlyPinned) {
       return;
     }
   } else {
-    const list = loadJsonStorage(PINNED_STORAGE_KEY, []);
+    const list = loadJsonStorage(PINNED_STORAGE_KEY, [], LEGACY_PINNED_STORAGE_KEY);
     const set = new Set(Array.isArray(list) ? list : []);
     if (nextPinned) set.add(id);
     else set.delete(id);
@@ -4091,13 +4108,9 @@ export async function initApp() {
 
   const shell = document.getElementById('workspace-shell');
   const railToggle = document.getElementById('btn-rail-toggle');
-  try {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem(RAIL_EXPANDED_KEY) === 'true' && shell) {
-      shell.dataset.railExpanded = 'true';
-      railToggle?.setAttribute('aria-pressed', 'true');
-    }
-  } catch (_err) {
-    // Ignore
+  if (readMigratedStorage(RAIL_EXPANDED_KEY, LEGACY_RAIL_EXPANDED_KEY) === 'true' && shell) {
+    shell.dataset.railExpanded = 'true';
+    railToggle?.setAttribute('aria-pressed', 'true');
   }
 
   railToggle?.addEventListener('click', () => {
@@ -4220,13 +4233,13 @@ export async function initApp() {
   document.getElementById('btn-view-grid')?.addEventListener('click', () => {
     const list = document.getElementById('profiles-list');
     if (list) list.dataset.viewMode = 'grid';
-    try { localStorage.setItem('khoang.viewMode', 'grid'); } catch (_err) {}
+    try { localStorage.setItem(VIEW_MODE_KEY, 'grid'); } catch (_err) {}
     renderProfiles();
   });
   document.getElementById('btn-view-list')?.addEventListener('click', () => {
     const list = document.getElementById('profiles-list');
     if (list) list.dataset.viewMode = 'list';
-    try { localStorage.setItem('khoang.viewMode', 'list'); } catch (_err) {}
+    try { localStorage.setItem(VIEW_MODE_KEY, 'list'); } catch (_err) {}
     renderProfiles();
   });
   document.getElementById('btn-stop-all')?.addEventListener('click', async () => {
@@ -4340,19 +4353,19 @@ export async function initApp() {
     });
     const tauriListen = typeof window !== 'undefined' ? window.__TAURI__?.event?.listen : null;
     if (typeof tauriListen === 'function') {
-      tauriListen('khoang://navigate', (event) => {
+      tauriListen('nexadock://navigate', (event) => {
         const target = event?.payload;
         if (target === 'profiles' || target === 'settings' || target === 'backups' || target === 'help' || target === 'diagnostics') {
           selectView(target);
         }
       }).catch(() => {});
-      tauriListen('khoang://activate-request', (event) => {
+      tauriListen('nexadock://activate-request', (event) => {
         const payload = event?.payload;
         if (payload?.id && payload?.kind) {
           activateAccount(payload.id, payload.kind);
         }
       }).catch(() => {});
-      tauriListen('khoang://snapshot-changed', () => {
+      tauriListen('nexadock://snapshot-changed', () => {
         refreshWorkspaceFast();
       }).catch(() => {});
     }

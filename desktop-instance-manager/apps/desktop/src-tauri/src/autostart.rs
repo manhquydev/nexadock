@@ -1,8 +1,8 @@
-//! Transparent, opt-in OS autostart management for KHOANG (off by default).
+//! Transparent, opt-in OS autostart management for NexaDock (off by default).
 //!
-//! - Windows: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value `"KHOANG"` via `winreg`.
-//! - macOS: `~/Library/LaunchAgents/com.multizalodesktop.manager.plist`.
-//! - Linux: `$XDG_CONFIG_HOME/autostart/khoang.desktop` (fallback `~/.config/autostart/khoang.desktop`).
+//! - Windows: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value `"NexaDock"` via `winreg`.
+//! - macOS: `~/Library/LaunchAgents/io.github.manhquydev.nexadock.plist`.
+//! - Linux: `$XDG_CONFIG_HOME/autostart/nexadock.desktop` (fallback `~/.config/autostart/nexadock.desktop`).
 
 use std::path::Path;
 
@@ -10,15 +10,23 @@ use dim_core::DimError;
 
 #[allow(dead_code)]
 pub const AUTOSTART_ENTRY_NAME: &str = "NexaDock";
+#[cfg(target_os = "windows")]
+const LEGACY_WINDOWS_RUN_NAMES: [&str; 2] = ["KHOANG", "MultiZaloDesktop"];
 #[cfg(target_os = "macos")]
-const MACOS_LAUNCH_AGENT_LABEL: &str = "com.multizalodesktop.manager";
+const MACOS_LAUNCH_AGENT_LABEL: &str = "io.github.manhquydev.nexadock";
+#[cfg(target_os = "macos")]
+const LEGACY_MACOS_LAUNCH_AGENT_LABEL: &str = "com.multizalodesktop.manager";
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+const LINUX_DESKTOP_ENTRY_NAME: &str = "nexadock.desktop";
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+const LEGACY_LINUX_DESKTOP_ENTRY_NAME: &str = "khoang.desktop";
 
-/// Returns whether KHOANG is currently registered to launch on OS startup.
+/// Returns whether NexaDock is currently registered to launch on OS startup.
 pub fn is_autostart_enabled() -> Result<bool, DimError> {
     is_autostart_enabled_impl()
 }
 
-/// Enables or disables KHOANG OS startup registration, returning the resulting state.
+/// Enables or disables NexaDock OS startup registration, returning the resulting state.
 pub fn set_autostart_enabled(enabled: bool) -> Result<bool, DimError> {
     set_autostart_enabled_impl(enabled)?;
     Ok(enabled)
@@ -41,6 +49,18 @@ fn is_autostart_enabled_impl() -> Result<bool, DimError> {
 }
 
 #[cfg(target_os = "windows")]
+fn cleanup_legacy_windows_run_entries(run_key: &winreg::RegKey) -> Result<(), DimError> {
+    for legacy_name in LEGACY_WINDOWS_RUN_NAMES {
+        match run_key.delete_value(legacy_name) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(DimError::Io(err)),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
 fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
@@ -52,6 +72,7 @@ fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
             hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")?;
         let command = format_windows_run_value(&exe);
         run_key.set_value(AUTOSTART_ENTRY_NAME, &command)?;
+        cleanup_legacy_windows_run_entries(&run_key)?;
     } else if let Ok(run_key) = hkcu.open_subkey_with_flags(
         "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
         winreg::enums::KEY_SET_VALUE,
@@ -61,6 +82,7 @@ fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => return Err(DimError::Io(err)),
         }
+        cleanup_legacy_windows_run_entries(&run_key)?;
     }
     Ok(())
 }
@@ -117,7 +139,7 @@ X-GNOME-Autostart-enabled=true\n"
 }
 
 #[cfg(target_os = "macos")]
-fn macos_plist_path() -> Result<std::path::PathBuf, DimError> {
+fn macos_plist_path_for(label: &str) -> Result<std::path::PathBuf, DimError> {
     let home = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .ok_or_else(|| {
@@ -128,7 +150,12 @@ fn macos_plist_path() -> Result<std::path::PathBuf, DimError> {
     Ok(home
         .join("Library")
         .join("LaunchAgents")
-        .join(format!("{MACOS_LAUNCH_AGENT_LABEL}.plist")))
+        .join(format!("{label}.plist")))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_plist_path() -> Result<std::path::PathBuf, DimError> {
+    macos_plist_path_for(MACOS_LAUNCH_AGENT_LABEL)
 }
 
 #[cfg(target_os = "macos")]
@@ -149,11 +176,15 @@ fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
     } else if plist_path.exists() {
         std::fs::remove_file(&plist_path)?;
     }
+    let legacy_plist = macos_plist_path_for(LEGACY_MACOS_LAUNCH_AGENT_LABEL)?;
+    if legacy_plist.exists() {
+        std::fs::remove_file(&legacy_plist)?;
+    }
     Ok(())
 }
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-fn linux_autostart_desktop_path() -> Result<std::path::PathBuf, DimError> {
+fn linux_autostart_desktop_path_for(entry_name: &str) -> Result<std::path::PathBuf, DimError> {
     let config_dir = match std::env::var_os("XDG_CONFIG_HOME") {
         Some(raw) if !raw.is_empty() => std::path::PathBuf::from(raw),
         _ => {
@@ -167,7 +198,12 @@ fn linux_autostart_desktop_path() -> Result<std::path::PathBuf, DimError> {
             home.join(".config")
         }
     };
-    Ok(config_dir.join("autostart").join("khoang.desktop"))
+    Ok(config_dir.join("autostart").join(entry_name))
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn linux_autostart_desktop_path() -> Result<std::path::PathBuf, DimError> {
+    linux_autostart_desktop_path_for(LINUX_DESKTOP_ENTRY_NAME)
 }
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
@@ -188,6 +224,10 @@ fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
     } else if desktop_path.exists() {
         std::fs::remove_file(&desktop_path)?;
     }
+    let legacy_desktop = linux_autostart_desktop_path_for(LEGACY_LINUX_DESKTOP_ENTRY_NAME)?;
+    if legacy_desktop.exists() {
+        std::fs::remove_file(&legacy_desktop)?;
+    }
     Ok(())
 }
 
@@ -201,10 +241,10 @@ mod tests {
         assert_eq!(win, "\"C:\\Program Files\\NexaDock\\nexadock.exe\"");
 
         let plist = format_macos_launch_agent_plist(
-            "com.multizalodesktop.manager",
+            "io.github.manhquydev.nexadock",
             Path::new("/Applications/NexaDock.app/Contents/MacOS/NexaDock"),
         );
-        assert!(plist.contains("<string>com.multizalodesktop.manager</string>"));
+        assert!(plist.contains("<string>io.github.manhquydev.nexadock</string>"));
         assert!(
             plist.contains("<string>/Applications/NexaDock.app/Contents/MacOS/NexaDock</string>")
         );

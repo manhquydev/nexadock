@@ -53,7 +53,7 @@ test('System tray icons exist for Windows, macOS template, Linux, and attention 
 test('tauri.conf.json enforces NexaDock branding and preserved window/CSP/compatibility contracts', () => {
   const conf = JSON.parse(fs.readFileSync(path.join(tauriDir, 'tauri.conf.json'), 'utf8'));
   assert.equal(conf.productName, 'NexaDock');
-  assert.equal(conf.identifier, 'com.multizalodesktop.manager');
+  assert.equal(conf.identifier, 'io.github.manhquydev.nexadock');
   assert.equal(conf.app?.withGlobalTauri, true);
   assert.equal(conf.app?.windows?.[0]?.title, 'NexaDock');
   assert.equal(conf.app?.windows?.[0]?.width, 1160);
@@ -91,4 +91,20 @@ test('README.md and README.en.md feature NexaDock branding, manhquydev/nexadock 
   assert.ok(readmeEn.includes('github-readme-hero.svg'));
   assert.ok(readmeEn.includes('Your accounts. Their own space.'));
   assert.ok(readmeEn.includes('VNG Corporation'));
+});
+
+test('Canonical NexaDock identifiers and filenames are enforced across Rust and UI sources', () => {
+  const modelsRs = fs.readFileSync(path.join(dimRoot, 'crates', 'core', 'src', 'models.rs'), 'utf8');
+  const prefsRs = fs.readFileSync(path.join(tauriDir, 'src', 'preferences.rs'), 'utf8');
+  const trayRs = fs.readFileSync(path.join(tauriDir, 'src', 'tray.rs'), 'utf8');
+  const autostartRs = fs.readFileSync(path.join(tauriDir, 'src', 'autostart.rs'), 'utf8');
+  const webWorkspaceRs = fs.readFileSync(path.join(tauriDir, 'src', 'web_workspace.rs'), 'utf8');
+
+  assert.match(modelsRs, /pub const APP_DIR_NAME:\s*&str\s*=\s*"NexaDock"/);
+  assert.match(prefsRs, /pub const PREFERENCES_FILE_NAME:\s*&str\s*=\s*"nexadock-preferences\.json"/);
+  assert.match(trayRs, /pub const TRAY_ID:\s*&str\s*=\s*"nexadock-tray"/);
+  assert.match(autostartRs, /io\.github\.manhquydev\.nexadock/);
+  assert.match(autostartRs, /nexadock\.desktop/);
+  assert.match(webWorkspaceRs, /"nexadock_web_"/);
+  assert.match(webWorkspaceRs, /"khoang_web_"/);
 });

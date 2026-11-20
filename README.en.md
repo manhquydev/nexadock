@@ -24,7 +24,7 @@
 ---
 
 > [!IMPORTANT]
-> **Non-Affiliation Notice:** **NexaDock** (`desktop-instance-manager`, formerly NexaDock / Multi-Zalo Desktop) is an independent open-source project (`MIT OR Apache-2.0`). It is **not affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo**. `"Zalo"` is a trademark of VNG Corporation. This repository and its installers **never** bundle, patch, or redistribute proprietary VNG binaries — users install the official Zalo Desktop client directly from VNG.
+> **Non-Affiliation Notice:** **NexaDock** (`desktop-instance-manager`) is an independent open-source project (`MIT OR Apache-2.0`). It is **not affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo**. `"Zalo"` is a trademark of VNG Corporation. This repository and its installers **never** bundle, patch, or redistribute proprietary VNG binaries — users install the official Zalo Desktop client directly from VNG.
 
 ---
 
@@ -34,7 +34,7 @@
 
 Each account resides in its own dedicated space (`Profiles/<slug>_<id>/`) enforced via OS-level environment and filesystem redirection, managed through the **NexaDock** UI (Vietnamese & English, Light & Dark mode, *Calm Precision* design system — see [`docs/brand/BRAND_GUIDELINES.md`](docs/brand/BRAND_GUIDELINES.md)) built with **Rust + Tauri 2**.
 
-> **Upgrade Compatibility (NexaDock / Multi-Zalo Desktop -> NexaDock):** NexaDock preserves `com.multizalodesktop.manager`, `%LOCALAPPDATA%\MultiZaloDesktop`, `khoang-preferences.json`, and all existing profiles/WebIsolated sessions — upgrading retains your accounts and data.
+> **Upgrade Compatibility:** NexaDock uses canonical `io.github.manhquydev.nexadock`, `%LOCALAPPDATA%\NexaDock`, and `nexadock-preferences.json`, and performs a safe, idempotent one-time migration from legacy `MultiZaloDesktop` / `khoang-preferences.json` / `com.multizalodesktop.manager\EBWebView` on upgrade without deleting legacy data.
 
 <details>
 <summary><strong>More UI screenshots (Dark mode, Account creation wizard, Safe Backup &amp; Restore, Diagnostics)</strong></summary>
@@ -69,7 +69,7 @@ Each account resides in its own dedicated space (`Profiles/<slug>_<id>/`) enforc
 
 ## Cross-Platform Support & Verification Status
 
-| Platform | Official VNG Client | Multi-Zalo Status | Current Verification | Notes |
+| Platform | Official VNG Client | NexaDock Status | Current Verification | Notes |
 | :--- | :---: | :---: | :--- | :--- |
 | **Windows 10 / 11 (`x86_64`)** | Yes (`Zalo.exe`) | **Supported & Verified (L1/L2)** | Full Rust workspace & `src-tauri` tests, PowerShell-vs-Rust parity, Tauri 2 native E2E (`12/12`), and `3` concurrent official `Zalo 26.10.20` windows alongside primary Zalo | Interactive **L3 2-account QR login** remains `NOT_TESTED` pending end-user verification; pre-release installers are `UNSIGNED_DEVELOPMENT_ARTIFACT`. |
 | **Windows 11 Smart App Control (`SAC=1`)** | Yes (`Zalo.exe`) | **Supported via Signed-Host Bridge** | Tested under `SAC=1` via `ui-server.mjs` + `dim-host.ps1` | Unsigned `.exe`/`.msi` may be blocked by Smart App Control; run the **Signed-Host Bridge** via system-signed `powershell.exe` + `node.exe` instead of disabling SAC. |
@@ -93,7 +93,7 @@ Download installers (**`v0.1.1-beta.2`**) from **[GitHub Releases](https://githu
 1. **Unsigned Development Pre-release (`UNSIGNED_DEVELOPMENT_ARTIFACT`):** Installers do not yet include Authenticode OV/EV or Apple Developer ID / Notarization signatures.
 2. **Concurrent Voice/Video Calls (`ZaloCall`):** On Windows, `ZaloCall.exe` binds global Named Pipes (`PipeZCallRecv`/`PipeZCallSend`); on macOS, it unlinks global `/tmp/socketzalorecv2021`. Sequential calls work normally, while simultaneous calls across two instances are unsupported by the vendor client.
 3. **Notification Grouping:** OS notifications share VNG's `AppUserModelId("com.vng.zalo")` / bundle identifier because official binaries remain unmodified.
-4. **Ubuntu 24.04 AppArmor:** Multi-Zalo never injects insecure `--no-sandbox` flags into Chromium/Electron AppImages.
+4. **Ubuntu 24.04 AppArmor:** NexaDock never injects insecure `--no-sandbox` flags into Chromium/Electron AppImages.
 
 ---
 

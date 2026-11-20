@@ -1,8 +1,8 @@
 # Third-Party Notices & Open-Source Licenses
 
-Multi-Zalo Desktop (`desktop-instance-manager/`) is original software dual-licensed under `MIT OR Apache-2.0` (`../LICENSE-MIT`, `../LICENSE-APACHE`).
+NexaDock (`desktop-instance-manager/`) is original software dual-licensed under `MIT OR Apache-2.0` (`../LICENSE-MIT`, `../LICENSE-APACHE`).
 
-> **Non-Affiliation Notice:** Multi-Zalo Desktop is an independent open-source project and is **not** affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo. "Zalo" is a trademark of VNG Corporation. Zero proprietary VNG binaries or assets are included in this repository or in distributed builds.
+> **Non-Affiliation Notice:** NexaDock is an independent open-source project and is **not** affiliated with, sponsored by, or endorsed by VNG Corporation or Zalo. "Zalo" is a trademark of VNG Corporation. Zero proprietary VNG binaries or assets are included in this repository or in distributed builds.
 
 ---
 

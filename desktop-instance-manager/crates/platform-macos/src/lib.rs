@@ -89,9 +89,7 @@ mod tests {
     fn open_command_builder_sets_cffixed_user_home() {
         let args = build_open_args(
             Path::new("/Applications/Zalo.app"),
-            Path::new(
-                "/Users/alice/Library/Application Support/MultiZaloDesktop/Profiles/work_11223344",
-            ),
+            Path::new("/Users/alice/Library/Application Support/NexaDock/Profiles/work_11223344"),
             &[],
         );
         assert_eq!(args[0], "-n");

@@ -396,7 +396,11 @@ namespace DesktopInstanceManager.Host
                 else
                 {
                     string localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                    resolvedData = Path.Combine(localApp, "MultiZaloDesktop");
+                    string canonicalData = Path.Combine(localApp, "NexaDock");
+                    string legacyData = Path.Combine(localApp, "MultiZaloDesktop");
+                    resolvedData = (!Directory.Exists(canonicalData) && Directory.Exists(legacyData))
+                        ? legacyData
+                        : canonicalData;
                 }
             }
 
@@ -2596,6 +2600,8 @@ namespace DesktopInstanceManager.Host
             }
 
             env["DIM_PROFILE_ID"] = rec.id;
+            env["NEXADOCK_PROFILE_ID"] = rec.id;
+            env["NEXADOCK_PROFILE_NAME"] = rec.name;
             env["MULTIZALO_PROFILE_ID"] = rec.id;
             env["MULTIZALO_PROFILE_NAME"] = rec.name;
 

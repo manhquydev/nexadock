@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Core traits, schemas, path safety, Vietnamese slugification, and domain guards for MultiZaloDesktop"
+description = "Core traits, schemas, path safety, Vietnamese slugification, and domain guards for NexaDock"
 
 [lints]
 workspace = true

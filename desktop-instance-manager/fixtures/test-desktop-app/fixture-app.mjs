@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MultiZaloDesktop multi-instance test fixture (`fixture-app.mjs`).
+ * NexaDock multi-instance test fixture (`fixture-app.mjs`).
  *
  * Mimics Zalo Desktop's single-instance UserData lockfile contract using pure Node.js built-ins
  * so integration tests run natively under vendor-signed Node.js even on Smart App Control hosts.
@@ -110,7 +110,7 @@ function acquireExclusiveLock(lockfilePath, startupLogPath, focusSignalPath, qui
         pid: process.pid,
         started_at: new Date().toISOString(),
         app: 'dim-test-fixture',
-        profile_id: process.env.DIM_PROFILE_ID || process.env.MULTIZALO_PROFILE_ID || null,
+        profile_id: process.env.DIM_PROFILE_ID || process.env.NEXADOCK_PROFILE_ID || process.env.MULTIZALO_PROFILE_ID || null,
       };
       fs.writeSync(fd, `${JSON.stringify(payload, null, 2)}\n`, 0, 'utf8');
       fs.closeSync(fd);

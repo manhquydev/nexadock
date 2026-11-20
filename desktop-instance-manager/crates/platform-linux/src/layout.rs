@@ -335,7 +335,7 @@ pub fn ensure_linux_profile_layout(
     // resolves strictly inside `$HOME` (`profile_dir`) instead of escaping to host directories.
     let user_dirs_path = config_dir.join("user-dirs.dirs");
     let user_dirs_content = concat!(
-        "# Isolated MultiZaloDesktop XDG user directories\n",
+        "# Isolated NexaDock XDG user directories\n",
         "XDG_DESKTOP_DIR=\"$HOME/Downloads\"\n",
         "XDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\n",
         "XDG_TEMPLATES_DIR=\"$HOME/Documents\"\n",
