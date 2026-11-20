@@ -240,7 +240,7 @@ function parseArgs(argv) {
     arch: 'arm64',
     mode: 'production',
     expectedVersion: null,
-    expectedBundleId: 'com.multizalodesktop.manager',
+    expectedBundleId: 'io.github.manhquydev.nexadock',
     expectedProduct: 'NexaDock',
     skipLaunch: false,
     out: null,

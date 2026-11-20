@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 7-Pillar Supply-Chain, Real `cargo-deny` / RustSec Advisory, License, Registry,
- * Checksum, MSRV & Zero-VNG-Binary Auditor for Multi-Zalo Desktop.
+ * Checksum, MSRV & Zero-VNG-Binary Auditor for NexaDock.
  *
  * Strictly read-only on repository sources, Cargo.lock, deny.toml, and evidence/.
  *
