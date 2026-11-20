@@ -41,7 +41,8 @@ fn is_autostart_enabled_impl() -> Result<bool, DimError> {
     let Ok(run_key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") else {
         return Ok(false);
     };
-    for name in std::iter::once(AUTOSTART_ENTRY_NAME).chain(LEGACY_WINDOWS_RUN_NAMES.iter().copied())
+    for name in
+        std::iter::once(AUTOSTART_ENTRY_NAME).chain(LEGACY_WINDOWS_RUN_NAMES.iter().copied())
     {
         match run_key.get_value::<String, _>(name) {
             Ok(val) if !val.trim().is_empty() => return Ok(true),

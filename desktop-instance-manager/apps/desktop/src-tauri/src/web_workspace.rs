@@ -669,7 +669,8 @@ fn build_child_webview(
 
     fs::create_dir_all(&context_dir)?;
     #[cfg(target_os = "windows")]
-    let profile_name = resolve_windows_profile_name(&context_dir, &record.id, record.profile_generation);
+    let profile_name =
+        resolve_windows_profile_name(&context_dir, &record.id, record.profile_generation);
     let mut context = WebContext::new(Some(context_dir));
 
     #[allow(unused_mut)]
