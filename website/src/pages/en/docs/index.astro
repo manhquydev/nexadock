@@ -4,6 +4,11 @@ import { SITE_COPY } from '../../../data/site-copy';
 import release from '../../../data/release.json';
 
 const copy = SITE_COPY.en;
+const winVerifyCmd = `Get-FileHash .\\NexaDock-${release.version}-windows-x64-setup.exe -Algorithm SHA256`;
+const macVerifyCmd = `shasum -a 256 NexaDock-${release.version}-macos-arm64.dmg`;
+const bridgeCmd = 'node apps/desktop/ui-server.mjs';
+const profilesPath = '%LOCALAPPDATA%\\NexaDock\\Profiles';
+const primaryPath = '%APPDATA%\\ZaloData';
 ---
 <BaseLayout
   lang="en"
@@ -12,35 +17,83 @@ const copy = SITE_COPY.en;
   canonicalPath="/en/docs/"
   altPath="/docs/"
 >
-  <section class="section" style="border-top: 0; padding-top: 48px;">
-    <div class="container" style="max-width: 820px;">
-      <h1 class="section-title" style="font-size: clamp(1.85rem, 3vw, 2.5rem);">
+  <section class="section section--page-top">
+    <div class="container container--narrow">
+      <h1 class="section-title section-title--page">
         NexaDock Installation &amp; Operations Guide
       </h1>
-      <p class="section-desc" style="margin-bottom: 32px;">
-        Current published build: <strong>{release.tag}</strong> (Unsigned Development Pre-release).
+      <p class="section-desc section-desc--spaced">
+        Current published build: <strong>{release.tag}</strong> ({release.signingStatus}).
       </p>
 
       <div class="mechanism-list">
         <div class="mechanism-row">
-          <h3>1. Windows Installation</h3>
-          <p>
-            Download <span class="code-inline">NexaDock-{release.version}-windows-x64-setup.exe</span> or <span class="code-inline">.msi</span> and verify its SHA-256 hash against <span class="code-inline">SHA256SUMS.txt</span>. On Smart App Control (<span class="code-inline">SAC=1</span>) machines, keep SAC enabled and run via the signed host bridge: <span class="code-inline">node apps/desktop/ui-server.mjs</span>.
-          </p>
+          <h2>1. Windows Installation &amp; SHA-256 Verification</h2>
+          <div class="mechanism-stack">
+            <p>
+              Download <span class="code-inline">NexaDock-{release.version}-windows-x64-setup.exe</span> or <span class="code-inline">.msi</span> from the home page, then verify its SHA-256 hash against <span class="code-inline">SHA256SUMS.txt</span> before running.
+            </p>
+            <div class="cmd-block">
+              <code>{winVerifyCmd}</code>
+              <button type="button" class="cmd-copy-btn" data-copy-cmd={winVerifyCmd} data-label-default="Copy" data-label-copied="Copied">
+                Copy
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="mechanism-row">
-          <h3>2. Upgrading from KHOANG</h3>
-          <p>
-            NexaDock preserves <span class="code-inline">com.multizalodesktop.manager</span>, <span class="code-inline">%LOCALAPPDATA%\MultiZaloDesktop</span>, and <span class="code-inline">khoang-preferences.json</span>. Existing accounts, backups, and WebIsolated profiles remain intact.
-          </p>
+          <h2>2. Smart App Control (SAC=1) Signed-Host Bridge</h2>
+          <div class="mechanism-stack">
+            <p>
+              On Windows 11 machines with Smart App Control enabled, keep SAC turned on and launch the UI through system-signed Node.js and PowerShell from <span class="code-inline">desktop-instance-manager</span>:
+            </p>
+            <div class="cmd-block">
+              <code>{bridgeCmd}</code>
+              <button type="button" class="cmd-copy-btn" data-copy-cmd={bridgeCmd} data-label-default="Copy" data-label-copied="Copied">
+                Copy
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="mechanism-row">
-          <h3>3. Diagnostics &amp; Recovery</h3>
-          <p>
-            Use the built-in Diagnostics screen to inspect client discovery, isolation checks, and sanitized logs. Guards such as <span class="code-inline">PROTECTED_PRIMARY_PROCESS</span> confirm that primary Zalo protection is active.
-          </p>
+          <h2>3. macOS (arm64) Checksum Verification</h2>
+          <div class="mechanism-stack">
+            <p>
+              The Apple Silicon <span class="code-inline">.dmg</span> is unsigned and unnotarized until Apple Developer secrets are configured. Always verify the SHA-256 checksum before opening:
+            </p>
+            <div class="cmd-block">
+              <code>{macVerifyCmd}</code>
+              <button type="button" class="cmd-copy-btn" data-copy-cmd={macVerifyCmd} data-label-default="Copy" data-label-copied="Copied">
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mechanism-row">
+          <h2>4. Profile Isolation &amp; Primary Zalo Protection</h2>
+          <div class="mechanism-stack">
+            <p>
+              Each secondary account receives its own directory under <span class="code-inline">{profilesPath}</span> with dedicated <span class="code-inline">APPDATA</span>, <span class="code-inline">LOCALAPPDATA</span>, and <span class="code-inline">TEMP</span> paths. Your primary Zalo directory <span class="code-inline">{primaryPath}</span> remains strictly read-only.
+            </p>
+            <div class="cmd-block">
+              <code>{profilesPath}</code>
+              <button type="button" class="cmd-copy-btn" data-copy-cmd={profilesPath} data-label-default="Copy" data-label-copied="Copied">
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mechanism-row">
+          <h2>5. Diagnostics &amp; Recovery</h2>
+          <div class="mechanism-stack">
+            <p>
+              Use the built-in Diagnostics screen to inspect client discovery, official binary signature checks, and sanitized logs. Guards such as <span class="code-inline">PROTECTED_PRIMARY_PROCESS</span> and <span class="code-inline">PROTECTED_PRIMARY_PATH</span> confirm that primary Zalo protection is active.
+            </p>
+          </div>
         </div>
       </div>
     </div>

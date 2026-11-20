@@ -70,7 +70,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 <style>
   .showcase-shell {
-    background: var(--bg-surface);
+    background: var(--surface-elevated);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-frame);
@@ -84,8 +84,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     justify-content: space-between;
     gap: var(--space-2);
     padding: 12px 16px;
-    background: var(--bg-subtle);
-    border-bottom: 1px solid var(--border);
+    background: var(--surface-inset);
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   .showcase-brand {
@@ -117,15 +117,15 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     display: grid;
     gap: 4px;
     padding: var(--space-3);
-    background: var(--bg-page);
-    border-right: 1px solid var(--border);
+    background: var(--surface-page);
+    border-right: 1px solid var(--border-subtle);
     align-content: start;
   }
 
   @media (max-width: 640px) {
     .showcase-rail {
       border-right: 0;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-subtle);
     }
   }
 
@@ -149,29 +149,29 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   }
 
   .rail-item:hover {
-    background: var(--bg-hover);
+    background: var(--surface-hover);
   }
 
   .rail-item.is-active {
-    background: var(--bg-surface);
-    border-color: var(--accent);
+    background: var(--surface-elevated);
+    border-color: var(--action-primary);
   }
 
   .rail-avatar {
     flex: none;
     width: 32px;
     height: 32px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     display: grid;
     place-items: center;
     font-size: 0.75rem;
     font-weight: 700;
-    background: var(--accent);
-    color: var(--accent-text);
+    background: var(--action-primary);
+    color: var(--text-on-accent);
   }
 
   .rail-avatar.is-primary {
-    background: var(--bg-subtle);
+    background: var(--surface-inset);
     color: var(--text-primary);
     border: 1px solid var(--border-strong);
   }
@@ -230,8 +230,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   .stage-path-box {
     padding: var(--space-3);
-    background: var(--bg-page);
-    border: 1px solid var(--border);
+    background: var(--surface-page);
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
   }
 
