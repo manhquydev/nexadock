@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Cross-platform build, native-architecture, and packaging prerequisite checker
- * for Multi-Zalo Desktop (desktop-instance-manager).
+ * for NexaDock (desktop-instance-manager).
  *
  * Strictly read-only: NEVER modifies OS policy, Smart App Control, Cargo.lock,
  * or system packages, and NEVER prompts for signing credentials.

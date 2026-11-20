@@ -50,7 +50,7 @@ test('release.yml enforces fail-closed Apple Developer signing/notarization and 
 test('parseCodesignMetadata distinguishes ad-hoc signatures from Developer ID Hardened Runtime', () => {
   const adhocOut = [
     'Executable=/Applications/NexaDock.app/Contents/MacOS/NexaDock',
-    'Identifier=com.multizalodesktop.manager',
+    'Identifier=io.github.manhquydev.nexadock',
     'Format=app bundle with Mach-O thin (arm64)',
     'CodeDirectory v=20400 size=1234 flags=0x2(adhoc) hashes=32+2 location=embedded',
     'Signature=adhoc',
@@ -64,7 +64,7 @@ test('parseCodesignMetadata distinguishes ad-hoc signatures from Developer ID Ha
 
   const signedOut = [
     'Executable=/Applications/NexaDock.app/Contents/MacOS/NexaDock',
-    'Identifier=com.multizalodesktop.manager',
+    'Identifier=io.github.manhquydev.nexadock',
     'Format=app bundle with Mach-O thin (arm64)',
     'CodeDirectory v=20500 size=1234 flags=0x10000(runtime) hashes=32+7 location=embedded',
     'Authority=Developer ID Application: Example Org (ABCD123456)',

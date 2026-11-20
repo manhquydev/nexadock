@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Section 7 Traceable Build Artifact Manifest & SHA256SUMS Generator
- * for Multi-Zalo Desktop (desktop-instance-manager).
+ * for NexaDock (desktop-instance-manager).
  *
  * Explicitly separates:
  *   - Provenance trust level (`SELF_REPORTED_UNATTESTED` vs CI OIDC SLSA attestation)

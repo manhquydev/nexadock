@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Pure Node binary header, Apple ICNS, & OS package inspector + safe read-only OS tool checks
- * for Multi-Zalo Desktop cross-platform build artifacts.
+ * for NexaDock cross-platform build artifacts.
  *
  * Enforces strict classification rules:
  *   - Raw `.exe` / Mach-O / ELF binaries are `compiled-executable` (`is_installer: false`) — NEVER installers!

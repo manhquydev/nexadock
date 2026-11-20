@@ -2,7 +2,7 @@
 /**
  * Cross-platform native verification, `--locked` Clippy/test/release build,
  * runtime fixture smoke runner, Tauri overlay bundler, and Zero-VNG-Binary gate
- * for Multi-Zalo Desktop (desktop-instance-manager).
+ * for NexaDock (desktop-instance-manager).
  *
  * Enforces:
  *   - `--locked` on ALL `cargo` invocations (clippy, test, build, and `tauri build -- --locked`)

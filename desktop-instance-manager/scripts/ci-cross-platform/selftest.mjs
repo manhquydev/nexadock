@@ -278,8 +278,8 @@ function main() {
     const msiDir = path.join(winRelDir, 'bundle', 'msi');
     fs.mkdirSync(nsisDir, { recursive: true });
     fs.mkdirSync(msiDir, { recursive: true });
-    const nsisExePath = path.join(nsisDir, 'Multi-Zalo Desktop_0.1.0_x64-setup.exe');
-    const msiPath = path.join(msiDir, 'Multi-Zalo Desktop_0.1.0_x64_en-US.msi');
+    const nsisExePath = path.join(nsisDir, 'NexaDock_0.1.0_x64-setup.exe');
+    const msiPath = path.join(msiDir, 'NexaDock_0.1.0_x64_en-US.msi');
     fs.writeFileSync(nsisExePath, buildSyntheticPe64Buffer({ machine: 0x014c, includeWebView2Import: false }));
     fs.writeFileSync(msiPath, buildSyntheticMsiBuffer());
 
@@ -310,7 +310,7 @@ function main() {
     });
 
     const macRelDir = path.join(tmpRoot, 'target', 'aarch64-apple-darwin', 'release');
-    const appDir = path.join(macRelDir, 'bundle', 'macos', 'Multi-Zalo Desktop.app');
+    const appDir = path.join(macRelDir, 'bundle', 'macos', 'NexaDock.app');
     const appMacosBinDir = path.join(appDir, 'Contents', 'MacOS');
     const dmgDir = path.join(macRelDir, 'bundle', 'dmg');
     fs.mkdirSync(appMacosBinDir, { recursive: true });
@@ -323,8 +323,8 @@ function main() {
       [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<plist version="1.0"><dict>',
-        '  <key>CFBundleIdentifier</key><string>com.multizalodesktop.manager</string>',
-        '  <key>CFBundleName</key><string>Multi-Zalo Desktop</string>',
+        '  <key>CFBundleIdentifier</key><string>io.github.manhquydev.nexadock</string>',
+        '  <key>CFBundleName</key><string>NexaDock</string>',
         '  <key>CFBundleShortVersionString</key><string>0.1.0</string>',
         '  <key>CFBundleExecutable</key><string>dim-desktop</string>',
         '</dict></plist>',
@@ -332,7 +332,7 @@ function main() {
       'utf8',
     );
     fs.writeFileSync(path.join(appMacosBinDir, 'dim-desktop'), buildSyntheticMachO64Buffer({ cpuType: 0x0100000c }));
-    const dmgPath = path.join(dmgDir, 'Multi-Zalo Desktop_0.1.0_aarch64.dmg');
+    const dmgPath = path.join(dmgDir, 'NexaDock_0.1.0_aarch64.dmg');
     fs.writeFileSync(dmgPath, buildSyntheticDmgBuffer());
 
     runTest('macos-macho-app-bundle-and-dmg-inspection', () => {
@@ -352,7 +352,7 @@ function main() {
       assert.equal(appInsp.artifact_kind, 'macos-app-bundle');
       assert.equal(appInsp.is_installer, false);
       assert.equal(appInsp.cpu_architecture, 'aarch64');
-      assert.equal(appInsp.details.info_plist.bundle_identifier, 'com.multizalodesktop.manager');
+      assert.equal(appInsp.details.info_plist.bundle_identifier, 'io.github.manhquydev.nexadock');
       assert.equal(appInsp.signing_status, 'UNSIGNED_DEVELOPMENT_ARTIFACT');
 
       const dmgInsp = inspectArtifact(dmgPath);
@@ -369,8 +369,8 @@ function main() {
     fs.mkdirSync(appImageDir, { recursive: true });
 
     const elfPath = path.join(linuxRelDir, 'dim-desktop');
-    const appImagePath = path.join(appImageDir, 'multi-zalo-desktop_0.1.0_amd64.AppImage');
-    const debPath = path.join(debDir, 'multi-zalo-desktop_0.1.0_amd64.deb');
+    const appImagePath = path.join(appImageDir, 'nexadock_0.1.0_amd64.AppImage');
+    const debPath = path.join(debDir, 'nexadock_0.1.0_amd64.deb');
     fs.writeFileSync(elfPath, buildSyntheticElf64Buffer({ isAppImage: false }));
     fs.writeFileSync(appImagePath, buildSyntheticElf64Buffer({ isAppImage: true }));
     fs.writeFileSync(debPath, buildSyntheticDebBuffer());
