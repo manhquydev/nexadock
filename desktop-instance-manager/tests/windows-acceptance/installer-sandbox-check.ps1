@@ -499,7 +499,7 @@ if (Test-Path -LiteralPath $icoPath -PathType Leaf) {
 $srcTauriVngHits = Scan-DirectoryForVngBinaries -RootDir $srcTauriDir
 $bundleConfigOk = (
     $tauriConf.productName -eq "NexaDock" -and
-    $tauriConf.identifier -eq "com.multizalodesktop.manager" -and
+    $tauriConf.identifier -eq "io.github.manhquydev.nexadock" -and
     [bool]$tauriConf.bundle.active -and
     $missingIcons.Count -eq 0 -and
     $validIcoHeader -and

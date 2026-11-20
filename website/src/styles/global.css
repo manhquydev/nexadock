@@ -197,12 +197,12 @@ a:hover {
   color: var(--text-on-accent);
 }
 
-.btn-primary:hover {
+.btn-primary:not(:disabled):not([aria-disabled="true"]):hover {
   background: var(--action-primary-hover);
   color: var(--text-on-accent);
 }
 
-.btn-primary:active {
+.btn-primary:not(:disabled):not([aria-disabled="true"]):active {
   background: var(--action-primary-pressed);
 }
 
@@ -212,16 +212,16 @@ a:hover {
   border-color: var(--border-strong);
 }
 
-.btn-secondary:hover {
+.btn-secondary:not(:disabled):not([aria-disabled="true"]):hover {
   background: var(--action-secondary-hover);
   color: var(--text-primary);
 }
 
-.btn-secondary:active {
+.btn-secondary:not(:disabled):not([aria-disabled="true"]):active {
   background: var(--action-secondary-pressed);
 }
 
-.btn:active {
+.btn:not(:disabled):not([aria-disabled="true"]):active {
   transform: translateY(1px);
 }
 
@@ -532,6 +532,10 @@ a:hover {
 
 .cmd-copy-btn:hover {
   background: rgba(246, 245, 242, 0.14);
+}
+
+.cmd-copy-btn:focus-visible {
+  outline-color: var(--text-on-ink);
 }
 
 /* Compatibility table */

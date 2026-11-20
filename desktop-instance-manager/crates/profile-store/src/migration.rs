@@ -4,9 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use dim_core::{
-    now_rfc3339_utc, write_bytes_atomic, DimError, ProfilesDocument, PROFILES_SCHEMA_VERSION,
-};
+use dim_core::{now_rfc3339_utc, write_bytes_atomic, DimError};
 
 /// Marker file written inside the migrated `NexaDock` directory upon verified completion.
 pub const MIGRATED_MARKER_FILE: &str = ".migrated-from-legacy";
@@ -165,14 +163,18 @@ pub fn migrate_legacy_ebwebview_dir(
     };
     fs::create_dir_all(target_parent)?;
 
-    let staging_dir = target_parent.join(".EBWebView.migration-staging");
+    let staging_dir = target_parent.join(format!(
+        ".EBWebView.migration-staging-{}",
+        std::process::id()
+    ));
     if staging_dir.exists() {
         // Rename away any abandoned staging dir rather than deleting inside EBWebView/.
         let abandoned = target_parent.join(format!(
-            ".EBWebView.migration-abandoned-{}",
-            std::process::id()
+            ".EBWebView.migration-abandoned-{}-{}",
+            std::process::id(),
+            dim_core::generate_profile_id()
         ));
-        let _ = fs::rename(&staging_dir, &abandoned);
+        fs::rename(&staging_dir, &abandoned)?;
     }
 
     fs::create_dir_all(&staging_dir)?;
@@ -186,26 +188,14 @@ fn staging_dir_for(target_dir: &Path) -> PathBuf {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("NexaDock");
-    target_dir.with_file_name(format!(".{name}.migration-staging"))
+    target_dir.with_file_name(format!(".{name}.migration-staging-{}", std::process::id()))
 }
 
 fn validate_metadata_dir(dir: &Path, prefs_file: &str) -> Result<(), DimError> {
     let profiles_path = dir.join("profiles.json");
     if profiles_path.exists() {
         let raw = fs::read_to_string(&profiles_path)?;
-        let parsed: ProfilesDocument = serde_json::from_str(&raw).map_err(|err| {
-            DimError::SchemaError(format!(
-                "corrupt profiles.json in '{}': {err}",
-                dir.display()
-            ))
-        })?;
-        if parsed.schema_version != PROFILES_SCHEMA_VERSION {
-            return Err(DimError::SchemaError(format!(
-                "unsupported profiles.json schema_version {} in '{}'",
-                parsed.schema_version,
-                dir.display()
-            )));
-        }
+        crate::store::parse_profiles_json_str(&profiles_path, &raw)?;
     }
 
     let prefs_path = dir.join(prefs_file);
@@ -256,11 +246,28 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), DimError> {
         let src_path = entry.path();
         let dst_path = dst.join(&name);
         let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            return Err(DimError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "refusing to migrate symlink or reparse point '{}'",
+                    src_path.display()
+                ),
+            )));
+        }
         if file_type.is_dir() {
             fs::create_dir_all(&dst_path)?;
             copy_dir_recursive(&src_path, &dst_path)?;
         } else if file_type.is_file() {
             fs::copy(&src_path, &dst_path)?;
+        } else {
+            return Err(DimError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "unsupported file type during migration at '{}'",
+                    src_path.display()
+                ),
+            )));
         }
     }
     Ok(())
@@ -378,7 +385,7 @@ mod tests {
         fs::write(legacy.join("profiles.json"), b"{not valid json").unwrap();
 
         let err = migrate_legacy_data_dir(&legacy, &target).unwrap_err();
-        assert_eq!(err.code(), "SCHEMA_ERROR");
+        assert_eq!(err.code(), "JSON_ERROR");
         assert!(!target.exists());
         assert!(!staging_dir_for(&target).exists());
         assert_eq!(
@@ -435,5 +442,39 @@ mod tests {
             migrate_legacy_ebwebview_dir(&legacy_eb, &target_eb).unwrap(),
             EbWebViewMigrationOutcome::TargetAlreadyExists
         );
+    }
+
+    #[test]
+    fn legacy_storage_version_1_profiles_json_migrates_cleanly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("MultiZaloDesktop");
+        let target = tmp.path().join("NexaDock");
+        fs::create_dir_all(legacy.join("Profiles").join("tai-khoan-cu_p1")).unwrap();
+        fs::write(
+            legacy.join("profiles.json"),
+            r#"{
+  "StorageVersion": 1,
+  "Profiles": [
+    {
+      "Id": "p1",
+      "Name": "Tài khoản cũ",
+      "DirectoryName": "tai-khoan-cu_p1",
+      "CreatedAt": "2026-01-01T00:00:00Z"
+    }
+  ]
+}"#
+            .as_bytes(),
+        )
+        .unwrap();
+
+        let outcome = migrate_legacy_data_dir(&legacy, &target).unwrap();
+        assert_eq!(outcome, MigrationOutcome::Migrated);
+        assert!(target.join(MIGRATED_MARKER_FILE).exists());
+
+        let migrated_store = JsonProfileStore::new(target).unwrap();
+        let list = migrated_store.list_profiles().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "p1");
+        assert_eq!(list[0].name, "Tài khoản cũ");
     }
 }

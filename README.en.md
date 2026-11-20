@@ -34,7 +34,7 @@
 
 Each account resides in its own dedicated space (`Profiles/<slug>_<id>/`) enforced via OS-level environment and filesystem redirection, managed through the **NexaDock** UI (Vietnamese & English, Light & Dark mode, *Calm Precision* design system — see [`docs/brand/BRAND_GUIDELINES.md`](docs/brand/BRAND_GUIDELINES.md)) built with **Rust + Tauri 2**.
 
-> **Upgrade Compatibility:** NexaDock uses canonical `io.github.manhquydev.nexadock`, `%LOCALAPPDATA%\NexaDock`, and `nexadock-preferences.json`, and performs a safe, idempotent one-time migration from legacy `MultiZaloDesktop` / `khoang-preferences.json` / `com.multizalodesktop.manager\EBWebView` on upgrade without deleting legacy data.
+> **Upgrade Compatibility:** NexaDock uses canonical `io.github.manhquydev.nexadock`, `%LOCALAPPDATA%\NexaDock`, and `nexadock-preferences.json`, and performs a safe, idempotent one-time migration from legacy `MultiZaloDesktop` / `khoang-preferences.json` (and `com.multizalodesktop.manager\EBWebView` on Windows) when `%LOCALAPPDATA%\NexaDock` does not yet exist, without deleting legacy data.
 
 <details>
 <summary><strong>More UI screenshots (Dark mode, Account creation wizard, Safe Backup &amp; Restore, Diagnostics)</strong></summary>

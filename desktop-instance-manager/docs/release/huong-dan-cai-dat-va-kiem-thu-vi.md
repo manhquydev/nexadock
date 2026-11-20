@@ -48,7 +48,7 @@
 ### 1.5. Gỡ cài đặt an toàn
 - Đóng toàn bộ các cửa sổ Zalo phụ trước trong NexaDock.
 - Gỡ ứng dụng qua **Windows Settings → Apps → Installed apps → NexaDock → Uninstall**.
-- Lưu ý: Dữ liệu profile tại `%LOCALAPPDATA%\NexaDock` (và Zalo chính tại `%APPDATA%\ZaloData`) được giữ lại an toàn khi gỡ cài đặt để tránh mất dữ liệu; xóa thủ công `%LOCALAPPDATA%\NexaDock` nếu bạn muốn dọn sạch dữ liệu thử nghiệm.
+- Lưu ý: Dữ liệu profile tại `%LOCALAPPDATA%\NexaDock` (và Zalo chính tại `%APPDATA%\ZaloData`) được giữ lại an toàn khi gỡ cài đặt để tránh mất dữ liệu; xóa thủ công `%LOCALAPPDATA%\NexaDock` nếu bạn muốn dọn sạch dữ liệu thử nghiệm (lưu ý: thao tác này không tự xóa bản sao lưu dữ liệu cũ `MultiZaloDesktop` nếu bạn đã nâng cấp từ phiên bản trước).
 
 ---
 

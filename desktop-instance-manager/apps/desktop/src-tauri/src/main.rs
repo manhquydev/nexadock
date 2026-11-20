@@ -13,7 +13,7 @@ use tauri::{Manager, WindowEvent};
 
 fn run_startup_migrations() {
     if std::env::var_os(dim_core::DIM_DATA_DIR_ENV)
-        .filter(|v| !v.is_empty())
+        .filter(|v| !v.to_string_lossy().trim().is_empty())
         .is_none()
     {
         if let Ok(target_dir) = dim_core::resolve_data_dir(None) {
@@ -28,9 +28,19 @@ fn run_startup_migrations() {
         }
     }
 
+    // `WebContext` stores `EBWebView` under `<data_dir>/WebSessions/_shared_env` (already
+    // migrated with `<data_dir>` above), whereas the main Tauri window uses
+    // `%LOCALAPPDATA%\<identifier>\EBWebView`.
     #[cfg(target_os = "windows")]
-    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA").filter(|v| !v.is_empty()) {
-        let base = std::path::PathBuf::from(local_app_data);
+    if let Some(base) = std::env::var_os("LOCALAPPDATA")
+        .filter(|v| !v.to_string_lossy().trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .filter(|v| !v.to_string_lossy().trim().is_empty())
+                .map(|home| std::path::PathBuf::from(home).join("AppData").join("Local"))
+        })
+    {
         let legacy_eb = base
             .join(dim_profile_store::LEGACY_BUNDLE_ID)
             .join("EBWebView");

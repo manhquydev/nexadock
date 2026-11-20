@@ -297,6 +297,7 @@ jobs:
 
       - name: Build Tauri macOS arm64 bundle (.dmg)
         working-directory: desktop-instance-manager/apps/desktop/src-tauri
+        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -304,7 +305,11 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_PATH: ${{ steps.sign_gate.outputs.api_key_path }}
+          SIGNED_MODE: ${{ steps.sign_gate.outputs.signed_mode }}
         run: |
+          if [ "${SIGNED_MODE}" != "true" ]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+          fi
           npx --yes "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --bundles dmg -- --locked
 
       - name: Collect & name macOS arm64 release assets

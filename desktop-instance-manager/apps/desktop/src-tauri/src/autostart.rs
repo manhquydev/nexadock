@@ -41,23 +41,23 @@ fn is_autostart_enabled_impl() -> Result<bool, DimError> {
     let Ok(run_key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") else {
         return Ok(false);
     };
-    match run_key.get_value::<String, _>(AUTOSTART_ENTRY_NAME) {
-        Ok(val) => Ok(!val.trim().is_empty()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(err) => Err(DimError::Io(err)),
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn cleanup_legacy_windows_run_entries(run_key: &winreg::RegKey) -> Result<(), DimError> {
-    for legacy_name in LEGACY_WINDOWS_RUN_NAMES {
-        match run_key.delete_value(legacy_name) {
-            Ok(()) => {}
+    for name in std::iter::once(AUTOSTART_ENTRY_NAME).chain(LEGACY_WINDOWS_RUN_NAMES.iter().copied())
+    {
+        match run_key.get_value::<String, _>(name) {
+            Ok(val) if !val.trim().is_empty() => return Ok(true),
+            Ok(_) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => return Err(DimError::Io(err)),
         }
     }
-    Ok(())
+    Ok(false)
+}
+
+#[cfg(target_os = "windows")]
+fn cleanup_legacy_windows_run_entries(run_key: &winreg::RegKey) {
+    for legacy_name in LEGACY_WINDOWS_RUN_NAMES {
+        let _ = run_key.delete_value(legacy_name);
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -72,7 +72,7 @@ fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
             hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")?;
         let command = format_windows_run_value(&exe);
         run_key.set_value(AUTOSTART_ENTRY_NAME, &command)?;
-        cleanup_legacy_windows_run_entries(&run_key)?;
+        cleanup_legacy_windows_run_entries(&run_key);
     } else if let Ok(run_key) = hkcu.open_subkey_with_flags(
         "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
         winreg::enums::KEY_SET_VALUE,
@@ -82,7 +82,7 @@ fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => return Err(DimError::Io(err)),
         }
-        cleanup_legacy_windows_run_entries(&run_key)?;
+        cleanup_legacy_windows_run_entries(&run_key);
     }
     Ok(())
 }
@@ -160,7 +160,8 @@ fn macos_plist_path() -> Result<std::path::PathBuf, DimError> {
 
 #[cfg(target_os = "macos")]
 fn is_autostart_enabled_impl() -> Result<bool, DimError> {
-    Ok(macos_plist_path()?.exists())
+    Ok(macos_plist_path()?.exists()
+        || macos_plist_path_for(LEGACY_MACOS_LAUNCH_AGENT_LABEL)?.exists())
 }
 
 #[cfg(target_os = "macos")]
@@ -176,9 +177,10 @@ fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
     } else if plist_path.exists() {
         std::fs::remove_file(&plist_path)?;
     }
-    let legacy_plist = macos_plist_path_for(LEGACY_MACOS_LAUNCH_AGENT_LABEL)?;
-    if legacy_plist.exists() {
-        std::fs::remove_file(&legacy_plist)?;
+    if let Ok(legacy_plist) = macos_plist_path_for(LEGACY_MACOS_LAUNCH_AGENT_LABEL) {
+        if legacy_plist.exists() {
+            let _ = std::fs::remove_file(&legacy_plist);
+        }
     }
     Ok(())
 }
@@ -208,7 +210,8 @@ fn linux_autostart_desktop_path() -> Result<std::path::PathBuf, DimError> {
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn is_autostart_enabled_impl() -> Result<bool, DimError> {
-    Ok(linux_autostart_desktop_path()?.exists())
+    Ok(linux_autostart_desktop_path()?.exists()
+        || linux_autostart_desktop_path_for(LEGACY_LINUX_DESKTOP_ENTRY_NAME)?.exists())
 }
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
@@ -224,9 +227,10 @@ fn set_autostart_enabled_impl(enabled: bool) -> Result<(), DimError> {
     } else if desktop_path.exists() {
         std::fs::remove_file(&desktop_path)?;
     }
-    let legacy_desktop = linux_autostart_desktop_path_for(LEGACY_LINUX_DESKTOP_ENTRY_NAME)?;
-    if legacy_desktop.exists() {
-        std::fs::remove_file(&legacy_desktop)?;
+    if let Ok(legacy_desktop) = linux_autostart_desktop_path_for(LEGACY_LINUX_DESKTOP_ENTRY_NAME) {
+        if legacy_desktop.exists() {
+            let _ = std::fs::remove_file(&legacy_desktop);
+        }
     }
     Ok(())
 }

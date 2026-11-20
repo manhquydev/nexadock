@@ -11,6 +11,7 @@ import {
   formatNumber,
   applyDomTranslations,
   LOCALE_STORAGE_KEY,
+  LEGACY_LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES
 } from './i18n/index.js';
 
@@ -4307,7 +4308,14 @@ export async function initApp() {
         let savedLocalLocale = null;
         try {
           if (typeof localStorage !== 'undefined') {
-            savedLocalLocale = localStorage.getItem(LOCALE_STORAGE_KEY);
+            const primaryLocale = localStorage.getItem(LOCALE_STORAGE_KEY);
+            const legacyLocale = localStorage.getItem(LEGACY_LOCALE_STORAGE_KEY);
+            savedLocalLocale =
+              primaryLocale && SUPPORTED_LOCALES.includes(primaryLocale)
+                ? primaryLocale
+                : legacyLocale && SUPPORTED_LOCALES.includes(legacyLocale)
+                  ? legacyLocale
+                  : null;
           }
         } catch (_err) {
           // Ignore storage access errors

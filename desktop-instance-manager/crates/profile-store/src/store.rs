@@ -362,51 +362,7 @@ impl JsonProfileStore {
         let raw_text = String::from_utf8(raw_bytes).map_err(|e| {
             corrupt_profiles_json_error(&self.metadata_path, &format!("invalid UTF-8 bytes ({e})"))
         })?;
-        let raw_text = raw_text.strip_prefix('\u{FEFF}').unwrap_or(&raw_text);
-
-        let val: serde_json::Value = serde_json::from_str(raw_text).map_err(|e| {
-            corrupt_profiles_json_error(&self.metadata_path, &format!("invalid JSON syntax ({e})"))
-        })?;
-
-        let Some(obj) = val.as_object() else {
-            return Err(corrupt_profiles_json_error(
-                &self.metadata_path,
-                "root JSON value must be an object",
-            ));
-        };
-
-        if let Some(schema_val) = obj.get("schema_version") {
-            let Some(version_u64) = schema_val.as_u64() else {
-                return Err(DimError::SchemaError(format!(
-                    "invalid non-integer 'schema_version' in '{}'; original file preserved untouched for recovery",
-                    self.metadata_path.display()
-                )));
-            };
-
-            if version_u64 != u64::from(PROFILES_SCHEMA_VERSION) {
-                return Err(DimError::SchemaError(format!(
-                    "unsupported profiles.json schema_version {version_u64} in '{}' (expected {PROFILES_SCHEMA_VERSION}); original file preserved untouched for recovery",
-                    self.metadata_path.display()
-                )));
-            }
-
-            let doc: ProfilesDocument = serde_json::from_value(val).map_err(|e| {
-                corrupt_profiles_json_error(
-                    &self.metadata_path,
-                    &format!("malformed profile record schema ({e})"),
-                )
-            })?;
-            return Ok(doc);
-        }
-
-        if obj.contains_key("StorageVersion") {
-            return parse_legacy_profiles_document(&self.metadata_path, val);
-        }
-
-        Err(DimError::SchemaError(format!(
-            "missing 'schema_version' in '{}'; original file preserved untouched for recovery",
-            self.metadata_path.display()
-        )))
+        parse_profiles_json_str(&self.metadata_path, &raw_text)
     }
 
     fn write_document_atomic_locked(&self, doc: &ProfilesDocument) -> Result<(), DimError> {
@@ -818,6 +774,64 @@ struct LegacyProfilesDocument {
     #[allow(dead_code)]
     storage_version: u32,
     profiles: Vec<LegacyProfileRecord>,
+}
+
+/// Parses canonical (`schema_version`) or legacy (`StorageVersion`) `profiles.json` text.
+pub(crate) fn parse_profiles_json_str(
+    metadata_path: &Path,
+    raw: &str,
+) -> Result<ProfilesDocument, DimError> {
+    let raw_text = raw.strip_prefix('\u{FEFF}').unwrap_or(raw);
+    if raw_text.trim().is_empty() {
+        return Err(corrupt_profiles_json_error(
+            metadata_path,
+            "file is empty (0 bytes or whitespace-only)",
+        ));
+    }
+
+    let val: serde_json::Value = serde_json::from_str(raw_text).map_err(|e| {
+        corrupt_profiles_json_error(metadata_path, &format!("invalid JSON syntax ({e})"))
+    })?;
+
+    let Some(obj) = val.as_object() else {
+        return Err(corrupt_profiles_json_error(
+            metadata_path,
+            "root JSON value must be an object",
+        ));
+    };
+
+    if let Some(schema_val) = obj.get("schema_version") {
+        let Some(version_u64) = schema_val.as_u64() else {
+            return Err(DimError::SchemaError(format!(
+                "invalid non-integer 'schema_version' in '{}'; original file preserved untouched for recovery",
+                metadata_path.display()
+            )));
+        };
+
+        if version_u64 != u64::from(PROFILES_SCHEMA_VERSION) {
+            return Err(DimError::SchemaError(format!(
+                "unsupported profiles.json schema_version {version_u64} in '{}' (expected {PROFILES_SCHEMA_VERSION}); original file preserved untouched for recovery",
+                metadata_path.display()
+            )));
+        }
+
+        let doc: ProfilesDocument = serde_json::from_value(val).map_err(|e| {
+            corrupt_profiles_json_error(
+                metadata_path,
+                &format!("malformed profile record schema ({e})"),
+            )
+        })?;
+        return Ok(doc);
+    }
+
+    if obj.contains_key("StorageVersion") {
+        return parse_legacy_profiles_document(metadata_path, val);
+    }
+
+    Err(DimError::SchemaError(format!(
+        "missing 'schema_version' in '{}'; original file preserved untouched for recovery",
+        metadata_path.display()
+    )))
 }
 
 /// Parses a legacy `multi-zalo-desktop` (`StorageVersion: 1`, `Profiles: [...]`) store document
