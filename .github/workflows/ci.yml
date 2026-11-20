@@ -76,8 +76,10 @@ jobs:
         working-directory: .
         run: cargo check --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml --all-targets --locked
 
-      - name: Build dim-cli for cross-platform harness
-        run: cargo build --bin dim-cli --locked
+      - name: Build dim-cli and xf-desktop-fixture for cross-platform harness
+        run: |
+          cargo build --bin dim-cli --locked
+          cargo build --manifest-path fixtures/cross-platform/Cargo.toml --bin xf-desktop-fixture --locked
 
       - name: Test cross-platform harness
         timeout-minutes: 5
