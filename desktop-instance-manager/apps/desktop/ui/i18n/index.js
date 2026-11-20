@@ -1,7 +1,7 @@
 export const DEFAULT_LOCALE = 'vi-VN';
 export const SUPPORTED_LOCALES = Object.freeze(['vi-VN', 'en-US']);
 export const LOCALE_STORAGE_KEY = 'nexadock.locale';
-const LEGACY_LOCALE_STORAGE_KEY = 'multi-zalo.locale';
+export const LEGACY_LOCALE_STORAGE_KEY = 'multi-zalo.locale';
 
 export const DICTIONARIES = {
   'vi-VN': {},

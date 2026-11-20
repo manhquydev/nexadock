@@ -4,11 +4,13 @@ import { SITE_COPY } from '../../data/site-copy';
 import release from '../../data/release.json';
 
 const copy = SITE_COPY.vi;
-const winVerifyCmd = `Get-FileHash .\\NexaDock-${release.version}-windows-x64-setup.exe -Algorithm SHA256`;
+const winVerifyCmd = `Get-FileHash .\\NexaDock-${release.version}-windows-x64-* -Algorithm SHA256`;
 const macVerifyCmd = `shasum -a 256 NexaDock-${release.version}-macos-arm64.dmg`;
 const bridgeCmd = 'node apps/desktop/ui-server.mjs';
-const profilesPath = '%LOCALAPPDATA%\\NexaDock\\Profiles';
-const primaryPath = '%APPDATA%\\ZaloData';
+const winProfilesPath = '%LOCALAPPDATA%\\NexaDock\\Profiles';
+const winPrimaryPath = '%APPDATA%\\ZaloData';
+const macProfilesPath = '~/Library/Application Support/NexaDock/Profiles';
+const macPrimaryPath = '~/Library/Application Support/ZaloData';
 ---
 <BaseLayout
   lang="vi"
@@ -76,11 +78,22 @@ const primaryPath = '%APPDATA%\\ZaloData';
           <h2>4. Đường dẫn cô lập &amp; bảo vệ Zalo chính</h2>
           <div class="mechanism-stack">
             <p>
-              Mỗi tài khoản phụ được cấp thư mục riêng trong <span class="code-inline">{profilesPath}</span> với biến môi trường <span class="code-inline">APPDATA</span>, <span class="code-inline">LOCALAPPDATA</span> và <span class="code-inline">TEMP</span> độc lập. Đường dẫn Zalo chính <span class="code-inline">{primaryPath}</span> luôn giữ ở chế độ chỉ đọc.
+              Mỗi tài khoản phụ được cấp thư mục riêng với biến môi trường <span class="code-inline">APPDATA</span>, <span class="code-inline">LOCALAPPDATA</span> và <span class="code-inline">TEMP</span> độc lập trên Windows. Thư mục Zalo chính luôn được giữ ở chế độ chỉ đọc:
+            </p>
+            <ul>
+              <li>
+                <strong>Windows:</strong> hồ sơ phụ tại <span class="code-inline">{winProfilesPath}</span>; Zalo chính tại <span class="code-inline">{winPrimaryPath}</span>.
+              </li>
+              <li>
+                <strong>macOS:</strong> hồ sơ phụ tại <span class="code-inline">{macProfilesPath}</span>; Zalo chính tại <span class="code-inline">{macPrimaryPath}</span>.
+              </li>
+            </ul>
+            <p>
+              Khi nâng cấp từ <span class="code-inline">MultiZaloDesktop</span> sang <span class="code-inline">NexaDock</span>, ứng dụng tự động di chuyển cấu hình và dữ liệu hồ sơ một lần sang thư mục mới và giữ nguyên dữ liệu cũ (không tự động xóa).
             </p>
             <div class="cmd-block">
-              <code>{profilesPath}</code>
-              <button type="button" class="cmd-copy-btn" data-copy-cmd={profilesPath} data-label-default="Sao chép" data-label-copied="Đã chép">
+              <code>{winProfilesPath}</code>
+              <button type="button" class="cmd-copy-btn" data-copy-cmd={winProfilesPath} data-label-default="Sao chép" data-label-copied="Đã chép">
                 Sao chép
               </button>
             </div>

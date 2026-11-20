@@ -317,6 +317,9 @@ async function main() {
         assert.ok(audit.ogLocale === 'vi_VN' || audit.ogLocale === 'en_US', `${url} invalid og:locale: ${audit.ogLocale}`);
 
         for (const term of legacyForbidden) {
+          if (term === 'MultiZaloDesktop' && (route === '/docs/' || route === '/en/docs/')) {
+            continue;
+          }
           assert.equal(
             audit.html.includes(term),
             false,
@@ -325,8 +328,8 @@ async function main() {
         }
 
         if (route === '/' || route === '/en/') {
-          const hasReleaseLink = audit.links.some((href) => href && href.includes(release.tag));
-          assert.ok(hasReleaseLink, `${url} missing ${release.tag} release link`);
+          const hasReleaseLink = audit.links.some((href) => href && href.includes(`/releases/tag/${release.tag}`));
+          assert.ok(hasReleaseLink, `${url} missing /releases/tag/${release.tag} release link`);
         }
 
         // Axe-core + computed contrast check on mobile-390 and desktop-1440

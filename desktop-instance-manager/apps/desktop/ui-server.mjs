@@ -404,7 +404,8 @@ export function createUiServer(options = {}) {
           const localAppRoot = process.env.LOCALAPPDATA || os.homedir();
           const canonicalDataDir = path.join(localAppRoot, 'NexaDock');
           const legacyDataDir = path.join(localAppRoot, 'MultiZaloDesktop');
-          const defaultDataDir = !fs.existsSync(canonicalDataDir) && fs.existsSync(legacyDataDir)
+          const isDir = (p) => fs.existsSync(p) && fs.statSync(p).isDirectory();
+          const defaultDataDir = !isDir(canonicalDataDir) && isDir(legacyDataDir)
             ? legacyDataDir
             : canonicalDataDir;
           const baseDataDir = hostOptions.dataDir || defaultDataDir;

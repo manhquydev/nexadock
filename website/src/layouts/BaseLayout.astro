@@ -24,11 +24,11 @@ const ogImageUrl = `${siteOrigin}${base}/og-preview.png`;
 
 const homeHref = lang === 'vi' ? `${base}/` : `${base}/en/`;
 const docsHref = lang === 'vi' ? `${base}/docs/` : `${base}/en/docs/`;
-const viHref = altPath && lang === 'en' ? `${base}${altPath}` : `${base}/`;
-const enHref = altPath && lang === 'vi' ? `${base}${altPath}` : `${base}/en/`;
+const viHref = lang === 'vi' ? `${base}${canonicalPath}` : `${base}${altPath || '/'}`;
+const enHref = lang === 'en' ? `${base}${canonicalPath}` : `${base}${altPath || '/en/'}`;
 
-const viAbsoluteUrl = `${siteOrigin}${viHref}`;
-const enAbsoluteUrl = `${siteOrigin}${enHref}`;
+const viAbsoluteUrl = lang === 'vi' ? canonicalUrl : `${siteOrigin}${base}${altPath || '/'}`;
+const enAbsoluteUrl = lang === 'en' ? canonicalUrl : `${siteOrigin}${base}${altPath || '/en/'}`;
 const ogLocale = lang === 'vi' ? 'vi_VN' : 'en_US';
 const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
 ---
@@ -184,6 +184,9 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
       }
 
       const announcer = document.getElementById('copy-announcer');
+      const copyErrorMsg = document.documentElement.lang === 'vi'
+        ? 'Không thể tự động sao chép. Vui lòng sao chép thủ công.'
+        : 'Could not copy automatically. Please copy manually.';
       document.querySelectorAll('[data-copy-cmd]').forEach((copyBtn) => {
         copyBtn.addEventListener('click', async () => {
           const text = copyBtn.getAttribute('data-copy-cmd') || '';
@@ -191,14 +194,14 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
           const copiedLabel = copyBtn.getAttribute('data-label-copied') || 'Copied';
           try {
             await navigator.clipboard.writeText(text);
+            copyBtn.textContent = copiedLabel;
+            if (announcer) announcer.textContent = copiedLabel;
+            setTimeout(() => {
+              copyBtn.textContent = defaultLabel;
+            }, 1800);
           } catch {
-            // Fallback ignored in restricted headless contexts
+            if (announcer) announcer.textContent = copyErrorMsg;
           }
-          copyBtn.textContent = copiedLabel;
-          if (announcer) announcer.textContent = copiedLabel;
-          setTimeout(() => {
-            copyBtn.textContent = defaultLabel;
-          }, 1800);
         });
       });
     </script>

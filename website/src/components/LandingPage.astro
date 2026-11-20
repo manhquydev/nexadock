@@ -24,6 +24,12 @@ const macVerifyCmd = `shasum -a 256 NexaDock-${release.version}-macos-arm64.dmg`
 const linuxVerifyCmd = 'sha256sum -c SHA256SUMS.txt --ignore-missing';
 const copyLabel = lang === 'vi' ? 'Sao chép' : 'Copy';
 const copiedLabel = lang === 'vi' ? 'Đã chép' : 'Copied';
+const signingLabel =
+  release.signingStatus === 'UNSIGNED_DEVELOPMENT_ARTIFACT'
+    ? lang === 'vi'
+      ? 'Bản thử nghiệm chưa ký số'
+      : 'Unsigned beta build'
+    : release.signingStatus;
 ---
 <BaseLayout lang={lang} canonicalPath={lang === 'vi' ? '/' : '/en/'}>
   <section class="hero-section">
@@ -146,7 +152,7 @@ const copiedLabel = lang === 'vi' ? 'Đã chép' : 'Copied';
         <h2 class="section-title">{copy.download.title} ({release.tag})</h2>
         <div class="download-meta-row">
           <span class="state-tag is-warn">{copy.download.prereleaseBadge}</span>
-          <span class="state-tag is-neutral">{release.signingStatus}</span>
+          <span class="state-tag is-neutral">{signingLabel}</span>
           <span class="state-tag is-info">{release.version}</span>
         </div>
       </div>

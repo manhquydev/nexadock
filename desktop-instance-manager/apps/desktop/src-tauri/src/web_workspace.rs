@@ -336,9 +336,7 @@ fn open_in_os_browser(raw: &str) {
     }
 }
 
-/// Computes the Windows WebView2 profile name (`nexadock_web_<id>_g<gen>`, `[a-z0-9_-]{1,64}`).
-#[allow(dead_code)]
-pub fn windows_profile_name(id: &str, generation: u32) -> String {
+fn format_windows_profile_name(prefix: &str, id: &str, generation: u32) -> String {
     let sanitized: String = id
         .chars()
         .map(|c| {
@@ -350,10 +348,31 @@ pub fn windows_profile_name(id: &str, generation: u32) -> String {
         })
         .collect();
     let suffix = format!("_g{generation}");
-    let prefix = "nexadock_web_";
     let max_id_len = 64usize.saturating_sub(prefix.len() + suffix.len());
     let truncated: String = sanitized.chars().take(max_id_len).collect();
     format!("{prefix}{truncated}{suffix}")
+}
+
+/// Computes the Windows WebView2 profile name (`nexadock_web_<id>_g<gen>`, `[a-z0-9_-]{1,64}`).
+#[allow(dead_code)]
+pub fn windows_profile_name(id: &str, generation: u32) -> String {
+    format_windows_profile_name("nexadock_web_", id, generation)
+}
+
+/// Resolves the Windows WebView2 profile name for an existing or new session,
+/// preserving migrated `khoang_web_<id>_g<gen>` folders when `nexadock_web_*` does not exist yet.
+#[allow(dead_code)]
+pub fn resolve_windows_profile_name(shared_env_dir: &Path, id: &str, generation: u32) -> String {
+    let canonical = windows_profile_name(id, generation);
+    let ebwebview_dir = shared_env_dir.join("EBWebView");
+    if ebwebview_dir.join(&canonical).exists() {
+        return canonical;
+    }
+    let legacy = format_windows_profile_name("khoang_web_", id, generation);
+    if ebwebview_dir.join(&legacy).exists() {
+        return legacy;
+    }
+    canonical
 }
 
 #[allow(dead_code)]
@@ -649,6 +668,9 @@ fn build_child_webview(
     let context_dir = per_session_dir(data_dir, &record.id, record.profile_generation);
 
     fs::create_dir_all(&context_dir)?;
+    #[cfg(target_os = "windows")]
+    let profile_name =
+        resolve_windows_profile_name(&context_dir, &record.id, record.profile_generation);
     let mut context = WebContext::new(Some(context_dir));
 
     #[allow(unused_mut)]
@@ -684,7 +706,6 @@ fn build_child_webview(
 
     #[cfg(target_os = "windows")]
     {
-        let profile_name = windows_profile_name(&record.id, record.profile_generation);
         builder = builder.with_profile_name(profile_name);
         if let Some(env) = cached_env {
             builder = builder.with_environment(env);
@@ -816,7 +837,11 @@ pub fn show_session(
                 let mut mgr = cell.borrow_mut();
                 mgr.ensure_initialized();
 
-                let prof_name = windows_profile_name(&record.id, record.profile_generation);
+                let prof_name = resolve_windows_profile_name(
+                    &shared_env_dir(&data_dir),
+                    &record.id,
+                    record.profile_generation,
+                );
                 if mgr.deleting_profiles.contains(&prof_name)
                     || pending_deletes.iter().any(|p| p == &prof_name)
                 {
@@ -977,7 +1002,11 @@ pub fn reload_session(
             let Some(entry) = mgr.children.get(&record.id) else {
                 return Ok(None);
             };
-            let prof_name = windows_profile_name(&record.id, record.profile_generation);
+            let prof_name = resolve_windows_profile_name(
+                &shared_env_dir(&data_dir),
+                &record.id,
+                record.profile_generation,
+            );
             if mgr.deleting_profiles.contains(&prof_name)
                 || pending_deletes.iter().any(|p| p == &prof_name)
             {
@@ -1076,7 +1105,11 @@ pub fn teardown_and_delete_profile(
 
         #[cfg(target_os = "windows")]
         let pending_win_profile = {
-            let prof_name = windows_profile_name(&record.id, record.profile_generation);
+            let prof_name = resolve_windows_profile_name(
+                &shared_env_dir(&data_dir),
+                &record.id,
+                record.profile_generation,
+            );
             if let Some(entry) = removed_entry {
                 let _ = entry.webview.set_visible(false);
                 let deleted = delete_webview2_profile_via_api(&entry.webview, &prof_name);
@@ -1248,6 +1281,46 @@ mod tests {
         assert!(long.len() <= 64);
         assert!(long.ends_with("_g12"));
         assert!(!is_valid_windows_profile_name("../escape"));
+    }
+
+    #[test]
+    fn resolve_windows_profile_name_preserves_migrated_legacy_profile_folder() {
+        let tmp = std::env::temp_dir().join(format!(
+            "nexadock-web-prof-resolve-{}-{}",
+            std::process::id(),
+            dim_core::generate_profile_id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        let eb_dir = tmp.join("EBWebView");
+        fs::create_dir_all(&eb_dir).unwrap();
+
+        // Clean install uses canonical nexadock_web_*
+        assert_eq!(
+            resolve_windows_profile_name(&tmp, "web-a1b2c3d4", 1),
+            "nexadock_web_web-a1b2c3d4_g1"
+        );
+
+        // Migrated legacy folder without canonical folder preserves khoang_web_*
+        fs::create_dir_all(eb_dir.join("khoang_web_web-a1b2c3d4_g1")).unwrap();
+        assert_eq!(
+            resolve_windows_profile_name(&tmp, "web-a1b2c3d4", 1),
+            "khoang_web_web-a1b2c3d4_g1"
+        );
+
+        // New generation (e.g. after reset) uses canonical nexadock_web_*
+        assert_eq!(
+            resolve_windows_profile_name(&tmp, "web-a1b2c3d4", 2),
+            "nexadock_web_web-a1b2c3d4_g2"
+        );
+
+        // When canonical folder exists, canonical takes precedence
+        fs::create_dir_all(eb_dir.join("nexadock_web_web-a1b2c3d4_g1")).unwrap();
+        assert_eq!(
+            resolve_windows_profile_name(&tmp, "web-a1b2c3d4", 1),
+            "nexadock_web_web-a1b2c3d4_g1"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]

@@ -4,11 +4,13 @@ import { SITE_COPY } from '../../../data/site-copy';
 import release from '../../../data/release.json';
 
 const copy = SITE_COPY.en;
-const winVerifyCmd = `Get-FileHash .\\NexaDock-${release.version}-windows-x64-setup.exe -Algorithm SHA256`;
+const winVerifyCmd = `Get-FileHash .\\NexaDock-${release.version}-windows-x64-* -Algorithm SHA256`;
 const macVerifyCmd = `shasum -a 256 NexaDock-${release.version}-macos-arm64.dmg`;
 const bridgeCmd = 'node apps/desktop/ui-server.mjs';
-const profilesPath = '%LOCALAPPDATA%\\NexaDock\\Profiles';
-const primaryPath = '%APPDATA%\\ZaloData';
+const winProfilesPath = '%LOCALAPPDATA%\\NexaDock\\Profiles';
+const winPrimaryPath = '%APPDATA%\\ZaloData';
+const macProfilesPath = '~/Library/Application Support/NexaDock/Profiles';
+const macPrimaryPath = '~/Library/Application Support/ZaloData';
 ---
 <BaseLayout
   lang="en"
@@ -76,11 +78,22 @@ const primaryPath = '%APPDATA%\\ZaloData';
           <h2>4. Profile Isolation &amp; Primary Zalo Protection</h2>
           <div class="mechanism-stack">
             <p>
-              Each secondary account receives its own directory under <span class="code-inline">{profilesPath}</span> with dedicated <span class="code-inline">APPDATA</span>, <span class="code-inline">LOCALAPPDATA</span>, and <span class="code-inline">TEMP</span> paths. Your primary Zalo directory <span class="code-inline">{primaryPath}</span> remains strictly read-only.
+              Each secondary account receives its own isolated directory (with dedicated <span class="code-inline">APPDATA</span>, <span class="code-inline">LOCALAPPDATA</span>, and <span class="code-inline">TEMP</span> paths on Windows). Your primary Zalo directory remains strictly read-only:
+            </p>
+            <ul>
+              <li>
+                <strong>Windows:</strong> secondary profiles at <span class="code-inline">{winProfilesPath}</span>; primary Zalo at <span class="code-inline">{winPrimaryPath}</span>.
+              </li>
+              <li>
+                <strong>macOS:</strong> secondary profiles at <span class="code-inline">{macProfilesPath}</span>; primary Zalo at <span class="code-inline">{macPrimaryPath}</span>.
+              </li>
+            </ul>
+            <p>
+              When upgrading from <span class="code-inline">MultiZaloDesktop</span> to <span class="code-inline">NexaDock</span>, the app performs a one-time automatic migration of settings and profile data to the new path while preserving legacy data without auto-deletion.
             </p>
             <div class="cmd-block">
-              <code>{profilesPath}</code>
-              <button type="button" class="cmd-copy-btn" data-copy-cmd={profilesPath} data-label-default="Copy" data-label-copied="Copied">
+              <code>{winProfilesPath}</code>
+              <button type="button" class="cmd-copy-btn" data-copy-cmd={winProfilesPath} data-label-default="Copy" data-label-copied="Copied">
                 Copy
               </button>
             </div>

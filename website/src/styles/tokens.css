@@ -87,7 +87,7 @@
     --surface-elevated: Canvas;
     --surface-inset: Canvas;
     --surface-subtle: Canvas;
-    --surface-hover: Highlight;
+    --surface-hover: Canvas;
     --surface-ink: Canvas;
     --text-primary: CanvasText;
     --text-secondary: CanvasText;
@@ -101,8 +101,8 @@
     --action-primary-hover: Highlight;
     --action-primary-pressed: Highlight;
     --action-secondary: ButtonFace;
-    --action-secondary-hover: Highlight;
-    --action-secondary-pressed: Highlight;
+    --action-secondary-hover: Canvas;
+    --action-secondary-pressed: Canvas;
     --shadow-frame: none;
   }
 }

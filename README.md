@@ -34,7 +34,7 @@
 
 Mỗi tài khoản được đặt trong một không gian lưu trữ riêng (`Profiles/<slug>_<id>/`) bằng cơ chế tách biệt biến môi trường và thư mục dữ liệu ở cấp hệ điều hành, đi kèm giao diện **NexaDock** (Tiếng Việt / English, Sáng / Tối, hướng thiết kế *Calm Precision* — xem [`docs/brand/BRAND_GUIDELINES.md`](docs/brand/BRAND_GUIDELINES.md)) xây dựng trên **Rust + Tauri 2**.
 
-> **Tương thích nâng cấp:** NexaDock sử dụng định danh chuẩn `io.github.manhquydev.nexadock`, thư mục dữ liệu `%LOCALAPPDATA%\NexaDock`, và tệp `nexadock-preferences.json`, đồng thời tự động thực hiện di trú một lần an toàn từ `MultiZaloDesktop` / `khoang-preferences.json` / `com.multizalodesktop.manager\EBWebView` khi nâng cấp mà không tự xóa dữ liệu cũ.
+> **Tương thích nâng cấp:** NexaDock sử dụng định danh chuẩn `io.github.manhquydev.nexadock`, thư mục dữ liệu `%LOCALAPPDATA%\NexaDock`, và tệp `nexadock-preferences.json`, đồng thời tự động thực hiện di trú một lần an toàn từ `MultiZaloDesktop` / `khoang-preferences.json` (và `com.multizalodesktop.manager\EBWebView` trên Windows) khi `%LOCALAPPDATA%\NexaDock` chưa tồn tại mà không tự xóa dữ liệu cũ.
 
 <details>
 <summary><strong>Xem thêm ảnh chụp màn hình giao diện thực tế (Tối, Tiếng Anh, Thêm tài khoản, Sao lưu, Kiểm tra sự cố)</strong></summary>
