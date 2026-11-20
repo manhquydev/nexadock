@@ -17,7 +17,7 @@
   --font-sans: "Be Vietnam Pro", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
 
-  /* KHOANG Calm Precision — Light theme tokens (Locked Palette) */
+  /* NexaDock Calm Precision — Light theme tokens (Locked Palette) */
   --bg-app-light: #f6f5f2;
   --bg-surface-light: #ffffff;
   --bg-subtle-light: #efece5;
@@ -45,7 +45,7 @@
   --shadow-card-light: 0 1px 2px rgba(25, 42, 38, 0.04);
   --shadow-menu-light: 0 8px 24px rgba(25, 42, 38, 0.12);
 
-  /* KHOANG Calm Precision — Dark theme tokens (Locked Palette) */
+  /* NexaDock Calm Precision — Dark theme tokens (Locked Palette) */
   --bg-app-dark: #121210;
   --bg-surface-dark: #1b1b18;
   --bg-subtle-dark: #23231f;
@@ -1432,7 +1432,7 @@ dialog::backdrop {
 }
 
 /* ========================================================================
- * KHOANG Phase 3 Upgrade Additions (Grid/List, Recovery, Protected Badge)
+ * NexaDock Phase 3 Upgrade Additions (Grid/List, Recovery, Protected Badge)
  * ======================================================================== */
 [hidden] {
   display: none !important;
@@ -1593,7 +1593,7 @@ dialog::backdrop {
 }
 
 /* ========================================================================
- * KHOANG Unified Workspace Shell (Left Account Rail + Unified Stage)
+ * NexaDock Unified Workspace Shell (Left Account Rail + Unified Stage)
  * ======================================================================== */
 .workspace-shell {
   --rail-w: 4.25rem;

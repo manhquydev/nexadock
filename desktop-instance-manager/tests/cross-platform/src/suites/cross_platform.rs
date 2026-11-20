@@ -7,11 +7,16 @@
 //! - Portable layout, command-builder, and source-verified broken-symlink semantics execute everywhere and expose cross-platform bugs (`DEFECT-01`, `DEFECT-02`).
 
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
+use std::fs;
+#[cfg(windows)]
+use std::fs::OpenOptions;
 use std::path::Path;
+#[cfg(windows)]
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(windows)]
+use std::time::Instant;
 
 use dim_core::{
     resolve_data_dir_for_platform, ApplicationLocator, PlatformCapabilities, PlatformKind,
@@ -26,15 +31,19 @@ use dim_platform_macos::{
     inspect_call_sockets_at, macos_zalo_data_dir, parse_singleton_lock_target,
     read_singleton_or_json_pid, MacOsPlatformAdapter, MACOS_SYMLINK_DIRS,
 };
+#[cfg(windows)]
+use dim_platform_windows::WindowsPlatformAdapter;
 use dim_platform_windows::{
     build_isolated_env_map, build_windows_command_line, encode_windows_env_block_utf16,
-    is_appdata_redirected, quote_windows_arg, WindowsPlatformAdapter,
+    is_appdata_redirected, quote_windows_arg,
 };
 use serde_json::json;
 
+#[cfg(windows)]
+use crate::harness::xf_fixture_bin_path;
 use crate::harness::{
-    dim_root_dir, make_node_fixture_target, run_case_if, xf_fixture_bin_path, CaseSelectionFilter,
-    CaseSuccess, IsolatedSandbox, TestCaseOutcome,
+    dim_root_dir, make_node_fixture_target, run_case_if, CaseSelectionFilter, CaseSuccess,
+    IsolatedSandbox, TestCaseOutcome,
 };
 
 /// Executes all Cross-Platform Difference scenarios (`XP-WIN-*`, `XP-MAC-*`, `XP-LNX-*`).
@@ -277,10 +286,10 @@ fn xp_win_02_appdata_env_and_redirection(seed: u64) -> Result<CaseSuccess, Strin
     #[cfg(not(target_os = "windows"))]
     {
         let _ = seed;
-        return Ok(CaseSuccess::skipped_host(
+        Ok(CaseSuccess::skipped_host(
             "windows",
             "Static UTF-16/AppData rules verified; live CreateProcessW env verification requires Windows host",
-        ));
+        ))
     }
 
     #[cfg(target_os = "windows")]
@@ -578,7 +587,7 @@ fn xp_mac_01_application_support_and_bundle_discovery() -> Result<CaseSuccess, S
         env.get(k).map(|s| (*s).to_owned())
     })
     .map_err(|e| e.to_string())?;
-    if resolved != Path::new("/Users/tester/Library/Application Support/MultiZaloDesktop") {
+    if resolved != Path::new("/Users/tester/Library/Application Support/NexaDock") {
         return Err(format!("unexpected macOS data_dir: {}", resolved.display()));
     }
 
@@ -802,13 +811,13 @@ fn xp_mac_03_singleton_lock_and_launch_parity() -> Result<CaseSuccess, String> {
             ));
         }
 
-        return Ok(CaseSuccess::pass(json!({
+        Ok(CaseSuccess::pass(json!({
             "verification_kind": "NATIVE_OS_RUNTIME",
             "host_os": PlatformKind::current().as_str(),
             "native_runtime_verified": true,
             "dangling_singleton_lock_detected": true,
             "multi_profile_node_fixture_isolated": true,
-        })));
+        })))
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -912,7 +921,7 @@ fn xp_lnx_01_xdg_paths_and_layout() -> Result<CaseSuccess, String> {
         env.get(k).map(|s| (*s).to_owned())
     })
     .map_err(|e| e.to_string())?;
-    if fallback != Path::new("/home/ubuntu/.local/share/MultiZaloDesktop") {
+    if fallback != Path::new("/home/ubuntu/.local/share/NexaDock") {
         return Err(format!(
             "unexpected Linux fallback data_dir: {}",
             fallback.display()
@@ -924,7 +933,7 @@ fn xp_lnx_01_xdg_paths_and_layout() -> Result<CaseSuccess, String> {
         env.get(k).map(|s| (*s).to_owned())
     })
     .map_err(|e| e.to_string())?;
-    if xdg_over != Path::new("/custom/xdg-data/MultiZaloDesktop") {
+    if xdg_over != Path::new("/custom/xdg-data/NexaDock") {
         return Err(format!(
             "unexpected XDG_DATA_HOME override: {}",
             xdg_over.display()
@@ -1052,14 +1061,14 @@ fn xp_lnx_02_appimage_and_singleton_lock() -> Result<CaseSuccess, String> {
             );
         }
 
-        return Ok(CaseSuccess::pass(json!({
+        Ok(CaseSuccess::pass(json!({
             "verification_kind": "NATIVE_OS_RUNTIME",
             "host_os": PlatformKind::current().as_str(),
             "native_runtime_verified": true,
             "official_linux_status": official.support_status,
             "appimage_status": exp.support_status,
             "dangling_singleton_lock_recovered": true,
-        })));
+        })))
     }
 
     #[cfg(not(target_os = "linux"))]

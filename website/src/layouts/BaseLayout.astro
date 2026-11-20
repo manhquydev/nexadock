@@ -10,19 +10,27 @@ interface Props {
   description?: string;
   canonicalPath?: string;
   altPath?: string;
+  noindex?: boolean;
 }
 
-const { lang, title, description, canonicalPath = '', altPath } = Astro.props;
+const { lang, title, description, canonicalPath = '/', altPath, noindex = false } = Astro.props;
 const copy = SITE_COPY[lang];
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const siteOrigin = 'https://manhquydev.github.io';
 const pageTitle = title || copy.title;
 const pageDesc = description || copy.description;
-const canonicalUrl = `https://manhquydev.github.io${base}${canonicalPath}`;
-const ogImageUrl = `https://manhquydev.github.io${base}/og-preview.png`;
+const canonicalUrl = `${siteOrigin}${base}${canonicalPath}`;
+const ogImageUrl = `${siteOrigin}${base}/og-preview.png`;
+
 const homeHref = lang === 'vi' ? `${base}/` : `${base}/en/`;
 const docsHref = lang === 'vi' ? `${base}/docs/` : `${base}/en/docs/`;
 const viHref = altPath && lang === 'en' ? `${base}${altPath}` : `${base}/`;
 const enHref = altPath && lang === 'vi' ? `${base}${altPath}` : `${base}/en/`;
+
+const viAbsoluteUrl = `${siteOrigin}${viHref}`;
+const enAbsoluteUrl = `${siteOrigin}${enHref}`;
+const ogLocale = lang === 'vi' ? 'vi_VN' : 'en_US';
+const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
 ---
 <!doctype html>
 <html lang={lang}>
@@ -31,12 +39,29 @@ const enHref = altPath && lang === 'vi' ? `${base}${altPath}` : `${base}/en/`;
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="page-type" content="software" />
     <meta name="site-kind" content="software" />
+    {noindex && <meta name="robots" content="noindex" />}
     <title>{pageTitle}</title>
     <meta name="description" content={pageDesc} />
     <link rel="canonical" href={canonicalUrl} />
+    {!noindex && (
+      <>
+        <link rel="alternate" hreflang="vi" href={viAbsoluteUrl} />
+        <link rel="alternate" hreflang="en" href={enAbsoluteUrl} />
+        <link rel="alternate" hreflang="x-default" href={viAbsoluteUrl} />
+      </>
+    )}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
     <link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
     <link rel="alternate icon" href={`${base}/favicon.ico`} />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="NexaDock" />
+    <meta property="og:locale" content={ogLocale} />
+    <meta property="og:locale:alternate" content={ogAltLocale} />
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={pageDesc} />
     <meta property="og:url" content={canonicalUrl} />
@@ -61,6 +86,7 @@ const enHref = altPath && lang === 'vi' ? `${base}${altPath}` : `${base}/en/`;
         <nav class="nav-links" aria-label={lang === 'vi' ? 'Điều hướng chính' : 'Primary navigation'}>
           <a href={`${homeHref}#experience`}>{copy.nav.experience}</a>
           <a href={`${homeHref}#safety`}>{copy.nav.safety}</a>
+          <a href={`${homeHref}#platforms`}>{copy.nav.platforms}</a>
           <a href={`${homeHref}#download`}>{copy.nav.download}</a>
           <a href={docsHref}>{copy.nav.docs}</a>
         </nav>
@@ -88,6 +114,7 @@ const enHref = altPath && lang === 'vi' ? `${base}${altPath}` : `${base}/en/`;
       <div class="mobile-drawer" id="mobile-drawer">
         <a href={`${homeHref}#experience`}>{copy.nav.experience}</a>
         <a href={`${homeHref}#safety`}>{copy.nav.safety}</a>
+        <a href={`${homeHref}#platforms`}>{copy.nav.platforms}</a>
         <a href={`${homeHref}#download`}>{copy.nav.download}</a>
         <a href={docsHref}>{copy.nav.docs}</a>
         <a class="btn btn-primary" href={`${homeHref}#download`}>
@@ -107,7 +134,7 @@ const enHref = altPath && lang === 'vi' ? `${base}${altPath}` : `${base}/en/`;
             <img src={`${base}/brand/nexadock-mark.svg`} alt="" width="22" height="22" />
             <span>NexaDock</span>
           </a>
-          <p style="margin-top: 12px; max-width: 52ch;">{copy.footer.disclaimer}</p>
+          <p class="footer-disclaimer">{copy.footer.disclaimer}</p>
         </div>
         <div>
           <strong>{copy.footer.projectHeading}</strong>
@@ -128,21 +155,52 @@ const enHref = altPath && lang === 'vi' ? `${base}${altPath}` : `${base}/en/`;
       </div>
     </footer>
 
+    <div class="sr-only" id="copy-announcer" aria-live="polite"></div>
+
     <script is:inline>
       const btn = document.getElementById('mobile-menu-toggle');
       const drawer = document.getElementById('mobile-drawer');
       if (btn && drawer) {
+        const closeDrawer = (restoreFocus = false) => {
+          drawer.classList.remove('is-open');
+          btn.setAttribute('aria-expanded', 'false');
+          if (restoreFocus) btn.focus();
+        };
+
         btn.addEventListener('click', () => {
           const open = drawer.classList.toggle('is-open');
           btn.setAttribute('aria-expanded', String(open));
         });
+
         drawer.querySelectorAll('a').forEach((link) => {
-          link.addEventListener('click', () => {
-            drawer.classList.remove('is-open');
-            btn.setAttribute('aria-expanded', 'false');
-          });
+          link.addEventListener('click', () => closeDrawer(false));
+        });
+
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && drawer.classList.contains('is-open')) {
+            closeDrawer(true);
+          }
         });
       }
+
+      const announcer = document.getElementById('copy-announcer');
+      document.querySelectorAll('[data-copy-cmd]').forEach((copyBtn) => {
+        copyBtn.addEventListener('click', async () => {
+          const text = copyBtn.getAttribute('data-copy-cmd') || '';
+          const defaultLabel = copyBtn.getAttribute('data-label-default') || 'Copy';
+          const copiedLabel = copyBtn.getAttribute('data-label-copied') || 'Copied';
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch {
+            // Fallback ignored in restricted headless contexts
+          }
+          copyBtn.textContent = copiedLabel;
+          if (announcer) announcer.textContent = copiedLabel;
+          setTimeout(() => {
+            copyBtn.textContent = defaultLabel;
+          }, 1800);
+        });
+      });
     </script>
   </body>
 </html>

@@ -17,6 +17,13 @@ const fmtBytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 const winAssets = release.assets.filter((a) => /windows/i.test(a.name));
 const macAssets = release.assets.filter((a) => /macos/i.test(a.name));
 const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name));
+
+const heroShot = lang === 'vi' ? 'nexadock-3accounts-vi-light.png' : 'nexadock-en-us-light.png';
+const winVerifyCmd = `Get-FileHash .\\NexaDock-${release.version}-windows-x64-setup.exe -Algorithm SHA256`;
+const macVerifyCmd = `shasum -a 256 NexaDock-${release.version}-macos-arm64.dmg`;
+const linuxVerifyCmd = 'sha256sum -c SHA256SUMS.txt --ignore-missing';
+const copyLabel = lang === 'vi' ? 'Sao chép' : 'Copy';
+const copiedLabel = lang === 'vi' ? 'Đã chép' : 'Copied';
 ---
 <BaseLayout lang={lang} canonicalPath={lang === 'vi' ? '/' : '/en/'}>
   <section class="hero-section">
@@ -35,54 +42,47 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
         <p class="hero-meta">{copy.hero.meta}</p>
       </div>
 
-      <WorkspaceShowcase lang={lang} />
+      <figure class="hero-proof">
+        <img
+          src={`${base}/screenshots/${heroShot}`}
+          alt={copy.hero.screenshotAlt}
+          width="1160"
+          height="780"
+          loading="eager"
+          fetchpriority="high"
+        />
+        <figcaption>{copy.hero.screenshotCaption}</figcaption>
+      </figure>
     </div>
   </section>
 
   <section class="section" id="experience">
     <div class="container">
       <div class="section-header">
+        <h2 class="section-title">{copy.showcase.title}</h2>
+        <p class="section-desc">{copy.showcase.desc}</p>
+      </div>
+
+      <WorkspaceShowcase lang={lang} />
+
+      <div class="section-header section-header--spaced">
         <h2 class="section-title">{copy.shots.title}</h2>
         <p class="section-desc">{copy.shots.desc}</p>
       </div>
 
       <div class="shots-grid">
-        <div class="shot-frame">
-          <img
-            src={`${base}/screenshots/${lang === 'vi' ? 'account-dock-3accounts-vi-light.png' : 'account-dock-en-US-light-1160x780.png'}`}
-            alt={lang === 'vi' ? 'Giao diện NexaDock chế độ sáng' : 'NexaDock light workspace'}
-            width="1160"
-            height="780"
-            loading="lazy"
-          />
-        </div>
-        <div class="shot-frame">
-          <img
-            src={`${base}/screenshots/account-dock-vi-VN-dark-1160x780.png`}
-            alt={lang === 'vi' ? 'Giao diện NexaDock chế độ tối' : 'NexaDock dark workspace'}
-            width="1160"
-            height="780"
-            loading="lazy"
-          />
-        </div>
-        <div class="shot-frame">
-          <img
-            src={`${base}/screenshots/account-dock-desktop-stage-vi-light.png`}
-            alt={lang === 'vi' ? 'Quản lý tài khoản trên Desktop Stage' : 'NexaDock Desktop Stage view'}
-            width="1160"
-            height="780"
-            loading="lazy"
-          />
-        </div>
-        <div class="shot-frame">
-          <img
-            src={`${base}/screenshots/account-dock-diagnostics-vi-light.png`}
-            alt={lang === 'vi' ? 'Kiểm tra tách biệt dữ liệu trên Diagnostics' : 'NexaDock Diagnostics isolation checks'}
-            width="1160"
-            height="780"
-            loading="lazy"
-          />
-        </div>
+        {copy.shots.items.map((shot) => (
+          <figure class="shot-frame">
+            <img
+              src={`${base}/screenshots/${shot.file}`}
+              alt={shot.alt}
+              width="1160"
+              height="780"
+              loading="lazy"
+            />
+            <figcaption>{shot.caption}</figcaption>
+          </figure>
+        ))}
       </div>
     </div>
   </section>
@@ -105,7 +105,7 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" id="platforms">
     <div class="container">
       <div class="section-header">
         <h2 class="section-title">{copy.compat.title}</h2>
@@ -117,7 +117,7 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
           <thead>
             <tr>
               {copy.compat.headers.map((h) => (
-                <th>{h}</th>
+                <th scope="col">{h}</th>
               ))}
             </tr>
           </thead>
@@ -144,9 +144,11 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
     <div class="container">
       <div class="section-header">
         <h2 class="section-title">{copy.download.title} ({release.tag})</h2>
-        <p class="section-desc">
+        <div class="download-meta-row">
           <span class="state-tag is-warn">{copy.download.prereleaseBadge}</span>
-        </p>
+          <span class="state-tag is-neutral">{release.signingStatus}</span>
+          <span class="state-tag is-info">{release.version}</span>
+        </div>
       </div>
 
       <div class="download-panel">
@@ -155,10 +157,10 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
             Windows 10/11 (x64)
           </button>
           <button type="button" class="platform-tab" role="tab" id="dl-tab-macos" aria-controls="dl-panel-macos" aria-selected="false" tabindex="-1" data-dl-tab="macos">
-            macOS Apple Silicon
+            macOS Apple Silicon (arm64)
           </button>
           <button type="button" class="platform-tab" role="tab" id="dl-tab-ubuntu" aria-controls="dl-panel-ubuntu" aria-selected="false" tabindex="-1" data-dl-tab="ubuntu">
-            {lang === 'vi' ? 'Ubuntu 24.04 (Thử nghiệm)' : 'Ubuntu 24.04 (Experimental)'}
+            {lang === 'vi' ? 'Linux x64 (Thử nghiệm)' : 'Linux x64 (Experimental)'}
           </button>
         </div>
 
@@ -166,10 +168,13 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
           <div class="asset-list">
             {winAssets.map((a) => (
               <div class="asset-row">
-                <div>
+                <div class="asset-info">
                   <div class="asset-name">{a.name}</div>
-                  <div class="asset-meta">
-                    {fmtBytes(a.size)}{a.sha256 ? ` · SHA-256: ${a.sha256}` : ''}
+                  <div class="asset-specs">
+                    <span>Windows x64</span>
+                    <span>{fmtBytes(a.size)}</span>
+                    <span>{release.signingStatus}</span>
+                    {a.sha256 && <span>SHA-256: {a.sha256}</span>}
                   </div>
                 </div>
                 <a class="btn btn-primary" href={a.downloadUrl}>
@@ -180,8 +185,19 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
           </div>
           <div class="verify-box">
             <strong>{copy.download.verifyTitle}</strong>
-            <p style="margin: 6px 0 0; color: var(--text-secondary);">{copy.download.verifyBody}</p>
-            <code class="verify-cmd">Get-FileHash .\NexaDock-{release.version}-windows-x64-setup.exe -Algorithm SHA256</code>
+            <p class="verify-box-desc">{copy.download.verifyBody}</p>
+            <div class="cmd-block">
+              <code>{winVerifyCmd}</code>
+              <button
+                type="button"
+                class="cmd-copy-btn"
+                data-copy-cmd={winVerifyCmd}
+                data-label-default={copyLabel}
+                data-label-copied={copiedLabel}
+              >
+                {copyLabel}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -189,10 +205,13 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
           <div class="asset-list">
             {macAssets.map((a) => (
               <div class="asset-row">
-                <div>
+                <div class="asset-info">
                   <div class="asset-name">{a.name}</div>
-                  <div class="asset-meta">
-                    {fmtBytes(a.size)}{a.sha256 ? ` · SHA-256: ${a.sha256}` : ''}
+                  <div class="asset-specs">
+                    <span>macOS arm64</span>
+                    <span>{fmtBytes(a.size)}</span>
+                    <span>{release.signingStatus}</span>
+                    {a.sha256 && <span>SHA-256: {a.sha256}</span>}
                   </div>
                 </div>
                 <a class="btn btn-primary" href={a.downloadUrl}>
@@ -201,12 +220,22 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
               </div>
             ))}
           </div>
-          <p style="margin: 14px 0 0; color: var(--text-secondary); font-size: 0.9375rem;">
-            {copy.download.missingIntel}
-          </p>
+          <p class="platform-note">{copy.download.missingIntel}</p>
           <div class="verify-box">
             <strong>{copy.download.verifyTitle}</strong>
-            <code class="verify-cmd">shasum -a 256 NexaDock-{release.version}-macos-arm64.dmg</code>
+            <p class="verify-box-desc">{copy.download.verifyBody}</p>
+            <div class="cmd-block">
+              <code>{macVerifyCmd}</code>
+              <button
+                type="button"
+                class="cmd-copy-btn"
+                data-copy-cmd={macVerifyCmd}
+                data-label-default={copyLabel}
+                data-label-copied={copiedLabel}
+              >
+                {copyLabel}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -214,10 +243,13 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
           <div class="asset-list">
             {linuxAssets.map((a) => (
               <div class="asset-row">
-                <div>
+                <div class="asset-info">
                   <div class="asset-name">{a.name}</div>
-                  <div class="asset-meta">
-                    {fmtBytes(a.size)}{a.sha256 ? ` · SHA-256: ${a.sha256}` : ''}
+                  <div class="asset-specs">
+                    <span>Linux x64</span>
+                    <span>{fmtBytes(a.size)}</span>
+                    <span>{release.signingStatus}</span>
+                    {a.sha256 && <span>SHA-256: {a.sha256}</span>}
                   </div>
                 </div>
                 <a class="btn btn-primary" href={a.downloadUrl}>
@@ -226,16 +258,26 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
               </div>
             ))}
           </div>
+          <p class="platform-note">{copy.download.linuxNote}</p>
           <div class="verify-box">
             <strong>{copy.download.verifyTitle}</strong>
-            <code class="verify-cmd">sha256sum -c SHA256SUMS.txt --ignore-missing</code>
+            <p class="verify-box-desc">{copy.download.verifyBody}</p>
+            <div class="cmd-block">
+              <code>{linuxVerifyCmd}</code>
+              <button
+                type="button"
+                class="cmd-copy-btn"
+                data-copy-cmd={linuxVerifyCmd}
+                data-label-default={copyLabel}
+                data-label-copied={copiedLabel}
+              >
+                {copyLabel}
+              </button>
+            </div>
           </div>
         </div>
 
-        <p style="margin: 20px 0 0; font-size: 0.9375rem; color: var(--text-secondary);">
-          {copy.download.upgradeNote}
-        </p>
-        <p style="margin: 10px 0 0; font-size: 0.875rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 16px;">
+        <p class="release-links">
           <a href={release.htmlUrl}>{lang === 'vi' ? 'Xem ghi chú phát hành' : 'Release notes'} ({release.tag})</a>
           {release.sha256SumsUrl && (
             <a href={release.sha256SumsUrl}>SHA256SUMS.txt</a>

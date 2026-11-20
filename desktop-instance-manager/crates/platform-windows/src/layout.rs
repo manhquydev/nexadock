@@ -196,6 +196,8 @@ pub fn build_isolated_env_map(
     set_var("TMP", temp.to_string_lossy().into_owned());
     set_var("DIM_PROFILE_ID", profile.id.clone());
     set_var("DIM_PROFILE_NAME", profile.name.clone());
+    set_var("NEXADOCK_PROFILE_ID", profile.id.clone());
+    set_var("NEXADOCK_PROFILE_NAME", profile.name.clone());
     set_var("MULTIZALO_PROFILE_ID", profile.id.clone());
     set_var("MULTIZALO_PROFILE_NAME", profile.name.clone());
 

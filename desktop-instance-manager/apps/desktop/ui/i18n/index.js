@@ -1,6 +1,7 @@
 export const DEFAULT_LOCALE = 'vi-VN';
 export const SUPPORTED_LOCALES = Object.freeze(['vi-VN', 'en-US']);
-export const LOCALE_STORAGE_KEY = 'multi-zalo.locale';
+export const LOCALE_STORAGE_KEY = 'nexadock.locale';
+const LEGACY_LOCALE_STORAGE_KEY = 'multi-zalo.locale';
 
 export const DICTIONARIES = {
   'vi-VN': {},
@@ -18,6 +19,15 @@ function loadInitialLocale() {
       const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
       if (saved && SUPPORTED_LOCALES.includes(saved)) {
         return saved;
+      }
+      const legacy = localStorage.getItem(LEGACY_LOCALE_STORAGE_KEY);
+      if (legacy && SUPPORTED_LOCALES.includes(legacy)) {
+        try {
+          localStorage.setItem(LOCALE_STORAGE_KEY, legacy);
+        } catch (_writeErr) {
+          // Ignore storage write errors
+        }
+        return legacy;
       }
     }
   } catch (_err) {

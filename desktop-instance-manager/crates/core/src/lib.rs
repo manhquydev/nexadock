@@ -1,4 +1,4 @@
-//! Core domain types, traits, path-traversal guards, and identity checks for `MultiZaloDesktop`.
+//! Core domain types, traits, path-traversal guards, and identity checks for `NexaDock`.
 
 pub mod error;
 pub mod fs_lock;
@@ -32,8 +32,9 @@ pub use models::{
     ProfileRuntimeState, ProfilesDocument, RecoveryReport, RuntimeOwnershipState, RuntimeStatus,
     SupportStatus, VerifiedDeletionState, WebSessionRecord, WindowActivationState, WindowRect,
     APP_DIR_NAME, BACKUP_SCHEMA_VERSION, DIM_DATA_DIR_ENV, LAUNCH_ADMISSION_LOCK_FILE,
-    MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION, PROFILE_LOCKS_DIR,
-    PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE, ZALO_PROFILE_ID_FILE,
+    LEGACY_APP_DIR_NAME, MIN_FREE_DISK_BYTES, PROFILES_LOCK_FILE, PROFILES_SCHEMA_VERSION,
+    PROFILE_LOCKS_DIR, PROFILE_OP_LOCK_FILE, RUNTIME_LEASE_FILE, RUNTIME_PID_FILE,
+    ZALO_PROFILE_ID_FILE,
 };
 pub use path_guard::{
     check_disk_space_bytes, ensure_min_free_disk_space, ensure_not_primary_zalo_path,
@@ -118,7 +119,7 @@ mod tests {
         let win = resolve_data_dir_for_platform(PlatformKind::Windows, None, &lookup).unwrap();
         assert_eq!(
             win,
-            Path::new("C:\\Users\\demo\\AppData\\Local").join("MultiZaloDesktop")
+            Path::new("C:\\Users\\demo\\AppData\\Local").join("NexaDock")
         );
 
         let mac = resolve_data_dir_for_platform(PlatformKind::MacOs, None, &lookup).unwrap();
@@ -127,11 +128,11 @@ mod tests {
             Path::new("/home/demo")
                 .join("Library")
                 .join("Application Support")
-                .join("MultiZaloDesktop")
+                .join("NexaDock")
         );
 
         let linux = resolve_data_dir_for_platform(PlatformKind::Linux, None, &lookup).unwrap();
-        assert_eq!(linux, Path::new("/home/demo/.xdg").join("MultiZaloDesktop"));
+        assert_eq!(linux, Path::new("/home/demo/.xdg").join("NexaDock"));
 
         env.insert("DIM_DATA_DIR", "D:\\CustomDimData");
         let lookup_over = |k: &str| env.get(k).map(|v| (*v).to_owned());

@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Rust desktop-app test fixture and native CLI parity runner (dim-cli) for MultiZaloDesktop"
+description = "Rust desktop-app test fixture and native CLI parity runner (dim-cli) for NexaDock"
 
 [lints]
 workspace = true

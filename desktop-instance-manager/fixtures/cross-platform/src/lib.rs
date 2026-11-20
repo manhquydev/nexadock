@@ -171,6 +171,7 @@ impl Default for FixtureCliConfig {
     fn default() -> Self {
         let instance_id = env::var("DIM_INSTANCE_ID")
             .or_else(|_| env::var("DIM_PROFILE_ID"))
+            .or_else(|_| env::var("NEXADOCK_PROFILE_ID"))
             .or_else(|_| env::var("MULTIZALO_PROFILE_ID"))
             .unwrap_or_else(|_| format!("inst-{:08x}", std::process::id()));
         let user_id = env::var("FIXTURE_ZALO_USER_ID").unwrap_or_else(|_| "100001".to_owned());

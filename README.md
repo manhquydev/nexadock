@@ -24,7 +24,7 @@
 ---
 
 > [!IMPORTANT]
-> **Tuyên bố phi liên kết & nguyên tắc an toàn:** **NexaDock** (`desktop-instance-manager`, trước đây là NexaDock / Multi-Zalo Desktop) là dự án mã nguồn mở độc lập (`MIT OR Apache-2.0`), **không liên kết, không được tài trợ hay chứng thực bởi VNG Corporation hay Zalo**. `"Zalo"` là nhãn hiệu của VNG Corporation. Kho mã nguồn và các gói cài đặt **không** đóng gói, không chỉnh sửa và không phân phối lại nhị phân của VNG — người dùng tự cài đặt ứng dụng Zalo Desktop chính thức từ nhà phát hành.
+> **Tuyên bố phi liên kết & nguyên tắc an toàn:** **NexaDock** (`desktop-instance-manager`) là dự án mã nguồn mở độc lập (`MIT OR Apache-2.0`), **không liên kết, không được tài trợ hay chứng thực bởi VNG Corporation hay Zalo**. `"Zalo"` là nhãn hiệu của VNG Corporation. Kho mã nguồn và các gói cài đặt **không** đóng gói, không chỉnh sửa và không phân phối lại nhị phân của VNG — người dùng tự cài đặt ứng dụng Zalo Desktop chính thức từ nhà phát hành.
 
 ---
 
@@ -34,7 +34,7 @@
 
 Mỗi tài khoản được đặt trong một không gian lưu trữ riêng (`Profiles/<slug>_<id>/`) bằng cơ chế tách biệt biến môi trường và thư mục dữ liệu ở cấp hệ điều hành, đi kèm giao diện **NexaDock** (Tiếng Việt / English, Sáng / Tối, hướng thiết kế *Calm Precision* — xem [`docs/brand/BRAND_GUIDELINES.md`](docs/brand/BRAND_GUIDELINES.md)) xây dựng trên **Rust + Tauri 2**.
 
-> **Tương thích nâng cấp từ NexaDock / Multi-Zalo Desktop:** NexaDock giữ nguyên `com.multizalodesktop.manager`, thư mục dữ liệu `%LOCALAPPDATA%\MultiZaloDesktop`, tệp `khoang-preferences.json`, và toàn bộ hồ sơ/phiên đã có — nâng cấp không làm mất tài khoản hay dữ liệu.
+> **Tương thích nâng cấp:** NexaDock sử dụng định danh chuẩn `io.github.manhquydev.nexadock`, thư mục dữ liệu `%LOCALAPPDATA%\NexaDock`, và tệp `nexadock-preferences.json`, đồng thời tự động thực hiện di trú một lần an toàn từ `MultiZaloDesktop` / `khoang-preferences.json` / `com.multizalodesktop.manager\EBWebView` khi nâng cấp mà không tự xóa dữ liệu cũ.
 
 <details>
 <summary><strong>Xem thêm ảnh chụp màn hình giao diện thực tế (Tối, Tiếng Anh, Thêm tài khoản, Sao lưu, Kiểm tra sự cố)</strong></summary>
@@ -43,7 +43,7 @@ Mỗi tài khoản được đặt trong một không gian lưu trữ riêng (`P
 
 | Giao diện tối (Dark Mode) | Giao diện Tiếng Anh (English) |
 | :---: | :---: |
-| <img src="desktop-instance-manager/docs/design/screenshots/account-dock-vi-VN-dark-1160x780.png" alt="Multi-Zalo Account Dock Dark Mode" width="400" /> | <img src="desktop-instance-manager/docs/design/screenshots/account-dock-en-US-light-1160x780.png" alt="Multi-Zalo Account Dock English Light" width="400" /> |
+| <img src="desktop-instance-manager/docs/design/screenshots/account-dock-vi-VN-dark-1160x780.png" alt="NexaDock Account Dock Dark Mode" width="400" /> | <img src="desktop-instance-manager/docs/design/screenshots/account-dock-en-US-light-1160x780.png" alt="NexaDock Account Dock English Light" width="400" /> |
 
 | Tạo không gian tài khoản | Sao lưu & Khôi phục an toàn |
 | :---: | :---: |
@@ -72,12 +72,12 @@ Mỗi tài khoản được đặt trong một không gian lưu trữ riêng (`P
 
 > Bảng dưới đây phân tách trung thực giữa phần đã kiểm chứng trên hệ điều hành thật, phần kiểm thử bằng fixture/tự động, và phần chưa kiểm thử với tài khoản thật (`NOT_TESTED` / `UNSUPPORTED`).
 
-| Nền tảng | Zalo Desktop chính thức | Trạng thái Multi-Zalo | Mức kiểm chứng hiện tại | Ghi chú quan trọng |
+| Nền tảng | Zalo Desktop chính thức | Trạng thái NexaDock | Mức kiểm chứng hiện tại | Ghi chú quan trọng |
 | :--- | :---: | :---: | :--- | :--- |
 | **Windows 10 / 11 (`x86_64`)** | Có (`Zalo.exe`) | **Hoạt động & Đã kiểm chứng L1/L2** | `cargo test` workspace + `src-tauri`, parity `dim-cli.exe` / `dim-host.ps1`, Tauri 2 native E2E (`12/12`), chạy song song `3` cửa sổ `Zalo 26.10.20` cùng Zalo gốc | Kiểm thử **L3 quét QR 2 tài khoản thật** đang ở mức `NOT_TESTED` chờ nghiệm thu trên máy người dùng; bản cài đặt là `UNSIGNED_DEVELOPMENT_ARTIFACT`. |
 | **Windows 11 bật Smart App Control (`SAC=1`)** | Có (`Zalo.exe`) | **Hoạt động qua Signed-Host Bridge** | Đã kiểm chứng trên máy bật `SAC=1` qua `ui-server.mjs` + `dim-host.ps1` | File `.exe`/`.msi` chưa ký số có thể bị `SAC=1` chặn; dùng trực tiếp **Signed-Host Bridge** từ mã nguồn (không tắt SAC). |
 | **macOS 11+ (`arm64` Apple Silicon; `WebIsolated` yêu cầu macOS 14+)** | Có (`/Applications/Zalo.app`) | **Đã build & kiểm chứng bundle/khởi chạy tự động / Chờ chứng chỉ Apple Developer ID & test `Zalo.app` thật** | Biên dịch trên `macos-15` (`arm64` `.dmg`), pass unit/scenario tests + `macos-release-acceptance.mjs` (cấu trúc bundle, Mach-O, dylibs, khởi chạy sạch) | **Intel `x86_64` chưa phát hành**; `release.yml` yêu cầu 6 Apple Developer Secrets (fail-closed) để ký/notarize; **chưa kiểm thử trên Mac vật lý hoặc `/Applications/Zalo.app` thật** (`LIVE_ZALO_NOT_TESTED`). |
-| **Ubuntu 22.04 / 24.04 LTS (`x86_64`)** | **Không** (VNG không phát hành bản Linux) | **Experimental (Manager + AppImage cục bộ / Fixture)** | Đã build `.deb` / `.AppImage` trên `ubuntu-24.04`, pass `dim-platform-linux` (`46/46`) + `C2` runtime fixture | **Official Zalo Desktop: `UNSUPPORTED`**. Chỉ dùng thử nghiệm Multi-Zalo Manager, fixture kiểm thử hoặc AppImage cục bộ do bạn tự cung cấp. |
+| **Ubuntu 22.04 / 24.04 LTS (`x86_64`)** | **Không** (VNG không phát hành bản Linux) | **Experimental (Manager + AppImage cục bộ / Fixture)** | Đã build `.deb` / `.AppImage` trên `ubuntu-24.04`, pass `dim-platform-linux` (`46/46`) + `C2` runtime fixture | **Official Zalo Desktop: `UNSUPPORTED`**. Chỉ dùng thử nghiệm NexaDock Manager, fixture kiểm thử hoặc AppImage cục bộ do bạn tự cung cấp. |
 
 ---
 
@@ -99,7 +99,7 @@ Tải gói cài đặt mới nhất (**`v0.1.1-beta.2`**) tại trang **[GitHub 
    cd desktop-instance-manager
    node apps/desktop/ui-server.mjs
    ```
-5. Dữ liệu profile được lưu tách biệt tại `%LOCALAPPDATA%\MultiZaloDesktop`. Tài liệu kiểm thử chi tiết: [Hướng dẫn Windows & L3 QR](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md#1-hướng-dẫn-trên-windows-windows-10--11-x64).
+5. Dữ liệu profile được lưu tách biệt tại `%LOCALAPPDATA%\NexaDock`. Tài liệu kiểm thử chi tiết: [Hướng dẫn Windows & L3 QR](desktop-instance-manager/docs/release/huong-dan-cai-dat-va-kiem-thu-vi.md#1-hướng-dẫn-trên-windows-windows-10--11-x64).
 
 </details>
 
@@ -148,7 +148,7 @@ Tải gói cài đặt mới nhất (**`v0.1.1-beta.2`**) tại trang **[GitHub 
 1. **Chưa ký số phát hành công cộng (`UNSIGNED_DEVELOPMENT_ARTIFACT`):** Bộ cài hiện tại là bản Pre-release thử nghiệm chưa gắn chứng chỉ Authenticode OV/EV hay Apple Developer ID + Notarization.
 2. **Cuộc gọi thoại / video đồng thời (`ZaloCall`):** Trên Windows, `ZaloCall.exe` dùng chung Named Pipe hệ thống (`\\.\pipe\PipeZCallRecv` và `PipeZCallSend`); trên macOS dùng socket cố định `/tmp/socketzalorecv2021` / `socketzalosend2021`. Bạn vẫn gọi từng cuộc gọi riêng lẻ bình thường, nhưng **không thể mở 2 cuộc gọi ZaloCall cùng một thời điểm**.
 3. **Thông báo hệ thống:** Vì giữ nguyên `Zalo.exe` / `Zalo.app` không chỉnh sửa, Windows Action Center và macOS Notification Center có thể gom thông báo theo `AppUserModelId("com.vng.zalo")` hoặc Bundle ID gốc.
-4. **Ubuntu 24.04 AppArmor:** Trên Ubuntu `24.04+` bật `kernel.apparmor_restrict_unprivileged_userns = 1`, Multi-Zalo **không** tự thêm cờ `--no-sandbox` kém an toàn khi chạy Electron/AppImage của người dùng.
+4. **Ubuntu 24.04 AppArmor:** Trên Ubuntu `24.04+` bật `kernel.apparmor_restrict_unprivileged_userns = 1`, NexaDock **không** tự thêm cờ `--no-sandbox` kém an toàn khi chạy Electron/AppImage của người dùng.
 
 ---
 

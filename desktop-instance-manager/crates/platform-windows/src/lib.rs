@@ -81,7 +81,7 @@ mod tests {
     fn env_block_overrides_profile_paths_and_deduplicates_case_insensitively() {
         let profile = sample_profile();
         let profile_dir = Path::new(
-            "C:\\Users\\alice\\AppData\\Local\\MultiZaloDesktop\\Profiles\\duc-cong-viec_a1b2c3d4",
+            "C:\\Users\\alice\\AppData\\Local\\NexaDock\\Profiles\\duc-cong-viec_a1b2c3d4",
         );
         let base = vec![
             ("Path".to_owned(), "C:\\Windows\\System32".to_owned()),

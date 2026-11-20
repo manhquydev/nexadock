@@ -596,13 +596,13 @@ mod tests {
         assert_eq!(renamed.display_name, "Zalo Web Sales");
 
         let reset = store
-            .bump_generation_for_reset(&created.id, Some("khoang_web_old_g1".to_owned()))
+            .bump_generation_for_reset(&created.id, Some("nexadock_web_old_g1".to_owned()))
             .expect("reset web session");
         assert_eq!(reset.profile_generation, 2);
         assert_ne!(reset.data_store_uuid, created.data_store_uuid);
         assert_eq!(
             store.pending_profile_deletes(),
-            vec!["khoang_web_old_g1".to_owned()]
+            vec!["nexadock_web_old_g1".to_owned()]
         );
 
         let reloaded = WebSessionStore::initialize(&data_dir);
@@ -610,22 +610,22 @@ mod tests {
         assert_eq!(reloaded.list()[0].profile_generation, 2);
         assert_eq!(
             reloaded.pending_profile_deletes(),
-            vec!["khoang_web_old_g1".to_owned()]
+            vec!["nexadock_web_old_g1".to_owned()]
         );
 
         reloaded
-            .remove_pending_profile_deletes(&["khoang_web_old_g1".to_owned()])
+            .remove_pending_profile_deletes(&["nexadock_web_old_g1".to_owned()])
             .expect("clear pending");
         assert!(reloaded.pending_profile_deletes().is_empty());
 
         let deleted = reloaded
-            .delete(&created.id, Some("khoang_web_old_g2".to_owned()))
+            .delete(&created.id, Some("nexadock_web_old_g2".to_owned()))
             .expect("delete web session");
         assert_eq!(deleted.id, created.id);
         assert!(reloaded.list().is_empty());
         assert_eq!(
             reloaded.pending_profile_deletes(),
-            vec!["khoang_web_old_g2".to_owned()]
+            vec!["nexadock_web_old_g2".to_owned()]
         );
 
         let _ = fs::remove_dir_all(&data_dir);

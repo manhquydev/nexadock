@@ -2,14 +2,14 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<BaseLayout lang="vi" title="404 | NexaDock" canonicalPath="/404.html">
-  <section class="section" style="border-top: 0; padding-block: 96px;">
-    <div class="container" style="max-width: 600px;">
+<BaseLayout lang="vi" title="404 | NexaDock" canonicalPath="/404.html" noindex={true}>
+  <section class="section section--404">
+    <div class="container container--404">
       <h1 class="section-title">Không tìm thấy trang (404)</h1>
-      <p class="section-desc" style="margin-bottom: 24px;">
+      <p class="section-desc section-desc--spaced">
         Đường dẫn bạn truy cập không tồn tại trên trang NexaDock.
       </p>
-      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+      <div class="hero-actions">
         <a class="btn btn-primary" href={`${base}/`}>Trang chủ (Tiếng Việt)</a>
         <a class="btn btn-secondary" href={`${base}/en/`}>English Home</a>
       </div>

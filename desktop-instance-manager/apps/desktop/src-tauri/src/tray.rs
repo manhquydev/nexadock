@@ -1,9 +1,9 @@
-//! Native system tray integration for KHOANG.
+//! Native system tray integration for NexaDock.
 //!
-//! - Uses a fixed tray ID (`"khoang-tray"`) to prevent duplicate tray icons.
+//! - Uses a fixed tray ID (`"nexadock-tray"`) to prevent duplicate tray icons.
 //! - Supports localized Vietnamese (`vi-VN`) and English (`en-US`) menu/tooltip labels.
 //! - Left-click / double-click restores and focuses the `"main"` window.
-//! - "Thoát KHOANG" / "Quit KHOANG" exits the KHOANG shell cleanly without terminating
+//! - "Thoát NexaDock" / "Quit NexaDock" exits the NexaDock shell cleanly without terminating
 //!   managed Zalo Desktop processes.
 
 use dim_core::{AccountKind, ProfileStore};
@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::preferences::DesktopPrefsState;
 use crate::state::AppState;
 
-pub const TRAY_ID: &str = "khoang-tray";
+pub const TRAY_ID: &str = "nexadock-tray";
 const MENU_OPEN_ID: &str = "open";
 const MENU_ACCOUNTS_ID: &str = "accounts";
 const MENU_SETTINGS_ID: &str = "settings";
@@ -198,7 +198,7 @@ fn collect_tray_accounts<R: Runtime>(
     entries
 }
 
-/// Initializes the single KHOANG system tray icon if not already created.
+/// Initializes the single NexaDock system tray icon if not already created.
 pub fn init_tray<R: Runtime>(app: &AppHandle<R>, locale: TrayLocale) -> tauri::Result<()> {
     if app.tray_by_id(TRAY_ID).is_some() {
         return Ok(());
@@ -223,22 +223,22 @@ pub fn init_tray<R: Runtime>(app: &AppHandle<R>, locale: TrayLocale) -> tauri::R
                 MENU_ACCOUNTS_ID => {
                     let _ = crate::web_workspace::hide_all_sessions(app);
                     show_main_window(app);
-                    let _ = app.emit("khoang://navigate", "profiles");
+                    let _ = app.emit("nexadock://navigate", "profiles");
                 }
                 MENU_SETTINGS_ID => {
                     let _ = crate::web_workspace::hide_all_sessions(app);
                     show_main_window(app);
-                    let _ = app.emit("khoang://navigate", "settings");
+                    let _ = app.emit("nexadock://navigate", "settings");
                 }
                 MENU_QUIT_ID => {
-                    // Cleanly drop all child WebViews before exiting KHOANG shell; never stop Zalo.
+                    // Cleanly drop all child WebViews before exiting NexaDock shell; never stop Zalo.
                     crate::web_workspace::clear_all_on_current_thread();
                     app.exit(0);
                 }
                 _ => {
                     if let Some(payload) = parse_account_menu_id(id_str) {
                         show_main_window(app);
-                        let _ = app.emit("khoang://activate-request", payload);
+                        let _ = app.emit("nexadock://activate-request", payload);
                     }
                 }
             }

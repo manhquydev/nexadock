@@ -2,30 +2,34 @@ export type Lang = 'vi' | 'en';
 
 export const SITE_COPY = {
   vi: {
-    title: 'NexaDock | Nhiều tài khoản Zalo Desktop trong một không gian tách biệt',
+    title: 'NexaDock | Nhiều tài khoản Zalo Desktop trong không gian tách biệt',
     description:
       'NexaDock là ứng dụng mã nguồn mở chạy nhiều tài khoản Zalo Desktop độc lập trên cùng một máy tính mà không chạm vào Zalo chính.',
     docsTitle: 'Tài liệu & Hướng dẫn cài đặt | NexaDock',
     docsDescription:
-      'Hướng dẫn cài đặt NexaDock, kiểm tra SHA-256, nâng cấp từ KHOANG không mất dữ liệu và xử lý Smart App Control / Gatekeeper.',
+      'Hướng dẫn cài đặt NexaDock, kiểm tra SHA-256, xử lý Smart App Control / Gatekeeper, cơ chế cô lập thư mục và chẩn đoán sự cố.',
     nav: {
-      experience: 'Trải nghiệm',
-      safety: 'An toàn dữ liệu',
+      experience: 'Giao diện',
+      safety: 'Cô lập dữ liệu',
+      platforms: 'Nền tảng',
       download: 'Tải xuống',
       docs: 'Tài liệu',
       cta: 'Tải bản thử nghiệm',
       menu: 'Menu'
     },
     hero: {
-      title: 'Nhiều tài khoản. Một không gian làm việc.',
-      lead: 'Mở nhiều tài khoản Zalo Desktop song song trên cùng một máy tính với thư mục dữ liệu, tiến trình và sao lưu tách biệt, giữ nguyên Zalo chính ở chế độ chỉ đọc.',
+      title: 'Nhiều tài khoản. Một không gian tách biệt.',
+      lead: 'Chạy nhiều phiên Zalo Desktop song song trên cùng một máy tính với thư mục dữ liệu, tiến trình và sao lưu riêng biệt, giữ nguyên Zalo chính ở chế độ chỉ đọc.',
       primaryCta: 'Tải NexaDock',
       secondaryCta: 'Xem mã nguồn trên GitHub',
-      meta: 'Mã nguồn mở MIT / Apache-2.0, bản thử nghiệm chưa ký số, không thu thập mật khẩu hay tin nhắn.'
+      meta: 'Mã nguồn mở MIT / Apache-2.0 — bản thử nghiệm chưa ký số — không thu thập mật khẩu hay tin nhắn.',
+      screenshotAlt: 'Giao diện ứng dụng NexaDock hiển thị 3 tài khoản Zalo tách biệt và trạng thái bảo vệ Zalo chính',
+      screenshotCaption: 'Ảnh chụp trực tiếp từ ứng dụng desktop NexaDock (chế độ sáng, tiếng Việt)'
     },
     showcase: {
-      title: 'Xem trước luồng chuyển tài khoản',
-      note: 'Mô phỏng giao diện NexaDock với dữ liệu mẫu (không kết nối mạng hay Zalo thật).',
+      title: 'Mô phỏng luồng chuyển đổi & cô lập tài khoản',
+      desc: 'Chọn từng không gian bên trái để xem cách NexaDock tách biến môi trường và bảo vệ Zalo chính bằng dữ liệu mẫu.',
+      note: 'Dữ liệu minh họa cục bộ (không kết nối mạng hay Zalo thật).',
       accounts: [
         {
           id: 'primary',
@@ -45,7 +49,7 @@ export const SITE_COPY = {
           role: 'Không gian tách biệt',
           state: 'Cửa sổ đang mở',
           stateKind: 'ok',
-          path: '%LOCALAPPDATA%\\MultiZaloDesktop\\Profiles\\duc-cong-viec_176ea8dd',
+          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\duc-cong-viec_176ea8dd',
           detail:
             'Chạy bằng bộ biến môi trường APPDATA, LOCALAPPDATA và TEMP riêng. Đưa cửa sổ lên trên hoặc đóng cây tiến trình an toàn mà không chạm tài khoản khác.'
         },
@@ -56,7 +60,7 @@ export const SITE_COPY = {
           role: 'Không gian tách biệt',
           state: 'Đã đóng',
           stateKind: 'neutral',
-          path: '%LOCALAPPDATA%\\MultiZaloDesktop\\Profiles\\ca-nhan_2492ef1d',
+          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ca-nhan_2492ef1d',
           detail:
             'Sẵn sàng sao lưu nguyên tử sang tệp .zip có kiểm tra SHA-256 và ngưỡng dung lượng trống tối thiểu 5 GiB trước khi thực hiện.'
         },
@@ -67,77 +71,98 @@ export const SITE_COPY = {
           role: 'Không gian tách biệt',
           state: 'Cửa sổ đang mở',
           stateKind: 'ok',
-          path: '%LOCALAPPDATA%\\MultiZaloDesktop\\Profiles\\ban-hang_52fb0a78',
+          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ban-hang_52fb0a78',
           detail:
             'Kiểm tra trùng zalo_user_id và khóa thư mục cơ sở dữ liệu ngoài vùng lưu trữ trước khi khởi chạy để tránh hỏng dữ liệu.'
         }
       ]
     },
     shots: {
-      title: 'Giao diện thực tế của ứng dụng desktop',
-      desc: 'Ảnh chụp trực tiếp từ bản dựng NexaDock trên giao diện sáng, tối, màn hình quản lý tài khoản và chẩn đoán tách biệt dữ liệu.'
+      title: 'Giao diện thực tế trên desktop',
+      desc: 'Ảnh chụp từ bản dựng NexaDock trên chế độ tối, chế độ Desktop Stage, quản lý sao lưu và kiểm tra chẩn đoán.',
+      items: [
+        {
+          file: 'nexadock-vi-vn-dark.png',
+          alt: 'Giao diện NexaDock chế độ tối với danh sách tài khoản tách biệt',
+          caption: 'Chế độ tối (Dark mode) — Quản lý nhiều tài khoản song song'
+        },
+        {
+          file: 'nexadock-desktop-stage-vi-light.png',
+          alt: 'Màn hình Desktop Stage quản lý cửa sổ và tiến trình tài khoản',
+          caption: 'Desktop Stage — Theo dõi trạng thái cửa sổ và thao tác từng phiên'
+        },
+        {
+          file: 'nexadock-backups-vi-light.png',
+          alt: 'Màn hình sao lưu và khôi phục nguyên tử có kiểm tra SHA-256',
+          caption: 'Sao lưu & Khôi phục — Kiểm tra dung lượng trống 5 GiB và mã băm SHA-256'
+        },
+        {
+          file: 'nexadock-diagnostics-vi-light.png',
+          alt: 'Màn hình chẩn đoán và xác minh rào chắn bảo vệ Zalo chính',
+          caption: 'Chẩn đoán (Diagnostics) — Kiểm tra chữ ký Zalo và rào chắn chỉ đọc'
+        }
+      ]
     },
     isolation: {
-      title: 'Cách NexaDock tách biệt dữ liệu',
+      title: 'Kiến trúc cô lập & bảo vệ Zalo chính',
       desc: 'Thay vì sửa tệp thực thi của Zalo hay giả lập giao thức, NexaDock cô lập môi trường chạy ở cấp hệ điều hành.',
       items: [
         {
-          name: 'Bảo vệ Zalo chính ở chế độ chỉ đọc',
-          body: 'Đường dẫn %APPDATA%\\ZaloData và tiến trình Zalo chính được đánh dấu chỉ đọc. Mọi yêu cầu dừng, xóa hoặc ghi đè đều bị chặn với mã PROTECTED_PRIMARY_PROCESS và PROTECTED_PRIMARY_PATH.'
+          name: 'Zalo chính luôn ở chế độ chỉ đọc',
+          body: 'Đường dẫn %APPDATA%\\ZaloData và tiến trình Zalo chính không bao giờ bị dừng, ghi đè hoặc xóa. Mọi yêu cầu tác động đều bị chặn với mã PROTECTED_PRIMARY_PROCESS hoặc PROTECTED_PRIMARY_PATH.'
         },
         {
-          name: 'Tách thư mục, bộ nhớ đệm và khóa chạy',
-          body: 'Mỗi tài khoản phụ nằm trong thư mục riêng dưới Profiles/<slug>_<id>/. Trước khi khởi chạy, ứng dụng xác thực chữ ký Zalo chính thức (WinVerifyTrust trên Windows hoặc chữ ký bundle trên macOS).'
+          name: 'Tách thư mục, bộ nhớ đệm và xác thực chữ ký',
+          body: 'Mỗi tài khoản phụ chạy trong thư mục riêng dưới Profiles/<slug>_<id>/ với APPDATA, LOCALAPPDATA và TEMP độc lập. Trước khi khởi chạy, NexaDock xác thực chữ ký Zalo chính thức (WinVerifyTrust trên Windows hoặc chữ ký bundle trên macOS).'
         },
         {
           name: 'Sao lưu nguyên tử và khôi phục không ghi đè',
-          body: 'Sao lưu tạo gói .zip kèm mã băm SHA-256 sau khi kiểm tra tối thiểu 5 GiB trống. Khi khôi phục luôn tạo thành một không gian tài khoản mới, không ghi đè dữ liệu hiện có.'
+          body: 'Sao lưu tạo gói .zip kèm mã băm SHA-256 sau khi kiểm tra tối thiểu 5 GiB trống. Khi khôi phục luôn tạo một không gian tài khoản mới, không ghi đè dữ liệu hiện có.'
         }
       ]
     },
     compat: {
-      title: 'Hỗ trợ nền tảng và mức độ kiểm chứng',
-      desc: 'Bảng dưới đây nêu rõ nền tảng đã kiểm chứng qua bộ test tự động, nền tảng thử nghiệm và phần chưa nghiệm thu với tài khoản thật.',
-      headers: ['Nền tảng', 'Zalo Desktop gốc', 'Trạng thái NexaDock', 'Ghi chú trung thực'],
+      title: 'Ma trận hỗ trợ nền tảng (trạng thái thực tế)',
+      desc: 'Trình bày trung thực mức độ kiểm thử tự động, tình trạng ký số và các nền tảng đang ở giai đoạn thử nghiệm.',
+      headers: ['Nền tảng & Kiến trúc', 'Zalo Desktop gốc', 'Trạng thái NexaDock', 'Ghi chú kiểm chứng & Ký số'],
       rows: [
         {
           os: 'Windows 10 / 11 (x64)',
           zalo: 'Có (Zalo.exe)',
-          status: 'Hoạt động (L1/L2 đã kiểm thử)',
+          status: 'Beta (Chưa ký số — L1/L2 đạt)',
           kind: 'ok',
-          note: 'Đã đóng gói .exe và .msi. Chờ kiểm thử quét QR 2 tài khoản thật (L3) ở máy người dùng; bản dựng chưa ký số Authenticode.'
+          note: 'Đã đóng gói .exe và .msi. Đạt kiểm thử tự động L1/L2; chờ nghiệm thu quét QR 2 tài khoản thật (L3) và chưa có chữ ký số Authenticode.'
         },
         {
           os: 'Windows 11 Smart App Control (SAC=1)',
           zalo: 'Có (Zalo.exe)',
           status: 'Hỗ trợ qua Signed-Host Bridge',
           kind: 'ok',
-          note: 'Không cần tắt Smart App Control: chạy giao diện qua Node.js và PowerShell đã ký số của hệ thống.'
+          note: 'Không cần tắt Smart App Control: chạy giao diện qua Node.js và PowerShell đã ký số của hệ thống từ mã nguồn.'
         },
         {
           os: 'macOS Apple Silicon (arm64)',
           zalo: 'Có (/Applications/Zalo.app)',
-          status: 'Đã đóng gói .dmg (Chờ test Zalo thật)',
+          status: 'Chưa ký số / Chưa Notarized',
           kind: 'warn',
-          note: 'Đạt kiểm thử fixture và build native; chưa kiểm thử đăng nhập tài khoản thật trên Zalo.app và chưa Notarized. Bản macOS Intel chưa phát hành ở bản beta này.'
+          note: 'Đã đóng gói .dmg và đạt build/fixture CI; chưa ký Developer ID/Notarized (chờ cấu hình Apple secrets) và chưa test đăng nhập Zalo.app thật. Chưa hỗ trợ macOS Intel.'
         },
         {
-          os: 'Ubuntu 24.04 LTS (x64)',
+          os: 'Linux (Ubuntu 24.04 x64)',
           zalo: 'Không có bản Linux từ VNG',
           status: 'Thử nghiệm (Manager / Fixture)',
           kind: 'neutral',
-          note: 'Chỉ dùng để kiểm thử NexaDock Manager, fixture hoặc AppImage cục bộ tự cung cấp. Không có Zalo Desktop chính thức cho Linux.'
+          note: 'Đóng gói .AppImage và .deb để kiểm thử NexaDock Manager hoặc fixture. VNG không phát hành Zalo Desktop chính thức cho Linux.'
         }
       ]
     },
     download: {
       title: 'Tải NexaDock',
-      prereleaseBadge: 'Bản thử nghiệm Pre-release (UNSIGNED_DEVELOPMENT_ARTIFACT)',
-      upgradeNote:
-        'Nâng cấp từ KHOANG hoặc Multi-Zalo Desktop: NexaDock giữ nguyên mã định danh com.multizalodesktop.manager, thư mục %LOCALAPPDATA%\\MultiZaloDesktop và tệp khoang-preferences.json nên toàn bộ tài khoản đã lưu được giữ nguyên.',
-      verifyTitle: 'Kiểm tra toàn vẹn SHA-256 trước khi cài đặt',
-      verifyBody: 'Bản thử nghiệm chưa có chữ ký số EV/Authenticode hay Apple Notarization. Luôn đối chiếu mã băm với tệp SHA256SUMS.txt đi kèm bản phát hành.',
-      missingIntel: 'Bản phát hành thử nghiệm này chưa bao gồm bộ cài macOS Intel (x86_64).'
+      prereleaseBadge: 'Pre-release chưa ký số',
+      verifyTitle: 'Kiểm tra toàn vẹn SHA-256 trước khi chạy',
+      verifyBody: 'Bản thử nghiệm chưa có chữ ký số thương mại (Authenticode / Apple Notarization). Luôn đối chiếu mã băm với tệp SHA256SUMS.txt đi kèm bản phát hành.',
+      missingIntel: 'Bản phát hành thử nghiệm này chưa bao gồm bộ cài macOS Intel (x86_64).',
+      linuxNote: 'Ghi chú: VNG không phát hành Zalo Desktop cho Linux. Các gói này chỉ phục vụ thử nghiệm Manager hoặc môi trường fixture.'
     },
     faq: {
       title: 'Câu hỏi thường gặp',
@@ -149,10 +174,6 @@ export const SITE_COPY = {
         {
           q: 'NexaDock có đọc tin nhắn, mật khẩu hoặc mã QR của tôi không?',
           a: 'Không. Bạn đăng nhập trực tiếp trong cửa sổ Zalo Desktop chính thức. NexaDock chỉ quản lý thư mục lưu trữ tách biệt và vòng đời tiến trình trên máy cục bộ.'
-        },
-        {
-          q: 'Dữ liệu cũ từ KHOANG có bị mất khi chuyển sang NexaDock không?',
-          a: 'Không. Toàn bộ đường dẫn lưu trữ dữ liệu, cấu hình và hồ sơ cũ đều được giữ nguyên để nâng cấp an toàn.'
         },
         {
           q: 'Có thể gọi thoại/video ZaloCall ở 2 tài khoản cùng một lúc không?',
@@ -177,25 +198,29 @@ export const SITE_COPY = {
       'NexaDock is an open-source desktop utility to run multiple isolated Zalo Desktop accounts side-by-side without modifying your primary Zalo installation.',
     docsTitle: 'Documentation & Installation Guide | NexaDock',
     docsDescription:
-      'Install NexaDock, verify SHA-256 checksums, upgrade from KHOANG with zero data loss, and handle Smart App Control or Gatekeeper.',
+      'Install NexaDock, verify SHA-256 checksums, configure Smart App Control or Gatekeeper, understand profile isolation, and run diagnostics.',
     nav: {
-      experience: 'Experience',
-      safety: 'Data Safety',
+      experience: 'Interface',
+      safety: 'Isolation',
+      platforms: 'Platforms',
       download: 'Download',
       docs: 'Docs',
       cta: 'Download Pre-release',
       menu: 'Menu'
     },
     hero: {
-      title: 'Your accounts. Their own isolated space.',
+      title: 'Multiple accounts. One isolated workspace.',
       lead: 'Run multiple Zalo Desktop sessions side-by-side on one machine with separate profile directories, processes, and backups while keeping your primary Zalo strictly read-only.',
       primaryCta: 'Download NexaDock',
       secondaryCta: 'View Source on GitHub',
-      meta: 'Open Source MIT / Apache-2.0, unsigned pre-release, zero credentials collected.'
+      meta: 'Open Source MIT / Apache-2.0 — unsigned pre-release — zero credentials collected.',
+      screenshotAlt: 'NexaDock desktop app showing 3 isolated Zalo accounts and read-only primary Zalo protection',
+      screenshotCaption: 'Direct capture from NexaDock desktop app (Light mode, English)'
     },
     showcase: {
-      title: 'Interactive workspace switcher preview',
-      note: 'Simulated NexaDock UI with synthetic demo accounts (no live network or Zalo connection).',
+      title: 'Interactive workspace & isolation preview',
+      desc: 'Select a workspace on the left to inspect how NexaDock isolates environment paths and protects your primary Zalo using synthetic sample data.',
+      note: 'Local sample data (no live network or Zalo connection).',
       accounts: [
         {
           id: 'primary',
@@ -215,7 +240,7 @@ export const SITE_COPY = {
           role: 'Isolated space',
           state: 'Window open',
           stateKind: 'ok',
-          path: '%LOCALAPPDATA%\\MultiZaloDesktop\\Profiles\\duc-cong-viec_176ea8dd',
+          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\duc-cong-viec_176ea8dd',
           detail:
             'Runs with dedicated APPDATA, LOCALAPPDATA, and TEMP directories. Bring its window to front or close its process tree cleanly without affecting siblings.'
         },
@@ -226,7 +251,7 @@ export const SITE_COPY = {
           role: 'Isolated space',
           state: 'Closed',
           stateKind: 'neutral',
-          path: '%LOCALAPPDATA%\\MultiZaloDesktop\\Profiles\\ca-nhan_2492ef1d',
+          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ca-nhan_2492ef1d',
           detail:
             'Ready for atomic .zip backup with SHA-256 verification and a mandatory 5 GiB free-space safety check before writing.'
         },
@@ -237,18 +262,40 @@ export const SITE_COPY = {
           role: 'Isolated space',
           state: 'Window open',
           stateKind: 'ok',
-          path: '%LOCALAPPDATA%\\MultiZaloDesktop\\Profiles\\ban-hang_52fb0a78',
+          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ban-hang_52fb0a78',
           detail:
             'Enforces duplicate zalo_user_id detection and external database path guards before launch to prevent cross-profile corruption.'
         }
       ]
     },
     shots: {
-      title: 'Actual desktop application interface',
-      desc: 'Direct captures from NexaDock across light mode, dark mode, account management stage, and isolation diagnostics.'
+      title: 'Actual desktop application views',
+      desc: 'Direct captures from NexaDock across dark mode, Desktop Stage, atomic backups, and isolation diagnostics.',
+      items: [
+        {
+          file: 'nexadock-vi-vn-dark.png',
+          alt: 'NexaDock dark mode workspace with isolated account list',
+          caption: 'Dark mode — Manage multiple isolated accounts side-by-side'
+        },
+        {
+          file: 'nexadock-desktop-stage-vi-light.png',
+          alt: 'NexaDock Desktop Stage view for window focus and process control',
+          caption: 'Desktop Stage — Inspect window state and control individual sessions'
+        },
+        {
+          file: 'nexadock-backups-vi-light.png',
+          alt: 'NexaDock atomic backup and restore screen with SHA-256 verification',
+          caption: 'Backups & Restore — Enforces 5 GiB free-space check and SHA-256 integrity'
+        },
+        {
+          file: 'nexadock-diagnostics-vi-light.png',
+          alt: 'NexaDock Diagnostics screen verifying client signature and read-only guards',
+          caption: 'Diagnostics — Verify official client signature and read-only protection'
+        }
+      ]
     },
     isolation: {
-      title: 'How NexaDock isolates account data',
+      title: 'Isolation & primary-Zalo protection',
       desc: 'Instead of patching Zalo binaries or emulating unofficial protocols, NexaDock isolates runtime directories and processes at the OS level.',
       items: [
         {
@@ -256,8 +303,8 @@ export const SITE_COPY = {
           body: 'Your existing %APPDATA%\\ZaloData directory and primary process are never stopped, overwritten, or deleted. Requests targeting them fail closed with PROTECTED_PRIMARY_PROCESS or PROTECTED_PRIMARY_PATH.'
         },
         {
-          name: 'Separate profile directories, caches, and locks',
-          body: 'Each secondary account lives under Profiles/<slug>_<id>/. Before launch, NexaDock verifies the official client signature (WinVerifyTrust on Windows or bundle signature on macOS).'
+          name: 'Separate profile directories, caches, and signature checks',
+          body: 'Each secondary account lives under Profiles/<slug>_<id>/ with dedicated APPDATA, LOCALAPPDATA, and TEMP paths. Before launch, NexaDock verifies the official client signature (WinVerifyTrust on Windows or bundle signature on macOS).'
         },
         {
           name: 'Atomic SHA-256 backups and non-destructive restore',
@@ -266,16 +313,16 @@ export const SITE_COPY = {
       ]
     },
     compat: {
-      title: 'Platform support and verification status',
-      desc: 'Honest breakdown of automated verification, experimental targets, and platforms awaiting live end-user QR acceptance.',
-      headers: ['Platform', 'Official Zalo Client', 'NexaDock Status', 'Verification Notes'],
+      title: 'Platform support matrix (honest status)',
+      desc: 'Transparent breakdown of automated verification, code-signing status, and experimental targets.',
+      headers: ['Platform & Arch', 'Official Zalo Client', 'NexaDock Status', 'Verification & Signing Notes'],
       rows: [
         {
           os: 'Windows 10 / 11 (x64)',
           zalo: 'Yes (Zalo.exe)',
-          status: 'Working (L1/L2 Verified)',
+          status: 'Unsigned Beta (L1/L2 Verified)',
           kind: 'ok',
-          note: 'NSIS .exe and .msi installers published. Interactive L3 2-account QR login awaits end-user verification; binaries are unsigned.'
+          note: 'NSIS .exe and .msi installers published. Passes L1/L2 automated checks; live L3 2-account QR login awaits end-user verification and binaries are unsigned.'
         },
         {
           os: 'Windows 11 Smart App Control (SAC=1)',
@@ -287,27 +334,26 @@ export const SITE_COPY = {
         {
           os: 'macOS Apple Silicon (arm64)',
           zalo: 'Yes (/Applications/Zalo.app)',
-          status: 'Packaged .dmg (Live Zalo Not Tested)',
+          status: 'Unsigned until Apple secrets configured',
           kind: 'warn',
-          note: 'Passes fixture and native CI builds; live multi-account Zalo.app login is not yet tested and .dmg is unnotarized. Intel macOS is omitted from this beta.'
+          note: 'Packaged .dmg passes fixture and native CI builds; unsigned/unnotarized until Apple Developer secrets are configured, and live Zalo.app login is not yet tested. Intel macOS is omitted.'
         },
         {
-          os: 'Ubuntu 24.04 LTS (x64)',
+          os: 'Linux (Ubuntu 24.04 x64)',
           zalo: 'No official Linux client',
           status: 'Experimental (Manager / Fixture)',
           kind: 'neutral',
-          note: 'For testing NexaDock Manager, synthetic fixtures, or user-supplied AppImages only. VNG does not ship Zalo Desktop for Linux.'
+          note: 'Publishes .AppImage and .deb for testing NexaDock Manager or synthetic fixtures. VNG does not ship Zalo Desktop for Linux.'
         }
       ]
     },
     download: {
       title: 'Download NexaDock',
-      prereleaseBadge: 'Development Pre-release (UNSIGNED_DEVELOPMENT_ARTIFACT)',
-      upgradeNote:
-        'Upgrading from KHOANG or Multi-Zalo Desktop: NexaDock keeps com.multizalodesktop.manager, %LOCALAPPDATA%\\MultiZaloDesktop, and khoang-preferences.json unchanged so existing accounts and sessions stay intact.',
+      prereleaseBadge: 'Unsigned Development Pre-release',
       verifyTitle: 'Verify SHA-256 checksums before running',
       verifyBody: 'Pre-release installers do not yet carry commercial Authenticode or Apple Notarization signatures. Always verify checksums against SHA256SUMS.txt.',
-      missingIntel: 'This pre-release does not include a macOS Intel (x86_64) installer.'
+      missingIntel: 'This pre-release does not include a macOS Intel (x86_64) installer.',
+      linuxNote: 'Note: VNG does not ship Zalo Desktop for Linux. These packages are experimental for Manager and fixture testing.'
     },
     faq: {
       title: 'Frequently asked questions',
@@ -319,10 +365,6 @@ export const SITE_COPY = {
         {
           q: 'Does NexaDock read passwords, OTP codes, or messages?',
           a: 'No. You sign in directly inside the official Zalo Desktop window. NexaDock only manages isolated local storage directories and process lifecycles.'
-        },
-        {
-          q: 'Will upgrading from KHOANG erase my existing accounts?',
-          a: 'No. Storage paths, bundle identifiers, preferences, and existing isolated profiles remain unchanged for seamless upgrades.'
         },
         {
           q: 'Can two accounts run ZaloCall voice/video calls simultaneously?',

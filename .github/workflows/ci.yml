@@ -64,6 +64,28 @@ jobs:
         timeout-minutes: 8
         run: cargo test -p dim-platform-windows -p dim-platform-macos -p dim-platform-linux --all-targets --locked -- --test-threads=1
 
+      - name: Format-check cross-platform harness
+        working-directory: .
+        run: cargo fmt --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml -- --check
+
+      - name: Clippy cross-platform harness
+        working-directory: .
+        run: cargo clippy --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Check cross-platform harness
+        working-directory: .
+        run: cargo check --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml --all-targets --locked
+
+      - name: Build dim-cli and xf-desktop-fixture for cross-platform harness
+        run: |
+          cargo build --bin dim-cli --locked
+          cargo build --manifest-path fixtures/cross-platform/Cargo.toml --bin xf-desktop-fixture --locked
+
+      - name: Test cross-platform harness
+        timeout-minutes: 5
+        working-directory: .
+        run: cargo test --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml --locked -- --test-threads=1
+
   cargo-deny:
     name: Dependency licenses & security advisories (cargo-deny)
     runs-on: ubuntu-latest

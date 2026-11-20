@@ -31,6 +31,7 @@ function parseCliArgs(argv) {
     instanceId:
       process.env.DIM_INSTANCE_ID ||
       process.env.DIM_PROFILE_ID ||
+      process.env.NEXADOCK_PROFILE_ID ||
       process.env.MULTIZALO_PROFILE_ID ||
       `inst-${process.pid.toString(16).padStart(8, '0')}`,
     profileDirOverride: null,

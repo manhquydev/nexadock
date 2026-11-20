@@ -1,4 +1,4 @@
-//! Persistent desktop-shell preferences for KHOANG (`khoang-preferences.json`).
+//! Persistent desktop-shell preferences for NexaDock (`nexadock-preferences.json`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,18 +7,19 @@ use std::sync::{Arc, RwLock};
 use dim_core::{write_bytes_atomic, DimError};
 use serde::{Deserialize, Serialize};
 
-pub const PREFERENCES_FILE_NAME: &str = "khoang-preferences.json";
+pub const PREFERENCES_FILE_NAME: &str = "nexadock-preferences.json";
+pub const LEGACY_PREFERENCES_FILE_NAME: &str = "khoang-preferences.json";
 const DEFAULT_LOCALE: &str = "vi-VN";
 
-/// User-configured desktop shell preferences persisted under `<data_dir>/khoang-preferences.json`.
+/// User-configured desktop shell preferences persisted under `<data_dir>/nexadock-preferences.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct DesktopPreferences {
-    /// Whether closing the main window hides to the system tray instead of exiting KHOANG.
+    /// Whether closing the main window hides to the system tray instead of exiting NexaDock.
     pub keep_in_tray: bool,
     /// Active UI locale (`"vi-VN"` or `"en-US"`) used for localized tray labels and tooltips.
     pub locale: String,
-    /// Account IDs pinned to the top of the workspace rail (stored only in `khoang-preferences.json`).
+    /// Account IDs pinned to the top of the workspace rail (stored only in `nexadock-preferences.json`).
     #[serde(default)]
     pub pinned_accounts: Vec<String>,
 }
@@ -144,18 +145,26 @@ pub fn normalize_locale(raw: &str) -> &'static str {
     }
 }
 
-/// Loads preferences from `<data_dir>/khoang-preferences.json`, falling back to defaults on missing/corrupt files.
+/// Loads preferences from `<data_dir>/nexadock-preferences.json` (with fallback to `khoang-preferences.json`),
+/// falling back to defaults on missing/corrupt files.
 pub fn load_preferences(data_dir: &Path) -> DesktopPreferences {
     let path = data_dir.join(PREFERENCES_FILE_NAME);
-    let Ok(raw) = fs::read_to_string(&path) else {
-        return DesktopPreferences::default();
+    let raw = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(_) => {
+            let legacy_path = data_dir.join(LEGACY_PREFERENCES_FILE_NAME);
+            let Ok(legacy_content) = fs::read_to_string(&legacy_path) else {
+                return DesktopPreferences::default();
+            };
+            legacy_content
+        }
     };
     let mut parsed: DesktopPreferences = serde_json::from_str(&raw).unwrap_or_default();
     parsed.locale = normalize_locale(&parsed.locale).to_owned();
     parsed
 }
 
-/// Atomically persists preferences to `<data_dir>/khoang-preferences.json`.
+/// Atomically persists preferences to `<data_dir>/nexadock-preferences.json`.
 pub fn save_preferences(data_dir: &Path, prefs: &DesktopPreferences) -> Result<(), DimError> {
     fs::create_dir_all(data_dir)?;
     let target = data_dir.join(PREFERENCES_FILE_NAME);
@@ -168,8 +177,10 @@ mod tests {
     use super::*;
 
     fn temp_prefs_dir(suffix: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("khoang-prefs-test-{suffix}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "nexadock-prefs-test-{suffix}-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp dir");
         dir

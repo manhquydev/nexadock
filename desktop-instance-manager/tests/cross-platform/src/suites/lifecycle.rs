@@ -23,10 +23,11 @@ use dim_process_manager::PrimaryProtectionGuard;
 use dim_xf_fixture::{is_os_pid_alive, FixturePersistentState};
 use serde_json::json;
 
+#[cfg(windows)]
+use crate::harness::xf_fixture_bin_path;
 use crate::harness::{
-    force_kill_unprotected_test_pid, make_node_fixture_target, run_case_if, xf_fixture_bin_path,
-    xf_fixture_mjs_path, BystanderSnapshot, CaseSelectionFilter, CaseSuccess, IsolatedSandbox,
-    TestCaseOutcome,
+    force_kill_unprotected_test_pid, make_node_fixture_target, run_case_if, xf_fixture_mjs_path,
+    BystanderSnapshot, CaseSelectionFilter, CaseSuccess, IsolatedSandbox, TestCaseOutcome,
 };
 
 /// Executes all Process Lifecycle scenarios (`LC-01` .. `LC-09`).

@@ -11,7 +11,10 @@
 //! - Cross-platform macOS/Linux backup & restore `zalo_user_id` preservation (`DEFECT-07`)
 
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
+use std::fs;
+#[cfg(windows)]
+use std::fs::OpenOptions;
+#[cfg(windows)]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
