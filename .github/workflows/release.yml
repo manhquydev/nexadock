@@ -309,7 +309,8 @@ jobs:
           SIGNED_MODE: ${{ steps.sign_gate.outputs.signed_mode }}
         run: |
           if [ "${SIGNED_MODE}" != "true" ]; then
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+            export APPLE_SIGNING_IDENTITY="-"
           fi
           npx --yes "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --bundles dmg -- --locked
 

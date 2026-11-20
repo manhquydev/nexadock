@@ -22,6 +22,7 @@ const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name))
 const heroShot = lang === 'vi' ? 'nexadock-3accounts-vi-light.png' : 'nexadock-en-us-light.png';
 const winVerifyCmd = `Get-FileHash .\\NexaDock-${release.version}-windows-x64-setup.exe -Algorithm SHA256`;
 const macVerifyCmd = `shasum -a 256 NexaDock-${release.version}-macos-arm64.dmg`;
+const macGatekeeperCmd = 'xattr -cr /Applications/NexaDock.app';
 const linuxVerifyCmd = 'sha256sum -c SHA256SUMS.txt --ignore-missing';
 const copyLabel = lang === 'vi' ? 'Sao chép' : 'Copy';
 const copiedLabel = lang === 'vi' ? 'Đã chép' : 'Copied';
@@ -296,6 +297,22 @@ const secTags =
                 type="button"
                 class="cmd-copy-btn"
                 data-copy-cmd={macVerifyCmd}
+                data-label-default={copyLabel}
+                data-label-copied={copiedLabel}
+              >
+                {copyLabel}
+              </button>
+            </div>
+          </div>
+          <div class="verify-box">
+            <strong>{copy.download.macGatekeeperTitle}</strong>
+            <p class="verify-box-desc">{copy.download.macGatekeeperBody}</p>
+            <div class="cmd-block">
+              <code>{macGatekeeperCmd}</code>
+              <button
+                type="button"
+                class="cmd-copy-btn"
+                data-copy-cmd={macGatekeeperCmd}
                 data-label-default={copyLabel}
                 data-label-copied={copiedLabel}
               >

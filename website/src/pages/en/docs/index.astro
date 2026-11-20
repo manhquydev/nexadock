@@ -6,6 +6,7 @@ import release from '../../../data/release.json';
 const copy = SITE_COPY.en;
 const winVerifyCmd = `Get-FileHash .\\NexaDock-${release.version}-windows-x64-* -Algorithm SHA256`;
 const macVerifyCmd = `shasum -a 256 NexaDock-${release.version}-macos-arm64.dmg`;
+const macGatekeeperCmd = 'xattr -cr /Applications/NexaDock.app';
 const bridgeCmd = 'node apps/desktop/ui-server.mjs';
 const winProfilesPath = '%LOCALAPPDATA%\\NexaDock\\Profiles';
 const winPrimaryPath = '%APPDATA%\\ZaloData';
@@ -68,6 +69,15 @@ const macPrimaryPath = '~/Library/Application Support/ZaloData';
             <div class="cmd-block">
               <code>{macVerifyCmd}</code>
               <button type="button" class="cmd-copy-btn" data-copy-cmd={macVerifyCmd} data-label-default="Copy" data-label-copied="Copied">
+                Copy
+              </button>
+            </div>
+            <p>
+              After dragging <span class="code-inline">NexaDock.app</span> to <span class="code-inline">/Applications</span>, if macOS Gatekeeper blocks first launch, clear the quarantine attribute or choose <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>:
+            </p>
+            <div class="cmd-block">
+              <code>{macGatekeeperCmd}</code>
+              <button type="button" class="cmd-copy-btn" data-copy-cmd={macGatekeeperCmd} data-label-default="Copy" data-label-copied="Copied">
                 Copy
               </button>
             </div>

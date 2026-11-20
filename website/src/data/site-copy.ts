@@ -208,6 +208,8 @@ export const SITE_COPY = {
       prereleaseBadge: 'Pre-release chưa ký số',
       verifyTitle: 'Kiểm tra toàn vẹn SHA-256 trước khi chạy',
       verifyBody: 'Bản thử nghiệm chưa có chữ ký số thương mại (Authenticode / Apple Notarization). Luôn đối chiếu mã băm với tệp SHA256SUMS.txt đi kèm bản phát hành.',
+      macGatekeeperTitle: 'Mở ứng dụng lần đầu trên macOS (khi chưa có Apple Notarization)',
+      macGatekeeperBody: 'Sau khi kéo NexaDock.app vào /Applications và đối chiếu SHA-256, chạy lệnh dưới đây để gỡ cờ quarantine (hoặc vào System Settings → Privacy & Security → Open Anyway):',
       missingIntel: 'Bản phát hành thử nghiệm này chưa bao gồm bộ cài macOS Intel (x86_64).',
       linuxNote: 'Ghi chú: VNG không phát hành Zalo Desktop cho Linux. Các gói này chỉ phục vụ thử nghiệm Manager hoặc môi trường fixture.'
     },
@@ -446,6 +448,8 @@ export const SITE_COPY = {
       prereleaseBadge: 'Unsigned Development Pre-release',
       verifyTitle: 'Verify SHA-256 checksums before running',
       verifyBody: 'Pre-release installers do not yet carry commercial Authenticode or Apple Notarization signatures. Always verify checksums against SHA256SUMS.txt.',
+      macGatekeeperTitle: 'First launch on macOS (while Apple Notarization is pending)',
+      macGatekeeperBody: 'After dragging NexaDock.app to /Applications and verifying the SHA-256 checksum, clear the download quarantine flag below (or open via System Settings → Privacy & Security → Open Anyway):',
       missingIntel: 'This pre-release does not include a macOS Intel (x86_64) installer.',
       linuxNote: 'Note: VNG does not ship Zalo Desktop for Linux. These packages are experimental for Manager and fixture testing.'
     },

@@ -371,7 +371,7 @@ async function main() {
     const overallPass =
       opts.mode === 'production'
         ? bundleVerified && signingVerdict.passed && launchResult.ok === true
-        : bundleVerified && (opts.skipLaunch || launchResult.ok === true);
+        : bundleVerified && codesignVerify.ok && (opts.skipLaunch || launchResult.ok === true);
 
     const report = {
       schema_version: 1,

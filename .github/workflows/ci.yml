@@ -253,6 +253,8 @@ jobs:
 
       - name: Build Tauri macOS arm64 bundle (.dmg)
         working-directory: desktop-instance-manager/apps/desktop/src-tauri
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
         run: npx --yes "@tauri-apps/cli@2.12.5" build --bundles dmg -- --locked
 
       - name: Run clean-install bundle & launch acceptance (dev-unsigned mode)
