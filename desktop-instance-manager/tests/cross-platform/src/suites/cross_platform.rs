@@ -578,7 +578,7 @@ fn xp_mac_01_application_support_and_bundle_discovery() -> Result<CaseSuccess, S
         env.get(k).map(|s| (*s).to_owned())
     })
     .map_err(|e| e.to_string())?;
-    if resolved != Path::new("/Users/tester/Library/Application Support/MultiZaloDesktop") {
+    if resolved != Path::new("/Users/tester/Library/Application Support/NexaDock") {
         return Err(format!("unexpected macOS data_dir: {}", resolved.display()));
     }
 
@@ -912,7 +912,7 @@ fn xp_lnx_01_xdg_paths_and_layout() -> Result<CaseSuccess, String> {
         env.get(k).map(|s| (*s).to_owned())
     })
     .map_err(|e| e.to_string())?;
-    if fallback != Path::new("/home/ubuntu/.local/share/MultiZaloDesktop") {
+    if fallback != Path::new("/home/ubuntu/.local/share/NexaDock") {
         return Err(format!(
             "unexpected Linux fallback data_dir: {}",
             fallback.display()
@@ -924,7 +924,7 @@ fn xp_lnx_01_xdg_paths_and_layout() -> Result<CaseSuccess, String> {
         env.get(k).map(|s| (*s).to_owned())
     })
     .map_err(|e| e.to_string())?;
-    if xdg_over != Path::new("/custom/xdg-data/MultiZaloDesktop") {
+    if xdg_over != Path::new("/custom/xdg-data/NexaDock") {
         return Err(format!(
             "unexpected XDG_DATA_HOME override: {}",
             xdg_over.display()

@@ -201,7 +201,7 @@ function main() {
     version: 1,
     metadata: {
       timestamp: new Date().toISOString(),
-      tools: [{ vendor: 'MultiZaloDesktop', name: 'generate-build-provenance.mjs', version: '1.1.0' }],
+      tools: [{ vendor: 'NexaDock', name: 'generate-build-provenance.mjs', version: '1.1.0' }],
       component: {
         type: 'application',
         name: 'desktop-instance-manager',

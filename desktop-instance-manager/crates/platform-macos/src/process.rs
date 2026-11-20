@@ -1572,7 +1572,10 @@ fn tree_references_non_primary_profile(
     for pid in tree {
         if let Some(entry) = processes.iter().find(|p| p.pid == pid) {
             let norm = normalize_cmd_for_match(&entry.args).to_lowercase();
-            if norm.contains("/multizalodesktop/profiles/") || norm.contains("/profiles/") {
+            if norm.contains("/nexadock/profiles/")
+                || norm.contains("/multizalodesktop/profiles/")
+                || norm.contains("/profiles/")
+            {
                 return true;
             }
             if let Some(idx) = norm.find("--user-data-dir=") {

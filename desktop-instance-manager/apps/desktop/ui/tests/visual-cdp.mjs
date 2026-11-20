@@ -532,7 +532,7 @@ try {
     r.checked = true;
     r.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
-  assert.equal(await evalJs(`localStorage.getItem('multi-zalo.theme')`), 'dark');
+  assert.equal(await evalJs(`localStorage.getItem('nexadock.theme')`), 'dark');
 
   recordedRequests.length = 0;
   const loadDone = waitForEvent('Page.loadEventFired');
@@ -962,7 +962,7 @@ try {
   await new Promise((r) => setTimeout(r, 150));
   const prof1AfterColorChange = await evalJs(`({
     avatarVar: document.querySelector('#profiles-list .account-card[data-profile-id="prof-1"] .account-avatar').style.getPropertyValue('--avatar-color'),
-    storedColor: JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}')['prof-1']
+    storedColor: JSON.parse(localStorage.getItem('nexadock.accountColors') || '{}')['prof-1']
   })`);
   assert.equal(prof1AfterColorChange.avatarVar, 'var(--id-plum)');
   assert.equal(prof1AfterColorChange.storedColor, 'plum');
@@ -978,7 +978,7 @@ try {
   await new Promise((r) => setTimeout(r, 150));
   const prof1AfterSecondRename = await evalJs(`({
     avatarVar: document.querySelector('#profiles-list .account-card[data-profile-id="prof-1"] .account-avatar').style.getPropertyValue('--avatar-color'),
-    storedColor: JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}')['prof-1']
+    storedColor: JSON.parse(localStorage.getItem('nexadock.accountColors') || '{}')['prof-1']
   })`);
   assert.equal(prof1AfterSecondRename.avatarVar, 'var(--id-plum)');
   assert.equal(prof1AfterSecondRename.storedColor, 'plum');
@@ -991,7 +991,7 @@ try {
     document.querySelector('#rename-profile-dialog button[value="rename"]').click();
   })()`);
   await new Promise((r) => setTimeout(r, 150));
-  assert.equal(await evalJs(`JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}')['prof-3']`), 'coral');
+  assert.equal(await evalJs(`JSON.parse(localStorage.getItem('nexadock.accountColors') || '{}')['prof-3']`), 'coral');
 
   await evalJs(`document.querySelector('#profiles-list .account-card[data-profile-id="prof-3"] .btn-subtle-danger').click()`);
   await new Promise((r) => setTimeout(r, 150));
@@ -1000,7 +1000,7 @@ try {
     document.querySelector('#delete-profile-dialog button[value="delete"]').click();
   })()`);
   await new Promise((r) => setTimeout(r, 150));
-  const prof3ColorRemoved = await evalJs(`Object.hasOwn(JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}'), 'prof-3')`);
+  const prof3ColorRemoved = await evalJs(`Object.hasOwn(JSON.parse(localStorage.getItem('nexadock.accountColors') || '{}'), 'prof-3')`);
   assert.equal(prof3ColorRemoved, false, 'Deleting profile must remove its saved color from localStorage');
 
   // (e.3) Restore backup bk-1 (source_profile_id = 'prof-1') -> preserves 'plum' on newly restored profile
@@ -1016,7 +1016,7 @@ try {
   assert.ok(restoredProfile, 'Restored profile should exist in mockData');
   const restoredColorState = await evalJs(`({
     avatarVar: document.querySelector('#profiles-list .account-card[data-profile-id="${restoredProfile.id}"] .account-avatar')?.style.getPropertyValue('--avatar-color'),
-    storedColor: JSON.parse(localStorage.getItem('multi-zalo.accountColors') || '{}')['${restoredProfile.id}']
+    storedColor: JSON.parse(localStorage.getItem('nexadock.accountColors') || '{}')['${restoredProfile.id}']
   })`);
   assert.equal(restoredColorState.avatarVar, 'var(--id-plum)', 'Restored account must inherit source_profile_id color');
   assert.equal(restoredColorState.storedColor, 'plum');

@@ -41,7 +41,10 @@ pub const RUNTIME_PID_FILE: &str = ".runtime-pid";
 pub const DIM_DATA_DIR_ENV: &str = "DIM_DATA_DIR";
 
 /// Default application directory name under the OS data root.
-pub const APP_DIR_NAME: &str = "MultiZaloDesktop";
+pub const APP_DIR_NAME: &str = "NexaDock";
+
+/// Legacy application directory name migrated one-time to [`APP_DIR_NAME`].
+pub const LEGACY_APP_DIR_NAME: &str = "MultiZaloDesktop";
 
 /// Supported target desktop platforms.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -664,9 +667,9 @@ pub struct RecoveryReport {
 /// Precedence:
 /// 1. Explicit `override_dir` argument
 /// 2. `DIM_DATA_DIR` environment variable (if non-empty)
-/// 3. OS-specific standard location (`%LOCALAPPDATA%\MultiZaloDesktop`,
-///    `~/Library/Application Support/MultiZaloDesktop`, or
-///    `$XDG_DATA_HOME/MultiZaloDesktop`).
+/// 3. OS-specific standard location (`%LOCALAPPDATA%\NexaDock`,
+///    `~/Library/Application Support/NexaDock`, or
+///    `$XDG_DATA_HOME/NexaDock`).
 pub fn resolve_data_dir(override_dir: Option<&Path>) -> Result<PathBuf, DimError> {
     resolve_data_dir_for_platform(PlatformKind::current(), override_dir, &|key| {
         std::env::var(key).ok()

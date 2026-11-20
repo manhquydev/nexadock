@@ -11,7 +11,40 @@ use preferences::DesktopPrefsState;
 use state::AppState;
 use tauri::{Manager, WindowEvent};
 
+fn run_startup_migrations() {
+    if std::env::var_os(dim_core::DIM_DATA_DIR_ENV)
+        .filter(|v| !v.is_empty())
+        .is_none()
+    {
+        if let Ok(target_dir) = dim_core::resolve_data_dir(None) {
+            if let Some(parent) = target_dir.parent() {
+                let legacy_dir = parent.join(dim_core::LEGACY_APP_DIR_NAME);
+                if let Err(err) =
+                    dim_profile_store::migrate_legacy_data_dir(&legacy_dir, &target_dir)
+                {
+                    eprintln!("NexaDock legacy data migration skipped safely: {err}");
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA").filter(|v| !v.is_empty()) {
+        let base = std::path::PathBuf::from(local_app_data);
+        let legacy_eb = base
+            .join(dim_profile_store::LEGACY_BUNDLE_ID)
+            .join("EBWebView");
+        let target_eb = base
+            .join(dim_profile_store::CANONICAL_BUNDLE_ID)
+            .join("EBWebView");
+        if let Err(err) = dim_profile_store::migrate_legacy_ebwebview_dir(&legacy_eb, &target_eb) {
+            eprintln!("NexaDock legacy EBWebView migration skipped safely: {err}");
+        }
+    }
+}
+
 fn main() {
+    run_startup_migrations();
     let app_state = AppState::initialize().expect("failed to initialize NexaDock state");
     let prefs_state = DesktopPrefsState::initialize(app_state.store.data_dir());
 

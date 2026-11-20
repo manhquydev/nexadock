@@ -1,4 +1,4 @@
-# KHOANG — Desktop Instance Manager (formerly Multi-Zalo Desktop v2)
+# NexaDock — Desktop Instance Manager
 
 > **Your accounts. Their own space.** / **Một máy. Nhiều tài khoản. Không trộn dữ liệu.**
 

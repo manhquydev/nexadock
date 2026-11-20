@@ -566,7 +566,7 @@ fn p0_2_twelve_surface_data_isolation_ct03_and_external_db_path_guard() {
 #[test]
 fn p0_3_all_eight_process_ownership_pid_reuse_and_primary_protection_cases() {
     let sample_ps = "\
-  4100     1   501 Ss   184320 Mon Nov 17 09:05:10 2026 /Applications/Zalo.app/Contents/MacOS/Zalo --user-data-dir=/Users/alice/Library/Application Support/MultiZaloDesktop/Profiles/work_11112222/Library/Application Support/ZaloData
+  4100     1   501 Ss   184320 Mon Nov 17 09:05:10 2026 /Applications/Zalo.app/Contents/MacOS/Zalo --user-data-dir=/Users/alice/Library/Application Support/NexaDock/Profiles/work_11112222/Library/Application Support/ZaloData
   4101  4100   501 S     92160 Mon Nov 17 09:05:11 2026 /Applications/Zalo.app/Contents/Frameworks/Zalo Helper (Renderer).app/Contents/MacOS/Zalo Helper (Renderer) --type=renderer
   4102  4100   501 Z         0 Mon Nov 17 09:05:12 2026 (Zalo Helper) <defunct>
 ";
@@ -944,7 +944,7 @@ fn p1_1_sun_len_short_tmpdir_symlink_squatting_and_foreign_slot_hardening() {
         .path()
         .join("Library")
         .join("Application Support")
-        .join("MultiZaloDesktop")
+        .join("NexaDock")
         .join("Profiles")
         .join("cong-viec-doanh-nghiep-chi-nhanh-mien-nam_a1b2c3d4");
     assert!(long_profile_dir.join("tmp").to_string_lossy().len() > MACOS_SAFE_TMPDIR_MAX_BYTES);

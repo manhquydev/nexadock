@@ -125,13 +125,13 @@ test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forb
   );
   assert.match(
     themeInitJs,
-    /['"]multi-zalo\.theme['"]/,
-    'theme-init.js must read multi-zalo.theme'
+    /['"]nexadock\.theme['"]/,
+    'theme-init.js must read nexadock.theme'
   );
   assert.match(
     appJs,
-    /['"]multi-zalo\.theme['"]/,
-    'app.js must persist theme under multi-zalo.theme'
+    /['"]nexadock\.theme['"]/,
+    'app.js must persist theme under nexadock.theme'
   );
   assert.match(
     appJs,
@@ -226,7 +226,7 @@ function createMockLocalStorage() {
   };
 }
 
-test('account color persistence saves by profile id, survives rename, avoids 8-way collision, and removes cleanly', () => {
+test('account color persistence saves by profile id, survives rename, avoids 8-way collision, and removes cleanly', async () => {
   const prevStorage = globalThis.localStorage;
   const { store, storage } = createMockLocalStorage();
   globalThis.localStorage = storage;
@@ -240,7 +240,7 @@ test('account color persistence saves by profile id, survives rename, avoids 8-w
     assert.equal(getAccountColorId({ id: 'prof-persist-1', name: 'Đức — Đối tác' }), 'plum');
 
     removeAccountColor('prof-persist-1');
-    const savedAfterDelete = JSON.parse(store.get('multi-zalo.accountColors') || '{}');
+    const savedAfterDelete = JSON.parse(store.get('nexadock.accountColors') || '{}');
     assert.equal(Object.hasOwn(savedAfterDelete, 'prof-persist-1'), false);
 
     const profiles = [];
@@ -256,9 +256,19 @@ test('account color persistence saves by profile id, survives rename, avoids 8-w
     assert.equal(new Set(assigned).size, 8, `Expected 8 distinct colors, got ${assigned.join(', ')}`);
 
     removeAccountColor('prof-seq-4');
-    const mapAfterOneRemoved = JSON.parse(store.get('multi-zalo.accountColors') || '{}');
+    const mapAfterOneRemoved = JSON.parse(store.get('nexadock.accountColors') || '{}');
     assert.equal(Object.hasOwn(mapAfterOneRemoved, 'prof-seq-4'), false);
     assert.equal(Object.keys(mapAfterOneRemoved).length, 7);
+
+    // Verify legacy multi-zalo.accountColors / multi-zalo.theme fallback+migration
+    store.clear();
+    store.set('multi-zalo.accountColors', JSON.stringify({ 'legacy-1': 'teal' }));
+    store.set('multi-zalo.theme', 'dark');
+    assert.equal(getAccountColorId({ id: 'legacy-1', name: 'Legacy' }), 'teal');
+    assert.equal(JSON.parse(store.get('nexadock.accountColors') || '{}')['legacy-1'], 'teal');
+    const { getSavedThemePreference } = await import('../app.js');
+    assert.equal(getSavedThemePreference(), 'dark');
+    assert.equal(store.get('nexadock.theme'), 'dark');
   } finally {
     if (prevStorage === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = prevStorage;

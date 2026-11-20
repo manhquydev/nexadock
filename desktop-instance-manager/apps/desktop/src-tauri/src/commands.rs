@@ -31,11 +31,11 @@ fn current_user_home() -> Option<PathBuf> {
 #[allow(dead_code)]
 const OFFICIAL_FIXTURE_SHA256_ALLOWLIST: &[&str] = &[
     // fixtures/cross-platform/xf-fixture.mjs (LF and CRLF)
-    "1f30e1d26d01b69deacf217610ea9c9a30aeed06fd089968f15084eaa2cda9f4",
-    "eca38c7efb3d08191dfddad4e82e99a83066eb40c59919225e5b642753a95281",
+    "815aaba3ac7dfcdc177ff1c2dc70b4eda1ce0c5e662fb9014e5e12579adc45d1",
+    "c54a8280bd3209bae53a6ad3e20f078bdc8b4df51356fbd293dd164936474c74",
     // fixtures/test-desktop-app/fixture-app.mjs (LF and CRLF)
-    "46d3cb9bafc192bdc31147b8469a89417f7702f0d57d2ade59752f273cc33fbf",
-    "724971c2b15ae45406ece208b2d11e3e7c663b503dc49b609914f06ced7a4aa2",
+    "87ba7dedaefd5a6dffe314ff412e86b6925eed62e521922d7cd446d98bfc6c2e",
+    "9c889bf158264bb52b10435a72b20f1ce1d611550922a06c91eace793f39d7d1",
 ];
 
 #[allow(dead_code)]
@@ -835,7 +835,7 @@ fn host_window_handle_u64(_app: &AppHandle) -> u64 {
 }
 
 fn emit_snapshot_changed(app: &AppHandle) {
-    let _ = app.emit("khoang://snapshot-changed", ());
+    let _ = app.emit("nexadock://snapshot-changed", ());
 }
 
 #[tauri::command]
@@ -1272,7 +1272,8 @@ mod tests {
 
     #[test]
     fn workspace_snapshot_fast_path_includes_desktop_web_and_pinned() {
-        let data_dir = std::env::temp_dir().join(format!("khoang-cmd-snap-{}", std::process::id()));
+        let data_dir =
+            std::env::temp_dir().join(format!("nexadock-cmd-snap-{}", std::process::id()));
         let _ = fs::remove_dir_all(&data_dir);
         fs::create_dir_all(&data_dir).expect("create temp dir");
 

@@ -336,7 +336,7 @@ fn open_in_os_browser(raw: &str) {
     }
 }
 
-/// Computes the Windows WebView2 profile name (`khoang_web_<id>_g<gen>`, `[a-z0-9_-]{1,64}`).
+/// Computes the Windows WebView2 profile name (`nexadock_web_<id>_g<gen>`, `[a-z0-9_-]{1,64}`).
 #[allow(dead_code)]
 pub fn windows_profile_name(id: &str, generation: u32) -> String {
     let sanitized: String = id
@@ -350,7 +350,7 @@ pub fn windows_profile_name(id: &str, generation: u32) -> String {
         })
         .collect();
     let suffix = format!("_g{generation}");
-    let prefix = "khoang_web_";
+    let prefix = "nexadock_web_";
     let max_id_len = 64usize.saturating_sub(prefix.len() + suffix.len());
     let truncated: String = sanitized.chars().take(max_id_len).collect();
     format!("{prefix}{truncated}{suffix}")
@@ -360,7 +360,7 @@ pub fn windows_profile_name(id: &str, generation: u32) -> String {
 fn is_valid_windows_profile_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
-        && name.starts_with("khoang_web_")
+        && (name.starts_with("nexadock_web_") || name.starts_with("khoang_web_"))
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
@@ -1239,9 +1239,10 @@ mod tests {
     #[test]
     fn windows_profile_name_is_bounded_and_sanitized() {
         let name = windows_profile_name("web-a1b2c3d4", 3);
-        assert_eq!(name, "khoang_web_web-a1b2c3d4_g3");
+        assert_eq!(name, "nexadock_web_web-a1b2c3d4_g3");
         assert!(name.len() <= 64);
         assert!(is_valid_windows_profile_name(&name));
+        assert!(is_valid_windows_profile_name("khoang_web_web-a1b2c3d4_g1"));
 
         let long = windows_profile_name(&"x".repeat(100), 12);
         assert!(long.len() <= 64);
@@ -1252,14 +1253,14 @@ mod tests {
     #[test]
     fn sweep_pending_profile_deletes_never_removes_ebwebview_directory_directly() {
         let data_dir = std::env::temp_dir().join(format!(
-            "khoang-web-sweep-test-{}-{}",
+            "nexadock-web-sweep-test-{}-{}",
             std::process::id(),
             dim_core::generate_profile_id()
         ));
         let _ = fs::remove_dir_all(&data_dir);
         let eb_profile_dir = shared_env_dir(&data_dir)
             .join("EBWebView")
-            .join("khoang_web_web-a1b2c3d4_g1");
+            .join("nexadock_web_web-a1b2c3d4_g1");
         fs::create_dir_all(&eb_profile_dir).expect("create fake EBWebView profile dir");
         let sentinel = eb_profile_dir.join("Preferences");
         fs::write(&sentinel, b"{}").expect("write sentinel file");
@@ -1269,7 +1270,7 @@ mod tests {
             .create("Sweep Test", None)
             .expect("create web session");
         store
-            .bump_generation_for_reset(&created.id, Some("khoang_web_web-a1b2c3d4_g1".to_owned()))
+            .bump_generation_for_reset(&created.id, Some("nexadock_web_web-a1b2c3d4_g1".to_owned()))
             .expect("queue pending profile delete");
 
         sweep_pending_profile_deletes(None, &data_dir, &store).expect("sweep without main window");

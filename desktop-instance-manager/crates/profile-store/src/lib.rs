@@ -1,10 +1,16 @@
 //! Profile storage, atomic `profiles.json`, identity markers, and offline verified backup/restore.
 
 pub mod backup;
+pub mod migration;
 pub mod store;
 
 pub use backup::{
     sha256_file, sweep_abandoned_staging_dirs, DiskSpaceProbe, FileBackupManager, STAGING_MAX_AGE,
+};
+pub use migration::{
+    migrate_legacy_data_dir, migrate_legacy_ebwebview_dir, EbWebViewMigrationOutcome,
+    MigrationOutcome, CANONICAL_BUNDLE_ID, LEGACY_BUNDLE_ID, MIGRATED_MARKER_FILE,
+    MIGRATION_IN_PROGRESS_FILE,
 };
 pub use store::{
     is_symlink_or_reparse, unlink_reparse_points_safe, verify_profile_id_marker,
