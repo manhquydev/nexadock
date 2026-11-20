@@ -94,13 +94,9 @@ a:hover {
 /* Blueprint surfaces, index tags, and crosshair crop markers */
 .bp-grid-surface {
   background-color: var(--surface-page);
-  background-image:
-    linear-gradient(to right, var(--bp-grid-major) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--bp-grid-major) 1px, transparent 1px),
-    linear-gradient(to right, var(--bp-grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--bp-grid-line) 1px, transparent 1px);
-  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
-  background-position: -1px -1px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cpath d='M24 0v96M48 0v96M72 0v96M0 24h96M0 48h96M0 72h96' stroke='%23145e56' stroke-opacity='0.06' stroke-width='1' fill='none'/%3E%3Cpath d='M95.5 0v96M0 95.5h96' stroke='%23145e56' stroke-opacity='0.12' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+  background-size: 96px 96px;
+  background-position: top left;
 }
 
 .bp-tag {
@@ -818,17 +814,6 @@ a:hover {
   max-width: 100%;
 }
 
-@media (max-width: 480px) {
-  .platform-tabs {
-    width: 100%;
-  }
-  .platform-tab {
-    flex: 1 1 auto;
-    font-size: 0.8125rem;
-    padding: 6px 10px;
-  }
-}
-
 .platform-tab {
   border: 0;
   background: transparent;
@@ -845,6 +830,17 @@ a:hover {
 .platform-tab[aria-selected="true"] {
   background: var(--surface-elevated);
   color: var(--text-primary);
+}
+
+@media (max-width: 480px) {
+  .platform-tabs {
+    width: 100%;
+  }
+  .platform-tab {
+    flex: 1 1 auto;
+    font-size: 0.8125rem;
+    padding: 6px 10px;
+  }
 }
 
 .asset-list {

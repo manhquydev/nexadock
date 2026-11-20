@@ -83,15 +83,15 @@ Mỗi tài khoản được đặt trong một không gian lưu trữ riêng (`P
 
 ## Cài đặt & Kiểm thử nhanh
 
-Tải gói cài đặt mới nhất (**`v0.1.1-beta.2`**) tại trang **[GitHub Releases (Pre-release)](https://github.com/manhquydev/nexadock/releases)** và luôn đối chiếu mã băm với tệp **`SHA256SUMS.txt`** đi kèm trước khi chạy.
+Tải gói cài đặt mới nhất (**`v0.1.1-beta.3`**) tại trang **[GitHub Releases (Pre-release)](https://github.com/manhquydev/nexadock/releases)** và luôn đối chiếu mã băm với tệp **`SHA256SUMS.txt`** đi kèm trước khi chạy.
 
 <details>
 <summary><strong>1. Windows 10 / 11 (x64) — <code>.exe</code> / <code>.msi</code> / Signed-Host Bridge</strong></summary>
 
-1. Tải **`NexaDock-0.1.1-beta.2-windows-x64-setup.exe`** (khuyến nghị) hoặc **`NexaDock-0.1.1-beta.2-windows-x64.msi`**.
+1. Tải **`NexaDock-0.1.1-beta.3-windows-x64-setup.exe`** (khuyến nghị) hoặc **`NexaDock-0.1.1-beta.3-windows-x64.msi`**.
 2. Kiểm tra `SHA-256` bằng PowerShell:
    ```powershell
-   Get-FileHash .\NexaDock-0.1.1-beta.2-windows-x64-setup.exe -Algorithm SHA256
+   Get-FileHash .\NexaDock-0.1.1-beta.3-windows-x64-setup.exe -Algorithm SHA256
    ```
 3. Cài đặt **NexaDock**. Nếu Windows SmartScreen hiện cảnh báo do bản thử nghiệm chưa ký số Authenticode, hãy đối chiếu khớp `SHA-256` với `SHA256SUMS.txt` trước khi cho phép chạy (yêu cầu sẵn Microsoft Edge WebView2 Runtime).
 4. **Trên máy bật Smart App Control (`SAC=1`):** Không tắt Smart App Control — chạy thẳng giao diện Account Dock qua PowerShell và Node.js đã được ký số của hệ thống:
@@ -106,9 +106,9 @@ Tải gói cài đặt mới nhất (**`v0.1.1-beta.2`**) tại trang **[GitHub 
 <details>
 <summary><strong>2. macOS (Apple Silicon arm64) — <code>.dmg</code></strong></summary>
 
-1. Tải **`NexaDock-0.1.1-beta.2-macos-arm64.dmg`** và kiểm tra `SHA-256`:
+1. Tải **`NexaDock-0.1.1-beta.3-macos-arm64.dmg`** và kiểm tra `SHA-256`:
    ```bash
-   shasum -a 256 NexaDock-0.1.1-beta.2-macos-arm64.dmg
+   shasum -a 256 NexaDock-0.1.1-beta.3-macos-arm64.dmg
    ```
 2. Đảm bảo đã cài sẵn `/Applications/Zalo.app` chính thức từ VNG.
 3. **Lưu ý Gatekeeper:** Do bản Pre-release chưa có chứng chỉ Apple Developer ID / Notarization (`UNSIGNED_DEVELOPMENT_ARTIFACT`), macOS Gatekeeper mặc định có thể từ chối mở file nhị phân tải từ Internet. Để kiểm thử phát triển cục bộ mà không hạ cấp bảo mật hệ điều hành, có thể tự build từ mã nguồn với Xcode Command Line Tools & Rust:
@@ -123,19 +123,19 @@ Tải gói cài đặt mới nhất (**`v0.1.1-beta.2`**) tại trang **[GitHub 
 <details>
 <summary><strong>3. Ubuntu 24.04 LTS (x64) — <code>.deb</code> & <code>.AppImage</code></strong></summary>
 
-1. Tải **`NexaDock-0.1.1-beta.2-ubuntu24.04-amd64.deb`** hoặc **`NexaDock-0.1.1-beta.2-linux-x86_64.AppImage`** và kiểm tra `SHA-256`:
+1. Tải **`NexaDock-0.1.1-beta.3-ubuntu24.04-amd64.deb`** hoặc **`NexaDock-0.1.1-beta.3-linux-x86_64.AppImage`** và kiểm tra `SHA-256`:
    ```bash
    sha256sum -c SHA256SUMS.txt --ignore-missing
    ```
 2. Cài đặt gói `.deb`:
    ```bash
    sudo apt-get update
-   sudo apt-get install -y ./NexaDock-0.1.1-beta.2-ubuntu24.04-amd64.deb bubblewrap
+   sudo apt-get install -y ./NexaDock-0.1.1-beta.3-ubuntu24.04-amd64.deb bubblewrap
    ```
    Hoặc chạy bản `.AppImage`:
    ```bash
-   chmod +x NexaDock-0.1.1-beta.2-linux-x86_64.AppImage
-   ./NexaDock-0.1.1-beta.2-linux-x86_64.AppImage
+   chmod +x NexaDock-0.1.1-beta.3-linux-x86_64.AppImage
+   ./NexaDock-0.1.1-beta.3-linux-x86_64.AppImage
    ```
 3. **Lưu ý:** VNG không cung cấp Zalo Desktop cho Linux; bản Ubuntu dành cho chạy thử giao diện Account Dock (WebKitGTK 4.1), fixture kiểm thử vòng đời `bwrap`/`XDG_*` hoặc AppImage cục bộ. Xem chi tiết: [Ubuntu AppImage Compatibility](desktop-instance-manager/docs/platform/ubuntu/appimage-compatibility.md).
 

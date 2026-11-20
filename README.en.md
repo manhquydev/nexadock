@@ -80,11 +80,11 @@ Each account resides in its own dedicated space (`Profiles/<slug>_<id>/`) enforc
 
 ## Quick Installation & Verification
 
-Download installers (**`v0.1.1-beta.2`**) from **[GitHub Releases](https://github.com/manhquydev/nexadock/releases)** and verify checksums against **`SHA256SUMS.txt`**.
+Download installers (**`v0.1.1-beta.3`**) from **[GitHub Releases](https://github.com/manhquydev/nexadock/releases)** and verify checksums against **`SHA256SUMS.txt`**.
 
-- **Windows 10/11:** Run `NexaDock-0.1.1-beta.2-windows-x64-setup.exe` (or `.msi`). On machines with Smart App Control (`SAC=1`), launch from source with `cd desktop-instance-manager && node apps/desktop/ui-server.mjs`.
-- **macOS (`arm64`):** Download `NexaDock-0.1.1-beta.2-macos-arm64.dmg`. Because the pre-release `.dmg` is unsigned/unnotarized, Gatekeeper blocks downloaded unsigned bundles by default; developers can run locally from source via `cargo run --manifest-path desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml`.
-- **Ubuntu 24.04 LTS (`x64`):** Install `NexaDock-0.1.1-beta.2-ubuntu24.04-amd64.deb` (`sudo apt-get install -y ./NexaDock-0.1.1-beta.2-ubuntu24.04-amd64.deb bubblewrap`) or execute `NexaDock-0.1.1-beta.2-linux-x86_64.AppImage`.
+- **Windows 10/11:** Run `NexaDock-0.1.1-beta.3-windows-x64-setup.exe` (or `.msi`). On machines with Smart App Control (`SAC=1`), launch from source with `cd desktop-instance-manager && node apps/desktop/ui-server.mjs`.
+- **macOS (`arm64`):** Download `NexaDock-0.1.1-beta.3-macos-arm64.dmg`. Because the pre-release `.dmg` is unsigned/unnotarized, Gatekeeper blocks downloaded unsigned bundles by default; developers can run locally from source via `cargo run --manifest-path desktop-instance-manager/apps/desktop/src-tauri/Cargo.toml`.
+- **Ubuntu 24.04 LTS (`x64`):** Install `NexaDock-0.1.1-beta.3-ubuntu24.04-amd64.deb` (`sudo apt-get install -y ./NexaDock-0.1.1-beta.3-ubuntu24.04-amd64.deb bubblewrap`) or execute `NexaDock-0.1.1-beta.3-linux-x86_64.AppImage`.
 
 ---
 

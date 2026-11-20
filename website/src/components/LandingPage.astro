@@ -16,7 +16,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const fmtBytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 const winAssets = release.assets.filter((a) => /windows/i.test(a.name));
-const macAssets = release.assets.filter((a) => /macos/i.test(a.name));
+const macAssets = release.assets.filter((a) => /macos/i.test(a.name) && /\.dmg$/i.test(a.name));
 const linuxAssets = release.assets.filter((a) => /(ubuntu|linux)/i.test(a.name));
 
 const heroShot = lang === 'vi' ? 'nexadock-3accounts-vi-light.png' : 'nexadock-en-us-light.png';
@@ -96,7 +96,7 @@ const secTags =
       <WorkspaceShowcase lang={lang} />
 
       <div class="section-header section-header--spaced">
-        <p class="bp-fig-id">FIG. 03 // DESKTOP CAPTURES</p>
+        <p class="bp-fig-id">{lang === 'vi' ? 'FIG. 03 // ẢNH CHỤP DESKTOP' : 'FIG. 03 // DESKTOP CAPTURES'}</p>
         <h2 class="section-title">{copy.shots.title}</h2>
         <p class="section-desc">{copy.shots.desc}</p>
       </div>

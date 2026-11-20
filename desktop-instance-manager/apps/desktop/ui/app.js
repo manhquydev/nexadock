@@ -1140,6 +1140,9 @@ function syncTruncatedElementState(el) {
 
 function refreshTruncationStates() {
   if (typeof document === 'undefined') return;
+  if (activeTooltipAnchor && !activeTooltipAnchor.isConnected) {
+    hideFloatingTooltip();
+  }
   const targets = [
     ...document.querySelectorAll('#profiles-list .account-name'),
     document.getElementById('desktop-stage-name'),
@@ -1179,7 +1182,9 @@ function wireFullNameReveal(el, fullName) {
   };
   el.addEventListener('mouseenter', reveal);
   el.addEventListener('focusin', reveal);
-  el.addEventListener('mouseleave', () => hideFloatingTooltip(el));
+  el.addEventListener('mouseleave', () => {
+    if (document.activeElement !== el) hideFloatingTooltip(el);
+  });
   el.addEventListener('focusout', () => hideFloatingTooltip(el));
 }
 
@@ -1215,7 +1220,9 @@ function syncRailTooltipsForWebView(webviewActive) {
     };
     btn.addEventListener('mouseenter', maybeShowRailTip);
     btn.addEventListener('focusin', maybeShowRailTip);
-    btn.addEventListener('mouseleave', () => hideFloatingTooltip(btn));
+    btn.addEventListener('mouseleave', () => {
+      if (document.activeElement !== btn) hideFloatingTooltip(btn);
+    });
     btn.addEventListener('focusout', () => hideFloatingTooltip(btn));
   }
 }
@@ -3364,7 +3371,7 @@ function validateAccountNameInput(rawValue, { allowBlank = false, excludeId = nu
     }
     return { ok: false, errorCode: 'INVALID_NAME' };
   }
-  if (/[<>:"/\\|?*\x00-\x1f]/.test(trimmed) || trimmed === '.' || trimmed === '..') {
+  if (/[\/\\\x00-\x1f]/.test(trimmed) || trimmed.includes('..') || trimmed === '.') {
     return { ok: false, errorCode: 'INVALID_NAME' };
   }
   const normalized = trimmed.toLowerCase();
@@ -4276,12 +4283,17 @@ function wireWebHeaderControls() {
     });
 
     webMoreBtn.addEventListener('keydown', (event) => {
-      if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
         webMenuFocusMode = 'first';
-        if (event.key === 'ArrowDown' && !webMenu.matches(':popover-open')) {
-          event.preventDefault();
+        if (!webMenu.matches(':popover-open')) {
           webMenu.showPopover?.();
+        } else {
+          const items = getWebMenuItems();
+          if (items.length > 0) items[0].focus();
         }
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        webMenuFocusMode = 'first';
       } else if (event.key === 'ArrowUp') {
         event.preventDefault();
         webMenuFocusMode = 'last';

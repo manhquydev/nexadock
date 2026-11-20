@@ -47,7 +47,7 @@ test('HTML adheres to Modern Web Guidance, native radio groups, & CSP rules', ()
   assert.doesNotMatch(html, /id="web-limits-tip"[^>]*role="tooltip"/i, 'Rich #web-limits-tip must not use role="tooltip"');
   assert.match(html, /id="web-session-menu"[\s\S]*?role="menu"[\s\S]*?role="menuitem"/i, '#web-session-menu must expose menu and menuitem roles');
   assert.match(html, /id="backups-empty"[\s\S]*?<h2\s+class="empty-title"/i, '#backups-empty must use an <h2> heading');
-  assert.match(html, /id="btn-clear-search"/i, '#profiles-empty must include #btn-clear-search');
+  assert.match(html, /id="profiles-empty"[\s\S]*?id="btn-clear-search"/i, '#profiles-empty must include #btn-clear-search');
 });
 
 test('CSS adheres to Modern Web Guidance & Quiet Workspace rules', () => {
@@ -329,7 +329,9 @@ test('semantic button & accent tokens in styles.css meet WCAG 2.2 AA >= 4.5:1 in
     ['light .btn-subtle-danger', '--danger-fg-light', '--bg-surface-light'],
     ['dark .btn-subtle-danger', '--danger-fg-dark', '--bg-surface-dark'],
     ['light .btn-danger', '--accent-text-light', '--danger-solid-light'],
-    ['dark .btn-danger', '--accent-text-dark', '--danger-solid-dark']
+    ['dark .btn-danger', '--accent-text-dark', '--danger-solid-dark'],
+    ['light .btn-link', '--accent-tonal-fg-light', '--bg-surface-light'],
+    ['dark .btn-link', '--accent-tonal-fg-dark', '--bg-surface-dark']
   ];
   for (const [label, fgToken, bgToken] of pairs) {
     const fg = vars.get(fgToken);

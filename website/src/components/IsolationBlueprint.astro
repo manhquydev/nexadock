@@ -21,18 +21,22 @@ const copy =
         primaryGuard1: 'PROTECTED_PRIMARY_PATH',
         primaryGuard2: 'PROTECTED_PRIMARY_PROCESS',
         primaryBarrier: 'CHẶN GHI ĐÈ / DỪNG',
+        primaryPidLabel: 'Zalo.exe (Tiến trình chính)',
         gateTitle: 'Cổng xác thực chữ ký',
         gateSub1: 'WinVerifyTrust (Windows)',
         gateSub2: 'Bundle Sig (macOS)',
         gateNote: 'Không sửa tệp Zalo',
+        gateFailureLabel: 'UNVERIFIED_BINARY -> Chặn',
         profileTitle: 'Hồ sơ cô lập',
         profilePath: 'Profiles/<slug>_<id>/',
         profileNote1: 'Cửa sổ độc lập',
         profileNote2: 'Khóa DB & chống trùng ID',
+        profileTreeLabel: 'tiến trình tách biến môi trường',
         backupTitle: 'Sao lưu nguyên tử',
         backupReq: '>= 5 GiB · SHA-256 .zip',
         backupNote1: 'Khôi phục -> Hồ sơ mới',
-        backupNote2: '(Không ghi đè dữ liệu cũ)'
+        backupNote2: '(Không ghi đè dữ liệu cũ)',
+        backupAtomicLabel: 'tạo file tạm -> đổi tên nguyên tử'
       }
     : {
         figTag: 'FIG. 02 // SYSTEM ISOLATION BLUEPRINT',
@@ -46,18 +50,22 @@ const copy =
         primaryGuard1: 'PROTECTED_PRIMARY_PATH',
         primaryGuard2: 'PROTECTED_PRIMARY_PROCESS',
         primaryBarrier: 'BLOCK STOP / OVERWRITE',
+        primaryPidLabel: 'Zalo.exe (Primary PID)',
         gateTitle: 'Signature Gate',
         gateSub1: 'WinVerifyTrust (Windows)',
         gateSub2: 'Bundle Sig (macOS)',
         gateNote: 'Zero binary patching',
+        gateFailureLabel: 'UNVERIFIED_BINARY -> 0',
         profileTitle: 'Isolated Profiles',
         profilePath: 'Profiles/<slug>_<id>/',
         profileNote1: 'Independent window',
         profileNote2: 'DB lock & user ID guard',
+        profileTreeLabel: 'env-scoped process tree',
         backupTitle: 'Atomic Backup',
         backupReq: '>= 5 GiB · SHA-256 .zip',
         backupNote1: 'Restore -> New profile',
-        backupNote2: '(Non-destructive)'
+        backupNote2: '(Non-destructive)',
+        backupAtomicLabel: 'atomic temp -> rename'
       };
 ---
 
@@ -90,9 +98,9 @@ const copy =
         <!-- Active path: Profiles -> Backup -->
         <line x1="720" y1="138" x2="748" y2="138" stroke="#145e56" />
         <!-- Environment branch lines under Profiles -->
-        <polyline points="620,210 620,230 541,230 541,246" stroke="#8a8377" stroke-width="1" />
+        <polyline points="620,210 620,230 544,230 544,246" stroke="#8a8377" stroke-width="1" />
         <line x1="620" y1="230" x2="620" y2="246" stroke="#8a8377" stroke-width="1" />
-        <polyline points="620,230 720,230 720,246" stroke="#8a8377" stroke-width="1" />
+        <polyline points="620,230 698,230 698,246" stroke="#8a8377" stroke-width="1" />
       </g>
 
       <!-- 2D Pixel Junction Markers (crispEdges) -->
@@ -125,14 +133,14 @@ const copy =
         <text x="68" y="79" font-size="13" font-weight="700" fill="#172723">{copy.primaryTitle}</text>
 
         <rect x="32" y="100" width="200" height="28" rx="4" fill="#ffffff" stroke="#ded8cd" />
-        <text x="42" y="118" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="#172723">{copy.primaryPath}</text>
+        <text x="42" y="118" class="bp-mono" font-size="11" font-weight="600" fill="#172723">{copy.primaryPath}</text>
 
         <rect x="32" y="138" width="200" height="48" rx="4" fill="#fef3c7" stroke="#e5c068" />
-        <text x="41" y="157" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard1}</text>
-        <text x="41" y="175" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard2}</text>
+        <text x="41" y="157" class="bp-mono" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard1}</text>
+        <text x="41" y="175" class="bp-mono" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard2}</text>
 
-        <text x="32" y="212" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryBarrier}</text>
-        <text x="32" y="232" font-size="11" fill="#484641">Zalo.exe (Primary PID)</text>
+        <text x="32" y="212" class="bp-mono" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryBarrier}</text>
+        <text x="32" y="232" font-size="11" fill="#484641">{copy.primaryPidLabel}</text>
       </g>
 
       <!-- NODE 2: Signature Gate -->
@@ -149,12 +157,12 @@ const copy =
           <rect x="9" y="6" width="2" height="4" />
         </g>
         <text x="352" y="93" font-size="12.5" font-weight="700" fill="#172723">{copy.gateTitle}</text>
-        <text x="352" y="109" font-family="var(--font-mono)" font-size="9.5" fill="#145e56">{copy.gateNote}</text>
+        <text x="352" y="109" class="bp-mono" font-size="9.5" fill="#145e56">{copy.gateNote}</text>
 
         <rect x="316" y="122" width="162" height="54" rx="4" fill="#efece5" stroke="#ded8cd" />
-        <text x="324" y="140" font-family="var(--font-mono)" font-size="9.8" font-weight="600" fill="#172723">{copy.gateSub1}</text>
-        <text x="324" y="156" font-family="var(--font-mono)" font-size="9.8" font-weight="600" fill="#172723">{copy.gateSub2}</text>
-        <text x="324" y="170" font-family="var(--font-mono)" font-size="9.2" fill="#484641">UNVERIFIED_BINARY -&gt; 0</text>
+        <text x="324" y="140" class="bp-mono" font-size="9.8" font-weight="600" fill="#172723">{copy.gateSub1}</text>
+        <text x="324" y="156" class="bp-mono" font-size="9.8" font-weight="600" fill="#172723">{copy.gateSub2}</text>
+        <text x="324" y="170" class="bp-mono" font-size="9.2" fill="#484641">{copy.gateFailureLabel}</text>
       </g>
 
       <!-- NODE 3: Isolated Profiles -->
@@ -170,23 +178,23 @@ const copy =
         <text x="568" y="79" font-size="13" font-weight="700" fill="#172723">{copy.profileTitle}</text>
 
         <rect x="532" y="100" width="176" height="28" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
-        <text x="540" y="118" font-family="var(--font-mono)" font-size="10.2" font-weight="600" fill="#135d34">{copy.profilePath}</text>
+        <text x="540" y="118" class="bp-mono" font-size="10.2" font-weight="600" fill="#135d34">{copy.profilePath}</text>
 
         <text x="532" y="150" font-size="11.5" font-weight="600" fill="#172723">{copy.profileNote1}</text>
         <text x="532" y="168" font-size="11" fill="#484641">{copy.profileNote2}</text>
-        <text x="532" y="190" font-family="var(--font-mono)" font-size="9.5" fill="#145e56">env-scoped process tree</text>
+        <text x="532" y="190" class="bp-mono" font-size="9.2" fill="#145e56">{copy.profileTreeLabel}</text>
       </g>
 
-      <!-- 3 Isolated Environment Variable Sub-nodes -->
-      <g font-family="var(--font-mono)" font-size="10" font-weight="600">
-        <rect x="504" y="246" width="74" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
-        <text x="541" y="265" text-anchor="middle" fill="#135d34">APPDATA</text>
+      <!-- 3 Isolated Environment Variable Sub-nodes (fit within x=520..720) -->
+      <g class="bp-mono" font-size="9.5" font-weight="600">
+        <rect x="520" y="246" width="54" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <text x="547" y="265" text-anchor="middle" fill="#135d34">APPDATA</text>
 
-        <rect x="586" y="246" width="96" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
-        <text x="634" y="265" text-anchor="middle" fill="#135d34">LOCALAPPDATA</text>
+        <rect x="578" y="246" width="90" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <text x="623" y="265" text-anchor="middle" fill="#135d34">LOCALAPPDATA</text>
 
-        <rect x="690" y="246" width="60" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
-        <text x="720" y="265" text-anchor="middle" fill="#135d34">TEMP</text>
+        <rect x="672" y="246" width="48" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <text x="696" y="265" text-anchor="middle" fill="#135d34">TEMP</text>
       </g>
 
       <!-- NODE 4: Atomic Backup -->
@@ -201,11 +209,11 @@ const copy =
         <text x="796" y="79" font-size="13" font-weight="700" fill="#172723">{copy.backupTitle}</text>
 
         <rect x="760" y="100" width="168" height="28" rx="4" fill="#efece5" stroke="#ded8cd" />
-        <text x="768" y="118" font-family="var(--font-mono)" font-size="9.8" font-weight="600" fill="#172723">{copy.backupReq}</text>
+        <text x="768" y="118" class="bp-mono" font-size="9.8" font-weight="600" fill="#172723">{copy.backupReq}</text>
 
         <text x="760" y="150" font-size="11.5" font-weight="600" fill="#172723">{copy.backupNote1}</text>
         <text x="760" y="168" font-size="11" fill="#484641">{copy.backupNote2}</text>
-        <text x="760" y="190" font-family="var(--font-mono)" font-size="9.5" fill="#145e56">atomic temp -&gt; rename</text>
+        <text x="760" y="190" class="bp-mono" font-size="9.2" fill="#145e56">{copy.backupAtomicLabel}</text>
       </g>
     </svg>
 
@@ -246,11 +254,11 @@ const copy =
         </g>
         <text x="48" y="37" font-size="13" font-weight="700" fill="#172723">{copy.primaryTitle}</text>
         <rect x="24" y="48" width="292" height="24" rx="4" fill="#ffffff" stroke="#ded8cd" />
-        <text x="32" y="64" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="#172723">{copy.primaryPath}</text>
+        <text x="32" y="64" class="bp-mono" font-size="11" font-weight="600" fill="#172723">{copy.primaryPath}</text>
         <rect x="24" y="78" width="292" height="40" rx="4" fill="#fef3c7" stroke="#e5c068" />
-        <text x="32" y="94" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard1}</text>
-        <text x="32" y="110" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard2}</text>
-        <text x="24" y="133" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryBarrier}</text>
+        <text x="32" y="94" class="bp-mono" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard1}</text>
+        <text x="32" y="110" class="bp-mono" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard2}</text>
+        <text x="24" y="133" class="bp-mono" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryBarrier}</text>
       </g>
 
       <!-- Mobile Node 2: Signature Gate -->
@@ -266,9 +274,9 @@ const copy =
           <rect x="9" y="6" width="2" height="4" />
         </g>
         <text x="48" y="199" font-size="13" font-weight="700" fill="#172723">{copy.gateTitle}</text>
-        <text x="48" y="216" font-family="var(--font-mono)" font-size="10.5" fill="#145e56">{copy.gateNote}</text>
+        <text x="48" y="216" class="bp-mono" font-size="10.5" fill="#145e56">{copy.gateNote}</text>
         <rect x="24" y="224" width="292" height="34" rx="4" fill="#efece5" stroke="#ded8cd" />
-        <text x="32" y="245" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#172723">{copy.gateSub1} · {copy.gateSub2}</text>
+        <text x="32" y="245" class="bp-mono" font-size="10" font-weight="600" fill="#172723">{copy.gateSub1} · {copy.gateSub2}</text>
       </g>
 
       <!-- Mobile Node 3: Isolated Profiles -->
@@ -282,8 +290,8 @@ const copy =
         </g>
         <text x="48" y="321" font-size="13" font-weight="700" fill="#172723">{copy.profileTitle}</text>
         <rect x="24" y="332" width="292" height="26" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
-        <text x="32" y="349" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="#135d34">{copy.profilePath}</text>
-        <g font-family="var(--font-mono)" font-size="10" font-weight="600">
+        <text x="32" y="349" class="bp-mono" font-size="11" font-weight="600" fill="#135d34">{copy.profilePath}</text>
+        <g class="bp-mono" font-size="10" font-weight="600">
           <rect x="24" y="366" width="82" height="26" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
           <text x="65" y="383" text-anchor="middle" fill="#135d34">APPDATA</text>
           <rect x="114" y="366" width="112" height="26" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
@@ -303,7 +311,7 @@ const copy =
           <rect x="6" y="8" width="4" height="2" fill="#efece5" />
         </g>
         <text x="48" y="471" font-size="13" font-weight="700" fill="#172723">{copy.backupTitle}</text>
-        <text x="48" y="489" font-family="var(--font-mono)" font-size="10.5" font-weight="600" fill="#172723">{copy.backupReq}</text>
+        <text x="48" y="489" class="bp-mono" font-size="10.5" font-weight="600" fill="#172723">{copy.backupReq}</text>
         <text x="24" y="514" font-size="11" fill="#484641">{copy.backupNote1} {copy.backupNote2}</text>
       </g>
     </svg>
@@ -356,6 +364,10 @@ const copy =
 
   .bp-svg text {
     color: var(--text-primary);
+  }
+
+  .bp-mono {
+    font-family: var(--font-mono);
   }
 
   .bp-svg-mobile {

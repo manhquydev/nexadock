@@ -104,6 +104,7 @@
   --accent-hover: var(--accent-hover-light);
   --accent-text: var(--accent-text-light);
   --accent-soft: var(--accent-soft-light);
+  --accent-tonal-fg: var(--accent-tonal-fg-light);
   --ok-fg: var(--ok-fg-light);
   --ok-bg: var(--ok-bg-light);
   --ok-border: var(--ok-border-light);
@@ -146,6 +147,7 @@
     --accent-hover: var(--accent-hover-dark);
     --accent-text: var(--accent-text-dark);
     --accent-soft: var(--accent-soft-dark);
+    --accent-tonal-fg: var(--accent-tonal-fg-dark);
     --ok-fg: var(--ok-fg-dark);
     --ok-bg: var(--ok-bg-dark);
     --ok-border: var(--ok-border-dark);
@@ -182,6 +184,7 @@
   --accent-hover: var(--accent-hover-dark);
   --accent-text: var(--accent-text-dark);
   --accent-soft: var(--accent-soft-dark);
+  --accent-tonal-fg: var(--accent-tonal-fg-dark);
   --ok-fg: var(--ok-fg-dark);
   --ok-bg: var(--ok-bg-dark);
   --ok-border: var(--ok-border-dark);
@@ -213,6 +216,7 @@
     --accent-hover: light-dark(var(--accent-hover-light), var(--accent-hover-dark));
     --accent-text: light-dark(var(--accent-text-light), var(--accent-text-dark));
     --accent-soft: light-dark(var(--accent-soft-light), var(--accent-soft-dark));
+    --accent-tonal-fg: light-dark(var(--accent-tonal-fg-light), var(--accent-tonal-fg-dark));
     --ok-fg: light-dark(var(--ok-fg-light), var(--ok-fg-dark));
     --ok-bg: light-dark(var(--ok-bg-light), var(--ok-bg-dark));
     --ok-border: light-dark(var(--ok-border-light), var(--ok-border-dark));
@@ -701,7 +705,7 @@ body {
 
 .btn-danger {
   background: var(--danger-solid);
-  color: #ffffff;
+  color: var(--accent-text);
 }
 
 .btn-danger:hover:not(:disabled),
@@ -731,7 +735,7 @@ body {
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-tonal-fg);
   font-family: inherit;
   font-size: 0.8125rem;
   font-weight: 500;

@@ -423,6 +423,7 @@ async function main() {
 
     // Showcase tab click + keyboard navigation + Open/Close toggle parity
     const primaryPanel = page.locator('[data-showcase-panel="primary"]');
+    assert.equal(await primaryPanel.count(), 1, 'Primary Zalo panel is missing');
     assert.equal(await primaryPanel.locator('[data-toggle-session]').count(), 0, 'Primary Zalo must not expose Open/Close toggle');
     const primaryDotBefore = await page.locator('[data-rail-dot="primary"]').getAttribute('class');
     const primaryTextBefore = await page.locator('[data-stage-state-text="primary"]').textContent();
@@ -433,20 +434,21 @@ async function main() {
     assert.equal(await page.locator('[data-showcase-panel="personal"]').isVisible(), true);
 
     const personalToggle = page.locator('[data-toggle-session="personal"]');
-    assert.equal(await personalToggle.getAttribute('aria-pressed'), 'false');
+    assert.equal(await personalToggle.getAttribute('data-running'), 'false');
     assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
 
     await personalToggle.click();
-    assert.equal(await personalToggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(await personalToggle.getAttribute('data-running'), 'true');
     assert.ok((await personalToggle.textContent())?.includes('Đóng Zalo'));
     assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-running'));
     assert.ok((await page.locator('[data-stage-dot="personal"]').getAttribute('class'))?.includes('is-running'));
     assert.equal(await page.locator('[data-stage-state-text="personal"]').textContent(), 'Cửa sổ đang mở');
 
     await personalToggle.click();
-    assert.equal(await personalToggle.getAttribute('aria-pressed'), 'false');
+    assert.equal(await personalToggle.getAttribute('data-running'), 'false');
     assert.ok((await personalToggle.textContent())?.includes('Mở Zalo'));
     assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
+    assert.ok((await page.locator('[data-stage-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
     assert.equal(await page.locator('[data-stage-state-text="personal"]').textContent(), 'Đã đóng');
 
     assert.equal(await page.locator('[data-rail-dot="primary"]').getAttribute('class'), primaryDotBefore);

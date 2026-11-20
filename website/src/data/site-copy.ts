@@ -120,7 +120,7 @@ export const SITE_COPY = {
           running: false,
           path: '%LOCALAPPDATA%\\NexaDock\\WebSessions\\_shared_env\\EBWebView',
           detail:
-            'Hồ sơ WebView2 / WKWebView cô lập không có Tauri IPC, dùng vòng đời ICoreWebView2Profile8 riêng và gắn nhãn Thử nghiệm.'
+            'Hồ sơ WebView2 cô lập trên Windows không có Tauri IPC, dùng vòng đời ICoreWebView2Profile8 riêng và gắn nhãn Thử nghiệm.'
         }
       ]
     },
@@ -358,7 +358,7 @@ export const SITE_COPY = {
           running: false,
           path: '%LOCALAPPDATA%\\NexaDock\\WebSessions\\_shared_env\\EBWebView',
           detail:
-            'Zero-IPC isolated WebView2 / WKWebView profile managed via ICoreWebView2Profile8 lifecycle APIs and explicitly marked Experimental.'
+            'Zero-IPC isolated Windows WebView2 profile managed via ICoreWebView2Profile8 lifecycle APIs and explicitly marked Experimental.'
         }
       ]
     },
