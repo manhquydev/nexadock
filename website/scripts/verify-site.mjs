@@ -468,6 +468,19 @@ async function main() {
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('[data-dl-tab="ubuntu"]').getAttribute('aria-selected'), 'true');
 
+    // Interactive install guide walkthrough checks
+    const guideRoot = page.locator('[data-install-guide]').first();
+    assert.equal(await guideRoot.count(), 1, 'Interactive install guide is missing');
+    assert.equal(await guideRoot.locator('[data-guide-os-tab="macos"]').getAttribute('aria-selected'), 'true');
+    const macNextBtn = guideRoot.locator('[data-guide-next="macos"]');
+    await macNextBtn.click();
+    assert.equal(await guideRoot.locator('[data-guide-counter="macos"]').textContent(), 'Bước 2 / 5');
+    assert.equal(await guideRoot.locator('[data-guide-step-panel="1"][data-guide-os="macos"]').isVisible(), true);
+    const guideWinTab = guideRoot.locator('[data-guide-os-tab="windows"]');
+    await guideWinTab.click();
+    assert.equal(await guideWinTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await guideRoot.locator('[data-guide-os-panel="windows"]').isVisible(), true);
+
     // FAQ details toggle
     const firstFaq = page.locator('.faq-item').first();
     await firstFaq.locator('summary').click();

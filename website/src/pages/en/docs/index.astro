@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../../../layouts/BaseLayout.astro';
+import InstallGuideInteractive from '../../../components/InstallGuideInteractive.astro';
 import { SITE_COPY } from '../../../data/site-copy';
 import release from '../../../data/release.json';
 
@@ -28,6 +29,10 @@ const macPrimaryPath = '~/Library/Application Support/ZaloData';
       <p class="section-desc section-desc--spaced">
         Current published build: <strong>{release.tag}</strong> ({release.signingStatus}).
       </p>
+
+      <div style="margin-bottom: var(--space-6);">
+        <InstallGuideInteractive lang="en" idPrefix="docs-guide" />
+      </div>
 
       <div class="mechanism-list">
         <div class="mechanism-row">

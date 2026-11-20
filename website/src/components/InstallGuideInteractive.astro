@@ -1,0 +1,954 @@
+---
+import { INSTALL_GUIDE_COPY, type GuideVisualId } from '../data/install-guide';
+import type { Lang } from '../data/site-copy';
+
+interface Props {
+  lang: Lang;
+  idPrefix?: string;
+}
+
+const { lang, idPrefix = 'guide' } = Astro.props;
+const guide = INSTALL_GUIDE_COPY[lang];
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const v = guide.visuals;
+
+function renderVisualLabel(visual: GuideVisualId): string {
+  switch (visual) {
+    case 'mac-chip':
+      return 'macOS // About This Mac';
+    case 'mac-dmg-drag':
+      return 'macOS // NexaDock.dmg';
+    case 'mac-applications':
+      return 'macOS // Applications & Spotlight';
+    case 'mac-gatekeeper':
+      return 'macOS // Privacy & Security';
+    case 'mac-zalo-qr':
+      return 'NexaDock // Multi-Account';
+    case 'win-installer':
+      return 'Windows // Setup Wizard';
+    case 'win-smartscreen':
+      return 'Windows // SmartScreen';
+    case 'win-sac':
+      return 'Windows 11 // SAC Bridge';
+    case 'win-zalo-qr':
+      return 'NexaDock // Multi-Account';
+    case 'linux-pkg':
+      return 'Ubuntu // Package Install';
+    case 'linux-note':
+      return 'Linux // Scope';
+  }
+}
+---
+
+<div
+  class="guide-shell"
+  id={`${idPrefix}-interactive`}
+  data-install-guide
+  data-step-prefix={guide.stepPrefix}
+>
+  <div class="guide-chrome">
+    <div class="guide-brand">
+      <img src={`${base}/brand/nexadock-mark.svg`} alt="" width="16" height="16" />
+      <span>{guide.heading}</span>
+      <span class="guide-fig-tag">{guide.figTag}</span>
+    </div>
+    <span class="guide-sim-badge">{guide.simBadge}</span>
+  </div>
+
+  <div class="guide-toolbar">
+    <p class="guide-subtitle">{guide.subtitle}</p>
+    <div class="guide-os-tabs" role="tablist" aria-label={guide.osTabAria}>
+      {guide.platforms.map((os, osIdx) => (
+        <button
+          type="button"
+          class="guide-os-tab"
+          role="tab"
+          id={`${idPrefix}-os-tab-${os.id}`}
+          aria-controls={`${idPrefix}-os-panel-${os.id}`}
+          aria-selected={osIdx === 0 ? 'true' : 'false'}
+          tabindex={osIdx === 0 ? '0' : '-1'}
+          data-guide-os-tab={os.id}
+        >
+          {os.label}
+        </button>
+      ))}
+    </div>
+  </div>
+
+  {guide.platforms.map((os, osIdx) => (
+    <div
+      class="guide-os-panel"
+      role="tabpanel"
+      id={`${idPrefix}-os-panel-${os.id}`}
+      aria-labelledby={`${idPrefix}-os-tab-${os.id}`}
+      data-guide-os-panel={os.id}
+      hidden={osIdx !== 0}
+    >
+      <div class="guide-grid">
+        <div class="guide-steps-col">
+          <div class="guide-os-meta">
+            <span class={`state-tag is-${os.badgeKind}`}>{os.badge}</span>
+            <span class="guide-counter" data-guide-counter={os.id}>
+              {guide.stepPrefix} 1 / {os.steps.length}
+            </span>
+          </div>
+
+          <div class="guide-step-rail" role="tablist" aria-label={guide.stepListAria}>
+            {os.steps.map((step, sIdx) => (
+              <button
+                type="button"
+                class={`guide-step-btn ${sIdx === 0 ? 'is-active' : ''}`}
+                role="tab"
+                id={`${idPrefix}-${os.id}-step-tab-${sIdx}`}
+                aria-controls={`${idPrefix}-${os.id}-step-panel-${sIdx}`}
+                aria-selected={sIdx === 0 ? 'true' : 'false'}
+                tabindex={sIdx === 0 ? '0' : '-1'}
+                data-guide-step-tab={sIdx}
+                data-guide-os={os.id}
+              >
+                <span class="guide-step-num">{sIdx + 1}</span>
+                <span class="guide-step-text">{step.shortTitle}</span>
+              </button>
+            ))}
+          </div>
+
+          <div class="guide-nav-row">
+            <button
+              type="button"
+              class="btn btn-secondary guide-nav-btn"
+              data-guide-prev={os.id}
+              disabled
+            >
+              {guide.prevLabel}
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary guide-nav-btn"
+              data-guide-next={os.id}
+              disabled={os.steps.length <= 1}
+            >
+              {guide.nextLabel}
+            </button>
+          </div>
+        </div>
+
+        <div class="guide-stage-col">
+          {os.steps.map((step, sIdx) => (
+            <div
+              class="guide-stage-pane"
+              role="tabpanel"
+              id={`${idPrefix}-${os.id}-step-panel-${sIdx}`}
+              aria-labelledby={`${idPrefix}-${os.id}-step-tab-${sIdx}`}
+              data-guide-step-panel={sIdx}
+              data-guide-os={os.id}
+              hidden={sIdx !== 0}
+            >
+              <div class="guide-visual-card" aria-hidden="true">
+                <div class="guide-visual-bar">
+                  <span class="guide-dots">
+                    <span></span><span></span><span></span>
+                  </span>
+                  <span class="guide-visual-caption">{renderVisualLabel(step.visual)}</span>
+                </div>
+
+                {step.visual === 'mac-chip' && (
+                  <div class="mock-canvas">
+                    <div class="mock-window">
+                      <div class="mock-title">{v.macChipTitle}</div>
+                      <div class="mock-row is-ok">
+                        <span class="mock-badge is-ok">✓</span>
+                        <div>
+                          <div class="mock-strong">{v.macChipApple}</div>
+                          <div class="mock-sub">{v.macChipOk}</div>
+                        </div>
+                      </div>
+                      <div class="mock-row is-muted">
+                        <span class="mock-badge is-muted">✕</span>
+                        <div>
+                          <div class="mock-strong">{v.macChipIntel}</div>
+                          <div class="mock-sub">{v.macChipNo}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {step.visual === 'mac-dmg-drag' && (
+                  <div class="mock-canvas">
+                    <div class="mock-dmg-stage">
+                      <div class="mock-app-tile is-highlighted">
+                        <span class="mock-app-mark" aria-hidden="true">ND</span>
+                        <span>NexaDock.app</span>
+                      </div>
+                      <div class="mock-arrow-wrap">
+                        <span class="mock-arrow">➔</span>
+                      </div>
+                      <div class="mock-folder-tile">
+                        <span class="mock-folder-glyph">Applications</span>
+                      </div>
+                    </div>
+                    <p class="mock-hint">{v.macDmgDragHint}</p>
+                  </div>
+                )}
+
+                {step.visual === 'mac-applications' && (
+                  <div class="mock-canvas">
+                    <div class="mock-window">
+                      <div class="mock-row is-ok">
+                        <span class="mock-app-mark" aria-hidden="true">ND</span>
+                        <div>
+                          <div class="mock-strong">{v.macAppsHint}</div>
+                          <div class="mock-sub">{v.macSpotlightHint}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {step.visual === 'mac-gatekeeper' && (
+                  <div class="mock-canvas">
+                    <div class="mock-split">
+                      <div class="mock-dialog">
+                        <div class="mock-strong">{v.macDialogTitle}</div>
+                        <div class="mock-sub">{v.macDialogBody}</div>
+                        <div class="mock-btn-pill">{v.macDialogBtn}</div>
+                      </div>
+                      <div class="mock-dialog is-highlight">
+                        <div class="mock-strong">{v.macSettingsTitle}</div>
+                        <div class="mock-sub">{v.macSettingsRow}</div>
+                        <div class="mock-btn-accent">{v.macSettingsBtn}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {(step.visual === 'mac-zalo-qr' || step.visual === 'win-zalo-qr') && (
+                  <div class="mock-canvas">
+                    <div class="mock-split">
+                      <div class="mock-dialog">
+                        <div class="mock-strong">{v.primaryLabel}</div>
+                        <span class="state-tag is-warn">{v.primaryState}</span>
+                      </div>
+                      <div class="mock-dialog is-highlight">
+                        <div class="mock-strong">{v.secondaryLabel}</div>
+                        <span class="state-tag is-ok">{v.secondaryAction}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {step.visual === 'win-installer' && (
+                  <div class="mock-canvas">
+                    <div class="mock-window">
+                      <div class="mock-row is-ok">
+                        <span class="mock-app-mark" aria-hidden="true">ND</span>
+                        <div>
+                          <div class="mock-strong">NexaDock-setup.exe</div>
+                          <div class="mock-sub">Next → Install → Finish</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {step.visual === 'win-smartscreen' && (
+                  <div class="mock-canvas">
+                    <div class="mock-window is-win-blue">
+                      <div class="mock-strong">{v.winSmartTitle}</div>
+                      <div class="mock-sub">{v.winSmartBody}</div>
+                      <div class="mock-win-actions">
+                        <span class="mock-btn-pill">{v.winSmartMore}</span>
+                        <span class="mock-btn-accent">{v.winSmartRun}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {step.visual === 'win-sac' && (
+                  <div class="mock-canvas">
+                    <div class="mock-window">
+                      <div class="mock-row is-ok">
+                        <span class="mock-badge is-ok">SAC</span>
+                        <div>
+                          <div class="mock-strong">Signed-Host Bridge</div>
+                          <div class="mock-sub">node apps/desktop/ui-server.mjs</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {step.visual === 'linux-pkg' && (
+                  <div class="mock-canvas">
+                    <div class="mock-window">
+                      <div class="mock-row is-ok">
+                        <span class="mock-badge is-ok">.deb</span>
+                        <div>
+                          <div class="mock-strong">App Center → Install</div>
+                          <div class="mock-sub">Ubuntu 24.04 x64</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {step.visual === 'linux-note' && (
+                  <div class="mock-canvas">
+                    <div class="mock-window">
+                      <div class="mock-row is-muted">
+                        <span class="mock-badge is-muted">i</span>
+                        <div>
+                          <div class="mock-strong">Manager &amp; Fixture Preview</div>
+                          <div class="mock-sub">Windows 10/11 &amp; macOS arm64 for live Zalo</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div class="guide-copy-box">
+                <h3>{step.title}</h3>
+                <p class="guide-summary">{step.summary}</p>
+                <ul class="guide-checklist">
+                  {step.checklist.map((item) => (
+                    <li>{item}</li>
+                  ))}
+                </ul>
+                {step.tip && (
+                  <p class="guide-tip">
+                    <span class="state-tag is-ok">{step.tip}</span>
+                  </p>
+                )}
+                {step.optionalCmd && (
+                  <details class="guide-optional-cmd">
+                    <summary>{step.optionalCmdLabel}</summary>
+                    <div class="cmd-block">
+                      <code>{step.optionalCmd}</code>
+                      <button
+                        type="button"
+                        class="cmd-copy-btn"
+                        data-copy-cmd={step.optionalCmd}
+                        data-label-default={guide.copyLabel}
+                        data-label-copied={guide.copiedLabel}
+                      >
+                        {guide.copyLabel}
+                      </button>
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  ))}
+</div>
+
+<script>
+  document.querySelectorAll('[data-install-guide]').forEach((root) => {
+    const stepPrefix = root.getAttribute('data-step-prefix') || 'Step';
+    const osTabs = Array.from(root.querySelectorAll<HTMLElement>('[data-guide-os-tab]'));
+    const osPanels = Array.from(root.querySelectorAll<HTMLElement>('[data-guide-os-panel]'));
+
+    const activateOs = (osId: string) => {
+      osTabs.forEach((t) => {
+        const selected = t.getAttribute('data-guide-os-tab') === osId;
+        t.setAttribute('aria-selected', selected ? 'true' : 'false');
+        t.setAttribute('tabindex', selected ? '0' : '-1');
+      });
+      osPanels.forEach((p) => {
+        const match = p.getAttribute('data-guide-os-panel') === osId;
+        p.hidden = !match;
+      });
+    };
+
+    osTabs.forEach((tab, idx) => {
+      tab.addEventListener('click', () => {
+        const osId = tab.getAttribute('data-guide-os-tab');
+        if (osId) activateOs(osId);
+      });
+      tab.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+        e.preventDefault();
+        let next = idx;
+        if (e.key === 'ArrowRight') next = (idx + 1) % osTabs.length;
+        else if (e.key === 'ArrowLeft') next = (idx - 1 + osTabs.length) % osTabs.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = osTabs.length - 1;
+        const target = osTabs[next];
+        if (target) {
+          target.click();
+          target.focus();
+        }
+      });
+    });
+
+    osPanels.forEach((panel) => {
+      const osId = panel.getAttribute('data-guide-os-panel');
+      if (!osId) return;
+      const stepTabs = Array.from(panel.querySelectorAll<HTMLElement>('[data-guide-step-tab]'));
+      const stepPanels = Array.from(panel.querySelectorAll<HTMLElement>('[data-guide-step-panel]'));
+      const counter = panel.querySelector(`[data-guide-counter="${osId}"]`);
+      const prevBtn = panel.querySelector<HTMLButtonElement>(`[data-guide-prev="${osId}"]`);
+      const nextBtn = panel.querySelector<HTMLButtonElement>(`[data-guide-next="${osId}"]`);
+      let current = 0;
+
+      const setStep = (idx: number) => {
+        if (idx < 0 || idx >= stepTabs.length) return;
+        current = idx;
+        stepTabs.forEach((t, i) => {
+          const active = i === current;
+          t.classList.toggle('is-active', active);
+          t.setAttribute('aria-selected', active ? 'true' : 'false');
+          t.setAttribute('tabindex', active ? '0' : '-1');
+        });
+        stepPanels.forEach((sp, i) => {
+          sp.hidden = i !== current;
+        });
+        if (counter) {
+          counter.textContent = `${stepPrefix} ${current + 1} / ${stepTabs.length}`;
+        }
+        if (prevBtn) {
+          prevBtn.disabled = current === 0;
+        }
+        if (nextBtn) {
+          nextBtn.disabled = current >= stepTabs.length - 1;
+        }
+      };
+
+      stepTabs.forEach((tab, idx) => {
+        tab.addEventListener('click', () => setStep(idx));
+        tab.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+          e.preventDefault();
+          let next = idx;
+          if (e.key === 'ArrowDown') next = (idx + 1) % stepTabs.length;
+          else if (e.key === 'ArrowUp') next = (idx - 1 + stepTabs.length) % stepTabs.length;
+          else if (e.key === 'Home') next = 0;
+          else if (e.key === 'End') next = stepTabs.length - 1;
+          setStep(next);
+          stepTabs[next]?.focus();
+        });
+      });
+
+      if (prevBtn) {
+        prevBtn.addEventListener('click', () => setStep(current - 1));
+      }
+      if (nextBtn) {
+        nextBtn.addEventListener('click', () => setStep(current + 1));
+      }
+    });
+  });
+</script>
+
+<style>
+  .guide-shell {
+    margin-top: var(--space-5);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-frame);
+    overflow: hidden;
+  }
+
+  .guide-chrome {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
+    padding: 12px 16px;
+    background: var(--surface-inset);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .guide-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 0.9375rem;
+    min-width: 0;
+  }
+
+  .guide-fig-tag {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--action-primary);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    padding: 1px 6px;
+    flex: none;
+  }
+
+  .guide-sim-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    background: var(--status-info-bg);
+    color: var(--status-info-fg);
+    border: 1px solid var(--status-info-border);
+  }
+
+  .guide-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3) var(--space-4);
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-page);
+  }
+
+  .guide-subtitle {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    max-width: 56ch;
+  }
+
+  .guide-os-tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
+    background: var(--surface-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    max-width: 100%;
+  }
+
+  .guide-os-tab {
+    border: 0;
+    background: transparent;
+    min-block-size: 36px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .guide-os-tab[aria-selected="true"] {
+    background: var(--surface-elevated);
+    color: var(--text-primary);
+  }
+
+  .guide-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+  }
+
+  @media (max-width: 820px) {
+    .guide-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .guide-steps-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--surface-page);
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  @media (max-width: 820px) {
+    .guide-steps-col {
+      border-right: 0;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+  }
+
+  .guide-os-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .guide-counter {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .guide-step-rail {
+    display: grid;
+    gap: 6px;
+  }
+
+  .guide-step-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--surface-elevated);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .guide-step-btn:hover {
+    background: var(--surface-hover);
+  }
+
+  .guide-step-btn.is-active {
+    border-color: var(--action-primary);
+    background: var(--action-soft);
+    font-weight: 700;
+  }
+
+  .guide-step-num {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: var(--surface-inset);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+  }
+
+  .guide-step-btn.is-active .guide-step-num {
+    background: var(--action-primary);
+    color: var(--text-on-accent);
+    border-color: var(--action-primary);
+  }
+
+  .guide-step-text {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  .guide-nav-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: auto;
+    padding-top: var(--space-2);
+  }
+
+  .guide-nav-btn {
+    flex: 1 1 120px;
+    min-block-size: 38px;
+    font-size: 0.875rem;
+  }
+
+  .guide-nav-btn:disabled {
+    background: var(--disabled-bg);
+    color: var(--disabled-fg);
+    border-color: var(--disabled-border);
+    cursor: not-allowed;
+  }
+
+  .guide-stage-col {
+    padding: var(--space-4);
+    background: var(--surface-elevated);
+  }
+
+  .guide-stage-pane {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .guide-stage-pane[hidden] {
+    display: none;
+  }
+
+  .guide-visual-card {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--surface-inset);
+    overflow: hidden;
+  }
+
+  .guide-visual-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 8px 12px;
+    background: var(--surface-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .guide-dots {
+    display: inline-flex;
+    gap: 5px;
+  }
+
+  .guide-dots span {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--border-strong);
+  }
+
+  .guide-visual-caption {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .mock-canvas {
+    padding: var(--space-4);
+  }
+
+  .mock-window {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .mock-window.is-win-blue {
+    background: var(--status-info-bg);
+    border-color: var(--status-info-border);
+  }
+
+  .mock-title {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 6px;
+  }
+
+  .mock-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-page);
+  }
+
+  .mock-row.is-ok {
+    background: var(--status-ok-bg);
+    border-color: var(--status-ok-border);
+  }
+
+  .mock-badge {
+    flex: none;
+    min-width: 28px;
+    height: 24px;
+    padding: 0 6px;
+    border-radius: 4px;
+    display: grid;
+    place-items: center;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .mock-badge.is-ok {
+    background: var(--action-primary);
+    color: var(--text-on-accent);
+  }
+
+  .mock-badge.is-muted {
+    background: var(--surface-subtle);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
+  }
+
+  .mock-app-mark {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    background: var(--action-primary);
+    color: var(--text-on-accent);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .mock-strong {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .mock-sub {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+  }
+
+  .mock-dmg-stage {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+  }
+
+  .mock-app-tile,
+  .mock-folder-tile {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    padding: var(--space-3);
+    min-width: 112px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .mock-app-tile.is-highlighted {
+    border-color: var(--action-primary);
+  }
+
+  .mock-arrow-wrap {
+    display: grid;
+    place-items: center;
+  }
+
+  .mock-arrow {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--action-primary);
+  }
+
+  .mock-hint {
+    margin: var(--space-2) 0 0;
+    text-align: center;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .mock-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  @media (max-width: 540px) {
+    .mock-split {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .mock-dialog {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+    display: grid;
+    gap: var(--space-2);
+    align-content: start;
+  }
+
+  .mock-dialog.is-highlight {
+    border-color: var(--action-primary);
+  }
+
+  .mock-btn-pill,
+  .mock-btn-accent {
+    display: inline-block;
+    justify-self: start;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .mock-btn-pill {
+    background: var(--surface-inset);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+  }
+
+  .mock-btn-accent {
+    background: var(--action-primary);
+    color: var(--text-on-accent);
+  }
+
+  .mock-win-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: 4px;
+  }
+
+  .guide-copy-box h3 {
+    margin: 0 0 6px;
+    font-size: 1.0625rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .guide-summary {
+    margin: 0 0 var(--space-2);
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+  }
+
+  .guide-checklist {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: grid;
+    gap: 6px;
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+  }
+
+  .guide-tip {
+    margin: var(--space-3) 0 0;
+  }
+
+  .guide-optional-cmd {
+    margin-top: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--surface-page);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .guide-optional-cmd summary {
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .guide-optional-cmd .cmd-block {
+    margin-top: var(--space-2);
+  }
+</style>

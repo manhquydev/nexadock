@@ -2,6 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import WorkspaceShowcase from './WorkspaceShowcase.astro';
 import IsolationBlueprint from './IsolationBlueprint.astro';
+import InstallGuideInteractive from './InstallGuideInteractive.astro';
 import { SITE_COPY, type Lang } from '../data/site-copy';
 import release from '../data/release.json';
 
@@ -370,6 +371,8 @@ const secTags =
           )}
         </p>
       </div>
+
+      <InstallGuideInteractive lang={lang} idPrefix="home-guide" />
     </div>
   </section>
 
