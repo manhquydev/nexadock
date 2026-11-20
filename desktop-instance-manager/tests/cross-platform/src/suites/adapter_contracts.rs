@@ -5,14 +5,16 @@
 //! without forcing identical internal OS implementations, and pinpoints every contract divergence (`DEFECT-08`).
 
 use std::collections::HashSet;
+#[cfg(windows)]
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+#[cfg(windows)]
+use dim_core::InstanceMonitor;
 use dim_core::{
-    ApplicationLocator, DimError, InstanceLauncher, InstanceMonitor, LaunchTarget,
-    OperationOutcome, PlatformCapabilities, PlatformKind, ProfileRuntimeState, ProfileStore,
-    SupportStatus,
+    ApplicationLocator, DimError, InstanceLauncher, LaunchTarget, OperationOutcome,
+    PlatformCapabilities, PlatformKind, ProfileRuntimeState, ProfileStore, SupportStatus,
 };
 use dim_platform_linux::LinuxPlatformAdapter;
 use dim_platform_macos::MacOsPlatformAdapter;
@@ -21,9 +23,11 @@ use dim_profile_store::verify_profile_id_marker;
 use serde_json::{json, Value};
 
 use crate::harness::{
-    dim_cli_bin_path, dim_host_ps1_path, run_case_if, xf_fixture_bin_path, xf_fixture_mjs_path,
-    BystanderSnapshot, CaseSelectionFilter, CaseSuccess, IsolatedSandbox, TestCaseOutcome,
+    dim_cli_bin_path, run_case_if, xf_fixture_mjs_path, CaseSelectionFilter, CaseSuccess,
+    IsolatedSandbox, TestCaseOutcome,
 };
+#[cfg(windows)]
+use crate::harness::{dim_host_ps1_path, xf_fixture_bin_path, BystanderSnapshot};
 
 /// Executes all Adapter & CLI Contract scenarios (`CT-01` .. `CT-10`).
 pub fn run_adapter_contract_suite() -> Vec<TestCaseOutcome> {
