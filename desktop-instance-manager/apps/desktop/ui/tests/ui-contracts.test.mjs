@@ -42,6 +42,12 @@ test('HTML adheres to Modern Web Guidance, native radio groups, & CSP rules', ()
   assert.match(html, /id="stage-web-session"/i, 'Unified surface must include #stage-web-session');
   assert.match(html, /id="stage-desktop-session"/i, 'Unified surface must include #stage-desktop-session');
   assert.match(html, /id="quick-switcher-dialog"[^>]*closedby="any"/i, 'Quick Switcher must use native <dialog closedby="any">');
+  assert.match(html, /id="home-toolbar"[^>]*role="toolbar"/i, '#home-toolbar must expose role="toolbar"');
+  assert.match(html, /id="web-limits-tip"[^>]*role="region"[^>]*aria-labelledby="web-limits-title"/i, '#web-limits-tip must use non-tooltip region semantics');
+  assert.doesNotMatch(html, /id="web-limits-tip"[^>]*role="tooltip"/i, 'Rich #web-limits-tip must not use role="tooltip"');
+  assert.match(html, /id="web-session-menu"[\s\S]*?role="menu"[\s\S]*?role="menuitem"/i, '#web-session-menu must expose menu and menuitem roles');
+  assert.match(html, /id="backups-empty"[\s\S]*?<h2\s+class="empty-title"/i, '#backups-empty must use an <h2> heading');
+  assert.match(html, /id="btn-clear-search"/i, '#profiles-empty must include #btn-clear-search');
 });
 
 test('CSS adheres to Modern Web Guidance & Quiet Workspace rules', () => {
@@ -56,6 +62,17 @@ test('CSS adheres to Modern Web Guidance & Quiet Workspace rules', () => {
   assert.doesNotMatch(css, /\bfont-size\s*:\s*\d+(?:\.\d+)?px\b/i, 'All CSS font-size rules must use rem/em to respect OS text scaling');
   assert.match(css, /scrollbar-color:/, 'Custom scrollbar color must be configured');
   assert.match(css, /@supports\s+not\s*\(\s*scrollbar-color:\s*auto\s*\)\s*\{[^}]*scrollbar-width:\s*auto;/s, 'WebKit scrollbar fallback must reset scrollbar-width: auto');
+  assert.match(css, /\.account-grid\s*\{[^}]*align-items:\s*stretch;/s, '.account-grid must align-items: stretch');
+  assert.match(css, /\.account-name\s*\{[^}]*-webkit-line-clamp:\s*2;[^}]*overflow-wrap:\s*anywhere;/s, '.account-name must clamp to 2 lines with overflow-wrap: anywhere');
+  assert.match(css, /\.account-note\s*\{[^}]*-webkit-line-clamp:\s*2;[^}]*overflow-wrap:\s*anywhere;/s, '.account-note must clamp to 2 lines with overflow-wrap: anywhere');
+  assert.match(css, /\.rail-item-name\s*\{[^}]*line-height:\s*1\.35;/s, '.rail-item-name must use line-height: 1.35 for tall Vietnamese diacritics');
+  assert.match(css, /\.account-avatar\s*\{[^}]*inline-size:\s*2\.625rem;[^}]*block-size:\s*2\.625rem;/s, '.account-avatar must use rem dimensions');
+  assert.match(css, /dialog\.modal\s*\{[^}]*overflow-y:\s*auto;/s, 'dialog.modal must support overflow-y: auto');
+  assert.doesNotMatch(css, /filter:\s*brightness/i, 'Buttons must use semantic tokens instead of filter: brightness');
+  assert.match(css, /\.btn-link\s*\{[^}]*min-block-size:\s*1\.5rem;/s, '.btn-link must satisfy WCAG 2.5.8 24px min-block-size');
+  assert.match(css, /\.toast-info\b[\s\S]*?\.toast-warn\b/s, 'Toast must define .toast-info and .toast-warn variants');
+  assert.match(css, /\.badge-neutral\b/s, 'Badge must define .badge-neutral');
+  assert.match(css, /\.rail-tooltip\.is-floating-open\s*\{[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s, 'Floating tooltip must wrap long names cleanly');
 });
 
 test('JS preserves Tauri & HTTP contracts, cross-platform WebView compat, & forbids innerHTML', () => {
@@ -310,7 +327,9 @@ test('semantic button & accent tokens in styles.css meet WCAG 2.2 AA >= 4.5:1 in
     ['light .btn-secondary', '--text-primary-light', '--bg-surface-light'],
     ['dark .btn-secondary', '--text-primary-dark', '--bg-surface-dark'],
     ['light .btn-subtle-danger', '--danger-fg-light', '--bg-surface-light'],
-    ['dark .btn-subtle-danger', '--danger-fg-dark', '--bg-surface-dark']
+    ['dark .btn-subtle-danger', '--danger-fg-dark', '--bg-surface-dark'],
+    ['light .btn-danger', '--accent-text-light', '--danger-solid-light'],
+    ['dark .btn-danger', '--accent-text-dark', '--danger-solid-dark']
   ];
   for (const [label, fgToken, bgToken] of pairs) {
     const fg = vars.get(fgToken);

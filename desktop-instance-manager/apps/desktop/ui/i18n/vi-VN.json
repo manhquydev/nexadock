@@ -38,6 +38,8 @@
     "viewGrid": "Lưới",
     "viewList": "Danh sách",
     "viewModeAria": "Chế độ hiển thị",
+    "toolbarAria": "Công cụ danh sách tài khoản",
+    "clearSearch": "Xóa bộ lọc",
     "stopAll": "Đóng tất cả",
     "recoveryHint": "Phiên trước đóng chưa sạch. Mở lại để tự động dọn khóa.",
     "emptyTitle": "Dùng nhiều tài khoản Zalo trên một máy",

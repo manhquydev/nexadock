@@ -9,13 +9,29 @@ const { lang } = Astro.props;
 const sc = SITE_COPY[lang].showcase;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<div class="showcase-shell" id="workspace-showcase" aria-label={sc.title}>
+<div
+  class="showcase-shell"
+  id="workspace-showcase"
+  aria-label={sc.title}
+  data-label-open-desktop={sc.actions.openDesktop}
+  data-label-close-desktop={sc.actions.closeDesktop}
+  data-label-open-web={sc.actions.openWeb}
+  data-label-close-web={sc.actions.closeWeb}
+  data-state-running={sc.states.running}
+  data-state-stopped={sc.states.stopped}
+  data-state-web-running={sc.states.webRunning}
+  data-state-web-stopped={sc.states.webStopped}
+>
   <div class="showcase-chrome">
     <div class="showcase-brand">
       <img src={`${base}/brand/nexadock-mark.svg`} alt="" width="16" height="16" />
       <span>NexaDock</span>
+      <span class="showcase-fig-tag">FIG. 04</span>
     </div>
-    <span class="showcase-demo-label">{sc.note}</span>
+    <div class="showcase-sim-meta">
+      <span class="showcase-sim-badge">{sc.simBadge}</span>
+      <span class="showcase-demo-label">{sc.note}</span>
+    </div>
   </div>
 
   <div class="showcase-body">
@@ -30,8 +46,21 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
           aria-selected={idx === 1 ? 'true' : 'false'}
           tabindex={idx === 1 ? '0' : '-1'}
           data-showcase-tab={acc.id}
+          data-account-kind={acc.kind}
         >
-          <span class={`rail-avatar ${acc.id === 'primary' ? 'is-primary' : ''}`}>{acc.initials}</span>
+          <span class="rail-avatar-wrap">
+            <span
+              class={`rail-avatar ${acc.kind === 'primary' ? 'is-primary' : ''}`}
+              data-color={acc.color}
+            >
+              {acc.initials}
+            </span>
+            <span
+              class={`rail-state-dot ${acc.running ? 'is-running' : 'is-stopped'}`}
+              data-rail-dot={acc.id}
+              aria-hidden="true"
+            ></span>
+          </span>
           <span class="rail-meta">
             <span class="rail-name">{acc.name}</span>
             <span class="rail-role">{acc.role}</span>
@@ -48,24 +77,85 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
           id={`showcase-panel-${acc.id}`}
           aria-labelledby={`showcase-tab-${acc.id}`}
           data-showcase-panel={acc.id}
+          data-account-kind={acc.kind}
           hidden={idx !== 1}
         >
-          <div class="stage-head">
-            <div>
-              <p class="stage-name">{acc.name}</p>
-              <p class="stage-role">{acc.role}</p>
+          <div>
+            <div class="stage-head">
+              <div class="stage-identity">
+                <p class="stage-name">{acc.name}</p>
+                <p class="stage-role">{acc.role}</p>
+              </div>
+              <span
+                class={`state-tag stage-state-pill ${
+                  acc.running ? (acc.kind === 'primary' ? 'is-neutral' : 'is-ok') : 'is-neutral'
+                }`}
+                data-stage-state={acc.id}
+              >
+                <span
+                  class={`state-dot ${acc.running ? 'is-running' : 'is-stopped'}`}
+                  data-stage-dot={acc.id}
+                  aria-hidden="true"
+                ></span>
+                <span data-stage-state-text={acc.id}>{acc.state}</span>
+              </span>
             </div>
-            <span class={`state-tag ${acc.stateKind === 'ok' ? 'is-ok' : 'is-neutral'}`}>{acc.state}</span>
+
+            <p
+              class={`stage-notice ${
+                acc.kind === 'primary'
+                  ? 'is-primary'
+                  : acc.kind === 'web'
+                    ? 'is-web'
+                    : 'is-desktop'
+              }`}
+            >
+              {acc.kind === 'primary'
+                ? sc.primaryNotice
+                : acc.kind === 'web'
+                  ? sc.webNotice
+                  : sc.honestNotice}
+            </p>
+
+            <p class="stage-detail">{acc.detail}</p>
           </div>
-          <p class="stage-detail">{acc.detail}</p>
-          <div class="stage-path-box">
-            <span class="stage-path-label">{lang === 'vi' ? 'Thư mục cô lập' : 'Isolated path'}</span>
-            <code class="stage-path-code">{acc.path}</code>
+
+          <div class="stage-footer">
+            <div class="stage-path-box">
+              <span class="stage-path-label">
+                {acc.kind === 'primary' ? sc.primaryPathLabel : sc.pathLabel}
+              </span>
+              <code class="stage-path-code">{acc.path}</code>
+            </div>
+
+            <div class="stage-actions">
+              {acc.kind === 'primary' ? (
+                <span class="state-tag is-warn">{sc.actions.readOnlyLabel}</span>
+              ) : (
+                <button
+                  type="button"
+                  class={`btn stage-toggle-btn ${acc.running ? 'btn-secondary' : 'btn-primary'}`}
+                  data-toggle-session={acc.id}
+                  data-kind={acc.kind}
+                  data-account-name={acc.name}
+                  aria-pressed={acc.running ? 'true' : 'false'}
+                >
+                  {acc.kind === 'web'
+                    ? acc.running
+                      ? sc.actions.closeWeb
+                      : sc.actions.openWeb
+                    : acc.running
+                      ? sc.actions.closeDesktop
+                      : sc.actions.openDesktop}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       ))}
     </div>
   </div>
+  <div class="sr-only" id="showcase-live" aria-live="polite"></div>
 </div>
 
 <style>
@@ -82,7 +172,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-2);
+    gap: var(--space-2) var(--space-3);
     padding: 12px 16px;
     background: var(--surface-inset);
     border-bottom: 1px solid var(--border-subtle);
@@ -96,18 +186,50 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     font-size: 0.875rem;
   }
 
+  .showcase-fig-tag {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--action-primary);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    padding: 1px 6px;
+  }
+
+  .showcase-sim-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .showcase-sim-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    background: var(--status-warn-bg);
+    color: var(--status-warn-fg);
+    border: 1px solid var(--status-warn-border);
+  }
+
   .showcase-demo-label {
     font-size: 0.75rem;
-    color: var(--text-muted);
+    color: var(--text-secondary);
   }
 
   .showcase-body {
     display: grid;
     grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-    min-height: 290px;
+    min-height: 330px;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .showcase-body {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -122,7 +244,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     align-content: start;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .showcase-rail {
       border-right: 0;
       border-bottom: 1px solid var(--border-subtle);
@@ -130,9 +252,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   }
 
   .rail-item {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
     padding: 8px 12px;
     text-align: left;
@@ -142,6 +265,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     cursor: pointer;
     font-family: var(--font-sans);
     color: var(--text-primary);
+    transition: background-color 140ms ease, border-color 140ms ease, transform 120ms ease;
   }
 
   .rail-item:active {
@@ -150,17 +274,35 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   .rail-item:hover {
     background: var(--surface-hover);
+    border-color: var(--border-subtle);
   }
 
   .rail-item.is-active {
-    background: var(--surface-elevated);
-    border-color: var(--action-primary);
+    background: var(--accent-soft);
+    border-color: var(--border-strong);
+  }
+
+  .rail-item.is-active::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block: 6px;
+    inline-size: 3px;
+    border-radius: var(--radius-pill);
+    background: var(--action-primary);
+  }
+
+  .rail-avatar-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
   }
 
   .rail-avatar {
-    flex: none;
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     border-radius: var(--radius-pill);
     display: grid;
     place-items: center;
@@ -170,20 +312,67 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     color: var(--text-on-accent);
   }
 
+  .rail-avatar[data-color="blue"] {
+    background: var(--id-blue);
+  }
+  .rail-avatar[data-color="teal"] {
+    background: var(--id-teal);
+  }
+  .rail-avatar[data-color="green"] {
+    background: var(--id-green);
+  }
+  .rail-avatar[data-color="amber"] {
+    background: var(--id-amber);
+  }
+  .rail-avatar[data-color="plum"] {
+    background: var(--id-plum);
+  }
+  .rail-avatar[data-color="rose"] {
+    background: var(--id-rose);
+  }
+  .rail-avatar[data-color="indigo"] {
+    background: var(--id-indigo);
+  }
+  .rail-avatar[data-color="slate"] {
+    background: var(--id-slate);
+  }
+
   .rail-avatar.is-primary {
     background: var(--surface-inset);
     color: var(--text-primary);
     border: 1px solid var(--border-strong);
   }
 
+  .rail-state-dot {
+    position: absolute;
+    inset-block-end: -1px;
+    inset-inline-end: -2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--surface-elevated);
+    background: var(--text-muted);
+  }
+
+  .rail-state-dot.is-running {
+    background: var(--status-ok-fg);
+  }
+
+  .rail-state-dot.is-stopped {
+    background: var(--surface-elevated);
+    border-color: var(--text-muted);
+  }
+
   .rail-meta {
     display: grid;
     min-width: 0;
+    flex: 1 1 auto;
   }
 
   .rail-name {
     font-size: 0.875rem;
     font-weight: 600;
+    line-height: 1.35;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -191,14 +380,36 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   .rail-role {
     font-size: 0.75rem;
-    color: var(--text-muted);
+    line-height: 1.3;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .showcase-stage {
     padding: var(--space-5);
     display: flex;
     flex-direction: column;
+    min-width: 0;
+  }
+
+  @media (max-width: 360px) {
+    .showcase-stage {
+      padding: var(--space-4);
+    }
+  }
+
+  .stage-pane {
+    display: flex;
+    flex-direction: column;
     justify-content: space-between;
+    gap: var(--space-4);
+    height: 100%;
+  }
+
+  .stage-pane[hidden] {
+    display: none;
   }
 
   .stage-head {
@@ -210,22 +421,78 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     margin-bottom: var(--space-3);
   }
 
+  .stage-identity {
+    min-width: 0;
+  }
+
   .stage-name {
     margin: 0;
     font-size: 1.0625rem;
     font-weight: 700;
+    overflow-wrap: anywhere;
   }
 
   .stage-role {
     margin: 2px 0 0;
     font-size: 0.8125rem;
-    color: var(--text-muted);
+    color: var(--text-secondary);
+  }
+
+  .stage-state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--text-muted);
+  }
+
+  .state-dot.is-running {
+    background: var(--status-ok-fg);
+  }
+
+  .state-dot.is-stopped {
+    background: transparent;
+    border: 2px solid var(--text-muted);
+  }
+
+  .stage-notice {
+    margin: 0 0 var(--space-3);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-inset);
+    color: var(--text-secondary);
+  }
+
+  .stage-notice.is-primary {
+    background: var(--status-warn-bg);
+    color: var(--status-warn-fg);
+    border-color: var(--status-warn-border);
+  }
+
+  .stage-notice.is-web {
+    background: var(--status-info-bg);
+    color: var(--status-info-fg);
+    border-color: var(--status-info-border);
   }
 
   .stage-detail {
-    margin: 0 0 var(--space-4);
+    margin: 0;
     font-size: 0.9375rem;
     color: var(--text-secondary);
+  }
+
+  .stage-footer {
+    display: grid;
+    gap: var(--space-3);
   }
 
   .stage-path-box {
@@ -238,7 +505,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   .stage-path-label {
     display: block;
     font-size: 0.75rem;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     margin-bottom: 4px;
   }
 
@@ -249,11 +516,38 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     word-break: break-all;
     color: var(--text-primary);
   }
+
+  .stage-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .stage-toggle-btn {
+    min-block-size: 38px;
+    padding: 8px 16px;
+    font-size: 0.875rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rail-item,
+    .stage-toggle-btn {
+      transition: none;
+    }
+    .rail-item:active,
+    .stage-toggle-btn:active {
+      transform: none;
+    }
+  }
 </style>
 
 <script is:inline>
+  const shell = document.getElementById('workspace-showcase');
   const tabs = Array.from(document.querySelectorAll('[data-showcase-tab]'));
   const panels = document.querySelectorAll('[data-showcase-panel]');
+  const live = document.getElementById('showcase-live');
+
   function activateShowcaseTab(tab, focusTab = false) {
     const target = tab.getAttribute('data-showcase-tab');
     tabs.forEach((t) => {
@@ -267,6 +561,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     });
     if (focusTab) tab.focus();
   }
+
   tabs.forEach((tab, idx) => {
     tab.addEventListener('click', () => activateShowcaseTab(tab));
     tab.addEventListener('keydown', (e) => {
@@ -281,4 +576,77 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       }
     });
   });
+
+  if (shell) {
+    const labels = {
+      openDesktop: shell.getAttribute('data-label-open-desktop') || 'Open Zalo',
+      closeDesktop: shell.getAttribute('data-label-close-desktop') || 'Close Zalo',
+      openWeb: shell.getAttribute('data-label-open-web') || 'Open Web session',
+      closeWeb: shell.getAttribute('data-label-close-web') || 'Close Web session',
+      running: shell.getAttribute('data-state-running') || 'Window open',
+      stopped: shell.getAttribute('data-state-stopped') || 'Closed',
+      webRunning: shell.getAttribute('data-state-web-running') || 'Web session open · Experimental',
+      webStopped: shell.getAttribute('data-state-web-stopped') || 'Closed · Experimental'
+    };
+
+    document.querySelectorAll('[data-toggle-session]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-toggle-session');
+        if (!id || id === 'primary') return;
+        const kind = btn.getAttribute('data-kind') || 'desktop';
+        const accountName = btn.getAttribute('data-account-name') || id;
+        const currentlyRunning = btn.getAttribute('aria-pressed') === 'true';
+        const nextRunning = !currentlyRunning;
+
+        btn.setAttribute('aria-pressed', String(nextRunning));
+        btn.classList.toggle('btn-secondary', nextRunning);
+        btn.classList.toggle('btn-primary', !nextRunning);
+        btn.textContent =
+          kind === 'web'
+            ? nextRunning
+              ? labels.closeWeb
+              : labels.openWeb
+            : nextRunning
+              ? labels.closeDesktop
+              : labels.openDesktop;
+
+        const railDot = document.querySelector(`[data-rail-dot="${id}"]`);
+        if (railDot) {
+          railDot.classList.toggle('is-running', nextRunning);
+          railDot.classList.toggle('is-stopped', !nextRunning);
+        }
+
+        const stageDot = document.querySelector(`[data-stage-dot="${id}"]`);
+        if (stageDot) {
+          stageDot.classList.toggle('is-running', nextRunning);
+          stageDot.classList.toggle('is-stopped', !nextRunning);
+        }
+
+        const stagePill = document.querySelector(`[data-stage-state="${id}"]`);
+        if (stagePill) {
+          stagePill.classList.toggle('is-ok', nextRunning && kind !== 'web');
+          stagePill.classList.toggle('is-info', nextRunning && kind === 'web');
+          stagePill.classList.toggle('is-neutral', !nextRunning);
+        }
+
+        const stateText =
+          kind === 'web'
+            ? nextRunning
+              ? labels.webRunning
+              : labels.webStopped
+            : nextRunning
+              ? labels.running
+              : labels.stopped;
+
+        const stageTextEl = document.querySelector(`[data-stage-state-text="${id}"]`);
+        if (stageTextEl) {
+          stageTextEl.textContent = stateText;
+        }
+
+        if (live) {
+          live.textContent = `${accountName}: ${stateText}`;
+        }
+      });
+    });
+  }
 </script>

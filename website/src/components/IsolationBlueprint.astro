@@ -1,0 +1,400 @@
+---
+import type { Lang } from '../data/site-copy';
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+
+const copy =
+  lang === 'vi'
+    ? {
+        figTag: 'FIG. 02 // SƠ ĐỒ CÔ LẬP HỆ THỐNG',
+        scaleTag: 'OS-LEVEL · ZERO PATCHING',
+        ariaLabel:
+          'Sơ đồ kiến trúc cô lập NexaDock: Zalo chính ở chế độ chỉ đọc được bảo vệ bởi PROTECTED_PRIMARY_PATH và PROTECTED_PRIMARY_PROCESS; ứng dụng chạy qua cổng xác thực chữ ký vào thư mục Profiles với APPDATA, LOCALAPPDATA, TEMP riêng và sao lưu nguyên tử 5 GiB SHA-256.',
+        caption:
+          'Zalo gốc không bị chạm tới; mỗi phiên phụ chạy qua cổng xác thực chữ ký trong thư mục biến môi trường riêng và sao lưu nguyên tử có kiểm tra 5 GiB + SHA-256.',
+        primaryTitle: 'Zalo chính (Chỉ đọc)',
+        primaryPath: '%APPDATA%\\ZaloData',
+        primaryGuard1: 'PROTECTED_PRIMARY_PATH',
+        primaryGuard2: 'PROTECTED_PRIMARY_PROCESS',
+        primaryBarrier: 'CHẶN GHI ĐÈ / DỪNG',
+        gateTitle: 'Cổng xác thực chữ ký',
+        gateSub1: 'WinVerifyTrust (Windows)',
+        gateSub2: 'Bundle Sig (macOS)',
+        gateNote: 'Không sửa tệp Zalo',
+        profileTitle: 'Hồ sơ cô lập',
+        profilePath: 'Profiles/<slug>_<id>/',
+        profileNote1: 'Cửa sổ độc lập',
+        profileNote2: 'Khóa DB & chống trùng ID',
+        backupTitle: 'Sao lưu nguyên tử',
+        backupReq: '>= 5 GiB · SHA-256 .zip',
+        backupNote1: 'Khôi phục -> Hồ sơ mới',
+        backupNote2: '(Không ghi đè dữ liệu cũ)'
+      }
+    : {
+        figTag: 'FIG. 02 // SYSTEM ISOLATION BLUEPRINT',
+        scaleTag: 'OS-LEVEL · ZERO PATCHING',
+        ariaLabel:
+          'NexaDock isolation architecture diagram: primary Zalo remains read-only under PROTECTED_PRIMARY_PATH and PROTECTED_PRIMARY_PROCESS guards; isolated profiles pass a signature verification gate into dedicated Profiles directories with separate APPDATA, LOCALAPPDATA, TEMP paths and 5 GiB SHA-256 atomic backups.',
+        caption:
+          'Primary Zalo stays untouched; secondary sessions pass binary signature checks into isolated environment directories with 5 GiB + SHA-256 atomic backups.',
+        primaryTitle: 'Primary Zalo (Read-Only)',
+        primaryPath: '%APPDATA%\\ZaloData',
+        primaryGuard1: 'PROTECTED_PRIMARY_PATH',
+        primaryGuard2: 'PROTECTED_PRIMARY_PROCESS',
+        primaryBarrier: 'BLOCK STOP / OVERWRITE',
+        gateTitle: 'Signature Gate',
+        gateSub1: 'WinVerifyTrust (Windows)',
+        gateSub2: 'Bundle Sig (macOS)',
+        gateNote: 'Zero binary patching',
+        profileTitle: 'Isolated Profiles',
+        profilePath: 'Profiles/<slug>_<id>/',
+        profileNote1: 'Independent window',
+        profileNote2: 'DB lock & user ID guard',
+        backupTitle: 'Atomic Backup',
+        backupReq: '>= 5 GiB · SHA-256 .zip',
+        backupNote1: 'Restore -> New profile',
+        backupNote2: '(Non-destructive)'
+      };
+---
+
+<figure class="bp-diagram-card bp-frame" id="isolation-blueprint">
+  <div class="bp-diagram-bar">
+    <span class="bp-fig-id">{copy.figTag}</span>
+    <span class="bp-scale-tag">{copy.scaleTag}</span>
+  </div>
+
+  <div class="bp-diagram-stage">
+    <!-- Horizontal Blueprint (>= 768px) -->
+    <svg
+      class="bp-svg bp-svg-desktop"
+      viewBox="0 0 960 336"
+      role="img"
+      aria-label={copy.ariaLabel}
+    >
+      <!-- Subtle Blueprint Coordinate Ticks -->
+      <g stroke="#ded8cd" stroke-width="1">
+        <line x1="20" y1="22" x2="940" y2="22" stroke-dasharray="2 4" />
+        <line x1="20" y1="314" x2="940" y2="314" stroke-dasharray="2 4" />
+      </g>
+
+      <!-- Leader Lines & 2D Pixel Junctions -->
+      <g fill="none" stroke-width="1.5">
+        <!-- Blocked path between Primary and Gate -->
+        <line x1="244" y1="138" x2="304" y2="138" stroke="#7c3b04" stroke-dasharray="4 3" />
+        <!-- Active path: Gate -> Profiles -->
+        <line x1="490" y1="138" x2="520" y2="138" stroke="#145e56" />
+        <!-- Active path: Profiles -> Backup -->
+        <line x1="720" y1="138" x2="748" y2="138" stroke="#145e56" />
+        <!-- Environment branch lines under Profiles -->
+        <polyline points="620,210 620,230 541,230 541,246" stroke="#8a8377" stroke-width="1" />
+        <line x1="620" y1="230" x2="620" y2="246" stroke="#8a8377" stroke-width="1" />
+        <polyline points="620,230 720,230 720,246" stroke="#8a8377" stroke-width="1" />
+      </g>
+
+      <!-- 2D Pixel Junction Markers (crispEdges) -->
+      <g shape-rendering="crispEdges">
+        <!-- Blocked barrier X pixel mark -->
+        <rect x="267" y="131" width="14" height="14" fill="#fef3c7" stroke="#e5c068" stroke-width="1" />
+        <rect x="270" y="134" width="2" height="2" fill="#7c3b04" />
+        <rect x="276" y="134" width="2" height="2" fill="#7c3b04" />
+        <rect x="272" y="136" width="4" height="4" fill="#7c3b04" />
+        <rect x="270" y="140" width="2" height="2" fill="#7c3b04" />
+        <rect x="276" y="140" width="2" height="2" fill="#7c3b04" />
+
+        <!-- Junction dots -->
+        <rect x="502" y="135" width="6" height="6" fill="#145e56" class="bp-pixel-beacon" />
+        <rect x="731" y="135" width="6" height="6" fill="#145e56" class="bp-pixel-beacon" />
+        <rect x="618" y="228" width="4" height="4" fill="#145e56" />
+      </g>
+
+      <!-- NODE 1: Primary Zalo (Read-Only) -->
+      <g>
+        <rect x="20" y="48" width="224" height="204" rx="6" fill="#efece5" stroke="#8a8377" stroke-width="1.5" stroke-dasharray="5 3" />
+        <rect x="32" y="60" width="28" height="28" rx="4" fill="#fef3c7" stroke="#e5c068" stroke-width="1" />
+        <g shape-rendering="crispEdges" transform="translate(38, 66)" fill="#7c3b04">
+          <rect x="5" y="1" width="6" height="2" />
+          <rect x="3" y="3" width="2" height="4" />
+          <rect x="11" y="3" width="2" height="4" />
+          <rect x="2" y="7" width="12" height="8" />
+          <rect x="7" y="10" width="2" height="3" fill="#fef3c7" />
+        </g>
+        <text x="68" y="79" font-size="13" font-weight="700" fill="#172723">{copy.primaryTitle}</text>
+
+        <rect x="32" y="100" width="200" height="28" rx="4" fill="#ffffff" stroke="#ded8cd" />
+        <text x="42" y="118" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="#172723">{copy.primaryPath}</text>
+
+        <rect x="32" y="138" width="200" height="48" rx="4" fill="#fef3c7" stroke="#e5c068" />
+        <text x="41" y="157" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard1}</text>
+        <text x="41" y="175" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard2}</text>
+
+        <text x="32" y="212" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryBarrier}</text>
+        <text x="32" y="232" font-size="11" fill="#484641">Zalo.exe (Primary PID)</text>
+      </g>
+
+      <!-- NODE 2: Signature Gate -->
+      <g>
+        <rect x="304" y="68" width="186" height="142" rx="6" fill="#ffffff" stroke="#145e56" stroke-width="1.5" />
+        <rect x="316" y="80" width="28" height="28" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <g shape-rendering="crispEdges" transform="translate(322, 86)" fill="#135d34">
+          <rect x="4" y="1" width="8" height="2" />
+          <rect x="2" y="3" width="2" height="10" />
+          <rect x="12" y="3" width="2" height="10" />
+          <rect x="4" y="13" width="8" height="2" />
+          <rect x="5" y="8" width="2" height="2" />
+          <rect x="7" y="10" width="2" height="2" />
+          <rect x="9" y="6" width="2" height="4" />
+        </g>
+        <text x="352" y="93" font-size="12.5" font-weight="700" fill="#172723">{copy.gateTitle}</text>
+        <text x="352" y="109" font-family="var(--font-mono)" font-size="9.5" fill="#145e56">{copy.gateNote}</text>
+
+        <rect x="316" y="122" width="162" height="54" rx="4" fill="#efece5" stroke="#ded8cd" />
+        <text x="324" y="140" font-family="var(--font-mono)" font-size="9.8" font-weight="600" fill="#172723">{copy.gateSub1}</text>
+        <text x="324" y="156" font-family="var(--font-mono)" font-size="9.8" font-weight="600" fill="#172723">{copy.gateSub2}</text>
+        <text x="324" y="170" font-family="var(--font-mono)" font-size="9.2" fill="#484641">UNVERIFIED_BINARY -&gt; 0</text>
+      </g>
+
+      <!-- NODE 3: Isolated Profiles -->
+      <g>
+        <rect x="520" y="48" width="200" height="162" rx="6" fill="#ffffff" stroke="#145e56" stroke-width="1.75" />
+        <rect x="532" y="60" width="28" height="28" rx="4" fill="#dcebe5" stroke="#9fd3b4" />
+        <g shape-rendering="crispEdges" transform="translate(538, 66)" fill="#145e56">
+          <rect x="1" y="2" width="6" height="2" />
+          <rect x="1" y="4" width="14" height="10" />
+          <rect x="3" y="6" width="4" height="6" fill="#ffffff" />
+          <rect x="9" y="6" width="4" height="3" fill="#ffffff" />
+        </g>
+        <text x="568" y="79" font-size="13" font-weight="700" fill="#172723">{copy.profileTitle}</text>
+
+        <rect x="532" y="100" width="176" height="28" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <text x="540" y="118" font-family="var(--font-mono)" font-size="10.2" font-weight="600" fill="#135d34">{copy.profilePath}</text>
+
+        <text x="532" y="150" font-size="11.5" font-weight="600" fill="#172723">{copy.profileNote1}</text>
+        <text x="532" y="168" font-size="11" fill="#484641">{copy.profileNote2}</text>
+        <text x="532" y="190" font-family="var(--font-mono)" font-size="9.5" fill="#145e56">env-scoped process tree</text>
+      </g>
+
+      <!-- 3 Isolated Environment Variable Sub-nodes -->
+      <g font-family="var(--font-mono)" font-size="10" font-weight="600">
+        <rect x="504" y="246" width="74" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <text x="541" y="265" text-anchor="middle" fill="#135d34">APPDATA</text>
+
+        <rect x="586" y="246" width="96" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <text x="634" y="265" text-anchor="middle" fill="#135d34">LOCALAPPDATA</text>
+
+        <rect x="690" y="246" width="60" height="30" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <text x="720" y="265" text-anchor="middle" fill="#135d34">TEMP</text>
+      </g>
+
+      <!-- NODE 4: Atomic Backup -->
+      <g>
+        <rect x="748" y="48" width="192" height="162" rx="6" fill="#ffffff" stroke="#8a8377" stroke-width="1.5" />
+        <rect x="760" y="60" width="28" height="28" rx="4" fill="#efece5" stroke="#ded8cd" />
+        <g shape-rendering="crispEdges" transform="translate(766, 66)" fill="#172723">
+          <rect x="2" y="2" width="12" height="3" />
+          <rect x="3" y="6" width="10" height="8" />
+          <rect x="6" y="8" width="4" height="2" fill="#efece5" />
+        </g>
+        <text x="796" y="79" font-size="13" font-weight="700" fill="#172723">{copy.backupTitle}</text>
+
+        <rect x="760" y="100" width="168" height="28" rx="4" fill="#efece5" stroke="#ded8cd" />
+        <text x="768" y="118" font-family="var(--font-mono)" font-size="9.8" font-weight="600" fill="#172723">{copy.backupReq}</text>
+
+        <text x="760" y="150" font-size="11.5" font-weight="600" fill="#172723">{copy.backupNote1}</text>
+        <text x="760" y="168" font-size="11" fill="#484641">{copy.backupNote2}</text>
+        <text x="760" y="190" font-family="var(--font-mono)" font-size="9.5" fill="#145e56">atomic temp -&gt; rename</text>
+      </g>
+    </svg>
+
+    <!-- Vertical Blueprint (<= 767px) -->
+    <svg
+      class="bp-svg bp-svg-mobile"
+      viewBox="0 0 340 544"
+      role="img"
+      aria-label={copy.ariaLabel}
+    >
+      <!-- Vertical Leader Lines -->
+      <g fill="none" stroke-width="1.5">
+        <line x1="170" y1="142" x2="170" y2="174" stroke="#7c3b04" stroke-dasharray="4 3" />
+        <line x1="170" y1="268" x2="170" y2="296" stroke="#145e56" />
+        <line x1="170" y1="422" x2="170" y2="446" stroke="#145e56" />
+      </g>
+
+      <g shape-rendering="crispEdges">
+        <rect x="163" y="151" width="14" height="14" fill="#fef3c7" stroke="#e5c068" />
+        <rect x="166" y="154" width="2" height="2" fill="#7c3b04" />
+        <rect x="172" y="154" width="2" height="2" fill="#7c3b04" />
+        <rect x="168" y="156" width="4" height="4" fill="#7c3b04" />
+        <rect x="166" y="160" width="2" height="2" fill="#7c3b04" />
+        <rect x="172" y="160" width="2" height="2" fill="#7c3b04" />
+        <rect x="167" y="279" width="6" height="6" fill="#145e56" class="bp-pixel-beacon" />
+        <rect x="167" y="431" width="6" height="6" fill="#145e56" class="bp-pixel-beacon" />
+      </g>
+
+      <!-- Mobile Node 1: Primary Zalo -->
+      <g>
+        <rect x="12" y="12" width="316" height="130" rx="6" fill="#efece5" stroke="#8a8377" stroke-width="1.5" stroke-dasharray="5 3" />
+        <g shape-rendering="crispEdges" transform="translate(24, 24)" fill="#7c3b04">
+          <rect x="5" y="1" width="6" height="2" />
+          <rect x="3" y="3" width="2" height="4" />
+          <rect x="11" y="3" width="2" height="4" />
+          <rect x="2" y="7" width="12" height="8" />
+          <rect x="7" y="10" width="2" height="3" fill="#fef3c7" />
+        </g>
+        <text x="48" y="37" font-size="13" font-weight="700" fill="#172723">{copy.primaryTitle}</text>
+        <rect x="24" y="48" width="292" height="24" rx="4" fill="#ffffff" stroke="#ded8cd" />
+        <text x="32" y="64" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="#172723">{copy.primaryPath}</text>
+        <rect x="24" y="78" width="292" height="40" rx="4" fill="#fef3c7" stroke="#e5c068" />
+        <text x="32" y="94" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard1}</text>
+        <text x="32" y="110" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryGuard2}</text>
+        <text x="24" y="133" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#7c3b04">{copy.primaryBarrier}</text>
+      </g>
+
+      <!-- Mobile Node 2: Signature Gate -->
+      <g>
+        <rect x="12" y="174" width="316" height="94" rx="6" fill="#ffffff" stroke="#145e56" stroke-width="1.5" />
+        <g shape-rendering="crispEdges" transform="translate(24, 186)" fill="#135d34">
+          <rect x="4" y="1" width="8" height="2" />
+          <rect x="2" y="3" width="2" height="10" />
+          <rect x="12" y="3" width="2" height="10" />
+          <rect x="4" y="13" width="8" height="2" />
+          <rect x="5" y="8" width="2" height="2" />
+          <rect x="7" y="10" width="2" height="2" />
+          <rect x="9" y="6" width="2" height="4" />
+        </g>
+        <text x="48" y="199" font-size="13" font-weight="700" fill="#172723">{copy.gateTitle}</text>
+        <text x="48" y="216" font-family="var(--font-mono)" font-size="10.5" fill="#145e56">{copy.gateNote}</text>
+        <rect x="24" y="224" width="292" height="34" rx="4" fill="#efece5" stroke="#ded8cd" />
+        <text x="32" y="245" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="#172723">{copy.gateSub1} · {copy.gateSub2}</text>
+      </g>
+
+      <!-- Mobile Node 3: Isolated Profiles -->
+      <g>
+        <rect x="12" y="296" width="316" height="126" rx="6" fill="#ffffff" stroke="#145e56" stroke-width="1.75" />
+        <g shape-rendering="crispEdges" transform="translate(24, 308)" fill="#145e56">
+          <rect x="1" y="2" width="6" height="2" />
+          <rect x="1" y="4" width="14" height="10" />
+          <rect x="3" y="6" width="4" height="6" fill="#ffffff" />
+          <rect x="9" y="6" width="4" height="3" fill="#ffffff" />
+        </g>
+        <text x="48" y="321" font-size="13" font-weight="700" fill="#172723">{copy.profileTitle}</text>
+        <rect x="24" y="332" width="292" height="26" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+        <text x="32" y="349" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="#135d34">{copy.profilePath}</text>
+        <g font-family="var(--font-mono)" font-size="10" font-weight="600">
+          <rect x="24" y="366" width="82" height="26" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+          <text x="65" y="383" text-anchor="middle" fill="#135d34">APPDATA</text>
+          <rect x="114" y="366" width="112" height="26" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+          <text x="170" y="383" text-anchor="middle" fill="#135d34">LOCALAPPDATA</text>
+          <rect x="234" y="366" width="82" height="26" rx="4" fill="#e6f4ec" stroke="#9fd3b4" />
+          <text x="275" y="383" text-anchor="middle" fill="#135d34">TEMP</text>
+        </g>
+        <text x="24" y="410" font-size="11" fill="#484641">{copy.profileNote1} · {copy.profileNote2}</text>
+      </g>
+
+      <!-- Mobile Node 4: Atomic Backup -->
+      <g>
+        <rect x="12" y="446" width="316" height="86" rx="6" fill="#ffffff" stroke="#8a8377" stroke-width="1.5" />
+        <g shape-rendering="crispEdges" transform="translate(24, 458)" fill="#172723">
+          <rect x="2" y="2" width="12" height="3" />
+          <rect x="3" y="6" width="10" height="8" />
+          <rect x="6" y="8" width="4" height="2" fill="#efece5" />
+        </g>
+        <text x="48" y="471" font-size="13" font-weight="700" fill="#172723">{copy.backupTitle}</text>
+        <text x="48" y="489" font-family="var(--font-mono)" font-size="10.5" font-weight="600" fill="#172723">{copy.backupReq}</text>
+        <text x="24" y="514" font-size="11" fill="#484641">{copy.backupNote1} {copy.backupNote2}</text>
+      </g>
+    </svg>
+  </div>
+
+  <figcaption class="bp-diagram-caption">{copy.caption}</figcaption>
+</figure>
+
+<style>
+  .bp-diagram-card {
+    margin: 0 0 var(--space-5);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-frame);
+  }
+
+  .bp-diagram-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 10px 16px;
+    background: var(--surface-inset);
+    border-bottom: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  .bp-scale-tag {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .bp-diagram-stage {
+    padding: var(--space-4);
+    background: var(--surface-elevated);
+  }
+
+  .bp-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+  }
+
+  .bp-svg text {
+    color: var(--text-primary);
+  }
+
+  .bp-svg-mobile {
+    display: none;
+  }
+
+  @media (max-width: 767px) {
+    .bp-diagram-stage {
+      padding: var(--space-2);
+    }
+    .bp-svg-desktop {
+      display: none;
+    }
+    .bp-svg-mobile {
+      display: block;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bp-pixel-beacon {
+      animation: bp-beacon-step 2.4s steps(2, end) infinite;
+    }
+  }
+
+  @keyframes bp-beacon-step {
+    0%, 49% {
+      opacity: 1;
+    }
+    50%, 100% {
+      opacity: 0.45;
+    }
+  }
+
+  .bp-diagram-caption {
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface-inset);
+    border-top: 1px solid var(--border-subtle);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+</style>

@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import WorkspaceShowcase from './WorkspaceShowcase.astro';
+import IsolationBlueprint from './IsolationBlueprint.astro';
 import { SITE_COPY, type Lang } from '../data/site-copy';
 import release from '../data/release.json';
 
@@ -30,11 +31,28 @@ const signingLabel =
       ? 'Bản thử nghiệm chưa ký số'
       : 'Unsigned beta build'
     : release.signingStatus;
+const secTags =
+  lang === 'vi'
+    ? {
+        sec1: 'SEC-01 // KHÔNG GIAN TÁCH BIỆT',
+        sec2: 'SEC-02 // MÔ PHỎNG & GIAO DIỆN THỰC TẾ',
+        sec3: 'SEC-03 // KIẾN TRÚC AN TOÀN',
+        sec4: 'SEC-04 // MA TRẬN NỀN TẢNG',
+        sec5: 'SEC-05 // TẢI XUỐNG & KIỂM CHỨNG'
+      }
+    : {
+        sec1: 'SEC-01 // ISOLATED WORKSPACE',
+        sec2: 'SEC-02 // INTERACTIVE & DESKTOP UI',
+        sec3: 'SEC-03 // SAFETY ARCHITECTURE',
+        sec4: 'SEC-04 // PLATFORM MATRIX',
+        sec5: 'SEC-05 // RELEASES & CHECKSUMS'
+      };
 ---
 <BaseLayout lang={lang} canonicalPath={lang === 'vi' ? '/' : '/en/'}>
-  <section class="hero-section">
+  <section class="hero-section bp-grid-surface">
     <div class="container hero-grid">
       <div>
+        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec1}</span></p>
         <h1 class="hero-title">{copy.hero.title}</h1>
         <p class="hero-lead">{copy.hero.lead}</p>
         <div class="hero-actions">
@@ -48,23 +66,29 @@ const signingLabel =
         <p class="hero-meta">{copy.hero.meta}</p>
       </div>
 
-      <figure class="hero-proof">
-        <img
-          src={`${base}/screenshots/${heroShot}`}
-          alt={copy.hero.screenshotAlt}
-          width="1160"
-          height="780"
-          loading="eager"
-          fetchpriority="high"
-        />
-        <figcaption>{copy.hero.screenshotCaption}</figcaption>
-      </figure>
+      <div class="hero-proof-wrap bp-frame">
+        <figure class="hero-proof">
+          <img
+            src={`${base}/screenshots/${heroShot}`}
+            alt={copy.hero.screenshotAlt}
+            width="1160"
+            height="780"
+            loading="eager"
+            fetchpriority="high"
+          />
+          <figcaption>
+            <span class="bp-fig-id">FIG. 01</span>
+            <span>{copy.hero.screenshotCaption}</span>
+          </figcaption>
+        </figure>
+      </div>
     </div>
   </section>
 
   <section class="section" id="experience">
     <div class="container">
       <div class="section-header">
+        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec2}</span></p>
         <h2 class="section-title">{copy.showcase.title}</h2>
         <p class="section-desc">{copy.showcase.desc}</p>
       </div>
@@ -72,6 +96,7 @@ const signingLabel =
       <WorkspaceShowcase lang={lang} />
 
       <div class="section-header section-header--spaced">
+        <p class="bp-fig-id">FIG. 03 // DESKTOP CAPTURES</p>
         <h2 class="section-title">{copy.shots.title}</h2>
         <p class="section-desc">{copy.shots.desc}</p>
       </div>
@@ -93,17 +118,50 @@ const signingLabel =
     </div>
   </section>
 
-  <section class="section" id="safety">
+  <section class="section bp-grid-surface" id="safety">
     <div class="container">
       <div class="section-header">
+        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec3}</span></p>
         <h2 class="section-title">{copy.isolation.title}</h2>
         <p class="section-desc">{copy.isolation.desc}</p>
       </div>
 
+      <IsolationBlueprint lang={lang} />
+
       <div class="mechanism-list">
-        {copy.isolation.items.map((item) => (
+        {copy.isolation.items.map((item, idx) => (
           <div class="mechanism-row">
-            <h3>{item.name}</h3>
+            <div class="mechanism-head">
+              <span class="pixel-icon-box" aria-hidden="true">
+                {idx === 0 && (
+                  <svg width="20" height="20" viewBox="0 0 16 16" shape-rendering="crispEdges">
+                    <rect x="5" y="2" width="6" height="2" fill="#7c3b04" />
+                    <rect x="3" y="4" width="2" height="4" fill="#7c3b04" />
+                    <rect x="11" y="4" width="2" height="4" fill="#7c3b04" />
+                    <rect x="2" y="8" width="12" height="6" fill="#7c3b04" />
+                    <rect x="7" y="10" width="2" height="3" fill="#fef3c7" />
+                  </svg>
+                )}
+                {idx === 1 && (
+                  <svg width="20" height="20" viewBox="0 0 16 16" shape-rendering="crispEdges">
+                    <rect x="1" y="3" width="6" height="2" fill="#145e56" />
+                    <rect x="1" y="5" width="14" height="9" fill="#145e56" />
+                    <rect x="3" y="7" width="4" height="5" fill="#ffffff" />
+                    <rect x="9" y="7" width="4" height="2" fill="#ffffff" />
+                    <rect x="9" y="10" width="4" height="2" fill="#9fd3b4" />
+                  </svg>
+                )}
+                {idx === 2 && (
+                  <svg width="20" height="20" viewBox="0 0 16 16" shape-rendering="crispEdges">
+                    <rect x="2" y="2" width="12" height="3" fill="#172723" />
+                    <rect x="3" y="6" width="10" height="8" fill="#172723" />
+                    <rect x="6" y="8" width="4" height="2" fill="#efece5" />
+                    <rect x="5" y="11" width="6" height="1" fill="#9fd3b4" />
+                  </svg>
+                )}
+              </span>
+              <h3>{item.name}</h3>
+            </div>
             <p>{item.body}</p>
           </div>
         ))}
@@ -114,6 +172,7 @@ const signingLabel =
   <section class="section" id="platforms">
     <div class="container">
       <div class="section-header">
+        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec4}</span></p>
         <h2 class="section-title">{copy.compat.title}</h2>
         <p class="section-desc">{copy.compat.desc}</p>
       </div>
@@ -149,6 +208,7 @@ const signingLabel =
   <section class="section" id="download">
     <div class="container">
       <div class="section-header">
+        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec5}</span></p>
         <h2 class="section-title">{copy.download.title} ({release.tag})</h2>
         <div class="download-meta-row">
           <span class="state-tag is-warn">{copy.download.prereleaseBadge}</span>

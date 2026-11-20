@@ -28,52 +28,99 @@ export const SITE_COPY = {
     },
     showcase: {
       title: 'Mô phỏng luồng chuyển đổi & cô lập tài khoản',
-      desc: 'Chọn từng không gian bên trái để xem cách NexaDock tách biến môi trường và bảo vệ Zalo chính bằng dữ liệu mẫu.',
+      desc: 'Chọn từng không gian bên trái hoặc bấm Mở Zalo / Đóng Zalo để mô phỏng cách NexaDock tách biến môi trường và bảo vệ Zalo chính.',
+      simBadge: 'MÔ PHỎNG · DỮ LIỆU MẪU',
       note: 'Dữ liệu minh họa cục bộ (không kết nối mạng hay Zalo thật).',
+      pathLabel: 'Thư mục cô lập',
+      primaryPathLabel: 'Thư mục gốc (chỉ đọc)',
+      honestNotice: 'Chạy trong cửa sổ Zalo Desktop độc lập — không nhúng vào trong NexaDock.',
+      primaryNotice:
+        'Ứng dụng Zalo cài sẵn trên máy được bảo vệ ở chế độ chỉ đọc. NexaDock không đóng, xóa, sao lưu đè hay thay đổi vị trí cửa sổ này.',
+      webNotice:
+        'Phiên Zalo Web tách biệt (Thử nghiệm): chạy trong child WebView cô lập không có IPC; mỗi tài khoản giữ 1 phiên Web; không sao lưu ngoại tuyến.',
+      actions: {
+        openDesktop: 'Mở Zalo',
+        closeDesktop: 'Đóng Zalo',
+        openWeb: 'Mở phiên Web',
+        closeWeb: 'Đóng phiên Web',
+        readOnlyLabel: 'Chỉ đọc · Không thể đóng từ đây'
+      },
+      states: {
+        running: 'Cửa sổ đang mở',
+        stopped: 'Đã đóng',
+        webRunning: 'Phiên Web đang mở · Thử nghiệm',
+        webStopped: 'Đã đóng · Thử nghiệm'
+      },
       accounts: [
         {
           id: 'primary',
+          kind: 'primary',
+          color: 'slate',
           initials: 'Z',
           name: 'Zalo đang dùng trên máy',
-          role: 'Được bảo vệ, chỉ đọc',
-          state: 'Đang chạy độc lập',
+          role: 'Được bảo vệ · Chỉ đọc',
+          state: 'Cửa sổ đang mở · Được bảo vệ',
           stateKind: 'neutral',
+          running: true,
           path: '%APPDATA%\\ZaloData',
           detail:
             'NexaDock chỉ quan sát trạng thái tiến trình chính để tránh xung đột. Mọi lệnh dừng, ghi đè hoặc xóa nhắm vào Zalo gốc đều bị chặn ở tầng Rust.'
         },
         {
           id: 'work',
-          initials: 'ĐN',
+          kind: 'desktop',
+          color: 'blue',
+          initials: 'ĐT',
           name: 'Đức: Công việc & Đối tác',
-          role: 'Không gian tách biệt',
+          role: 'Desktop · Không gian tách biệt',
           state: 'Cửa sổ đang mở',
           stateKind: 'ok',
+          running: true,
           path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\duc-cong-viec_176ea8dd',
           detail:
             'Chạy bằng bộ biến môi trường APPDATA, LOCALAPPDATA và TEMP riêng. Đưa cửa sổ lên trên hoặc đóng cây tiến trình an toàn mà không chạm tài khoản khác.'
         },
         {
           id: 'personal',
+          kind: 'desktop',
+          color: 'teal',
           initials: 'CN',
           name: 'Cá nhân',
-          role: 'Không gian tách biệt',
+          role: 'Desktop · Không gian tách biệt',
           state: 'Đã đóng',
           stateKind: 'neutral',
+          running: false,
           path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ca-nhan_2492ef1d',
           detail:
             'Sẵn sàng sao lưu nguyên tử sang tệp .zip có kiểm tra SHA-256 và ngưỡng dung lượng trống tối thiểu 5 GiB trước khi thực hiện.'
         },
         {
           id: 'sales',
-          initials: 'BH',
+          kind: 'desktop',
+          color: 'green',
+          initials: 'BC',
           name: 'Bán hàng & CSKH',
-          role: 'Không gian tách biệt',
+          role: 'Desktop · Không gian tách biệt',
           state: 'Cửa sổ đang mở',
           stateKind: 'ok',
+          running: true,
           path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ban-hang_52fb0a78',
           detail:
             'Kiểm tra trùng zalo_user_id và khóa thư mục cơ sở dữ liệu ngoài vùng lưu trữ trước khi khởi chạy để tránh hỏng dữ liệu.'
+        },
+        {
+          id: 'web-support',
+          kind: 'web',
+          color: 'indigo',
+          initials: 'HW',
+          name: 'Hỗ trợ nhanh (Web)',
+          role: 'Web · Thử nghiệm',
+          state: 'Đã đóng · Thử nghiệm',
+          stateKind: 'neutral',
+          running: false,
+          path: '%LOCALAPPDATA%\\NexaDock\\WebSessions\\_shared_env\\EBWebView',
+          detail:
+            'Hồ sơ WebView2 / WKWebView cô lập không có Tauri IPC, dùng vòng đời ICoreWebView2Profile8 riêng và gắn nhãn Thử nghiệm.'
         }
       ]
     },
@@ -219,52 +266,99 @@ export const SITE_COPY = {
     },
     showcase: {
       title: 'Interactive workspace & isolation preview',
-      desc: 'Select a workspace on the left to inspect how NexaDock isolates environment paths and protects your primary Zalo using synthetic sample data.',
+      desc: 'Select a workspace on the left or toggle Open Zalo / Close Zalo to simulate how NexaDock isolates paths and protects your primary Zalo.',
+      simBadge: 'SIMULATION · LOCAL SAMPLE DATA',
       note: 'Local sample data (no live network or Zalo connection).',
+      pathLabel: 'Isolated path',
+      primaryPathLabel: 'Original path (read-only)',
+      honestNotice: 'Running in an independent Zalo Desktop window — not embedded inside NexaDock.',
+      primaryNotice:
+        'Your main Zalo installation is protected in read-only mode. NexaDock never closes, removes, overwrites, or repositions its window.',
+      webNotice:
+        'Isolated Zalo Web (Experimental): runs in a zero-IPC child WebView; one active Web session per account; no offline backup.',
+      actions: {
+        openDesktop: 'Open Zalo',
+        closeDesktop: 'Close Zalo',
+        openWeb: 'Open Web session',
+        closeWeb: 'Close Web session',
+        readOnlyLabel: 'Read-only · Cannot close from here'
+      },
+      states: {
+        running: 'Window open',
+        stopped: 'Closed',
+        webRunning: 'Web session open · Experimental',
+        webStopped: 'Closed · Experimental'
+      },
       accounts: [
         {
           id: 'primary',
+          kind: 'primary',
+          color: 'slate',
           initials: 'Z',
-          name: 'Primary Zalo on this machine',
-          role: 'Protected, read-only',
-          state: 'Running independently',
+          name: 'Zalo already on this computer',
+          role: 'Protected · Read-only',
+          state: 'Window open · Protected',
           stateKind: 'neutral',
+          running: true,
           path: '%APPDATA%\\ZaloData',
           detail:
             'NexaDock only observes your primary Zalo state to prevent conflicts. Any stop, overwrite, or delete targeting the primary client is blocked in Rust.'
         },
         {
           id: 'work',
-          initials: 'ĐN',
+          kind: 'desktop',
+          color: 'blue',
+          initials: 'DP',
           name: 'Duc: Work & Partners',
-          role: 'Isolated space',
+          role: 'Desktop · Isolated space',
           state: 'Window open',
           stateKind: 'ok',
+          running: true,
           path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\duc-cong-viec_176ea8dd',
           detail:
             'Runs with dedicated APPDATA, LOCALAPPDATA, and TEMP directories. Bring its window to front or close its process tree cleanly without affecting siblings.'
         },
         {
           id: 'personal',
-          initials: 'CN',
+          kind: 'desktop',
+          color: 'teal',
+          initials: 'PE',
           name: 'Personal',
-          role: 'Isolated space',
+          role: 'Desktop · Isolated space',
           state: 'Closed',
           stateKind: 'neutral',
+          running: false,
           path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ca-nhan_2492ef1d',
           detail:
             'Ready for atomic .zip backup with SHA-256 verification and a mandatory 5 GiB free-space safety check before writing.'
         },
         {
           id: 'sales',
-          initials: 'BH',
+          kind: 'desktop',
+          color: 'green',
+          initials: 'SS',
           name: 'Sales & Support',
-          role: 'Isolated space',
+          role: 'Desktop · Isolated space',
           state: 'Window open',
           stateKind: 'ok',
+          running: true,
           path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ban-hang_52fb0a78',
           detail:
             'Enforces duplicate zalo_user_id detection and external database path guards before launch to prevent cross-profile corruption.'
+        },
+        {
+          id: 'web-support',
+          kind: 'web',
+          color: 'indigo',
+          initials: 'QW',
+          name: 'Quick Support (Web)',
+          role: 'Web · Experimental',
+          state: 'Closed · Experimental',
+          stateKind: 'neutral',
+          running: false,
+          path: '%LOCALAPPDATA%\\NexaDock\\WebSessions\\_shared_env\\EBWebView',
+          detail:
+            'Zero-IPC isolated WebView2 / WKWebView profile managed via ICoreWebView2Profile8 lifecycle APIs and explicitly marked Experimental.'
         }
       ]
     },

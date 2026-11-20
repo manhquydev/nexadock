@@ -38,6 +38,8 @@
     "viewGrid": "Grid",
     "viewList": "List",
     "viewModeAria": "View layout",
+    "toolbarAria": "Account list toolbar",
+    "clearSearch": "Clear search",
     "stopAll": "Stop all",
     "recoveryHint": "Previous session ended uncleanly. Reopen to clean locks.",
     "emptyTitle": "Use multiple Zalo accounts on one computer",
