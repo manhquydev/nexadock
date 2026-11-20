@@ -30,6 +30,22 @@
   --action-secondary-hover: #efece5;
   --action-secondary-pressed: #e5e0d6;
   --action-soft: #dcebe5;
+  --accent-soft: #bce5d8;
+
+  /* Blueprint surface & technical annotation tokens */
+  --bp-grid-major: rgba(20, 94, 86, 0.11);
+  --bp-crosshair: #8a8377;
+  --bp-callout-bg: #efece5;
+
+  /* Desktop parity account identity palette (WCAG AA >= 4.5:1 with #ffffff) */
+  --id-blue: #1e56a0;
+  --id-teal: #0f6b66;
+  --id-green: #1c6e3b;
+  --id-amber: #a14a0a;
+  --id-coral: #a92b5b;
+  --id-plum: #6d3b9e;
+  --id-indigo: #4b468e;
+  --id-slate: #0e6488;
 
   /* Status tokens (WCAG AA contrast >= 4.5:1) */
   --status-ok-fg: #135d34;
@@ -103,6 +119,10 @@
     --action-secondary: ButtonFace;
     --action-secondary-hover: Canvas;
     --action-secondary-pressed: Canvas;
+    --accent-soft: Canvas;
+    --bp-grid-major: transparent;
+    --bp-crosshair: CanvasText;
+    --bp-callout-bg: Canvas;
     --shadow-frame: none;
   }
 }

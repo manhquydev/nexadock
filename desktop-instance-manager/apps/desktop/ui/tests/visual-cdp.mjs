@@ -371,6 +371,10 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mz-edge-'));
 const proc = spawn(browserBin, [
   '--headless=new',
   '--disable-gpu',
+  '--disable-extensions',
+  '--disable-component-extensions-with-background-pages',
+  '--no-first-run',
+  '--window-size=1920,1080',
   `--remote-debugging-port=${cdpPort}`,
   `--user-data-dir=${userDataDir}`,
   baseUrl
@@ -412,7 +416,8 @@ try {
       if (msg.error) reject(new Error(msg.error.message));
       else resolve(msg.result);
     } else if (msg.method === 'Runtime.exceptionThrown') {
-      runtimeErrors.push(msg.params?.exceptionDetails?.text || 'Runtime exception');
+      const ed = msg.params?.exceptionDetails;
+      runtimeErrors.push(ed?.exception?.description || `${ed?.text || 'Runtime exception'} (${ed?.url || ''}:${ed?.lineNumber ?? ''})`);
     }
     if (msg.method && eventWaiters.has(msg.method)) {
       const list = eventWaiters.get(msg.method);
@@ -421,9 +426,25 @@ try {
     }
   });
 
+  ws.addEventListener('close', () => {
+    for (const [id, { reject }] of pending) {
+      pending.delete(id);
+      reject(new Error('CDP WebSocket closed unexpectedly'));
+    }
+  });
+
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const id = nextId++;
-    pending.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      if (pending.has(id)) {
+        pending.delete(id);
+        reject(new Error(`CDP call timed out after 15000ms: ${method}`));
+      }
+    }, 15000);
+    pending.set(id, {
+      resolve: (val) => { clearTimeout(timer); resolve(val); },
+      reject: (err) => { clearTimeout(timer); reject(err); }
+    });
     ws.send(JSON.stringify({ id, method, params }));
   });
 
@@ -1382,11 +1403,806 @@ try {
   await snap('account-dock-quick-switcher-vi-light.png');
   await evalJs(`document.getElementById('quick-switcher-dialog').close('close')`);
 
+  // 7. Scroll & Viewport Integrity Gate (#view-diagnostics & cross-view scroll isolation)
+  const savedDiag = JSON.parse(JSON.stringify(mockData.diagnostics));
+  const savedIso = JSON.parse(JSON.stringify(mockData.isolation));
+  const savedDataDir = mockData.status.data_dir;
+
+  const scrollWheel = async (x, y, deltaY) => {
+    const safeX = Math.min(Math.max(40, Math.round(x)), 600);
+    const safeY = Math.min(Math.max(300, Math.round(y)), 420);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: safeX, y: safeY });
+    const remaining = Math.min(Math.abs(Math.round(deltaY)), 1600);
+    const sign = deltaY >= 0 ? -1 : 1;
+    let left = remaining;
+    while (left > 0) {
+      const chunk = Math.min(left, 800);
+      await send('Input.synthesizeScrollGesture', {
+        x: safeX,
+        y: safeY,
+        yDistance: sign * chunk,
+        speed: 4000,
+        gestureSourceType: 'default'
+      });
+      await new Promise((r) => setTimeout(r, 40));
+      left -= chunk;
+    }
+    await new Promise((r) => setTimeout(r, 80));
+  };
+
+  const waitForDiagScrollSettled = async (timeoutMs = 2000, requireMovedFrom = null) => {
+    const start = Date.now();
+    let prev = await evalJs(`document.getElementById('view-diagnostics')?.scrollTop ?? 0`);
+    let hasMoved = requireMovedFrom === null || prev !== requireMovedFrom;
+    let stableCount = 0;
+    while (Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 100));
+      const curr = await evalJs(`document.getElementById('view-diagnostics')?.scrollTop ?? 0`);
+      if (!hasMoved) {
+        if (curr !== requireMovedFrom) {
+          hasMoved = true;
+          prev = curr;
+          stableCount = 0;
+        }
+        continue;
+      }
+      if (curr === prev) {
+        stableCount += 1;
+        if (stableCount >= 3) return curr;
+      } else {
+        stableCount = 0;
+        prev = curr;
+      }
+    }
+    return prev;
+  };
+
+  const readScrollMetrics = () => evalJs(`(() => {
+    const se = document.scrollingElement || document.documentElement;
+    const diag = document.getElementById('view-diagnostics');
+    const stackLast = diag?.querySelector('.diag-stack')?.lastElementChild || null;
+    const diagRect = diag ? diag.getBoundingClientRect() : null;
+    const lastRect = stackLast ? stackLast.getBoundingClientRect() : null;
+    const disclosure = document.getElementById('diag-technical-disclosure');
+    return {
+      docScrollHeight: se.scrollHeight,
+      docClientHeight: se.clientHeight,
+      docScrollTop: se.scrollTop,
+      docScrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+      diagHidden: Boolean(diag?.hidden),
+      diagScrollHeight: diag ? diag.scrollHeight : 0,
+      diagClientHeight: diag ? diag.clientHeight : 0,
+      diagScrollTop: diag ? diag.scrollTop : 0,
+      diagScrollWidth: diag ? diag.scrollWidth : 0,
+      diagClientWidth: diag ? diag.clientWidth : 0,
+      diagRectBottom: diagRect ? diagRect.bottom : 0,
+      diagRectCenterX: diagRect ? Math.round(diagRect.left + diagRect.width / 2) : 200,
+      diagRectWheelY: diagRect ? Math.round(diagRect.top + Math.min(80, diagRect.height / 3)) : 120,
+      lastChildBottom: lastRect ? lastRect.bottom : 0,
+      disclosureOpen: Boolean(disclosure?.open),
+      profilesScrollTop: document.getElementById('view-profiles')?.scrollTop || 0,
+      settingsScrollTop: document.getElementById('view-settings')?.scrollTop || 0
+    };
+  })()`);
+
+  const assertViewportScrollIntegrity = (m, label) => {
+    assert.ok(
+      m.docScrollHeight <= m.docClientHeight + 1,
+      `[${label}] Outer phantom vertical scroll detected: doc.scrollHeight=${m.docScrollHeight} > clientHeight=${m.docClientHeight}`
+    );
+    assert.equal(m.docScrollTop, 0, `[${label}] Outer document.scrollingElement.scrollTop must remain 0`);
+    assert.ok(
+      m.docScrollWidth <= m.innerWidth + 1,
+      `[${label}] Outer horizontal overflow: scrollWidth=${m.docScrollWidth} > innerWidth=${m.innerWidth}`
+    );
+    if (!m.diagHidden) {
+      assert.ok(
+        m.diagScrollWidth <= m.diagClientWidth + 1,
+        `[${label}] Diagnostics horizontal overflow: scrollWidth=${m.diagScrollWidth} > clientWidth=${m.diagClientWidth}`
+      );
+      if (m.diagScrollHeight <= m.diagClientHeight + 1) {
+        assert.equal(
+          m.diagScrollTop,
+          0,
+          `[${label}] Content fits (${m.diagScrollHeight} <= ${m.diagClientHeight}) so scrollTop must be 0`
+        );
+      }
+    }
+  };
+
+  const unbreakableToken = 'UNBREAKABLE_' + 'X'.repeat(200);
+  const diagScenarios = [
+    {
+      name: 'empty-logs',
+      dataDir: savedDataDir,
+      logs: [],
+      checks: savedIso.checks,
+      matrix: savedDiag.platform_support_matrix
+    },
+    {
+      name: 'short-logs',
+      dataDir: savedDataDir,
+      logs: [
+        '[INFO] Host bridge started on 127.0.0.1',
+        '[INFO] Primary Zalo protection guard active',
+        '[INFO] Sandbox directory verification completed'
+      ],
+      checks: savedIso.checks,
+      matrix: savedDiag.platform_support_matrix
+    },
+    {
+      name: 'long-200-logs',
+      dataDir: savedDataDir,
+      logs: Array.from({ length: 220 }, (_, i) => `[INFO] Diagnostic log line #${i + 1}: sandbox check passed cleanly`),
+      checks: savedIso.checks,
+      matrix: savedDiag.platform_support_matrix
+    },
+    {
+      name: 'unbreakable-200-chars',
+      dataDir: `C:\\Users\\Demo\\AppData\\Local\\NexaDock\\${unbreakableToken}`,
+      logs: [`[WARN] ${unbreakableToken}`],
+      checks: [
+        { check_name: `check_${unbreakableToken}`, passed: true, detail: `detail_${unbreakableToken}` },
+        { check_name: 'ntfs_acl', status: 'NOT_TESTED', detail: `acl_${unbreakableToken}` }
+      ],
+      matrix: [
+        { platform: 'Windows 10/11', status: 'SUPPORTED_AND_TESTED', strategy: 'USERPROFILE sandbox', limits: unbreakableToken }
+      ]
+    }
+  ];
+
+  const diagViewports = [
+    { width: 1686, height: 864, scale: 1, theme: 'dark', rootFontSize: '', label: 'dark-1686x864' },
+    { width: 1160, height: 780, scale: 1, theme: 'light', rootFontSize: '', label: 'light-1160x780' },
+    { width: 1440, height: 900, scale: 1, theme: 'dark', rootFontSize: '', label: 'dark-1440x900' },
+    { width: 420, height: 540, scale: 1, theme: 'light', rootFontSize: '', label: 'light-420x540' },
+    { width: 1160, height: 780, scale: 1, theme: 'light', rootFontSize: '200%', label: 'textscale-200pct-1160x780' }
+  ];
+
+  const applyDiagScenario = async (scenario) => {
+    mockData.status.data_dir = scenario.dataDir;
+    mockData.diagnostics.sanitized_logs = scenario.logs;
+    mockData.diagnostics.platform_support_matrix = scenario.matrix;
+    mockData.isolation.checks = scenario.checks;
+    await evalJs(`document.getElementById('btn-refresh-diagnostics').click()`);
+    await new Promise((r) => setTimeout(r, 120));
+  };
+
+  const setDisclosureOpen = async (open) => {
+    const isOpen = await evalJs(`Boolean(document.getElementById('diag-technical-disclosure')?.open)`);
+    if (isOpen !== open) {
+      await evalJs(`document.querySelector('#diag-technical-disclosure > summary').click()`);
+      await new Promise((r) => setTimeout(r, 80));
+    }
+  };
+
+  // Navigate to Diagnostics from Settings
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="settings"]').click()`);
+  await evalJs(`document.getElementById('btn-goto-diagnostics').click()`);
+  await new Promise((r) => setTimeout(r, 80));
+
+  for (const vp of diagViewports) {
+    await setViewport(vp.width, vp.height, vp.scale);
+    await evalJs(`(() => {
+      const r = document.querySelector('input[name="ui-theme"][value="${vp.theme}"]');
+      if (r) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
+      document.documentElement.style.fontSize = '${vp.rootFontSize}';
+    })()`);
+    await new Promise((r) => setTimeout(r, 60));
+
+    for (const scenario of diagScenarios) {
+      await applyDiagScenario(scenario);
+
+      for (const disclosureState of [false, true]) {
+        const tag = `${vp.label}/${scenario.name}/${disclosureState ? 'open' : 'closed'}`;
+        await evalJs(`document.getElementById('view-diagnostics').scrollTop = 0`);
+        await setDisclosureOpen(disclosureState);
+
+        let metrics = await readScrollMetrics();
+        assertViewportScrollIntegrity(metrics, `${tag}:top`);
+
+        // Scroll to bottom via scrollTop, then wheel past bottom to test overscroll containment
+        await evalJs(`(() => {
+          const d = document.getElementById('view-diagnostics');
+          d.scrollTop = d.scrollHeight;
+        })()`);
+        await new Promise((r) => setTimeout(r, 40));
+        metrics = await readScrollMetrics();
+        await scrollWheel(metrics.diagRectCenterX, metrics.diagRectWheelY, 1600);
+        metrics = await readScrollMetrics();
+        assertViewportScrollIntegrity(metrics, `${tag}:bottom-wheel`);
+
+        if (disclosureState && scenario.name === 'long-200-logs') {
+          const gapToBottom = metrics.diagRectBottom - metrics.lastChildBottom;
+          assert.ok(
+            gapToBottom >= -1 && gapToBottom <= 48,
+            `[${tag}] Expected .diag-stack last child bottom within 48px of scroll container bottom, got gap=${gapToBottom.toFixed(1)}px`
+          );
+
+          if (vp.label === 'dark-1686x864') {
+            // Also verify PageDown, End key, synthetic scroll gesture, and wheel scrolling from top
+            await send('Page.bringToFront');
+            await evalJs(`(() => {
+              const d = document.getElementById('view-diagnostics');
+              d.scrollTop = 0;
+              d.focus({ preventScroll: true });
+            })()`);
+            await new Promise((r) => setTimeout(r, 80));
+            await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'PageDown', code: 'PageDown', windowsVirtualKeyCode: 34 });
+            await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'PageDown', code: 'PageDown', windowsVirtualKeyCode: 34 });
+            await waitForDiagScrollSettled(2000, 0);
+            const afterPageDown = await readScrollMetrics();
+            assertViewportScrollIntegrity(afterPageDown, `${tag}:PageDown-key`);
+            assert.ok(afterPageDown.diagScrollTop > 0, `[${tag}] PageDown key should scroll Diagnostics down`);
+
+            await evalJs(`(() => {
+              const d = document.getElementById('view-diagnostics');
+              d.scrollTop = 0;
+              d.focus({ preventScroll: true });
+            })()`);
+            await new Promise((r) => setTimeout(r, 80));
+            await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'End', code: 'End', windowsVirtualKeyCode: 35 });
+            await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'End', code: 'End', windowsVirtualKeyCode: 35 });
+            await waitForDiagScrollSettled(2000, 0);
+            const afterEnd = await readScrollMetrics();
+            assertViewportScrollIntegrity(afterEnd, `${tag}:End-key`);
+            assert.ok(afterEnd.diagScrollTop >= afterPageDown.diagScrollTop, `[${tag}] End key should reach bottom of Diagnostics (pageDown=${afterPageDown.diagScrollTop}, end=${afterEnd.diagScrollTop})`);
+            const endGap = afterEnd.diagRectBottom - afterEnd.lastChildBottom;
+            assert.ok(
+              endGap >= -1 && endGap <= 48,
+              `[${tag}:End-key] Last content bottom gap=${endGap.toFixed(1)}px exceeded 48px`
+            );
+
+            // Reset to top and scroll via synthetic scroll gesture (compositor drag/scroll)
+            await evalJs(`document.getElementById('view-diagnostics').scrollTop = 0`);
+            await new Promise((r) => setTimeout(r, 120));
+            const gestureX = Math.min(afterEnd.diagRectCenterX, 600);
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: gestureX, y: 300 });
+            await send('Input.synthesizeScrollGesture', {
+              x: gestureX,
+              y: 300,
+              yDistance: -800,
+              speed: 1800,
+              gestureSourceType: 'default'
+            });
+            await waitForDiagScrollSettled(2000, 0);
+            const afterScrollbar = await readScrollMetrics();
+            assertViewportScrollIntegrity(afterScrollbar, `${tag}:gesture-scroll`);
+            assert.ok(afterScrollbar.diagScrollTop > 0, `[${tag}] Gesture scroll should scroll Diagnostics down`);
+
+            // Reset to top and scroll to bottom purely via mouseWheel
+            await evalJs(`document.getElementById('view-diagnostics').scrollTop = 0`);
+            await new Promise((r) => setTimeout(r, 80));
+            await scrollWheel(afterEnd.diagRectCenterX, 300, 4000);
+            await waitForDiagScrollSettled(1500, 0);
+            const afterWheelOnly = await readScrollMetrics();
+            assertViewportScrollIntegrity(afterWheelOnly, `${tag}:wheel-only`);
+            assert.ok(afterWheelOnly.diagScrollTop > 0, `[${tag}] Wheel should scroll Diagnostics down (scrollTop=${afterWheelOnly.diagScrollTop}, x=${afterEnd.diagRectCenterX})`);
+            const wheelGap = afterWheelOnly.diagRectBottom - afterWheelOnly.lastChildBottom;
+            assert.ok(
+              wheelGap >= -1 && wheelGap <= 48,
+              `[${tag}:wheel-only] Last content bottom gap=${wheelGap.toFixed(1)}px exceeded 48px`
+            );
+
+            await snap('diag-scroll-fixed-dark-1686x864.png');
+          }
+        }
+      }
+    }
+  }
+
+  // Stateful transition checks in dark 1686x864
+  await setViewport(1686, 864, 1);
+  await evalJs(`(() => {
+    const r = document.querySelector('input[name="ui-theme"][value="dark"]');
+    if (r) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
+    document.documentElement.style.fontSize = '';
+  })()`);
+  await applyDiagScenario(diagScenarios[2]); // long-200-logs
+  await setDisclosureOpen(true);
+
+  // (1) Close disclosure while scrolled to bottom -> scrollTop clamps cleanly and fits if content fits
+  await evalJs(`(() => {
+    const d = document.getElementById('view-diagnostics');
+    d.scrollTop = d.scrollHeight;
+  })()`);
+  const beforeClose = await readScrollMetrics();
+  assert.ok(beforeClose.diagScrollTop > 0, 'Expected Diagnostics scrolled before closing disclosure');
+  await evalJs(`document.querySelector('#diag-technical-disclosure > summary').click()`);
+  await new Promise((r) => setTimeout(r, 100));
+  const afterClose = await readScrollMetrics();
+  assert.equal(afterClose.disclosureOpen, false);
+  assertViewportScrollIntegrity(afterClose, 'close-disclosure-at-bottom');
+  assert.ok(
+    afterClose.diagScrollTop <= Math.max(0, afterClose.diagScrollHeight - afterClose.diagClientHeight) + 1,
+    'scrollTop must clamp cleanly after closing disclosure'
+  );
+
+  // (2) Refresh Diagnostics while scrolled -> no phantom scroll & clamps when logs shrink
+  await setDisclosureOpen(true);
+  await evalJs(`(() => {
+    const d = document.getElementById('view-diagnostics');
+    d.scrollTop = d.scrollHeight;
+  })()`);
+  await applyDiagScenario(diagScenarios[0]); // empty-logs
+  const afterRefresh = await readScrollMetrics();
+  assertViewportScrollIntegrity(afterRefresh, 'refresh-diagnostics-while-scrolled');
+  assert.ok(
+    afterRefresh.diagScrollTop <= Math.max(0, afterRefresh.diagScrollHeight - afterRefresh.diagClientHeight) + 1,
+    'scrollTop must clamp after refresh shrinks Diagnostics content'
+  );
+
+  // (3) Switch Diagnostics -> Settings -> Diagnostics -> scrollTop === 0 & no hidden view leaks scroll height
+  await applyDiagScenario(diagScenarios[2]); // long-200-logs
+  await evalJs(`(() => {
+    const d = document.getElementById('view-diagnostics');
+    d.scrollTop = d.scrollHeight;
+  })()`);
+  assert.ok((await readScrollMetrics()).diagScrollTop > 50);
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="settings"]').click()`);
+  await new Promise((r) => setTimeout(r, 60));
+  const onSettings = await readScrollMetrics();
+  assert.equal(onSettings.diagHidden, true);
+  assert.equal(onSettings.settingsScrollTop, 0, 'Settings scrollTop must reset to 0 on navigation');
+  assertViewportScrollIntegrity(onSettings, 'switch-diag-to-settings');
+  await evalJs(`document.getElementById('btn-goto-diagnostics').click()`);
+  await new Promise((r) => setTimeout(r, 60));
+  const backOnDiag = await readScrollMetrics();
+  assert.equal(backOnDiag.diagScrollTop, 0, 'Diagnostics scrollTop must reset to 0 on navigation');
+  assertViewportScrollIntegrity(backOnDiag, 'switch-settings-to-diag');
+
+  // (4) Switch Profiles -> Diagnostics -> Profiles -> scrollTop === 0 & no hidden view leaks scroll height
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
+  await new Promise((r) => setTimeout(r, 60));
+  await evalJs(`(() => {
+    const p = document.getElementById('view-profiles');
+    p.scrollTop = p.scrollHeight;
+  })()`);
+  const scrolledProfiles = await readScrollMetrics();
+  assert.ok(scrolledProfiles.profilesScrollTop > 50, 'Expected Profiles (20 accounts) to scroll');
+  assertViewportScrollIntegrity(scrolledProfiles, 'profiles-scrolled');
+  mockData.failNextAction = { ok: false, error_code: 'DUPLICATE_ZALO_USER_ID', message: 'Duplicate account' };
+  await evalJs(`document.querySelector('#profiles-list .account-card:first-child .btn-primary, #profiles-list .account-card:first-child .btn-subtle-danger').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  await evalJs(`document.querySelector('#profiles-list .account-card:first-child [data-profile-error] .btn-secondary').click()`);
+  await new Promise((r) => setTimeout(r, 60));
+  const diagFromProfiles = await readScrollMetrics();
+  assert.equal(diagFromProfiles.diagHidden, false);
+  assert.equal(diagFromProfiles.diagScrollTop, 0, 'Diagnostics scrollTop must reset to 0 from Profiles');
+  assertViewportScrollIntegrity(diagFromProfiles, 'profiles-to-diag');
+  await evalJs(`(() => {
+    const d = document.getElementById('view-diagnostics');
+    d.scrollTop = d.scrollHeight;
+  })()`);
+  await evalJs(`document.getElementById('btn-diag-back').click()`);
+  await new Promise((r) => setTimeout(r, 60));
+  const returnedToProfiles = await readScrollMetrics();
+  assert.equal(returnedToProfiles.diagHidden, true);
+  assert.equal(returnedToProfiles.profilesScrollTop, 0, 'Profiles scrollTop must reset to 0 on return');
+  assertViewportScrollIntegrity(returnedToProfiles, 'diag-to-profiles');
+
+  // (5) Resize window while scrolled to bottom -> scrollTop stays valid
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="settings"]').click()`);
+  await evalJs(`document.getElementById('btn-goto-diagnostics').click()`);
+  await setViewport(420, 540, 1);
+  await setDisclosureOpen(true);
+  await evalJs(`(() => {
+    const d = document.getElementById('view-diagnostics');
+    d.scrollTop = d.scrollHeight;
+  })()`);
+  await setViewport(1686, 864, 1);
+  await new Promise((r) => setTimeout(r, 100));
+  const afterGrowResize = await readScrollMetrics();
+  assertViewportScrollIntegrity(afterGrowResize, 'resize-420-to-1686');
+  assert.ok(
+    afterGrowResize.diagScrollTop <= Math.max(0, afterGrowResize.diagScrollHeight - afterGrowResize.diagClientHeight) + 1,
+    'scrollTop must stay valid after growing window'
+  );
+  await evalJs(`(() => {
+    const d = document.getElementById('view-diagnostics');
+    d.scrollTop = d.scrollHeight;
+  })()`);
+  await setViewport(420, 540, 1);
+  await new Promise((r) => setTimeout(r, 100));
+  const afterShrinkResize = await readScrollMetrics();
+  assertViewportScrollIntegrity(afterShrinkResize, 'resize-1686-to-420');
+  assert.ok(
+    afterShrinkResize.diagScrollTop <= Math.max(0, afterShrinkResize.diagScrollHeight - afterShrinkResize.diagClientHeight) + 1,
+    'scrollTop must stay valid after shrinking window'
+  );
+
+  // 8. Component Quality & Mandatory Long-Content Resilience Suite
+  mockData.status.profiles = [
+    {
+      id: 'lc-1',
+      name: 'A',
+      directory_name: 'lc-1',
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: null,
+      zalo_user_id: null,
+      notes: '',
+      running: false,
+      main_pid: null,
+      process_count: 0,
+      window_title: null,
+      total_working_set_bytes: 0,
+      data_size_bytes: null,
+      stale_lockfile_detected: false
+    },
+    {
+      id: 'lc-2',
+      name: 'Cá nhân 2026',
+      directory_name: 'lc-2',
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: '2026-02-01T09:15:00Z',
+      zalo_user_id: null,
+      notes: ('Ghi chú rất dài: ' + 'Kênh hỗ trợ khách hàng doanh nghiệp & đối tác chiến lược 24/7 không gián đoạn ').slice(0, 160),
+      running: true,
+      main_pid: 4101,
+      process_count: 2,
+      window_title: 'Zalo',
+      total_working_set_bytes: 120 * 1024 * 1024,
+      data_size_bytes: null,
+      stale_lockfile_detected: false
+    },
+    {
+      id: 'lc-3',
+      name: 'Phòng Kinh Doanh Khu Vực Miền Trung - TN',
+      directory_name: 'lc-3',
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: null,
+      zalo_user_id: null,
+      notes: 'Tài khoản điều phối đơn hàng khu vực',
+      running: false,
+      main_pid: null,
+      process_count: 0,
+      window_title: null,
+      total_working_set_bytes: 0,
+      data_size_bytes: null,
+      stale_lockfile_detected: false
+    },
+    {
+      id: 'lc-4',
+      name: 'Ban Quản Lý Dự Án Chuyển Đổi Số Doanh Nghiệp Vừa Và Nhỏ Toàn Quốc 2026 — Nhóm 01',
+      directory_name: 'lc-4',
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: null,
+      zalo_user_id: null,
+      notes: '',
+      running: true,
+      main_pid: 4102,
+      process_count: 2,
+      window_title: 'Zalo',
+      total_working_set_bytes: 150 * 1024 * 1024,
+      data_size_bytes: null,
+      stale_lockfile_detected: false
+    },
+    {
+      id: 'lc-5',
+      name: 'Tài khoản Chăm sóc Khách hàng Doanh nghiệp Cấp cao Khu vực Đông Nam Á & Đối tác Chiến lược Toàn cầu — Kênh Tiếp nhận Yêu cầu Khẩn cấp 24/7 (Phiên bản 2)',
+      directory_name: 'lc-5',
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: null,
+      zalo_user_id: null,
+      notes: ('Hỗ trợ ưu tiên: ' + 'Tiếp nhận phản hồi kỹ thuật và đơn hàng từ đối tác cấp 1 trên toàn quốc ').repeat(2).slice(0, 160),
+      running: false,
+      main_pid: null,
+      process_count: 0,
+      window_title: null,
+      total_working_set_bytes: 0,
+      data_size_bytes: null,
+      stale_lockfile_detected: false
+    },
+    {
+      id: 'lc-6',
+      name: 'Z'.repeat(200),
+      directory_name: 'lc-6',
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: null,
+      zalo_user_id: null,
+      notes: 'U'.repeat(160),
+      running: false,
+      main_pid: null,
+      process_count: 0,
+      window_title: null,
+      total_working_set_bytes: 0,
+      data_size_bytes: null,
+      stale_lockfile_detected: false
+    },
+    {
+      id: 'lc-7',
+      name: 'Ầ Ợ Ử Ễ Ắ Ặ Ỗ Ự — Nguyễn Hoàng Phương Thảo — Đặng Trần Minh Quân',
+      directory_name: 'lc-7',
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: null,
+      zalo_user_id: null,
+      notes: 'Kiểm thử dấu tiếng Việt cao và tên dài',
+      running: false,
+      main_pid: null,
+      process_count: 0,
+      window_title: null,
+      total_working_set_bytes: 0,
+      data_size_bytes: null,
+      stale_lockfile_detected: false,
+      lifecycle_state: 'recovery_required'
+    },
+    {
+      id: 'lc-8',
+      name: '🚀 測試 ワークスペース — 銷售支援組 2026 🎯',
+      directory_name: 'lc-8',
+      created_at: '2026-01-10T08:00:00Z',
+      last_launched_at: null,
+      zalo_user_id: null,
+      notes: 'Emoji + CJK multi-script rendering check',
+      running: false,
+      main_pid: null,
+      process_count: 0,
+      window_title: null,
+      total_working_set_bytes: 0,
+      data_size_bytes: null,
+      stale_lockfile_detected: false
+    }
+  ];
+  await setViewport(1160, 780, 1);
+  await evalJs(`(() => {
+    document.documentElement.style.fontSize = '';
+    const l = document.querySelector('input[name="ui-locale"][value="vi-VN"]');
+    if (l) { l.checked = true; l.dispatchEvent(new Event('change', { bubbles: true })); }
+    const t = document.querySelector('input[name="ui-theme"][value="light"]');
+    if (t) { t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); }
+    document.querySelector('.top-nav-btn[data-view="profiles"]').click();
+  })()`);
+  await evalJs(`document.getElementById('btn-refresh').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+
+  // Trigger inline error on lc-8 (long name + inline error state)
+  mockData.failNextAction = { ok: false, error_code: 'PROCESS_ERROR', message: 'Long card error test' };
+  await evalJs(`document.querySelector('#profiles-list .account-card[data-profile-id="lc-8"] .btn-primary').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  await evalJs(`document.querySelector('.top-nav-btn[data-view="profiles"]').click()`);
+  await new Promise((r) => setTimeout(r, 100));
+
+  await snap('account-dock-long-names-vi-light.png');
+
+  const assertLongContentLayout = async (label) => {
+    const res = await evalJs(`(() => {
+      const se = document.scrollingElement || document.documentElement;
+      const cards = Array.from(document.querySelectorAll('#profiles-list .account-card'));
+      const cardIssues = [];
+      const rows = new Map();
+
+      for (const card of cards) {
+        const id = card.dataset.profileId;
+        const rect = card.getBoundingClientRect();
+        if (card.scrollWidth > card.clientWidth + 1) {
+          cardIssues.push(id + ':scrollWidth=' + card.scrollWidth + '>clientWidth=' + card.clientWidth);
+        }
+        const avatar = card.querySelector('.account-avatar')?.getBoundingClientRect();
+        const identity = card.querySelector('.account-identity')?.getBoundingClientRect();
+        const actions = card.querySelector('.account-card-actions')?.getBoundingClientRect();
+        const nameEl = card.querySelector('.account-name');
+        const noteEl = card.querySelector('.account-note');
+        if (avatar && identity && avatar.right > identity.left + 1) {
+          cardIssues.push(id + ':avatar-overlaps-identity');
+        }
+        if (identity && actions && identity.bottom > actions.top + 1) {
+          cardIssues.push(id + ':identity-overlaps-actions');
+        }
+        if (nameEl) {
+          const lh = parseFloat(getComputedStyle(nameEl).lineHeight) || 20;
+          if (nameEl.getBoundingClientRect().height > lh * 2 + 4) {
+            cardIssues.push(id + ':name-exceeds-2-lines');
+          }
+        }
+        if (noteEl) {
+          const lh = parseFloat(getComputedStyle(noteEl).lineHeight) || 18;
+          if (noteEl.getBoundingClientRect().height > lh * 2 + 4) {
+            cardIssues.push(id + ':note-exceeds-2-lines');
+          }
+        }
+        const rowKey = Math.round(rect.top);
+        const list = rows.get(rowKey) || [];
+        list.push({ id, height: rect.height, actionsTop: actions ? actions.top : null });
+        rows.set(rowKey, list);
+      }
+
+      const rowAlignmentIssues = [];
+      for (const [rowTop, items] of rows.entries()) {
+        if (items.length < 2) continue;
+        const heights = items.map((i) => i.height);
+        const actTops = items.map((i) => i.actionsTop).filter((v) => v != null);
+        if (Math.max(...heights) - Math.min(...heights) > 2) {
+          rowAlignmentIssues.push('row@' + rowTop + ':heights=' + heights.join(','));
+        }
+        if (actTops.length >= 2 && Math.max(...actTops) - Math.min(...actTops) > 2) {
+          rowAlignmentIssues.push('row@' + rowTop + ':actionsTop=' + actTops.join(','));
+        }
+      }
+
+      return {
+        docScrollWidth: document.documentElement.scrollWidth,
+        innerWidth: window.innerWidth,
+        docScrollHeight: se.scrollHeight,
+        docClientHeight: se.clientHeight,
+        cardCount: cards.length,
+        cardIssues,
+        rowAlignmentIssues
+      };
+    })()`);
+    assert.ok(res.docScrollWidth <= res.innerWidth + 1, `[${label}] Horizontal overflow: ${res.docScrollWidth} > ${res.innerWidth}`);
+    assert.ok(res.docScrollHeight <= res.docClientHeight + 1, `[${label}] Phantom outer vertical scroll: ${res.docScrollHeight} > ${res.docClientHeight}`);
+    assert.equal(res.cardCount, 8, `[${label}] Expected 8 long-content cards`);
+    assert.deepEqual(res.cardIssues, [], `[${label}] Card issues: ${res.cardIssues.join('; ')}`);
+    assert.deepEqual(res.rowAlignmentIssues, [], `[${label}] Row alignment issues: ${res.rowAlignmentIssues.join('; ')}`);
+  };
+
+  const lcViewports = [
+    { width: 420, height: 540, rootFontSize: '', locale: 'vi-VN', theme: 'light', label: '420x540-vi-light' },
+    { width: 1160, height: 780, rootFontSize: '', locale: 'vi-VN', theme: 'light', label: '1160x780-vi-light' },
+    { width: 1440, height: 900, rootFontSize: '', locale: 'en-US', theme: 'dark', label: '1440x900-en-dark' },
+    { width: 1686, height: 864, rootFontSize: '', locale: 'vi-VN', theme: 'dark', label: '1686x864-vi-dark' },
+    { width: 1160, height: 780, rootFontSize: '200%', locale: 'en-US', theme: 'light', label: '200pct-1160x780-en-light' }
+  ];
+  for (const vp of lcViewports) {
+    await setViewport(vp.width, vp.height, 1);
+    await evalJs(`(() => {
+      document.documentElement.style.fontSize = '${vp.rootFontSize}';
+      const l = document.querySelector('input[name="ui-locale"][value="${vp.locale}"]');
+      if (l) { l.checked = true; l.dispatchEvent(new Event('change', { bubbles: true })); }
+      const t = document.querySelector('input[name="ui-theme"][value="${vp.theme}"]');
+      if (t) { t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); }
+    })()`);
+    await new Promise((r) => setTimeout(r, 100));
+    await assertLongContentLayout(vp.label);
+  }
+
+  // Verify toolbar refresh button label collapses below 35em (420x540)
+  await setViewport(420, 540, 1);
+  await evalJs(`document.documentElement.style.fontSize = ''`);
+  await new Promise((r) => setTimeout(r, 60));
+  const compactToolbar = await evalJs(`({
+    role: document.getElementById('home-toolbar')?.getAttribute('role'),
+    refreshLabelDisplay: getComputedStyle(document.querySelector('#btn-refresh .toolbar-btn-label')).display
+  })`);
+  assert.equal(compactToolbar.role, 'toolbar');
+  assert.equal(compactToolbar.refreshLabelDisplay, 'none');
+
+  // Verify accessible full-name reveal (keyboard focus + hover + aria-describedby + DOM text)
+  await setViewport(1160, 780, 1);
+  await evalJs(`(() => {
+    const l = document.querySelector('input[name="ui-locale"][value="vi-VN"]');
+    if (l) { l.checked = true; l.dispatchEvent(new Event('change', { bubbles: true })); }
+    const t = document.querySelector('input[name="ui-theme"][value="light"]');
+    if (t) { t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); }
+  })()`);
+  await new Promise((r) => setTimeout(r, 80));
+
+  const cardReveal = await evalJs(`(() => {
+    const nameEl = document.querySelector('#profiles-list .account-card[data-profile-id="lc-6"] .account-name');
+    nameEl.focus();
+    const tip = document.querySelector('#tooltip-portal .rail-tooltip.is-floating-open');
+    return {
+      domLength: nameEl.textContent.length,
+      truncated: nameEl.dataset.truncated,
+      describedBy: nameEl.getAttribute('aria-describedby'),
+      tipId: tip?.id || null,
+      tipTextLength: tip?.textContent?.length || 0,
+      tipNormalWrap: tip ? getComputedStyle(tip).whiteSpace : null
+    };
+  })()`);
+  assert.equal(cardReveal.domLength, 200);
+  assert.equal(cardReveal.truncated, 'true');
+  assert.equal(cardReveal.describedBy, 'active-floating-tooltip');
+  assert.equal(cardReveal.tipId, 'active-floating-tooltip');
+  assert.equal(cardReveal.tipTextLength, 200);
+  assert.equal(cardReveal.tipNormalWrap, 'normal');
+  await pressKey('Escape', 'Escape', 27);
+  assert.equal(await evalJs(`Boolean(document.querySelector('#tooltip-portal .rail-tooltip.is-floating-open'))`), false);
+
+  // Expanded rail full-name reveal on keyboard focus
+  await evalJs(`document.getElementById('btn-rail-toggle').click()`);
+  await new Promise((r) => setTimeout(r, 80));
+  const railReveal = await evalJs(`(() => {
+    const railBtn = document.querySelector('#rail-accounts .rail-account-btn[data-account-id="lc-6"]');
+    railBtn.focus();
+    const tip = document.querySelector('#tooltip-portal .rail-tooltip.is-floating-open');
+    return {
+      expanded: document.getElementById('workspace-shell').dataset.railExpanded,
+      describedBy: railBtn.getAttribute('aria-describedby'),
+      tipTextLength: tip?.textContent?.length || 0,
+      lineHeight: getComputedStyle(railBtn.querySelector('.rail-item-name')).lineHeight
+    };
+  })()`);
+  assert.equal(railReveal.expanded, 'true');
+  assert.equal(railReveal.describedBy, 'active-floating-tooltip');
+  assert.equal(railReveal.tipTextLength, 200);
+  await evalJs(`document.getElementById('btn-rail-toggle').click()`);
+
+  // Desktop Stage full-name resilience & accessible reveal for 200-char account
+  await evalJs(`document.querySelector('#profiles-list .account-card[data-profile-id="lc-6"] .btn-primary').click()`);
+  await new Promise((r) => setTimeout(r, 150));
+  const stageReveal = await evalJs(`(() => {
+    const stageName = document.getElementById('desktop-stage-name');
+    const breadcrumb = document.getElementById('desktop-breadcrumb-name');
+    stageName.focus();
+    const tipText = document.querySelector('#tooltip-portal .rail-tooltip.is-floating-open')?.textContent || '';
+    return {
+      overflow: document.documentElement.scrollWidth > window.innerWidth,
+      stageTextLen: stageName.textContent.length,
+      breadcrumbTruncated: breadcrumb.dataset.truncated,
+      tipTextLen: tipText.length
+    };
+  })()`);
+  assert.equal(stageReveal.overflow, false);
+  assert.equal(stageReveal.stageTextLen, 200);
+  assert.equal(stageReveal.breadcrumbTruncated, 'true');
+  assert.equal(stageReveal.tipTextLen, 200);
+  await evalJs(`document.getElementById('btn-desktop-back').click()`);
+  await new Promise((r) => setTimeout(r, 80));
+
+  // EmptyState "Clear search" button
+  await evalJs(`(() => {
+    const inp = document.getElementById('profile-search');
+    inp.value = 'KHONG_CO_KET_QUA_XYZ';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  const emptySearchState = await evalJs(`({
+    emptyVisible: !document.getElementById('profiles-empty').hidden,
+    clearBtnVisible: !document.getElementById('btn-clear-search').hidden,
+    createBtnHidden: document.getElementById('btn-empty-create').hidden
+  })`);
+  assert.deepEqual(emptySearchState, { emptyVisible: true, clearBtnVisible: true, createBtnHidden: true });
+  await evalJs(`document.getElementById('btn-clear-search').click()`);
+  assert.equal(await evalJs(`document.getElementById('profile-search').value`), '');
+  assert.equal(await evalJs(`document.querySelectorAll('#profiles-list .account-card').length`), 8);
+
+  // Rename & Restore inline validation (prevent closing on invalid submit)
+  await evalJs(`(() => {
+    document.querySelector('#profiles-list .account-card[data-profile-id="lc-1"] [role="menuitem"]:nth-child(1)').click();
+    document.getElementById('rename-profile-name').value = '   ';
+    document.querySelector('#rename-profile-dialog button[value="rename"]').click();
+  })()`);
+  const renameInvalid = await evalJs(`({
+    open: document.getElementById('rename-profile-dialog').open,
+    errHidden: document.getElementById('rename-profile-error').hidden,
+    ariaInvalid: document.getElementById('rename-profile-name').getAttribute('aria-invalid')
+  })`);
+  assert.deepEqual(renameInvalid, { open: true, errHidden: false, ariaInvalid: 'true' });
+  await evalJs(`document.querySelector('#rename-profile-dialog button[value="cancel"]').click()`);
+
+  await evalJs(`(() => {
+    document.querySelector('.top-nav-btn[data-view="backups"]').click();
+    document.querySelector('#backups-tbody .btn-primary').click();
+    document.getElementById('restore-profile-name').value = '   ';
+    document.querySelector('#restore-backup-dialog button[value="restore"]').click();
+  })()`);
+  const restoreInvalid = await evalJs(`({
+    open: document.getElementById('restore-backup-dialog').open,
+    errHidden: document.getElementById('restore-profile-error').hidden,
+    ariaInvalid: document.getElementById('restore-profile-name').getAttribute('aria-invalid')
+  })`);
+  assert.deepEqual(restoreInvalid, { open: true, errHidden: false, ariaInvalid: 'true' });
+  await evalJs(`document.querySelector('#restore-backup-dialog button[value="cancel"]').click()`);
+
+  // Restore clean state
+  mockData.status.data_dir = savedDataDir;
+  mockData.diagnostics = savedDiag;
+  mockData.isolation = savedIso;
+  await setViewport(1160, 780, 1);
+  await evalJs(`(() => {
+    document.documentElement.style.fontSize = '';
+    const r = document.querySelector('input[name="ui-theme"][value="light"]');
+    if (r) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
+    document.querySelector('.top-nav-btn[data-view="profiles"]').click();
+  })()`);
+
   assert.deepEqual(runtimeErrors, [], `Runtime errors: ${runtimeErrors.join('; ')}`);
-  console.log('PASS (Account Dock: 16 matrix combinations, session token, theme reload, scale 0/1/3/10/20, Step1/Step2 resilience, color persistence/restore, primary Zalo honest states, timeout, Tauri invoke, Help view, WAI-ARIA menu, out-of-order status, 200% zoom, 0 runtime errors)');
+  console.log('PASS (Account Dock: 16 matrix combinations, session token, theme reload, scale 0/1/3/10/20, Step1/Step2 resilience, color persistence/restore, primary Zalo honest states, timeout, Tauri invoke, Help view, WAI-ARIA menu, out-of-order status, 200% zoom, Scroll & Viewport Integrity Gate, 0 runtime errors)');
   ws.close();
 } finally {
   proc.kill();
+  server.closeAllConnections?.();
   server.close();
   try {
     fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });

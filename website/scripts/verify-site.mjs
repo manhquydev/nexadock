@@ -232,6 +232,7 @@ async function main() {
     // 2. Verify all pages at multiple viewports
     const routes = ['/', '/en/', '/docs/', '/en/docs/'];
     const viewports = [
+      { name: 'mobile-320', width: 320, height: 568 },
       { name: 'mobile-360', width: 360, height: 800 },
       { name: 'mobile-390', width: 390, height: 844 },
       { name: 'tablet-768', width: 768, height: 1024 },
@@ -330,10 +331,42 @@ async function main() {
         if (route === '/' || route === '/en/') {
           const hasReleaseLink = audit.links.some((href) => href && href.includes(`/releases/tag/${release.tag}`));
           assert.ok(hasReleaseLink, `${url} missing /releases/tag/${release.tag} release link`);
+
+          const bpAudit = await page.evaluate(() => {
+            const card = document.getElementById('isolation-blueprint');
+            const desktopSvg = card?.querySelector('.bp-svg-desktop');
+            const mobileSvg = card?.querySelector('.bp-svg-mobile');
+            const cardRect = card?.getBoundingClientRect();
+            const dRect = desktopSvg?.getBoundingClientRect();
+            const mRect = mobileSvg?.getBoundingClientRect();
+            return {
+              hasCard: Boolean(card),
+              cardRight: cardRect?.right || 0,
+              cardScrollW: card?.scrollWidth || 0,
+              cardClientW: card?.clientWidth || 0,
+              desktopWidth: dRect?.width || 0,
+              desktopRight: dRect?.right || 0,
+              mobileWidth: mRect?.width || 0,
+              mobileRight: mRect?.right || 0,
+              innerWidth: window.innerWidth
+            };
+          });
+          assert.ok(bpAudit.hasCard, `${url} [${vp.name}] missing #isolation-blueprint`);
+          assert.ok(
+            bpAudit.cardRight <= bpAudit.innerWidth + 1 && bpAudit.cardScrollW <= bpAudit.cardClientW + 1,
+            `${url} [${vp.name}] #isolation-blueprint overflows viewport: ${JSON.stringify(bpAudit)}`
+          );
+          if (vp.width <= 767) {
+            assert.ok(bpAudit.mobileWidth > 0 && bpAudit.mobileRight <= bpAudit.innerWidth + 1, `${url} [${vp.name}] mobile blueprint SVG invalid: ${JSON.stringify(bpAudit)}`);
+            assert.equal(bpAudit.desktopWidth, 0, `${url} [${vp.name}] desktop blueprint SVG must be hidden on <=767px`);
+          } else {
+            assert.ok(bpAudit.desktopWidth > 0 && bpAudit.desktopRight <= bpAudit.innerWidth + 1, `${url} [${vp.name}] desktop blueprint SVG invalid: ${JSON.stringify(bpAudit)}`);
+            assert.equal(bpAudit.mobileWidth, 0, `${url} [${vp.name}] mobile blueprint SVG must be hidden on >=768px`);
+          }
         }
 
-        // Axe-core + computed contrast check on mobile-390 and desktop-1440
-        if (vp.name === 'mobile-390' || vp.name === 'desktop-1440') {
+        // Axe-core + computed contrast check on mobile-320, mobile-390 and desktop-1440
+        if (vp.name === 'mobile-320' || vp.name === 'mobile-390' || vp.name === 'desktop-1440') {
           await page.addScriptTag({ content: axeSource });
           const axeResults = await page.evaluate(async () => {
             return window.axe.run(document, {
@@ -368,7 +401,7 @@ async function main() {
           });
         }
 
-        if (vp.name === 'desktop-1440' || (vp.name === 'mobile-390' && route === '/')) {
+        if (vp.name === 'desktop-1440' || (route === '/' && vp.name !== 'mobile-360')) {
           const slug = route === '/' ? 'home-vi' : route.replace(/^\/|\/$/g, '').replace(/\//g, '-');
           await page.screenshot({
             path: path.join(screenshotDir, `${slug}-${vp.name}.png`),
@@ -388,11 +421,39 @@ async function main() {
     const page = await context.newPage();
     await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 
-    // Showcase tab click + keyboard navigation
+    // Showcase tab click + keyboard navigation + Open/Close toggle parity
+    const primaryPanel = page.locator('[data-showcase-panel="primary"]');
+    assert.equal(await primaryPanel.count(), 1, 'Primary Zalo panel is missing');
+    assert.equal(await primaryPanel.locator('[data-toggle-session]').count(), 0, 'Primary Zalo must not expose Open/Close toggle');
+    const primaryDotBefore = await page.locator('[data-rail-dot="primary"]').getAttribute('class');
+    const primaryTextBefore = await page.locator('[data-stage-state-text="primary"]').textContent();
+
     const personalTab = page.locator('[data-showcase-tab="personal"]');
     await personalTab.click();
     assert.equal(await personalTab.getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator('[data-showcase-panel="personal"]').isVisible(), true);
+
+    const personalToggle = page.locator('[data-toggle-session="personal"]');
+    assert.equal(await personalToggle.getAttribute('data-running'), 'false');
+    assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
+
+    await personalToggle.click();
+    assert.equal(await personalToggle.getAttribute('data-running'), 'true');
+    assert.ok((await personalToggle.textContent())?.includes('Đóng Zalo'));
+    assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-running'));
+    assert.ok((await page.locator('[data-stage-dot="personal"]').getAttribute('class'))?.includes('is-running'));
+    assert.equal(await page.locator('[data-stage-state-text="personal"]').textContent(), 'Cửa sổ đang mở');
+
+    await personalToggle.click();
+    assert.equal(await personalToggle.getAttribute('data-running'), 'false');
+    assert.ok((await personalToggle.textContent())?.includes('Mở Zalo'));
+    assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
+    assert.ok((await page.locator('[data-stage-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
+    assert.equal(await page.locator('[data-stage-state-text="personal"]').textContent(), 'Đã đóng');
+
+    assert.equal(await page.locator('[data-rail-dot="primary"]').getAttribute('class'), primaryDotBefore);
+    assert.equal(await page.locator('[data-stage-state-text="primary"]').textContent(), primaryTextBefore);
+
     await personalTab.focus();
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.locator('[data-showcase-tab="sales"]').getAttribute('aria-selected'), 'true');

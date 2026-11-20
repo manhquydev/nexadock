@@ -35,7 +35,7 @@
         <div class="rail-header-tools">
           <button
             type="button"
-            class="rail-icon-btn"
+            class="icon-btn rail-icon-btn"
             id="btn-quick-switcher"
             aria-keyshortcuts="Control+K"
             data-i18n-aria-label="quickSwitcher.triggerAria"
@@ -50,7 +50,7 @@
           </button>
           <button
             type="button"
-            class="rail-icon-btn rail-expand-toggle"
+            class="icon-btn rail-icon-btn rail-expand-toggle"
             id="btn-rail-toggle"
             aria-pressed="false"
             aria-keyshortcuts="Control+B"
@@ -204,26 +204,28 @@
             <button type="button" class="btn btn-secondary btn-sm" id="btn-web-reload" data-i18n="webSession.reload" data-i18n-aria-label="webSession.reloadAria">Tải lại</button>
             <button
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn btn-secondary btn-sm icon-btn icon-btn-sm"
               id="btn-web-info"
               interestfor="web-limits-tip"
               popovertarget="web-limits-tip"
               popovertargetaction="toggle"
+              aria-controls="web-limits-tip"
               aria-expanded="false"
               data-i18n-aria-label="webSession.limitsTriggerAria"
               aria-label="Giới hạn của phiên Web"
             >?</button>
-            <div id="web-limits-tip" class="toggletip-popover" popover="hint" role="tooltip">
-              <strong class="toggletip-title" data-i18n="webSession.limitsTitle">Giới hạn của Zalo Web tách biệt</strong>
+            <div id="web-limits-tip" class="toggletip-popover" popover="hint" role="region" aria-labelledby="web-limits-title">
+              <strong id="web-limits-title" class="toggletip-title" data-i18n="webSession.limitsTitle">Giới hạn của Zalo Web tách biệt</strong>
               <p class="toggletip-body" data-i18n="webSession.limitsBody"></p>
             </div>
 
             <div class="menu-wrap">
               <button
                 type="button"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-secondary btn-sm icon-btn icon-btn-sm"
                 id="btn-web-more"
                 aria-haspopup="menu"
+                aria-controls="web-session-menu"
                 aria-expanded="false"
                 command="toggle-popover"
                 commandfor="web-session-menu"
@@ -231,12 +233,12 @@
                 aria-label="Tùy chọn phiên Web"
               >⋯</button>
               <div id="web-session-menu" class="overflow-menu" popover="auto">
-                <div focusgroup="menu nomemory" aria-labelledby="btn-web-more">
-                  <button type="button" class="menu-item" id="btn-web-pin" data-i18n="rail.pin">Ghim lên đầu</button>
-                  <button type="button" class="menu-item" id="btn-web-rename" data-i18n="accounts.actions.rename">Đổi tên</button>
-                  <button type="button" class="menu-item" id="btn-web-reset" data-i18n="webSession.reset">Đặt lại phiên Web</button>
+                <div role="menu" focusgroup="menu nomemory" aria-labelledby="btn-web-more">
+                  <button type="button" class="menu-item" role="menuitem" tabindex="-1" id="btn-web-pin" data-i18n="rail.pin">Ghim lên đầu</button>
+                  <button type="button" class="menu-item" role="menuitem" tabindex="-1" id="btn-web-rename" data-i18n="accounts.actions.rename">Đổi tên</button>
+                  <button type="button" class="menu-item" role="menuitem" tabindex="-1" id="btn-web-reset" data-i18n="webSession.reset">Đặt lại phiên Web</button>
                   <hr class="menu-sep">
-                  <button type="button" class="menu-item menu-item-danger" id="btn-web-delete" data-i18n="accounts.actions.delete">Xóa tài khoản</button>
+                  <button type="button" class="menu-item menu-item-danger" role="menuitem" tabindex="-1" id="btn-web-delete" data-i18n="accounts.actions.delete">Xóa tài khoản</button>
                 </div>
               </div>
             </div>
@@ -341,7 +343,7 @@
             <h1 class="page-title" data-i18n="accounts.title">Tài khoản Zalo</h1>
             <p class="page-subtitle" data-i18n="accounts.subtitle">Mỗi mục dưới đây là một không gian riêng để bạn đăng nhập tài khoản Zalo có sẵn.</p>
           </div>
-          <div class="page-actions" id="home-toolbar">
+          <div class="page-actions" id="home-toolbar" role="toolbar" focusgroup="toolbar wrap" data-i18n-aria-label="accounts.toolbarAria" aria-label="Công cụ danh sách tài khoản">
             <span id="accounts-count-summary" class="accounts-count-summary" hidden></span>
             <search class="header-search-wrap" id="search-wrap">
               <label for="profile-search" class="visually-hidden" data-i18n="accounts.searchAria">Tìm kiếm tài khoản</label>
@@ -358,7 +360,14 @@
               <button type="button" class="view-seg-btn" id="btn-view-list" data-mode="list" aria-pressed="false" data-i18n="accounts.viewList">Danh sách</button>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-stop-all" hidden data-i18n="accounts.stopAll">Đóng tất cả</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh" data-i18n="accounts.actions.refresh">Làm mới</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh" data-i18n-aria-label="accounts.actions.refresh" aria-label="Làm mới" data-i18n-title="accounts.actions.refresh" title="Làm mới">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              <span class="toolbar-btn-label" data-i18n="accounts.actions.refresh">Làm mới</span>
+            </button>
             <button type="button" class="btn btn-primary btn-sm" id="btn-overview-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
           </div>
         </div>
@@ -377,6 +386,7 @@
           <h2 class="empty-title" id="profiles-empty-title" data-i18n="accounts.emptyTitle">Dùng nhiều tài khoản Zalo trên một máy</h2>
           <p class="empty-hint" id="profiles-empty-hint" data-i18n="accounts.emptyHint">Tạo một không gian riêng để mở và đăng nhập thêm tài khoản Zalo có sẵn mà không cần đăng xuất.</p>
           <button type="button" class="btn btn-primary" id="btn-empty-create" command="show-modal" commandfor="create-profile-dialog" data-i18n="accounts.add">Thêm tài khoản</button>
+          <button type="button" class="btn btn-secondary" id="btn-clear-search" hidden data-i18n="accounts.clearSearch">Xóa bộ lọc</button>
         </div>
 
         <!-- Read-only Protected Primary Zalo Card -->
@@ -386,7 +396,7 @@
             <div class="primary-zalo-meta">
               <div class="primary-zalo-heading-row">
                 <div class="primary-zalo-title" data-i18n="accounts.primaryZalo.heading">Zalo đang dùng trên máy</div>
-                <span class="primary-zalo-protected-badge">
+                <span class="badge badge-neutral primary-zalo-protected-badge">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                   </svg>
@@ -437,7 +447,7 @@
         </div>
 
         <div id="backups-empty" class="empty-state" hidden>
-          <p class="empty-title" data-i18n="backups.emptyTitle">Chưa có bản sao lưu nào</p>
+          <h2 class="empty-title" data-i18n="backups.emptyTitle">Chưa có bản sao lưu nào</h2>
           <p class="empty-hint" data-i18n="backups.emptyHint">Đóng Zalo của một tài khoản rồi chọn Sao lưu trong menu tùy chọn (⋯).</p>
         </div>
       </section>
@@ -521,7 +531,7 @@
       </section>
 
       <!-- View 4: Advanced Diagnostics -->
-      <section id="view-diagnostics" class="view stage-scroll" hidden>
+      <section id="view-diagnostics" class="view stage-scroll" tabindex="-1" hidden>
         <nav class="view-nav-bar" data-i18n-aria-label="nav.backNavAria" aria-label="Điều hướng quay lại">
           <button type="button" class="back-btn" id="btn-diag-back" data-back-to="settings">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -673,7 +683,7 @@
     <div id="create-step-1">
       <h2 id="create-dialog-title" class="modal-title" data-i18n="dialogs.create.title">Thêm tài khoản Zalo</h2>
       <p class="modal-subtitle" data-i18n="dialogs.create.subtitle">Tạo không gian Zalo riêng trên máy.</p>
-      <form id="create-profile-form">
+      <form id="create-profile-form" novalidate>
         <fieldset class="mode-fieldset">
           <legend data-i18n="dialogs.create.modeLegend">Chế độ hoạt động</legend>
           <div class="mode-options">
@@ -759,7 +769,7 @@
   <dialog id="rename-profile-dialog" class="modal" aria-labelledby="rename-dialog-title">
     <h2 id="rename-dialog-title" class="modal-title" data-i18n="dialogs.rename.title">Đổi tên tài khoản</h2>
     <p class="modal-subtitle" id="rename-profile-subtitle"></p>
-    <form method="dialog" id="rename-profile-form">
+    <form method="dialog" id="rename-profile-form" novalidate>
       <div class="form-field">
         <label for="rename-profile-name" data-i18n="dialogs.rename.nameLabel">Tên mới</label>
         <input type="text" id="rename-profile-name" required maxlength="80" autofocus>
@@ -768,6 +778,7 @@
         <legend data-i18n="dialogs.create.colorLabel">Màu nhận diện</legend>
         <div class="color-palette" id="rename-color-palette"></div>
       </fieldset>
+      <p id="rename-profile-error" class="form-error" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="submit" class="btn btn-secondary" value="cancel" formnovalidate data-i18n="dialogs.cancel">Hủy</button>
         <button type="submit" class="btn btn-primary" value="rename" data-i18n="dialogs.rename.submit">Lưu tên mới</button>
@@ -804,7 +815,7 @@
   <dialog id="restore-backup-dialog" class="modal" aria-labelledby="restore-dialog-title">
     <h2 id="restore-dialog-title" class="modal-title" data-i18n="dialogs.restore.title">Khôi phục thành tài khoản mới</h2>
     <p class="modal-subtitle" id="restore-backup-subtitle"></p>
-    <form method="dialog" id="restore-backup-form">
+    <form method="dialog" id="restore-backup-form" novalidate>
       <div class="form-field">
         <label for="restore-profile-name" data-i18n="dialogs.restore.nameLabel">Tên tài khoản mới (không bắt buộc)</label>
         <input
@@ -816,6 +827,7 @@
           placeholder="Để trống để tự động đặt tên"
         >
       </div>
+      <p id="restore-profile-error" class="form-error" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="submit" class="btn btn-secondary" value="cancel" formnovalidate data-i18n="dialogs.cancel">Hủy</button>
         <button type="submit" class="btn btn-primary" value="restore" data-i18n="dialogs.restore.submit">Khôi phục</button>
