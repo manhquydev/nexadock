@@ -1183,7 +1183,7 @@ function wireFullNameReveal(el, fullName) {
   el.addEventListener('mouseenter', reveal);
   el.addEventListener('focusin', reveal);
   el.addEventListener('mouseleave', () => {
-    if (document.activeElement !== el) hideFloatingTooltip(el);
+    if (!el.matches?.(':focus-visible')) hideFloatingTooltip(el);
   });
   el.addEventListener('focusout', () => hideFloatingTooltip(el));
 }
@@ -1221,7 +1221,7 @@ function syncRailTooltipsForWebView(webviewActive) {
     btn.addEventListener('mouseenter', maybeShowRailTip);
     btn.addEventListener('focusin', maybeShowRailTip);
     btn.addEventListener('mouseleave', () => {
-      if (document.activeElement !== btn) hideFloatingTooltip(btn);
+      if (!btn.matches?.(':focus-visible')) hideFloatingTooltip(btn);
     });
     btn.addEventListener('focusout', () => hideFloatingTooltip(btn));
   }

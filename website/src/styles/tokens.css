@@ -33,7 +33,6 @@
   --accent-soft: #bce5d8;
 
   /* Blueprint surface & technical annotation tokens */
-  --bp-grid-line: rgba(20, 94, 86, 0.055);
   --bp-grid-major: rgba(20, 94, 86, 0.11);
   --bp-crosshair: #8a8377;
   --bp-callout-bg: #efece5;
@@ -121,7 +120,6 @@
     --action-secondary-hover: Canvas;
     --action-secondary-pressed: Canvas;
     --accent-soft: Canvas;
-    --bp-grid-line: transparent;
     --bp-grid-major: transparent;
     --bp-crosshair: CanvasText;
     --bp-callout-bg: Canvas;
