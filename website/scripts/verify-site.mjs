@@ -8,7 +8,12 @@ import { chromium } from 'playwright-core';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
-const screenshotDir = path.join(rootDir, '.qa-screenshots');
+const releasePath = path.join(rootDir, 'src', 'data', 'release.json');
+const axeSourcePath = path.join(rootDir, 'node_modules', 'axe-core', 'axe.min.js');
+const screenshotDir = process.env.QA_SCREENSHOT_DIR || path.join(rootDir, '.qa-screenshots');
+
+const release = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
+const axeSource = fs.readFileSync(axeSourcePath, 'utf8');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -97,6 +102,102 @@ function startStaticServer() {
   });
 }
 
+async function runContrastAudit(page) {
+  return page.evaluate(() => {
+    const parseColor = (css) => {
+      const m = css.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      if (!m) return null;
+      return {
+        r: Number(m[1]),
+        g: Number(m[2]),
+        b: Number(m[3]),
+        a: m[4] === undefined ? 1 : Number(m[4])
+      };
+    };
+
+    const blend = (fg, bg) => {
+      const a = fg.a;
+      return {
+        r: fg.r * a + bg.r * (1 - a),
+        g: fg.g * a + bg.g * (1 - a),
+        b: fg.b * a + bg.b * (1 - a),
+        a: 1
+      };
+    };
+
+    const luminance = (c) => {
+      const toLinear = (v) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * toLinear(c.r) + 0.7152 * toLinear(c.g) + 0.0722 * toLinear(c.b);
+    };
+
+    const contrastRatio = (c1, c2) => {
+      const l1 = luminance(c1);
+      const l2 = luminance(c2);
+      const hi = Math.max(l1, l2);
+      const lo = Math.min(l1, l2);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+
+    const getEffectiveBg = (el) => {
+      const stack = [];
+      let cur = el;
+      while (cur && cur.nodeType === Node.ELEMENT_NODE) {
+        const bg = parseColor(getComputedStyle(cur).backgroundColor);
+        if (bg && bg.a > 0) stack.unshift(bg);
+        cur = cur.parentElement;
+      }
+      let out = { r: 246, g: 245, b: 242, a: 1 };
+      for (const layer of stack) {
+        out = layer.a >= 1 ? layer : blend(layer, out);
+      }
+      return out;
+    };
+
+    const failures = [];
+    const checked = new Set();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!node.textContent || !node.textContent.trim()) continue;
+      const el = node.parentElement;
+      if (!el || checked.has(el)) continue;
+      checked.add(el);
+
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      if (el.closest('.sr-only, .skip-link') || el.closest('[hidden]')) continue;
+
+      const fg = parseColor(style.color);
+      if (!fg) continue;
+      const bg = getEffectiveBg(el);
+      const effectiveFg = fg.a < 1 ? blend(fg, bg) : fg;
+      const ratio = contrastRatio(effectiveFg, bg);
+      const fontSize = parseFloat(style.fontSize);
+      const fontWeight = parseInt(style.fontWeight, 10) || 400;
+      const isLarge = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
+      const minRatio = isLarge ? 3.0 : 4.5;
+
+      if (ratio < minRatio) {
+        failures.push({
+          tag: el.tagName.toLowerCase(),
+          text: node.textContent.trim().slice(0, 60),
+          ratio: Number(ratio.toFixed(2)),
+          minRatio,
+          fg: style.color,
+          bg: `rgb(${Math.round(bg.r)}, ${Math.round(bg.g)}, ${Math.round(bg.b)})`
+        });
+      }
+    }
+
+    return { checkedCount: checked.size, failures };
+  });
+}
+
 async function main() {
   const liveBase = process.env.SITE_BASE_URL ? process.env.SITE_BASE_URL.replace(/\/$/, '') : null;
   let serverInfo = null;
@@ -110,6 +211,17 @@ async function main() {
     args: ['--no-sandbox', '--disable-gpu']
   });
 
+  const legacyForbidden = [
+    'KHOANG',
+    'Multi-Zalo Desktop',
+    'MultiZaloDesktop',
+    'com.multizalodesktop.manager',
+    'khoang-preferences.json',
+    'account-dock-'
+  ];
+
+  const a11ySummary = [];
+
   try {
     // 1. Verify static metadata files
     for (const staticPath of ['/robots.txt', '/sitemap-index.xml', '/favicon.svg', '/og-preview.png']) {
@@ -120,10 +232,12 @@ async function main() {
     // 2. Verify all pages at multiple viewports
     const routes = ['/', '/en/', '/docs/', '/en/docs/'];
     const viewports = [
+      { name: 'mobile-360', width: 360, height: 800 },
       { name: 'mobile-390', width: 390, height: 844 },
       { name: 'tablet-768', width: 768, height: 1024 },
       { name: 'laptop-1024', width: 1024, height: 768 },
-      { name: 'desktop-1440', width: 1440, height: 900 }
+      { name: 'desktop-1440', width: 1440, height: 900 },
+      { name: 'wide-1920', width: 1920, height: 1080 }
     ];
 
     for (const route of routes) {
@@ -157,7 +271,7 @@ async function main() {
         }
         await page.evaluate(() => window.scrollTo(0, 0));
         await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(200);
 
         const audit = await page.evaluate(() => {
           const docEl = document.documentElement;
@@ -166,9 +280,12 @@ async function main() {
             .filter((img) => !img.complete || img.naturalWidth === 0)
             .map((img) => img.getAttribute('src'));
           const h1 = document.querySelector('h1');
-          const h1Style = h1 ? getComputedStyle(h1) : null;
-          const bodyStyle = getComputedStyle(document.body);
           const links = Array.from(document.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
+          const hreflangs = Array.from(document.querySelectorAll('link[rel="alternate"][hreflang]')).map((el) =>
+            el.getAttribute('hreflang')
+          );
+          const ogLocale = document.querySelector('meta[property="og:locale"]')?.getAttribute('content') || '';
+          const ogSiteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content') || '';
           return {
             title: document.title,
             lang: docEl.lang,
@@ -177,10 +294,11 @@ async function main() {
             imgCount: imgs.length,
             brokenImgs,
             h1Text: h1?.textContent?.trim() || '',
-            h1FontSize: h1Style?.fontSize || '',
-            bodyFontSize: bodyStyle.fontSize,
-            hasReleaseLink: links.some((href) => href && href.includes('v0.1.1-beta.2')),
-            textSample: document.body.innerText.slice(0, 400)
+            links,
+            hreflangs,
+            ogLocale,
+            ogSiteName,
+            html: document.documentElement.outerHTML
           };
         });
 
@@ -194,8 +312,57 @@ async function main() {
         );
         assert.ok(audit.title.includes('NexaDock'), `${url} missing NexaDock in title: ${audit.title}`);
         assert.ok(audit.h1Text.length > 0, `${url} missing h1`);
+        assert.ok(audit.hreflangs.includes('vi') && audit.hreflangs.includes('en') && audit.hreflangs.includes('x-default'), `${url} missing hreflang links`);
+        assert.equal(audit.ogSiteName, 'NexaDock', `${url} missing og:site_name`);
+        assert.ok(audit.ogLocale === 'vi_VN' || audit.ogLocale === 'en_US', `${url} invalid og:locale: ${audit.ogLocale}`);
+
+        for (const term of legacyForbidden) {
+          assert.equal(
+            audit.html.includes(term),
+            false,
+            `${url} [${vp.name}] still contains legacy reference: ${term}`
+          );
+        }
+
         if (route === '/' || route === '/en/') {
-          assert.ok(audit.hasReleaseLink, `${url} missing v0.1.1-beta.2 release link`);
+          const hasReleaseLink = audit.links.some((href) => href && href.includes(release.tag));
+          assert.ok(hasReleaseLink, `${url} missing ${release.tag} release link`);
+        }
+
+        // Axe-core + computed contrast check on mobile-390 and desktop-1440
+        if (vp.name === 'mobile-390' || vp.name === 'desktop-1440') {
+          await page.addScriptTag({ content: axeSource });
+          const axeResults = await page.evaluate(async () => {
+            return window.axe.run(document, {
+              runOnly: {
+                type: 'tag',
+                values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
+              }
+            });
+          });
+          assert.equal(
+            axeResults.violations.length,
+            0,
+            `${url} [${vp.name}] axe-core violations: ${JSON.stringify(
+              axeResults.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }))
+            )}`
+          );
+
+          const contrast = await runContrastAudit(page);
+          assert.equal(
+            contrast.failures.length,
+            0,
+            `${url} [${vp.name}] contrast failures: ${JSON.stringify(contrast.failures)}`
+          );
+
+          a11ySummary.push({
+            route,
+            viewport: vp.name,
+            axePasses: axeResults.passes.length,
+            axeViolations: axeResults.violations.length,
+            contrastChecked: contrast.checkedCount,
+            contrastFailures: contrast.failures.length
+          });
         }
 
         if (vp.name === 'desktop-1440' || (vp.name === 'mobile-390' && route === '/')) {
@@ -210,7 +377,7 @@ async function main() {
       }
     }
 
-    // 3. Interactive checks on `/` (showcase tabs, download platform tabs, FAQ, mobile menu, reduced-motion)
+    // 3. Interactive & keyboard checks on `/`
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       reducedMotion: 'reduce'
@@ -218,19 +385,24 @@ async function main() {
     const page = await context.newPage();
     await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 
-    // Showcase tab switch
+    // Showcase tab click + keyboard navigation
     const personalTab = page.locator('[data-showcase-tab="personal"]');
     await personalTab.click();
     assert.equal(await personalTab.getAttribute('aria-selected'), 'true');
-    const personalPanel = page.locator('[data-showcase-panel="personal"]');
-    assert.equal(await personalPanel.isVisible(), true);
+    assert.equal(await page.locator('[data-showcase-panel="personal"]').isVisible(), true);
+    await personalTab.focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.locator('[data-showcase-tab="sales"]').getAttribute('aria-selected'), 'true');
 
-    // Download platform tab switch
+    // Download platform tab click + keyboard navigation
     const macTab = page.locator('[data-dl-tab="macos"]');
     await macTab.click();
     assert.equal(await macTab.getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator('[data-dl-panel="macos"]').isVisible(), true);
     assert.equal(await page.locator('[data-dl-panel="windows"]').isVisible(), false);
+    await macTab.focus();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('[data-dl-tab="ubuntu"]').getAttribute('aria-selected'), 'true');
 
     // FAQ details toggle
     const firstFaq = page.locator('.faq-item').first();
@@ -239,7 +411,7 @@ async function main() {
 
     await context.close();
 
-    // Mobile drawer toggle at 390px
+    // Mobile drawer toggle + Escape key dismissal + focus return at 390px
     const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const mobilePage = await mobileContext.newPage();
     await mobilePage.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
@@ -247,18 +419,25 @@ async function main() {
     await menuBtn.click();
     assert.equal(await menuBtn.getAttribute('aria-expanded'), 'true');
     assert.equal(await mobilePage.locator('#mobile-drawer').isVisible(), true);
-    await menuBtn.click();
+
+    await mobilePage.keyboard.press('Escape');
     assert.equal(await menuBtn.getAttribute('aria-expanded'), 'false');
+    assert.equal(await mobilePage.locator('#mobile-drawer').isVisible(), false);
+    const activeId = await mobilePage.evaluate(() => document.activeElement?.id || '');
+    assert.equal(activeId, 'mobile-menu-toggle', 'Escape must return focus to #mobile-menu-toggle');
     await mobileContext.close();
 
-    // 4. Verify 404 page
+    // 4. Verify 404 page + noindex meta
     const notFoundContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const notFoundPage = await notFoundContext.newPage();
     const notFoundRes = await notFoundPage.goto(`${baseUrl}/non-existent-route/`, { waitUntil: 'networkidle' });
     assert.equal(notFoundRes?.status(), 404);
+    const robotsMeta = await notFoundPage.locator('meta[name="robots"]').getAttribute('content');
+    assert.equal(robotsMeta, 'noindex', '404 page must include <meta name="robots" content="noindex" />');
     await notFoundContext.close();
 
-    console.log(`ALL WEBSITE VERIFICATION CHECKS PASSED (${liveBase ? 'LIVE' : 'LOCAL'}: ${baseUrl})`);
+    console.log('AXE_AND_CONTRAST_SUMMARY:', JSON.stringify(a11ySummary));
+    console.log(`ALL WEBSITE VERIFICATION CHECKS PASSED (${liveBase ? 'LIVE' : 'LOCAL'}: ${baseUrl}, release: ${release.tag})`);
   } finally {
     await browser.close();
     if (serverInfo) {
