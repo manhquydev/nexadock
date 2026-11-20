@@ -46,9 +46,9 @@
 - **Thông báo Windows Action Center:** Các cửa sổ Zalo dùng chung `AppUserModelId("com.vng.zalo")` nên thông báo hệ thống có thể gom chung; khuyến nghị bật thông báo nổi trong ứng dụng Zalo (`notiWin`).
 
 ### 1.5. Gỡ cài đặt an toàn
-- Đóng toàn bộ các cửa sổ Zalo phụ trước trong Multi-Zalo.
-- Gỡ ứng dụng qua **Windows Settings → Apps → Installed apps → Multi-Zalo Desktop → Uninstall**.
-- Lưu ý: Dữ liệu profile tại `%LOCALAPPDATA%\MultiZaloDesktop` (và Zalo chính tại `%APPDATA%\ZaloData`) được giữ lại an toàn khi gỡ cài đặt để tránh mất dữ liệu; xóa thủ công `%LOCALAPPDATA%\MultiZaloDesktop` nếu bạn muốn dọn sạch dữ liệu thử nghiệm.
+- Đóng toàn bộ các cửa sổ Zalo phụ trước trong NexaDock.
+- Gỡ ứng dụng qua **Windows Settings → Apps → Installed apps → NexaDock → Uninstall**.
+- Lưu ý: Dữ liệu profile tại `%LOCALAPPDATA%\NexaDock` (và Zalo chính tại `%APPDATA%\ZaloData`) được giữ lại an toàn khi gỡ cài đặt để tránh mất dữ liệu; xóa thủ công `%LOCALAPPDATA%\NexaDock` nếu bạn muốn dọn sạch dữ liệu thử nghiệm.
 
 ---
 
@@ -116,6 +116,6 @@
 ## 4. Báo Cáo Lỗi Trong Quá Trình Thử Nghiệm
 
 Nếu phát hiện lỗi, vui lòng mở Bug Report tại:
-`https://github.com/manhquydev/zalo/issues/new?template=bug_report.md`
+`https://github.com/manhquydev/nexadock/issues/new?template=bug_report.md`
 
 Luôn lấy nhật ký từ mục **Cài đặt → Kiểm tra sự cố → Nhật ký hệ thống (đã lọc)** và kiểm tra lại để đảm bảo không chứa tên user cá nhân, cookie, OTP hay dữ liệu tin nhắn Zalo.

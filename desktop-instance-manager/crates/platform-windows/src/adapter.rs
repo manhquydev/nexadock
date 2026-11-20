@@ -1376,7 +1376,7 @@ impl WindowController for WindowsPlatformAdapter {
                 snapped: true,
                 previous_rect: Some(previous_rect),
                 applied_rect: Some(applied_rect),
-                message: format!("Snapped profile '{}' beside KHOANG.", profile.name),
+                message: format!("Snapped profile '{}' beside NexaDock.", profile.name),
             })
         }
         #[cfg(not(windows))]

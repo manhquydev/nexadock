@@ -401,7 +401,13 @@ export function createUiServer(options = {}) {
         const body = await readJsonBody(req);
         const rawBackupDir = String(body.backupDir || '').trim();
         if (!allowCustomBackupDest && (path.isAbsolute(rawBackupDir) || /^[a-zA-Z]:/.test(rawBackupDir) || rawBackupDir.startsWith('\\\\'))) {
-          const baseDataDir = hostOptions.dataDir || path.join(process.env.LOCALAPPDATA || os.homedir(), 'MultiZaloDesktop');
+          const localAppRoot = process.env.LOCALAPPDATA || os.homedir();
+          const canonicalDataDir = path.join(localAppRoot, 'NexaDock');
+          const legacyDataDir = path.join(localAppRoot, 'MultiZaloDesktop');
+          const defaultDataDir = !fs.existsSync(canonicalDataDir) && fs.existsSync(legacyDataDir)
+            ? legacyDataDir
+            : canonicalDataDir;
+          const baseDataDir = hostOptions.dataDir || defaultDataDir;
           const backupsRoot = path.resolve(baseDataDir, 'Backups');
           let canonRoot = backupsRoot;
           try {

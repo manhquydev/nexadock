@@ -79,7 +79,7 @@ jobs:
       - name: Test cross-platform harness
         timeout-minutes: 5
         working-directory: .
-        run: cargo test --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml --locked
+        run: cargo test --manifest-path desktop-instance-manager/tests/cross-platform/Cargo.toml --locked -- --test-threads=1
 
   cargo-deny:
     name: Dependency licenses & security advisories (cargo-deny)
