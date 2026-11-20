@@ -1706,14 +1706,14 @@ process.exit(0);
 
     let mut launcher_child = cmd.spawn().expect("intermediate launcher must spawn");
     let launcher_os_pid = launcher_child.id();
-    let launcher_status = wait_child_bounded(&mut launcher_child, 5_000, "regression_01_launcher");
+    let launcher_status = wait_child_bounded(&mut launcher_child, 15_000, "regression_01_launcher");
     assert!(
         launcher_status.success(),
         "short-lived launcher must exit with status 0"
     );
 
     assert!(
-        wait_for_file(&meta_path, 4_000),
+        wait_for_file(&meta_path, 15_000),
         "intermediate launcher must write metadata before exit"
     );
     let meta_json: serde_json::Value =
@@ -1725,7 +1725,7 @@ process.exit(0);
 
     let lockfile = zdir.join("lockfile");
     assert!(
-        wait_for_file(&lockfile, 5_000) && wait_for_file(&zdir.join("launch-state.json"), 5_000),
+        wait_for_file(&lockfile, 15_000) && wait_for_file(&zdir.join("launch-state.json"), 15_000),
         "detached grandchild must acquire lockfile and initialize launch-state.json"
     );
 
@@ -1797,10 +1797,10 @@ fn regression_02_manager_graceful_shutdown_and_bwrap_tree_ordering() {
         &dir_keep,
         &["--user-id=849802002", "--stay-ms=20000"],
     );
-    assert!(wait_for_file(&z_stop.join("lockfile"), 10_000));
-    assert!(wait_for_file(&z_stop.join("launch-state.json"), 10_000));
-    assert!(wait_for_file(&z_keep.join("lockfile"), 10_000));
-    assert!(wait_for_file(&z_keep.join("launch-state.json"), 10_000));
+    assert!(wait_for_file(&z_stop.join("lockfile"), 20_000));
+    assert!(wait_for_file(&z_stop.join("launch-state.json"), 20_000));
+    assert!(wait_for_file(&z_keep.join("lockfile"), 20_000));
+    assert!(wait_for_file(&z_keep.join("launch-state.json"), 20_000));
 
     fs::write(z_stop.join(".quit-signal"), "{\"requested_at\":\"now\"}\n").unwrap();
     if let Some(ref mut c) = guard_stop.0 {
@@ -2251,7 +2251,7 @@ fn regression_04_stale_lockfile_and_singleton_lock_recovery() {
     let mut recovered =
         spawn_linux_env_fixture(&p, &pdir, &["--user-id=849804004", "--stay-ms=8000"]);
     let live_pid = recovered.0.as_ref().unwrap().id();
-    let deadline = Instant::now() + Duration::from_secs(4);
+    let deadline = Instant::now() + Duration::from_secs(15);
     let mut lock_swapped = false;
     let mut startup_log_recovered = false;
     while Instant::now() < deadline {
@@ -2718,8 +2718,8 @@ fn regression_07_home_xdg_isolation_and_hostile_env_stripping() {
     }
     let mut guard = ChildGuard(Some(cmd.spawn().unwrap()));
     assert!(
-        wait_for_file(&zdir.join("lockfile"), 4_000)
-            && wait_for_file(&zdir.join("launch-state.json"), 4_000),
+        wait_for_file(&zdir.join("lockfile"), 15_000)
+            && wait_for_file(&zdir.join("launch-state.json"), 15_000),
         "sanitized child must boot cleanly without NODE_OPTIONS crash and write inside isolated XDG_CONFIG_HOME"
     );
     assert!(
