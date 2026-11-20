@@ -56,9 +56,9 @@ pub use process::{
     RUNTIME_LAUNCH_RECORD_FILE, RUNTIME_PID_FILE,
 };
 pub use window::{
-    activate_profile_window, inspect_profile_window, parse_activation_stdout,
-    parse_jxa_windows_json, request_graceful_app_terminate, signal_fixture_focus_only,
-    WindowActivationOutcome, MACOS_WINDOW_STATE_FILE,
+    activate_macos_app_by_pid, activate_profile_window, inspect_profile_window,
+    parse_activation_stdout, parse_jxa_windows_json, request_graceful_app_terminate,
+    signal_fixture_focus_only, WindowActivationOutcome, MACOS_WINDOW_STATE_FILE,
 };
 
 #[cfg(test)]

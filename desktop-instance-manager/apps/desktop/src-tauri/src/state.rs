@@ -322,6 +322,17 @@ fn save_web_sessions(data_dir: &Path, doc: &WebSessionsDocument) -> Result<(), D
     write_bytes_atomic(&target, payload.as_bytes())
 }
 
+fn build_active_adapter() -> ActiveAdapter {
+    #[cfg(target_os = "macos")]
+    {
+        ActiveAdapter::new().with_pinned_publisher("com.vng.zalo", "CVB6BX97VM")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        ActiveAdapter::new()
+    }
+}
+
 /// Cloneable shared application state managed by Tauri.
 #[derive(Clone)]
 pub struct AppState {
@@ -345,7 +356,7 @@ impl AppState {
         let store = Arc::new(JsonProfileStore::from_default_or_env(data_dir)?);
         let _ = store.ensure_initialized();
 
-        let adapter = Arc::new(ActiveAdapter::new());
+        let adapter = Arc::new(build_active_adapter());
         let coordinator = Arc::new(InstanceCoordinator::new(
             Arc::clone(&store),
             Arc::clone(&adapter),
@@ -687,6 +698,31 @@ mod tests {
             "INVALID_NAME"
         );
 
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_active_adapter_pins_official_zalo_publisher() {
+        let adapter = build_active_adapter();
+        let policy = adapter
+            .config()
+            .pinned_publisher_policy
+            .as_ref()
+            .expect("macOS ActiveAdapter must pin Official Zalo publisher");
+        assert_eq!(policy.bundle_identifier, "com.vng.zalo");
+        assert_eq!(policy.team_identifier, "CVB6BX97VM");
+
+        let data_dir = temp_sandbox_dir("macos-pinned-publisher");
+        let state = AppState::from_data_dir(Some(&data_dir)).expect("initialize AppState");
+        let state_policy = state
+            .adapter
+            .config()
+            .pinned_publisher_policy
+            .as_ref()
+            .expect("AppState adapter must pin Official Zalo publisher");
+        assert_eq!(state_policy.bundle_identifier, "com.vng.zalo");
+        assert_eq!(state_policy.team_identifier, "CVB6BX97VM");
         let _ = fs::remove_dir_all(&data_dir);
     }
 }

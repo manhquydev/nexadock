@@ -111,7 +111,8 @@ jobs:
         run: |
           node --test desktop-instance-manager/apps/desktop/ui/tests/i18n.test.mjs \
             desktop-instance-manager/apps/desktop/ui/tests/ui-contracts.test.mjs \
-            desktop-instance-manager/tests/brand-release-gates.mjs
+            desktop-instance-manager/tests/brand-release-gates.mjs \
+            desktop-instance-manager/tests/macos-release-gates.test.mjs
 
   build-ubuntu:
     name: Build Ubuntu 24.04 x64 (.deb, .AppImage)
@@ -505,7 +506,7 @@ jobs:
           else
             gh release create "${TAG}" dist-staging/* \
               --verify-tag \
-              --title "${PROD} ${TAG} (Pre-release)" \
+              --title "${PROD} ${TAG}${PRE_FLAG:+ (Pre-release)}" \
               --notes-file "${NOTES_FILE}" \
               ${PRE_FLAG}
           fi

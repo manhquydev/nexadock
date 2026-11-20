@@ -16,8 +16,9 @@ use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
 use dim_core::{
-    ApplicationLocator, InstanceLauncher, InstanceMonitor, LaunchTarget, PlatformCapabilities,
-    ProfileRecord, ProfileStore, RecoveryManager, SupportStatus, ZALO_PROFILE_ID_FILE,
+    ActivationOutcome, ApplicationLocator, InstanceLauncher, InstanceMonitor, LaunchTarget,
+    PlatformCapabilities, ProfileRecord, ProfileStore, RecoveryManager, SupportStatus,
+    WindowController, ZALO_PROFILE_ID_FILE,
 };
 use dim_platform_macos::bundle::{
     CPU_TYPE_ARM64, CPU_TYPE_X86_64, FAT_MAGIC, FAT_MAGIC_64, MH_MAGIC_64,
@@ -1156,9 +1157,12 @@ fn p1_2_all_seven_graceful_shutdown_timeout_hung_and_orphan_helper_scenarios() {
 
 #[test]
 fn p1_3_all_four_macos_14_window_activation_and_zero_tcc_cases() {
-    // Zero `System Events` AppleEvents in production window/focus scripts (`P1-3`).
+    // Zero `System Events` AppleEvents in production window/focus scripts (`P1-3`),
+    // and use `activateWithOptions:1` (`NSApplicationActivateAllWindows`) rather than deprecated `3`.
     assert!(!APPLESCRIPT_ACTIVATE_BY_PID.contains("System Events"));
     assert!(!JXA_QUERY_WINDOWS_SCRIPT.contains("System Events"));
+    assert!(APPLESCRIPT_ACTIVATE_BY_PID.contains("activateWithOptions:1"));
+    assert!(!APPLESCRIPT_ACTIVATE_BY_PID.contains("activateWithOptions:3"));
 
     let jxa_sample =
         r#"[{"window_id":9142,"owner_pid":4100,"title":"Zalo — Công việc","is_on_screen":true}]"#;
@@ -1273,6 +1277,31 @@ fn p1_3_all_four_macos_14_window_activation_and_zero_tcc_cases() {
         .focus_or_restore(&target, &prof, &pdir, &rt_ok)
         .unwrap_err();
     assert_eq!(dead_err.code(), "NOT_RUNNING");
+
+    // Case 5: macOS 14+ background caller (`activated=true active=false`) does not fail hard.
+    let mock_bg = Arc::new(
+        MockMacOsSystemOps::new_macos(tmp.path().join("home5"), tmp.path().join("stmp5"))
+            .with_command_handler(Arc::new(|prog, _, _| {
+                if prog.to_string_lossy().ends_with("osascript") {
+                    return Ok(CommandOutput {
+                        status_code: Some(0),
+                        stdout: b"status=ok activated=true active=false\n".to_vec(),
+                        stderr: Vec::new(),
+                    });
+                }
+                Ok(CommandOutput {
+                    status_code: Some(0),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            })),
+    );
+    mock_bg.set_processes(mock_ok.list_processes().unwrap());
+    let adapter_bg =
+        MacOsPlatformAdapter::with_system_ops(mock_bg).with_signature_enforcement(false);
+    adapter_bg
+        .focus_or_restore(&target, &prof, &pdir, &rt_ok)
+        .unwrap();
 }
 
 #[test]
@@ -1668,4 +1697,61 @@ fn stage_2_delta_c2_d2_native_darwin_parity_regressions() {
     assert_eq!(owners.len(), 1);
     assert!(owners[0].contains("pid=4912") && owners[0].contains("cmd=ZaloCall"));
     assert!(fake_call_sock.is_file());
+}
+
+#[test]
+fn focus_primary_window_never_creates_focus_signal_in_primary_zalo_data() {
+    let tmp = tempfile::tempdir().unwrap();
+    let real_home = tmp.path().join("home");
+    let primary_zdata = real_home
+        .join("Library")
+        .join("Application Support")
+        .join("ZaloData");
+    fs::create_dir_all(&primary_zdata).unwrap();
+
+    let mock = Arc::new(
+        MockMacOsSystemOps::new_macos(real_home, tmp.path().join("stmp")).with_command_handler(
+            Arc::new(|prog, _, _| {
+                if prog.to_string_lossy().ends_with("osascript") {
+                    return Ok(CommandOutput {
+                        status_code: Some(0),
+                        stdout: b"status=ok activated=true active=false\n".to_vec(),
+                        stderr: Vec::new(),
+                    });
+                }
+                Ok(CommandOutput {
+                    status_code: Some(0),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            }),
+        ),
+    );
+    mock.set_processes(vec![ProcessEntry {
+        pid: 88_100,
+        ppid: 1,
+        uid: 501,
+        rss_kib: 120_000,
+        start_token: Some("Mon Nov 17 12:00:00 2026".to_owned()),
+        executable: "/Applications/Zalo.app/Contents/MacOS/Zalo".to_owned(),
+        args: "/Applications/Zalo.app/Contents/MacOS/Zalo".to_owned(),
+    }]);
+    mock.set_windows(vec![WindowInfo {
+        window_id: 42_001,
+        owner_pid: 88_100,
+        title: Some("Zalo".to_owned()),
+        is_on_screen: true,
+    }]);
+
+    let adapter = MacOsPlatformAdapter::with_system_ops(mock);
+    let primary_status = adapter.inspect_primary().unwrap();
+    assert!(primary_status.running);
+
+    let result = adapter.focus_primary_window(&primary_status).unwrap();
+    assert_eq!(result.outcome, ActivationOutcome::Focused);
+    assert_eq!(result.os_foreground_confirmed, Some(false));
+    assert!(
+        !primary_zdata.join(".focus-signal").exists(),
+        "focus_primary_window must NEVER write .focus-signal into primary ZaloData!"
+    );
 }

@@ -53,7 +53,10 @@ use crate::process::{
     stop_isolated_profile_tree, symlink_or_file_present, write_launch_target_hint,
     write_runtime_launch_record, ProfileOperationGuard, RuntimeLaunchRecord,
 };
-use crate::window::{activate_profile_window, inspect_profile_window, signal_fixture_focus_only};
+use crate::window::{
+    activate_macos_app_by_pid, activate_profile_window, inspect_profile_window,
+    signal_fixture_focus_only,
+};
 
 /// Honest machine-readable live verification marker when no physical Mac GUI was attached.
 pub const LIVE_ZALO_STATUS_MARKER: &str = "LIVE_ZALO_NOT_TESTED";
@@ -1066,13 +1069,13 @@ impl WindowController for MacOsPlatformAdapter {
 
         if live.window_state == PrimaryWindowState::Visible {
             if let Some(&pid) = live.protected_pids.first() {
-                if activate_profile_window(&*self.ops, &live.zalo_data_dir, pid).is_ok() {
+                if let Ok(outcome) = activate_macos_app_by_pid(&*self.ops, pid) {
                     return Ok(AccountActivationResult {
                         account_id: "primary".to_owned(),
                         account_kind: AccountKind::DesktopPrimary,
                         outcome: ActivationOutcome::Focused,
                         method: Some("cooperative_activate".to_owned()),
-                        os_foreground_confirmed: Some(true),
+                        os_foreground_confirmed: Some(outcome.is_active),
                         window_handle: live.window_handle,
                         window_title: live.window_title.clone(),
                         message: "Focused primary Zalo window (read-only).".to_owned(),

@@ -832,13 +832,18 @@ impl MacOsSystemOps for HostFixtureMacOsOps {
 
     fn list_processes(&self) -> Result<Vec<ProcessEntry>, DimError> {
         #[cfg(target_os = "macos")]
-        {
-            NativeMacOsSystemOps.list_processes()
-        }
+        let mut entries = NativeMacOsSystemOps.list_processes()?;
         #[cfg(not(target_os = "macos"))]
-        {
-            Ok(self.load_shared_entries())
+        let mut entries = self.load_shared_entries();
+
+        if let Ok(foreign) = self.foreign_processes.lock() {
+            for proc_entry in foreign.iter() {
+                if !entries.iter().any(|e| e.pid == proc_entry.pid) {
+                    entries.push(proc_entry.clone());
+                }
+            }
         }
+        Ok(entries)
     }
 
     fn process_start_token(&self, pid: u32) -> Option<String> {

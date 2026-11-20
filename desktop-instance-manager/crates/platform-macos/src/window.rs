@@ -51,7 +51,8 @@ function run(argv) {
 }"#;
 
 /// Zero-TCC AppKit AppleScript activating an `NSRunningApplication` by numeric PID (`argv` item 1),
-/// unhiding minimized/hidden state, polling `isActive()`, and returning structured `status=...` text.
+/// unhiding minimized/hidden state with `NSApplicationActivateAllWindows` (`1`), polling `isActive()`,
+/// and returning structured `status=...` text.
 pub const APPLESCRIPT_ACTIVATE_BY_PID: &str = r#"use framework "AppKit"
 on run argv
   set pidVal to (item 1 of argv) as integer
@@ -60,7 +61,7 @@ on run argv
     return "status=missing activated=false active=false"
   end if
   appRef's unhide()
-  set didActivate to (appRef's activateWithOptions:3) as boolean
+  set didActivate to (appRef's activateWithOptions:1) as boolean
   set nowActive to (appRef's isActive()) as boolean
   repeat 3 times
     if nowActive then exit repeat
@@ -242,34 +243,26 @@ pub fn signal_fixture_focus_only(zalo_data_dir: &Path, main_pid: u32) -> Result<
     )
 }
 
-/// Signals `.focus-signal` and activates the owning `NSRunningApplication` on macOS, enforcing
-/// macOS 14+ cooperative focus verification (`activated=true` & `active=true`) fail-closed.
-pub fn activate_profile_window(
+/// Purely activates an `NSRunningApplication` by numeric PID without writing `.focus-signal` or
+/// mutating any directory on disk (safe for read-only primary `ZaloData`).
+///
+/// When `app_found == true` and `activateWithOptions:1` succeeded (`activated == true`), this does
+/// not fail hard if macOS 14+ cooperative focus declines `is_active` for a background caller;
+/// callers can inspect `WindowActivationOutcome::is_active`.
+pub fn activate_macos_app_by_pid(
     ops: &dyn MacOsSystemOps,
-    zalo_data_dir: &Path,
     main_pid: u32,
 ) -> Result<WindowActivationOutcome, DimError> {
     if main_pid == 0 {
         return Err(DimError::NotRunning("invalid PID 0".to_owned()));
     }
 
-    write_signal_json_atomic(
-        &zalo_data_dir.join(".focus-signal"),
-        &serde_json::json!({
-            "focused_at": now_rfc3339_utc(),
-            "target_pid": main_pid,
-        }),
-    )?;
-
-    let window_verified = inspect_profile_window(ops, zalo_data_dir, &[main_pid])
-        .is_some_and(|w| w.is_on_screen && w.window_id > 0);
-
     if !ops.is_native_macos() {
         return Ok(WindowActivationOutcome {
             app_found: true,
             activated: true,
             is_active: true,
-            window_verified,
+            window_verified: false,
         });
     }
 
@@ -308,22 +301,49 @@ pub fn activate_profile_window(
         )));
     }
 
-    if !activated || !is_active {
+    if !activated {
         return Err(DimError::ProcessError(format!(
-            "macOS 14+ cooperative activation declined focus for PID {main_pid} (activated={activated}, active={is_active}, window_verified={window_verified})"
+            "macOS 14+ cooperative activation declined focus for PID {main_pid} (activated={activated}, active={is_active})"
         )));
     }
-
-    let post_window_verified = window_verified
-        || inspect_profile_window(ops, zalo_data_dir, &[main_pid])
-            .is_some_and(|w| w.is_on_screen && w.window_id > 0);
 
     Ok(WindowActivationOutcome {
         app_found: true,
         activated,
         is_active,
-        window_verified: post_window_verified,
+        window_verified: false,
     })
+}
+
+/// Signals `.focus-signal` for an isolated profile and activates the owning `NSRunningApplication`
+/// on macOS.
+pub fn activate_profile_window(
+    ops: &dyn MacOsSystemOps,
+    zalo_data_dir: &Path,
+    main_pid: u32,
+) -> Result<WindowActivationOutcome, DimError> {
+    if main_pid == 0 {
+        return Err(DimError::NotRunning("invalid PID 0".to_owned()));
+    }
+
+    write_signal_json_atomic(
+        &zalo_data_dir.join(".focus-signal"),
+        &serde_json::json!({
+            "focused_at": now_rfc3339_utc(),
+            "target_pid": main_pid,
+        }),
+    )?;
+
+    let window_verified = inspect_profile_window(ops, zalo_data_dir, &[main_pid])
+        .is_some_and(|w| w.is_on_screen && w.window_id > 0);
+
+    let mut outcome = activate_macos_app_by_pid(ops, main_pid)?;
+    outcome.window_verified = window_verified
+        || (ops.is_native_macos()
+            && inspect_profile_window(ops, zalo_data_dir, &[main_pid])
+                .is_some_and(|w| w.is_on_screen && w.window_id > 0));
+
+    Ok(outcome)
 }
 
 /// Sends Cocoa `NSRunningApplication.terminate()` (`⌘Q`) via parameterized `osascript`.

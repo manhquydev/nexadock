@@ -134,6 +134,14 @@ fn main() {
             commands::web_session_delete,
             commands::web_session_rename,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running NexaDock Tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building NexaDock Tauri application")
+        .run(|app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                tray::show_main_window(app_handle);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app_handle, event);
+        });
 }
