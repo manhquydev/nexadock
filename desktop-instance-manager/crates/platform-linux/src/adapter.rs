@@ -396,7 +396,8 @@ impl ApplicationLocator for LinuxPlatformAdapter {
             };
             if let Some(route) = route {
                 self.record_zalo_linux_allowlist(ZaloLinuxAllowlist::from_route(&route));
-                let notes = vec![
+                #[allow(unused_mut)] // advisory push is unix-only; Windows never mutates
+                let mut notes = vec![
                     format!(
                         "Audited allowlist: wrapper SHA-256 {} is pinned; app/package.json and the bundled Electron binary digests plus app-directory uid/mode are recorded and re-verified at launch. Changes to those checked inputs revoke the route; other application payload files are not hashed, so same-user edits to them may go undetected.",
                         route.launcher_sha256
@@ -406,21 +407,15 @@ impl ApplicationLocator for LinuxPlatformAdapter {
                     APPARMOR_NO_SANDBOX_NOTE.to_owned(),
                 ];
                 #[cfg(unix)]
-                let notes = {
-                    let mut notes = notes;
-                    if route
-                        .app_dir_mode_bits
-                        .is_some_and(|mode| mode & 0o020 != 0)
-                    {
-                        notes.push(
-                            "Advisory: the zalo-linux application directory is group-writable (common repack default); payload writes by same-group processes cannot be prevented, only detected at the next launch."
-                                .to_owned(),
-                        );
-                    }
-                    notes
-                };
-                #[cfg(not(unix))]
-                let notes = notes;
+                if route
+                    .app_dir_mode_bits
+                    .is_some_and(|mode| mode & 0o020 != 0)
+                {
+                    notes.push(
+                        "Advisory: the zalo-linux application directory is group-writable (common repack default); payload writes by same-group processes cannot be prevented, only detected at the next launch."
+                            .to_owned(),
+                    );
+                }
                 return Ok(ApplicationInstallation {
                     is_valid: true,
                     platform: PlatformKind::Linux,
