@@ -27,7 +27,9 @@ the resulting install (Experimental route).
 - `rust` + `cargo` — only needed if `patches/db-cross-v4-native.node` is
   absent; `rebuild-zalo-linux.sh` then builds the addon from `db-cross-v4-src/`
   with `cargo build --release`
-- For packaging: `dpkg-deb` (deb) or `appimagetool` (AppImage)
+- For clipboard image paste (Ctrl+V inline image): `xclip` (X11) or
+  `wl-clipboard` (Wayland) — the paste patch falls back to these when
+  Electron's clipboard API cannot read the image
 
 ## Usage
 

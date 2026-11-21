@@ -108,6 +108,14 @@ if [ ! -f "$PATCHES/community/patch-network-and-sync-fix.js" ]; then
   echo "FATAL: $PATCHES/community/patch-network-and-sync-fix.js missing — sync/network breaks without it"; exit 1
 fi
 ZALO_APP_DIR="$WORK/app" node "$PATCHES/community/patch-network-and-sync-fix.js"
+# Clipboard image paste (Ctrl+V inline image): the app's Linux paste path
+# lacks an image branch; the vendored patch adds clipboard helpers plus a
+# paste handler that feeds the image to the drag/drop overlay. Requires
+# xclip (X11) or wl-clipboard (Wayland) for the file-copy fallback path.
+if [ ! -f "$PATCHES/community/patch-pasting-img.js" ]; then
+  echo "FATAL: $PATCHES/community/patch-pasting-img.js missing — clipboard image paste breaks without it"; exit 1
+fi
+ZALO_APP_DIR="$WORK/app" node "$PATCHES/community/patch-pasting-img.js"
 
 # 4. Install Electron runtime (version must match the DMG's Electron Framework)
 ELECTRON_VERSION="$(grep -ao 'Electron/[0-9.]*' "$APP_SRC/Contents/Frameworks/Electron Framework.framework/Electron Framework" | head -1 | cut -d/ -f2)"
