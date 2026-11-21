@@ -63,7 +63,9 @@ jobs:
           path: website/dist
 
   deploy:
-    if: github.event_name != 'pull_request'
+    # github-pages environment protection only allows the main branch;
+    # tag-triggered release runs build but must not attempt deployment.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:
