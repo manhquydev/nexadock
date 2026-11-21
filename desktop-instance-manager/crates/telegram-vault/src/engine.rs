@@ -69,19 +69,13 @@ impl<T: TelegramTransport> SyncEngine<T> {
         Ok(enqueued)
     }
 
-    /// Uploads one ready item, returning `None` when no work is eligible.
+    /// Uploads one ready item for this engine's profile, returning `None` when no work is
+    /// eligible. Items of other profiles are never claimed: `claim_next` filters by profile,
+    /// so a foreign row keeps its original state and retry schedule.
     pub fn process_one(&mut self, now: i64) -> Result<Option<QueueItem>> {
-        let Some(item) = self.queue.claim_next(now)? else {
+        let Some(item) = self.queue.claim_next(&self.profile_id, now)? else {
             return Ok(None);
         };
-        if item.profile_id != self.profile_id {
-            let error = format!(
-                "queue item profile {} does not match engine profile {}",
-                item.profile_id, self.profile_id
-            );
-            self.queue.mark_failed(&item, &error)?;
-            return Err(VaultError::InvalidRecord(error));
-        }
         let caption = make_caption(&item)?;
         match self
             .transport

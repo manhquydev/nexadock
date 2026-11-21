@@ -86,7 +86,7 @@ pub struct VaultQueue {
 }
 
 impl VaultQueue {
-    /// Opens or creates the queue database and recovers interrupted uploads.
+    /// Opens or creates the queue database without touching existing row states.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path
@@ -126,15 +126,29 @@ impl VaultQueue {
                 error TEXT
             );
             CREATE INDEX IF NOT EXISTS vault_log_profile_ts_idx
-                ON vault_log(profile_id, ts, id);
-            UPDATE vault_queue SET status='pending'
-                WHERE status='uploading';",
+                ON vault_log(profile_id, ts, id);",
         )?;
         Ok(Self { connection })
     }
+    /// Requeues items left in `uploading` state by an unclean process exit.
+    ///
+    /// Crash recovery is a deliberate, caller-invoked step (once per process, before any
+    /// consumer starts): `open()` itself must stay read-safe so status/log reads from the UI
+    /// never disturb an upload already claimed by a running consumer.
+    pub fn recover_interrupted(&self) -> Result<u64> {
+        let changed = self.connection.execute(
+            "UPDATE vault_queue SET status='pending' WHERE status='uploading'",
+            [],
+        )?;
+        u64::try_from(changed).map_err(|_| VaultError::IntegerRange)
+    }
 
-    /// Adds a newly discovered file unless the same profile and digest already has a queue row.
-    /// Failed items keep their attempt count and retry backoff when their source path is refreshed.
+    /// Adds a newly discovered file unless the same profile and digest already
+    /// has a queue row. Deduplication is intentionally digest-based: a second
+    /// copy of identical content under a different file name is not uploaded
+    /// twice ("one durable copy per content"). Rows not yet `done` also get
+    /// their source path/size refreshed, so a renamed or moved file retries
+    /// from its current location.
     pub fn enqueue(
         &mut self,
         profile_id: &str,
@@ -157,7 +171,7 @@ impl VaultQueue {
             )
             .optional()?;
         let inserted = if let Some((id, status)) = existing {
-            if status == "failed" {
+            if status != "done" {
                 tx.execute(
                     "UPDATE vault_queue SET path=?2, size=?3 WHERE id=?1",
                     params![id, path_text, size],
@@ -176,16 +190,19 @@ impl VaultQueue {
         Ok(inserted)
     }
 
-    /// Claims the next pending or backoff-eligible failed item and increments its attempt count.
-    pub fn claim_next(&mut self, now: i64) -> Result<Option<QueueItem>> {
+    /// Claims the next pending or backoff-eligible failed item for the given profile
+    /// and increments its attempt count. Filtering by profile keeps per-profile consumers
+    /// from claiming (and failing) another profile's items on the shared queue database.
+    pub fn claim_next(&mut self, profile_id: &str, now: i64) -> Result<Option<QueueItem>> {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut statement = tx.prepare(
             "SELECT id,profile_id,path,sha256,size,status,attempts,last_error,created_at,uploaded_at
-             FROM vault_queue WHERE status IN ('pending','failed') ORDER BY created_at,id",
+             FROM vault_queue WHERE profile_id=?1 AND status IN ('pending','failed')
+             ORDER BY created_at,id",
         )?;
-        let rows = statement.query_map([], decode_item)?;
+        let rows = statement.query_map([profile_id], decode_item)?;
         let mut candidate = None;
         for row in rows {
             let item = row?;

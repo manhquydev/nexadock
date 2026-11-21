@@ -95,7 +95,7 @@ fn failed_upload_can_be_retried_after_backoff_and_success_is_logged() {
 }
 
 #[test]
-fn reopening_database_recovers_uploading_item_to_pending() {
+fn reopening_database_keeps_uploading_state_until_explicit_recovery() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("vault.sqlite");
     let file = tmp.path().join("in-flight.bin");
@@ -106,12 +106,19 @@ fn reopening_database_recovers_uploading_item_to_pending() {
         queue
             .enqueue("profile-a", &file, &digest(b"in flight"), 9)
             .unwrap();
-        let claimed = queue.claim_next(now()).unwrap().unwrap();
+        let claimed = queue.claim_next("profile-a", now()).unwrap().unwrap();
         assert_eq!(claimed.status, QueueStatus::Uploading);
         assert_eq!(claimed.attempts, 1);
         id = claimed.id;
     }
     let queue = VaultQueue::open(&db).unwrap();
+    // Plain reopen must not disturb an in-flight upload: UI status/log reads open the same DB.
+    assert_eq!(
+        queue.get(id).unwrap().unwrap().status,
+        QueueStatus::Uploading
+    );
+    // Explicit, once-per-process crash recovery requeues the interrupted item.
+    assert_eq!(queue.recover_interrupted().unwrap(), 1);
     let recovered = queue.get(id).unwrap().unwrap();
     assert_eq!(recovered.status, QueueStatus::Pending);
     assert_eq!(recovered.attempts, 1);

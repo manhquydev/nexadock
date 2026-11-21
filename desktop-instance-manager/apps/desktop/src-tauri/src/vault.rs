@@ -6,9 +6,9 @@
 //! the `TelegramTransport` trait with claim/mark-done/mark-failed
 //! bookkeeping. Telegram credentials are read from the `TELEGRAM_API_ID` /
 //! `TELEGRAM_API_HASH` environment variables at login time and are never
-//! persisted; the MTProto session lives under
-//! `<data_dir>/TelegramVault/sessions/<profile_id>/`. Telegram Desktop
-//! `tdata` is never touched.
+//! persisted; the MTProto session lives in the file
+//! `<data_dir>/TelegramVault/sessions/<profile_id>.session`. Telegram
+//! Desktop `tdata` is never touched.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -225,8 +225,14 @@ impl VaultManager {
     }
 
     /// Restarts sync engines for every paired profile that is enabled and has
-    /// a persisted session. Called once during application startup.
+    /// a persisted session. Called once during application startup; performs
+    /// the once-per-process crash recovery of interrupted uploads first.
     pub fn resume_all(&self) {
+        // Requeue items left `uploading` by an unclean exit before any
+        // consumer can claim work; plain `open()` never touches row state.
+        if let Ok(queue) = VaultQueue::open(&self.queue_path) {
+            let _ = queue.recover_interrupted();
+        }
         let Ok(configs) = self.config_store.list() else {
             return;
         };
@@ -371,7 +377,7 @@ impl VaultManager {
         let transport = pending.pending.complete(code, password)?;
         let config = VaultConfig {
             profile_id: profile_id.to_owned(),
-            telegram_session_dir: self.session_dir_for(profile_id),
+            telegram_session_dir: self.session_file_for(profile_id),
             destination: Default::default(),
             enabled: true,
         };
@@ -380,8 +386,8 @@ impl VaultManager {
         Ok(())
     }
 
-    /// Removes the pairing; the session directory is only deleted when
-    /// explicitly requested, and Telegram Desktop `tdata` is never touched.
+    /// Removes the pairing; the persisted MTProto session file is only deleted
+    /// when explicitly requested, and Telegram Desktop `tdata` is never touched.
     pub fn unpair(&self, profile_id: &str, delete_session: bool) -> VaultManagerResult<bool> {
         self.stop_engine(profile_id);
         {
@@ -393,14 +399,13 @@ impl VaultManager {
         }
         let removed = self.config_store.remove(profile_id)?;
         if delete_session {
-            let session_dir = self.session_dir_for(profile_id);
-            // Only ever removes this profile's own MTProto session directory.
-            match std::fs::remove_dir_all(&session_dir) {
+            // Only ever removes this profile's own session file.
+            match std::fs::remove_file(self.session_file_for(profile_id)) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => {
                     return Err(VaultManagerError::Vault(format!(
-                        "removing session directory failed: {error}"
+                        "removing session file failed: {error}"
                     )));
                 }
             }
@@ -493,17 +498,16 @@ impl VaultManager {
             .ok_or(VaultManagerError::MissingCredentials)
     }
 
-    fn session_dir_for(&self, profile_id: &str) -> PathBuf {
+    fn session_file_for(&self, profile_id: &str) -> PathBuf {
+        // Must match `profile_session_path` in the vault crate's live transport.
         self.data_dir
             .join("TelegramVault")
             .join("sessions")
-            .join(profile_id)
+            .join(format!("{profile_id}.session"))
     }
 
     fn session_file_exists(&self, profile_id: &str) -> bool {
-        self.session_dir_for(profile_id)
-            .join("grammers.sqlite")
-            .is_file()
+        self.session_file_for(profile_id).is_file()
     }
 
     fn received_dir_for(&self, profile_id: &str) -> VaultManagerResult<PathBuf> {
@@ -716,7 +720,7 @@ fn run_consumer_loop(
             if stop.load(Ordering::Acquire) {
                 return;
             }
-            match queue.claim_next(current_unix_seconds()) {
+            match queue.claim_next(&profile_id, current_unix_seconds()) {
                 Ok(Some(item)) => {
                     upload_item(&mut queue, &client, &item);
                 }
@@ -754,10 +758,16 @@ fn connect_session(data_dir: &Path, profile_id: &str) -> Option<LiveTransport> {
 }
 
 /// Uploads one claimed item through the live transport and records the outcome.
+///
+/// Queue state failures are never swallowed silently: a `mark_done` that finds
+/// the row no longer `uploading` demotes the item to `failed` with the reason
+/// so it becomes visible in the sync log instead of re-uploading forever.
 fn upload_item(queue: &mut VaultQueue, client: &LiveTransport, item: &QueueItem) {
     match upload_with_caption(client, item) {
         Ok(()) => {
-            let _ = queue.mark_done(item);
+            if let Err(error) = queue.mark_done(item) {
+                let _ = queue.mark_failed(item, &format!("mark_done failed: {error}"));
+            }
         }
         Err(detail) => {
             let _ = queue.mark_failed(item, &detail);
