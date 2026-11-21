@@ -4330,11 +4330,12 @@ fn test_17c_zalo_linux_route_launch_pins_zalo_data_dir_inside_profile() {
         "ln -s 'fixture-host-42424' \"$ZALO_DATA_DIR/SingletonLock\"",
     );
     let _ = write_zalo_linux_repack_fixture(&fs_root, &lines);
+    let real_euid = dim_platform_linux::isolation::current_effective_uid();
     let adapter = LinuxPlatformAdapter::with_virtual_roots(
         fs_root,
         tmp.path().join("proc"),
         tmp.path().join("cfg"),
-        1000,
+        real_euid,
         "x86_64",
         None,
     );
