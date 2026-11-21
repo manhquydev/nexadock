@@ -27,6 +27,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "linux")]
+use dim_platform_linux::procfs::entry_matches_profile;
+
 use dim_core::{
     ApplicationLocator, BackupManager, InstanceLauncher, InstanceMonitor, LaunchTarget,
     OperationOutcome, PlatformCapabilities, ProfileRecord, ProfileRuntimeState, ProfileStore,
@@ -38,8 +41,8 @@ use dim_platform_linux::{
     build_sanitized_linux_spawn_env_with_nonce, classify_binary_bytes,
     collect_profile_process_tree, compare_linux_isolation_mechanisms,
     discover_compatible_apps_in_roots, enforce_launch_security_policy, ensure_linux_profile_layout,
-    ensure_zalo_linux_instance_data_dir, entry_matches_profile, evaluate_appimage_preflight,
-    find_mount_for_path, generate_instance_nonce, has_targeted_apparmor_userns_profile,
+    ensure_zalo_linux_instance_data_dir, evaluate_appimage_preflight, find_mount_for_path,
+    generate_instance_nonce, has_targeted_apparmor_userns_profile,
     inspect_elf64_needed_libraries_at, inspect_user_binary, is_safe_bindable_socket_or_file,
     linux_zalo_data_dir, parse_dbus_session_socket_path, parse_desktop_entry,
     parse_elf64_dynamic_metadata, parse_ldd_missing_libraries, parse_proc_mounts,
@@ -4400,6 +4403,7 @@ fn test_17c_zalo_linux_route_launch_pins_zalo_data_dir_inside_profile() {
 /// Overwrites `<proc_root>/<pid>/environ` with an all-NUL buffer, simulating the zero-filled
 /// bytes `kernel.yama.ptrace_scope=1` returns to a non-ancestor reader (a successful read whose
 /// content is pure NUL filler, NOT an empty file).
+#[cfg(target_os = "linux")]
 fn write_zeroed_environ(proc_root: &Path, pid: u32) {
     fs::write(
         proc_root.join(pid.to_string()).join("environ"),
