@@ -189,6 +189,7 @@ node tests/run-contract-parity-tests.mjs
   - [Kiến trúc & Quyết định thiết kế (ADR-001 → ADR-004)](desktop-instance-manager/docs/architecture/adr-001-hybrid-isolation-architecture.md)
   - [Mô hình đe dọa & Kiểm toán bảo mật](desktop-instance-manager/docs/security/threat-model-and-audit.md) · [Bảo mật kho công khai](desktop-instance-manager/docs/security/public-audit/public-release-gate.md)
   - [Báo cáo kiểm thử PoC Zalo thật trên Windows](desktop-instance-manager/docs/testing/poc-and-test-report.md)
+  - [Route vận hành: Zalo desktop trên Linux (bản không chính thức)](docs/operations.md)
 
 ---
 
