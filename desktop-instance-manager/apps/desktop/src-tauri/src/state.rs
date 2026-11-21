@@ -341,6 +341,8 @@ pub struct AppState {
     pub coordinator: Arc<InstanceCoordinator<ActiveAdapter>>,
     pub backups: Arc<FileBackupManager>,
     pub web_sessions: Arc<WebSessionStore>,
+    /// Telegram Vault pairing and per-profile sync engines.
+    pub vault: Arc<crate::vault::VaultManager>,
     /// Original `WindowRect` before companion snapping, keyed by secondary profile ID.
     pub companion_snapped: Arc<Mutex<HashMap<String, WindowRect>>>,
 }
@@ -371,12 +373,31 @@ impl AppState {
 
         let web_sessions = Arc::new(WebSessionStore::initialize(store.data_dir()));
 
+        let store_for_vault = Arc::clone(&store);
+        let vault = Arc::new(
+            crate::vault::VaultManager::new(
+                store.data_dir(),
+                Arc::new(move |profile_id| {
+                    let profile = store_for_vault
+                        .get_profile(profile_id)
+                        .map_err(|error| error.to_string())?;
+                    store_for_vault
+                        .profile_dir_for(&profile)
+                        .map_err(|error| error.to_string())
+                }),
+            )
+            .map_err(|error| {
+                DimError::ProcessError(format!("failed to initialize Telegram vault: {error}"))
+            })?,
+        );
+
         Ok(Self {
             store,
             adapter,
             coordinator,
             backups,
             web_sessions,
+            vault,
             companion_snapped: Arc::new(Mutex::new(HashMap::new())),
         })
     }

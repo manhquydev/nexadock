@@ -354,6 +354,49 @@
       ]
     }
   },
+  "vault": {
+    "title": "Telegram Vault",
+    "states": {
+      "unpaired": "Chưa ghép",
+      "paired": "Đã ghép",
+      "syncing": "Đang đồng bộ...",
+      "offline": "Đã ghép · Tạm tắt"
+    },
+    "stats": {
+      "summary": "{pending} đang chờ · {failed} lỗi · {done} đã đồng bộ"
+    },
+    "actions": {
+      "pair": "Ghép Telegram",
+      "unpair": "Đóng ghép",
+      "enable": "Bật đồng bộ",
+      "disable": "Tắt đồng bộ",
+      "syncNow": "Đồng bộ ngay",
+      "deleteSession": "Xóa phiên Telegram đã lưu"
+    },
+    "login": {
+      "phoneLabel": "Số điện thoại Telegram",
+      "phonePlaceholder": "+84...",
+      "phoneSubmit": "Nhận mã",
+      "codeLabel": "Mã xác nhận",
+      "codePlaceholder": "Mã từ Telegram",
+      "passwordLabel": "Mật khẩu xác minh hai bước (nếu có)",
+      "codeSubmit": "Hoàn tất ghép",
+      "credentialsHint": "Ứng dụng đọc TELEGRAM_API_ID và TELEGRAM_API_HASH từ môi trường khi đăng nhập; không lưu mật khẩu hay mã xác nhận."
+    },
+    "log": {
+      "heading": "Đồng bộ gần nhất",
+      "caption": "Năm tệp đồng bộ gần nhất qua Telegram Vault",
+      "colFile": "Tệp",
+      "colTime": "Thời gian",
+      "colResult": "Kết quả",
+      "done": "Thành công",
+      "failed": "Thất bại",
+      "empty": "Chưa đồng bộ tệp nào."
+    },
+    "errors": {
+      "requestFailed": "Không thể liên hệ Telegram Vault. Thử lại."
+    }
+  },
   "colors": {
     "blue": "Xanh dương",
     "teal": "Xanh ngọc",

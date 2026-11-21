@@ -3211,3 +3211,112 @@ dialog.modal-switcher {
   }
 }
 
+/* Telegram Vault panel (account-details dialog) */
+.vault-panel {
+  margin-block-start: var(--sp-4);
+  padding-block-start: var(--sp-4);
+  border-block-start: 1px solid var(--border-strong, currentcolor);
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.vault-heading {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.vault-state-line {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.vault-state {
+  font-weight: 600;
+}
+
+.vault-stats {
+  color: var(--text-muted, inherit);
+  font-size: 0.9375rem;
+}
+
+.vault-error {
+  margin: 0;
+  color: var(--text-danger, currentcolor);
+  font-size: 0.9375rem;
+}
+
+.vault-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.vault-delete-session {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: 0.9375rem;
+}
+
+.vault-hint {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--text-muted, inherit);
+}
+
+.vault-form {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+}
+
+.vault-form[hidden] {
+  display: none;
+}
+
+.vault-input {
+  font: inherit;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong, currentcolor);
+  background: var(--bg-surface, transparent);
+  color: inherit;
+}
+
+.vault-log-heading {
+  margin: var(--sp-2) 0 0;
+  font-size: 0.9375rem;
+}
+
+.vault-log-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.vault-log-table caption {
+  text-align: start;
+  font-size: 0.875rem;
+  color: var(--text-muted, inherit);
+  padding-block-end: var(--sp-1);
+}
+
+.vault-log-table th,
+.vault-log-table td {
+  text-align: start;
+  padding: var(--sp-1) var(--sp-2);
+  border-block-end: 1px solid var(--border, currentcolor);
+  overflow-wrap: anywhere;
+}
+
+.vault-log-empty {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--text-muted, inherit);
+}
+

@@ -354,6 +354,49 @@
       ]
     }
   },
+  "vault": {
+    "title": "Telegram Vault",
+    "states": {
+      "unpaired": "Not paired",
+      "paired": "Paired",
+      "syncing": "Syncing...",
+      "offline": "Paired · Paused"
+    },
+    "stats": {
+      "summary": "{pending} waiting · {failed} failed · {done} synced"
+    },
+    "actions": {
+      "pair": "Pair Telegram",
+      "unpair": "Unpair",
+      "enable": "Enable sync",
+      "disable": "Disable sync",
+      "syncNow": "Sync now",
+      "deleteSession": "Delete the stored Telegram session"
+    },
+    "login": {
+      "phoneLabel": "Telegram phone number",
+      "phonePlaceholder": "+84...",
+      "phoneSubmit": "Request code",
+      "codeLabel": "Confirmation code",
+      "codePlaceholder": "Code from Telegram",
+      "passwordLabel": "Two-step verification password (if set)",
+      "codeSubmit": "Finish pairing",
+      "credentialsHint": "The app reads TELEGRAM_API_ID and TELEGRAM_API_HASH from the environment at login; passwords and codes are never stored."
+    },
+    "log": {
+      "heading": "Recent sync",
+      "caption": "Five most recent files synced through Telegram Vault",
+      "colFile": "File",
+      "colTime": "Time",
+      "colResult": "Result",
+      "done": "Success",
+      "failed": "Failed",
+      "empty": "No files synced yet."
+    },
+    "errors": {
+      "requestFailed": "Could not reach Telegram Vault. Try again."
+    }
+  },
   "colors": {
     "blue": "Blue",
     "teal": "Teal",

@@ -1390,3 +1390,130 @@ mod tests {
         );
     }
 }
+
+// =========================================================================
+// Telegram Vault
+// =========================================================================
+
+use crate::vault::{PairFlow, VaultLogRow, VaultManagerError, VaultStatus};
+
+fn vault_err<T: Serialize>(error: VaultManagerError) -> ApiEnvelope<T> {
+    ApiEnvelope::err(&DimError::ProcessError(format!("vault: {error}")))
+}
+
+#[tauri::command]
+pub fn vault_get_status(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<ApiEnvelope<VaultStatus>, String> {
+    match state.vault.status(&profile_id) {
+        Ok(status) => Ok(ApiEnvelope::ok("Vault status loaded.", status)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub fn vault_pair(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<ApiEnvelope<PairFlow>, String> {
+    match state.vault.pair(&profile_id) {
+        Ok(flow) => Ok(ApiEnvelope::ok("Vault pairing flow ready.", flow)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub fn vault_login_phone(
+    state: State<'_, AppState>,
+    profile_id: String,
+    phone: String,
+    api_id: Option<i32>,
+    api_hash: Option<String>,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    match state
+        .vault
+        .login_phone(&profile_id, &phone, api_id, api_hash.as_deref())
+    {
+        Ok(()) => Ok(ApiEnvelope::ok(
+            "Telegram login code requested.",
+            serde_json::json!({ "codeRequested": true }),
+        )),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub fn vault_login_code(
+    state: State<'_, AppState>,
+    profile_id: String,
+    code: String,
+    password: Option<String>,
+) -> Result<ApiEnvelope<VaultStatus>, String> {
+    match state
+        .vault
+        .login_code(&profile_id, &code, password.as_deref())
+    {
+        Ok(()) => match state.vault.status(&profile_id) {
+            Ok(status) => Ok(ApiEnvelope::ok("Telegram account paired.", status)),
+            Err(error) => Ok(vault_err(error)),
+        },
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub fn vault_unpair(
+    state: State<'_, AppState>,
+    profile_id: String,
+    delete_session: Option<bool>,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    match state
+        .vault
+        .unpair(&profile_id, delete_session.unwrap_or(false))
+    {
+        Ok(removed) => Ok(ApiEnvelope::ok(
+            "Vault unpaired.",
+            serde_json::json!({ "removed": removed }),
+        )),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub fn vault_set_enabled(
+    state: State<'_, AppState>,
+    profile_id: String,
+    enabled: bool,
+) -> Result<ApiEnvelope<VaultStatus>, String> {
+    match state.vault.set_enabled(&profile_id, enabled) {
+        Ok(()) => match state.vault.status(&profile_id) {
+            Ok(status) => Ok(ApiEnvelope::ok("Vault setting updated.", status)),
+            Err(error) => Ok(vault_err(error)),
+        },
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub fn vault_sync_now(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<ApiEnvelope<VaultStatus>, String> {
+    match state.vault.sync_now(&profile_id) {
+        Ok(status) => Ok(ApiEnvelope::ok("Sync triggered.", status)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub fn vault_get_log(
+    state: State<'_, AppState>,
+    profile_id: String,
+    limit: Option<usize>,
+) -> Result<ApiEnvelope<Vec<VaultLogRow>>, String> {
+    match state.vault.log(&profile_id, limit.unwrap_or(20)) {
+        Ok(rows) => Ok(ApiEnvelope::ok("Vault log loaded.", rows)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
