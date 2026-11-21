@@ -46,6 +46,7 @@ Icon=zalo
 Categories=Network;InstantMessaging;
 Terminal=false
 StartupWMClass=Zalo
+StartupWMClass=zalo
 Actions=new-instance;
 
 [Desktop Action new-instance]
@@ -53,8 +54,17 @@ Name=Cửa sổ Zalo mới (instance riêng)
 Exec=zalo secondary
 EOF
 
-install -m 644 "$HERE/appimage/zalo.png" \
-  "$WORK/usr/share/icons/hicolor/1024x1024/apps/zalo.png"
+# GNOME Shell requests the themed icon at standard dash/grid sizes; a single
+# 1024px entry is not scaled down by every lookup path, so ship the full set.
+HERE="$HERE" WORK="$WORK" python3 - <<'PYEOF'
+from PIL import Image
+import os
+im = Image.open(os.path.join(os.environ["HERE"], "appimage", "zalo.png"))
+for s in (16, 22, 24, 32, 36, 42, 48, 64, 72, 96, 128, 192, 256, 384, 512, 1024):
+    d = os.path.join(os.environ["WORK"], f"usr/share/icons/hicolor/{s}x{s}/apps")
+    os.makedirs(d, exist_ok=True)
+    (im if s == 1024 else im.resize((s, s), Image.LANCZOS)).save(os.path.join(d, "zalo.png"))
+PYEOF
 
 cat > "$WORK/DEBIAN/control" <<EOF
 Package: zalo-linux
@@ -66,7 +76,7 @@ Depends: libgtk-3-0, libnss3, libasound2t64 | libasound2, libgbm1, libxss1, libx
 Maintainer: NexaDock <local@localhost>
 Description: Zalo Desktop for Linux (repack of the official macOS client)
  Runs the official Zalo $VERSION desktop client (macOS build) inside a
- bundled Electron runtime (version auto-detected from the DMG), with a compatibility shim for Linux.
+ bundled Electron 22.3.9 runtime, with a compatibility shim for Linux.
  Supports multiple isolated instances via \`zalo <instance-name>\`.
  Unofficial — not affiliated with VNG/Zalo.
 EOF

@@ -74,8 +74,19 @@ function makeStub(request) {
 // Windows-parity tray (official icon, click reopens, menu has Quit).
 if (IS_LINUX && electron.Tray && electron.Menu && electron.nativeImage) {
   const trayIconPath = path.join(__dirname, 'zalo.png');
+  const isUserWindow = (w) => {
+    try {
+      const u = w.webContents.getURL();
+      // Utility windows (sqlite.html, shared-worker.html, znotification) are
+      // created hidden by the app and must never be revealed.
+      return /\/(index|login)\.html/.test(u);
+    } catch (_) {
+      return false;
+    }
+  };
   const showWindows = () => {
     for (const w of electron.BrowserWindow.getAllWindows()) {
+      if (!isUserWindow(w)) continue;
       if (w.isMinimized()) w.restore();
       w.show();
     }
