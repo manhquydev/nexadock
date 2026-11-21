@@ -428,44 +428,33 @@ async function main() {
     });
     const page = await context.newPage();
     await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+    assert.equal(await page.locator('h1').count(), 1, 'Homepage must have one primary heading');
+    const workflowBounds = await page.locator('#workspace-showcase').boundingBox();
+    assert.ok(workflowBounds && workflowBounds.y < 900, 'Workflow explorer must appear in the first desktop viewport');
 
-    // Showcase tab click + keyboard navigation + Open/Close toggle parity
-    const primaryPanel = page.locator('[data-showcase-panel="primary"]');
-    assert.equal(await primaryPanel.count(), 1, 'Primary Zalo panel is missing');
-    assert.equal(await primaryPanel.locator('[data-toggle-session]').count(), 0, 'Primary Zalo must not expose Open/Close toggle');
-    const primaryDotBefore = await page.locator('[data-rail-dot="primary"]').getAttribute('class');
-    const primaryTextBefore = await page.locator('[data-stage-state-text="primary"]').textContent();
+    // Workflow library tabs select matching details and support arrow-key navigation.
+    const profileTab = page.locator('[data-workflow-tab="profile-isolation"]');
+    const profilePanel = page.locator('[data-workflow-panel="profile-isolation"]');
+    assert.equal(await profileTab.count(), 1, 'Profile-isolation workflow tab is missing');
+    assert.equal(await profileTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('#workspace-showcase [role="tablist"]').getAttribute('aria-orientation'), 'vertical');
+    assert.equal(await profilePanel.isVisible(), true);
+    assert.equal(await profilePanel.locator('.stage-action').getAttribute('href'), '#download');
 
-    const personalTab = page.locator('[data-showcase-tab="personal"]');
-    await personalTab.click();
-    assert.equal(await personalTab.getAttribute('aria-selected'), 'true');
-    assert.equal(await page.locator('[data-showcase-panel="personal"]').isVisible(), true);
+    const platformTab = page.locator('[data-workflow-tab="platform-route"]');
+    const platformPanel = page.locator('[data-workflow-panel="platform-route"]');
+    await platformTab.click();
+    assert.equal(await platformTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await platformPanel.isVisible(), true);
+    assert.equal(await profilePanel.isVisible(), false);
 
-    const personalToggle = page.locator('[data-toggle-session="personal"]');
-    assert.equal(await personalToggle.getAttribute('data-running'), 'false');
-    assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
-
-    await personalToggle.click();
-    assert.equal(await personalToggle.getAttribute('data-running'), 'true');
-    assert.ok((await personalToggle.textContent())?.includes('Đóng Zalo'));
-    assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-running'));
-    assert.ok((await page.locator('[data-stage-dot="personal"]').getAttribute('class'))?.includes('is-running'));
-    assert.equal(await page.locator('[data-stage-state-text="personal"]').textContent(), 'Cửa sổ đang mở');
-
-    await personalToggle.click();
-    assert.equal(await personalToggle.getAttribute('data-running'), 'false');
-    assert.ok((await personalToggle.textContent())?.includes('Mở Zalo'));
-    assert.ok((await page.locator('[data-rail-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
-    assert.ok((await page.locator('[data-stage-dot="personal"]').getAttribute('class'))?.includes('is-stopped'));
-    assert.equal(await page.locator('[data-stage-state-text="personal"]').textContent(), 'Đã đóng');
-
-    assert.equal(await page.locator('[data-rail-dot="primary"]').getAttribute('class'), primaryDotBefore);
-    assert.equal(await page.locator('[data-stage-state-text="primary"]').textContent(), primaryTextBefore);
-
-    await personalTab.focus();
+    const recoveryTab = page.locator('[data-workflow-tab="verify-and-recover"]');
+    const recoveryPanel = page.locator('[data-workflow-panel="verify-and-recover"]');
+    await platformTab.focus();
     await page.keyboard.press('ArrowDown');
-    assert.equal(await page.locator('[data-showcase-tab="sales"]').getAttribute('aria-selected'), 'true');
-
+    assert.equal(await recoveryTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await recoveryPanel.isVisible(), true);
+    assert.equal(await platformPanel.isVisible(), false);
     // Download platform tab click + keyboard navigation
     const macTab = page.locator('[data-dl-tab="macos"]');
     await macTab.click();
@@ -495,11 +484,41 @@ async function main() {
     assert.equal(await firstFaq.getAttribute('open'), '');
 
     await context.close();
+    // Repeat the workflow interaction contract in English to catch locale drift.
+    const enWorkflowContext = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      reducedMotion: 'reduce'
+    });
+    const enWorkflowPage = await enWorkflowContext.newPage();
+    await enWorkflowPage.goto(`${baseUrl}/en/`, { waitUntil: 'networkidle' });
+    assert.equal(await enWorkflowPage.locator('h1').count(), 1);
+    const enProfileTab = enWorkflowPage.locator('[data-workflow-tab="profile-isolation"]');
+    const enProfilePanel = enWorkflowPage.locator('[data-workflow-panel="profile-isolation"]');
+    assert.equal(await enProfileTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await enProfilePanel.isVisible(), true);
+    assert.ok((await enProfilePanel.textContent())?.includes('Official Zalo Desktop'));
+    const enPlatformTab = enWorkflowPage.locator('[data-workflow-tab="platform-route"]');
+    await enPlatformTab.click();
+    assert.equal(await enPlatformTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await enWorkflowPage.locator('[data-workflow-panel="platform-route"]').isVisible(), true);
+    await enPlatformTab.focus();
+    await enWorkflowPage.keyboard.press('ArrowDown');
+    assert.equal(
+      await enWorkflowPage.locator('[data-workflow-tab="verify-and-recover"]').getAttribute('aria-selected'),
+      'true'
+    );
+    await enWorkflowContext.close();
 
     // Mobile drawer toggle + Escape key dismissal + focus return at 390px
     const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const mobilePage = await mobileContext.newPage();
     await mobilePage.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+    assert.equal(
+      await mobilePage.locator('#workspace-showcase [role="tablist"]').getAttribute('aria-orientation'),
+      'horizontal'
+    );
+    const mobileWorkflowTabBounds = await mobilePage.locator('[data-workflow-tab="profile-isolation"]').boundingBox();
+    assert.ok(mobileWorkflowTabBounds && mobileWorkflowTabBounds.y < 844, 'Workflow explorer must appear in the first mobile viewport');
     const menuBtn = mobilePage.locator('#mobile-menu-toggle');
     await menuBtn.click();
     assert.equal(await menuBtn.getAttribute('aria-expanded'), 'true');

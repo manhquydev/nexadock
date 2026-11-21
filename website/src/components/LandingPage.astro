@@ -76,49 +76,11 @@ const rackUnits = [
 ];
 ---
 <BaseLayout lang={lang} canonicalPath={lang === 'vi' ? '/' : '/en/'}>
-  <section class="hero-section bp-grid-surface">
-    <div class="container hero-grid">
-      <div>
-        <h1 class="hero-title">{copy.hero.title}</h1>
-        <p class="hero-lead">{copy.hero.lead}</p>
-        <div class="hero-actions">
-          <a class="btn btn-primary" href="#download">
-            {copy.hero.primaryCta}
-          </a>
-          <a class="btn btn-secondary" href="https://github.com/manhquydev/nexadock">
-            {copy.hero.secondaryCta}
-          </a>
-        </div>
-        <p class="hero-meta">{copy.hero.meta}</p>
-      </div>
-
-      <div class="hero-proof-wrap bp-frame">
-        <figure class="hero-proof">
-          <img
-            src={`${base}/screenshots/${heroShot}`}
-            alt={copy.hero.screenshotAlt}
-            width="1160"
-            height="780"
-            loading="eager"
-            fetchpriority="high"
-          />
-          <figcaption>
-            <span class="bp-fig-id">FIG. 01</span>
-            <span>{copy.hero.screenshotCaption}</span>
-          </figcaption>
-        </figure>
-      </div>
-    </div>
-  </section>
 
   <section class="section" id="experience">
     <div class="container">
-      <div class="section-header">
-        <h2 class="section-title">{copy.showcase.title}</h2>
-        <p class="section-desc">{copy.showcase.desc}</p>
-      </div>
-
       <WorkspaceShowcase lang={lang} />
+      <p class="hero-meta">{copy.hero.meta}</p>
 
       <div class="section-header section-header--spaced">
         <h2 class="section-title">{copy.shots.title}</h2>
@@ -126,6 +88,16 @@ const rackUnits = [
       </div>
 
       <div class="shots-grid">
+        <figure class="shot-frame">
+          <img
+            src={`${base}/screenshots/${heroShot}`}
+            alt={copy.hero.screenshotAlt}
+            width="1160"
+            height="780"
+            loading="lazy"
+          />
+          <figcaption>{copy.hero.screenshotCaption}</figcaption>
+        </figure>
         {copy.shots.items.map((shot) => (
           <figure class="shot-frame">
             <img
@@ -189,11 +161,11 @@ const rackUnits = [
               {unit.note && <p class="rack-unit-note">{unit.note}</p>}
               {unit.extra && <p class="rack-unit-note">{unit.extra}</p>}
             </div>
-            <div class="rack-unit-aside">
-              {unit.chip && (
+            {unit.chip && (
+              <div class="rack-unit-aside">
                 <span class={`state-tag is-${unit.chip}`}>{unit.chipLabel}</span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

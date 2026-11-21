@@ -18,109 +18,63 @@ export const SITE_COPY = {
       menu: 'Menu'
     },
     hero: {
-      title: 'Nhiều tài khoản. Một không gian tách biệt.',
-      lead: 'Chạy nhiều phiên Zalo Desktop song song trên cùng một máy tính với thư mục dữ liệu, tiến trình và sao lưu riêng biệt, giữ nguyên Zalo chính ở chế độ chỉ đọc.',
-      primaryCta: 'Tải NexaDock',
-      secondaryCta: 'Xem mã nguồn trên GitHub',
       meta: 'Mã nguồn mở MIT / Apache-2.0 — bản thử nghiệm chưa ký số — không thu thập mật khẩu hay tin nhắn.',
       screenshotAlt: 'Giao diện ứng dụng NexaDock hiển thị 3 tài khoản Zalo tách biệt và trạng thái bảo vệ Zalo chính',
       screenshotCaption: 'Ảnh chụp trực tiếp từ ứng dụng desktop NexaDock (chế độ sáng, tiếng Việt)'
     },
-    showcase: {
-      title: 'Mô phỏng luồng chuyển đổi & cô lập tài khoản',
-      desc: 'Chọn từng không gian bên trái hoặc bấm Mở Zalo / Đóng Zalo để mô phỏng cách NexaDock tách biến môi trường và bảo vệ Zalo chính.',
-      simBadge: 'MÔ PHỎNG · DỮ LIỆU MẪU',
-      note: 'Dữ liệu minh họa cục bộ (không kết nối mạng hay Zalo thật).',
-      pathLabel: 'Thư mục cô lập',
-      primaryPathLabel: 'Thư mục gốc (chỉ đọc)',
-      honestNotice: 'Chạy trong cửa sổ Zalo Desktop độc lập — không nhúng vào trong NexaDock.',
-      primaryNotice:
-        'Ứng dụng Zalo cài sẵn trên máy được bảo vệ ở chế độ chỉ đọc. NexaDock không đóng, xóa, sao lưu đè hay thay đổi vị trí cửa sổ này.',
-      webNotice:
-        'Phiên Zalo Web tách biệt (Thử nghiệm): chạy trong child WebView cô lập không có IPC; mỗi tài khoản giữ 1 phiên Web; không sao lưu ngoại tuyến.',
-      actions: {
-        openDesktop: 'Mở Zalo',
-        closeDesktop: 'Đóng Zalo',
-        openWeb: 'Mở phiên Web',
-        closeWeb: 'Đóng phiên Web',
-        readOnlyLabel: 'Chỉ đọc · Không thể đóng từ đây'
-      },
-      states: {
-        running: 'Cửa sổ đang mở',
-        stopped: 'Đã đóng',
-        webRunning: 'Phiên Web đang mở · Thử nghiệm',
-        webStopped: 'Đã đóng · Thử nghiệm'
-      },
-      accounts: [
+    workflowLibrary: {
+      eyebrow: 'Thư viện quy trình',
+      title: 'Nhiều tài khoản. Một không gian tách biệt.',
+      description: 'Chạy nhiều phiên Zalo Desktop song song với thư mục dữ liệu, tiến trình và sao lưu riêng biệt; giữ Zalo chính ở chế độ chỉ đọc. Chọn một quy trình để khám phá cách NexaDock hoạt động.',
+      sampleLabel: 'Bản minh họa · dữ liệu mẫu · không kết nối Zalo thật',
+      items: [
         {
-          id: 'primary',
-          kind: 'primary',
-          color: 'slate',
-          initials: 'Z',
-          name: 'Zalo đang dùng trên máy',
-          role: 'Được bảo vệ · Chỉ đọc',
-          state: 'Cửa sổ đang mở · Được bảo vệ',
-          stateKind: 'neutral',
-          running: true,
-          path: '%APPDATA%\\ZaloData',
-          detail:
-            'NexaDock chỉ quan sát trạng thái tiến trình chính để tránh xung đột. Mọi lệnh dừng, ghi đè hoặc xóa nhắm vào Zalo gốc đều bị chặn ở tầng Rust.'
+          id: 'profile-isolation',
+          label: 'Tách hồ sơ công việc',
+          stateLabel: 'Zalo Desktop chính thức',
+          state: 'running',
+          title: 'Chạy một hồ sơ riêng, giữ nguyên Zalo chính',
+          body: 'Mỗi hồ sơ phụ dùng thư mục và biến môi trường riêng. Zalo đang dùng trên máy vẫn ở chế độ chỉ đọc.',
+          steps: [
+            'Tự cài Zalo Desktop chính thức từ VNG.',
+            'Tạo hồ sơ mới trong NexaDock để có vùng dữ liệu riêng.',
+            'Mở phiên Zalo Desktop độc lập cho hồ sơ đó.'
+          ],
+          actionLabel: 'Tải NexaDock',
+          actionHref: '#download',
+          footnote: 'NexaDock không đóng gói Zalo và không thay đổi Zalo chính.'
         },
         {
-          id: 'work',
-          kind: 'desktop',
-          color: 'blue',
-          initials: 'ĐT',
-          name: 'Đức: Công việc & Đối tác',
-          role: 'Desktop · Không gian tách biệt',
-          state: 'Cửa sổ đang mở',
-          stateKind: 'ok',
-          running: true,
-          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\duc-cong-viec_176ea8dd',
-          detail:
-            'Chạy bằng bộ biến môi trường APPDATA, LOCALAPPDATA và TEMP riêng. Đưa cửa sổ lên trên hoặc đóng cây tiến trình an toàn mà không chạm tài khoản khác.'
+          id: 'platform-route',
+          label: 'Chọn đường cài đặt',
+          stateLabel: 'Linux: Experimental',
+          state: 'experimental',
+          title: 'Chọn đúng đường đi theo hệ điều hành',
+          body: 'Windows và macOS dùng client Zalo chính thức. VNG không phát hành Zalo Desktop cho Linux; route community repack luôn được đánh dấu Experimental.',
+          steps: [
+            'Chọn gói NexaDock đúng với hệ điều hành của bạn.',
+            'Trên Windows hoặc macOS, tự cài client Zalo chính thức.',
+            'Trên Linux, đọc hướng dẫn route community repack Experimental trước khi tiếp tục.'
+          ],
+          actionLabel: 'Xem trạng thái nền tảng',
+          actionHref: '#platforms',
+          footnote: 'Gói Linux của NexaDock dùng cho Manager hoặc fixture; không kèm client Zalo.'
         },
         {
-          id: 'personal',
-          kind: 'desktop',
-          color: 'teal',
-          initials: 'CN',
-          name: 'Cá nhân',
-          role: 'Desktop · Không gian tách biệt',
-          state: 'Đã đóng',
-          stateKind: 'neutral',
-          running: false,
-          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ca-nhan_2492ef1d',
-          detail:
-            'Sẵn sàng sao lưu nguyên tử sang tệp .zip có kiểm tra SHA-256 và ngưỡng dung lượng trống tối thiểu 5 GiB trước khi thực hiện.'
-        },
-        {
-          id: 'sales',
-          kind: 'desktop',
-          color: 'green',
-          initials: 'BC',
-          name: 'Bán hàng & CSKH',
-          role: 'Desktop · Không gian tách biệt',
-          state: 'Cửa sổ đang mở',
-          stateKind: 'ok',
-          running: true,
-          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ban-hang_52fb0a78',
-          detail:
-            'Kiểm tra trùng zalo_user_id và khóa thư mục cơ sở dữ liệu ngoài vùng lưu trữ trước khi khởi chạy để tránh hỏng dữ liệu.'
-        },
-        {
-          id: 'web-support',
-          kind: 'web',
-          color: 'indigo',
-          initials: 'HW',
-          name: 'Hỗ trợ nhanh (Web)',
-          role: 'Web · Thử nghiệm',
-          state: 'Đã đóng · Thử nghiệm',
-          stateKind: 'neutral',
-          running: false,
-          path: '%LOCALAPPDATA%\\NexaDock\\WebSessions\\_shared_env\\EBWebView',
-          detail:
-            'Hồ sơ WebView2 cô lập trên Windows không có Tauri IPC, dùng vòng đời ICoreWebView2Profile8 riêng và gắn nhãn Thử nghiệm.'
+          id: 'verify-and-recover',
+          label: 'Kiểm tra & khôi phục',
+          stateLabel: 'Sao lưu có kiểm tra',
+          state: 'running',
+          title: 'Kiểm tra trạng thái trước khi khôi phục',
+          body: 'Chẩn đoán và sao lưu giúp bạn kiểm tra dữ liệu trước khi khôi phục; thao tác khôi phục luôn tạo hồ sơ mới thay vì ghi đè hồ sơ hiện có.',
+          steps: [
+            'Chạy chẩn đoán để xem trạng thái và các rào chắn bảo vệ.',
+            'Tạo bản sao lưu nguyên tử sau khi kiểm tra dung lượng trống tối thiểu 5 GiB.',
+            'Khôi phục vào một hồ sơ mới và đối chiếu SHA-256.'
+          ],
+          actionLabel: 'Xem cơ chế bảo vệ dữ liệu',
+          actionHref: '#safety',
+          footnote: 'Nội dung trên trang là minh họa tĩnh; không chạy thao tác trên thiết bị của bạn.'
         }
       ]
     },
@@ -258,109 +212,63 @@ export const SITE_COPY = {
       menu: 'Menu'
     },
     hero: {
-      title: 'Multiple accounts. One isolated workspace.',
-      lead: 'Run multiple Zalo Desktop sessions side-by-side on one machine with separate profile directories, processes, and backups while keeping your primary Zalo strictly read-only.',
-      primaryCta: 'Download NexaDock',
-      secondaryCta: 'View Source on GitHub',
       meta: 'Open Source MIT / Apache-2.0 — unsigned pre-release — zero credentials collected.',
       screenshotAlt: 'NexaDock desktop app showing 3 isolated Zalo accounts and read-only primary Zalo protection',
       screenshotCaption: 'Direct capture from NexaDock desktop app (Light mode, English)'
     },
-    showcase: {
-      title: 'Interactive workspace & isolation preview',
-      desc: 'Select a workspace on the left or toggle Open Zalo / Close Zalo to simulate how NexaDock isolates paths and protects your primary Zalo.',
-      simBadge: 'SIMULATION · LOCAL SAMPLE DATA',
-      note: 'Local sample data (no live network or Zalo connection).',
-      pathLabel: 'Isolated path',
-      primaryPathLabel: 'Original path (read-only)',
-      honestNotice: 'Running in an independent Zalo Desktop window — not embedded inside NexaDock.',
-      primaryNotice:
-        'Your main Zalo installation is protected in read-only mode. NexaDock never closes, removes, overwrites, or repositions its window.',
-      webNotice:
-        'Isolated Zalo Web (Experimental): runs in a zero-IPC child WebView; one active Web session per account; no offline backup.',
-      actions: {
-        openDesktop: 'Open Zalo',
-        closeDesktop: 'Close Zalo',
-        openWeb: 'Open Web session',
-        closeWeb: 'Close Web session',
-        readOnlyLabel: 'Read-only · Cannot close from here'
-      },
-      states: {
-        running: 'Window open',
-        stopped: 'Closed',
-        webRunning: 'Web session open · Experimental',
-        webStopped: 'Closed · Experimental'
-      },
-      accounts: [
+    workflowLibrary: {
+      eyebrow: 'Workflow library',
+      title: 'Multiple accounts. One isolated workspace.',
+      description: 'Run Zalo Desktop sessions side-by-side with separate profile data, processes, and backups while keeping primary Zalo read-only. Choose a workflow to explore NexaDock.',
+      sampleLabel: 'Illustration · sample data · no live Zalo connection',
+      items: [
         {
-          id: 'primary',
-          kind: 'primary',
-          color: 'slate',
-          initials: 'Z',
-          name: 'Zalo already on this computer',
-          role: 'Protected · Read-only',
-          state: 'Window open · Protected',
-          stateKind: 'neutral',
-          running: true,
-          path: '%APPDATA%\\ZaloData',
-          detail:
-            'NexaDock only observes your primary Zalo state to prevent conflicts. Any stop, overwrite, or delete targeting the primary client is blocked in Rust.'
+          id: 'profile-isolation',
+          label: 'Separate a work profile',
+          stateLabel: 'Official Zalo Desktop',
+          state: 'running',
+          title: 'Run a separate profile while keeping primary Zalo untouched',
+          body: 'Each secondary profile uses its own directory and environment. Zalo already on your computer remains read-only.',
+          steps: [
+            'Install the official Zalo Desktop client yourself from VNG.',
+            'Create a new profile in NexaDock for a separate data space.',
+            'Open an independent Zalo Desktop session for that profile.'
+          ],
+          actionLabel: 'Download NexaDock',
+          actionHref: '#download',
+          footnote: 'NexaDock does not bundle Zalo or modify your primary installation.'
         },
         {
-          id: 'work',
-          kind: 'desktop',
-          color: 'blue',
-          initials: 'DP',
-          name: 'Duc: Work & Partners',
-          role: 'Desktop · Isolated space',
-          state: 'Window open',
-          stateKind: 'ok',
-          running: true,
-          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\duc-cong-viec_176ea8dd',
-          detail:
-            'Runs with dedicated APPDATA, LOCALAPPDATA, and TEMP directories. Bring its window to front or close its process tree cleanly without affecting siblings.'
+          id: 'platform-route',
+          label: 'Choose an install route',
+          stateLabel: 'Linux: Experimental',
+          state: 'experimental',
+          title: 'Follow the route that matches your operating system',
+          body: 'Windows and macOS use the official Zalo client. VNG does not ship Zalo Desktop for Linux; the community repack route is always labeled Experimental.',
+          steps: [
+            'Choose the NexaDock package for your operating system.',
+            'On Windows or macOS, install the official Zalo client yourself.',
+            'On Linux, read the Experimental community-repack route before continuing.'
+          ],
+          actionLabel: 'View platform status',
+          actionHref: '#platforms',
+          footnote: 'NexaDock Linux packages are for Manager or fixture testing; they do not include Zalo.'
         },
         {
-          id: 'personal',
-          kind: 'desktop',
-          color: 'teal',
-          initials: 'PE',
-          name: 'Personal',
-          role: 'Desktop · Isolated space',
-          state: 'Closed',
-          stateKind: 'neutral',
-          running: false,
-          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ca-nhan_2492ef1d',
-          detail:
-            'Ready for atomic .zip backup with SHA-256 verification and a mandatory 5 GiB free-space safety check before writing.'
-        },
-        {
-          id: 'sales',
-          kind: 'desktop',
-          color: 'green',
-          initials: 'SS',
-          name: 'Sales & Support',
-          role: 'Desktop · Isolated space',
-          state: 'Window open',
-          stateKind: 'ok',
-          running: true,
-          path: '%LOCALAPPDATA%\\NexaDock\\Profiles\\ban-hang_52fb0a78',
-          detail:
-            'Enforces duplicate zalo_user_id detection and external database path guards before launch to prevent cross-profile corruption.'
-        },
-        {
-          id: 'web-support',
-          kind: 'web',
-          color: 'indigo',
-          initials: 'QW',
-          name: 'Quick Support (Web)',
-          role: 'Web · Experimental',
-          state: 'Closed · Experimental',
-          stateKind: 'neutral',
-          running: false,
-          path: '%LOCALAPPDATA%\\NexaDock\\WebSessions\\_shared_env\\EBWebView',
-          detail:
-            'Zero-IPC isolated Windows WebView2 profile managed via ICoreWebView2Profile8 lifecycle APIs and explicitly marked Experimental.'
+          id: 'verify-and-recover',
+          label: 'Verify & restore',
+          stateLabel: 'Verified backup steps',
+          state: 'running',
+          title: 'Check status before restoring a profile',
+          body: 'Diagnostics and backups help you check data before restore; restoring always creates a new profile instead of overwriting an existing one.',
+          steps: [
+            'Run diagnostics to inspect status and protection guards.',
+            'Create an atomic backup after checking for at least 5 GiB of free space.',
+            'Restore into a new profile and verify its SHA-256 checksum.'
+          ],
+          actionLabel: 'Review data protection',
+          actionHref: '#safety',
+          footnote: 'This page is a static illustration; it does not run actions on your device.'
         }
       ]
     },
