@@ -197,9 +197,9 @@ export const SITE_COPY = {
         {
           os: 'Linux (Ubuntu 24.04 x64)',
           zalo: 'Không có bản Linux từ VNG',
-          status: 'Thử nghiệm (Manager / Fixture)',
+          status: 'Thử nghiệm (Manager / Fixture + repack community)',
           kind: 'neutral',
-          note: 'Đóng gói .AppImage và .deb để kiểm thử NexaDock Manager hoặc fixture. VNG không phát hành Zalo Desktop chính thức cho Linux.'
+          note: 'Đóng gói .AppImage và .deb để kiểm thử NexaDock Manager hoặc fixture. VNG không phát hành Zalo Desktop chính thức cho Linux; route repack community Experimental (NexaDock nhận diện được) xem docs/operations.md.'
         }
       ]
     },
@@ -211,7 +211,7 @@ export const SITE_COPY = {
       macGatekeeperTitle: 'Mở ứng dụng lần đầu trên macOS (khi chưa có Apple Notarization)',
       macGatekeeperBody: 'Sau khi kéo NexaDock.app vào /Applications và đối chiếu SHA-256, chạy lệnh dưới đây để gỡ cờ quarantine (hoặc vào System Settings → Privacy & Security → Open Anyway):',
       missingIntel: 'Bản phát hành thử nghiệm này chưa bao gồm bộ cài macOS Intel (x86_64).',
-      linuxNote: 'Ghi chú: VNG không phát hành Zalo Desktop cho Linux. Các gói này chỉ phục vụ thử nghiệm Manager hoặc môi trường fixture.'
+      linuxNote: 'Ghi chú: VNG không phát hành Zalo Desktop cho Linux. Các gói này chỉ phục vụ thử nghiệm Manager hoặc môi trường fixture. Muốn chạy Zalo Desktop thực tế trên Linux, xem route repack community Experimental trong docs/operations.md và tools/zalo-linux-repack/.'
     },
     faq: {
       title: 'Câu hỏi thường gặp',
@@ -437,9 +437,9 @@ export const SITE_COPY = {
         {
           os: 'Linux (Ubuntu 24.04 x64)',
           zalo: 'No official Linux client',
-          status: 'Experimental (Manager / Fixture)',
+          status: 'Experimental (Manager / Fixture + community repack)',
           kind: 'neutral',
-          note: 'Publishes .AppImage and .deb for testing NexaDock Manager or synthetic fixtures. VNG does not ship Zalo Desktop for Linux.'
+          note: 'Publishes .AppImage and .deb for testing NexaDock Manager or synthetic fixtures. VNG does not ship Zalo Desktop for Linux; the Experimental community repack route (detected by NexaDock) is documented in docs/operations.md.'
         }
       ]
     },
@@ -451,7 +451,7 @@ export const SITE_COPY = {
       macGatekeeperTitle: 'First launch on macOS (while Apple Notarization is pending)',
       macGatekeeperBody: 'After dragging NexaDock.app to /Applications and verifying the SHA-256 checksum, clear the download quarantine flag below (or open via System Settings → Privacy & Security → Open Anyway):',
       missingIntel: 'This pre-release does not include a macOS Intel (x86_64) installer.',
-      linuxNote: 'Note: VNG does not ship Zalo Desktop for Linux. These packages are experimental for Manager and fixture testing.'
+      linuxNote: 'Note: VNG does not ship Zalo Desktop for Linux. These packages are experimental for Manager and fixture testing. To run the real Zalo Desktop on Linux, see the Experimental community repack route in docs/operations.md and tools/zalo-linux-repack/.'
     },
     faq: {
       title: 'Frequently asked questions',

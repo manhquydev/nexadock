@@ -1,0 +1,7 @@
+# Build outputs are proprietary-derived (user-supplied VNG DMG payload) and
+# must never be committed. See README.md clean-room section.
+/app
+/electron
+/*.deb
+/*.AppImage
+/*.log

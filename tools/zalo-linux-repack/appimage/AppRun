@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# AppRun — launch Zalo; each ZALO_INSTANCE value gets an isolated data dir.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTANCE="${ZALO_INSTANCE:-default}"
+DATA_DIR="${ZALO_DATA_DIR:-$HOME/.local/share/zalo-linux/$INSTANCE}"
+mkdir -p "$DATA_DIR"
+export ZALO_DATA_DIR="$DATA_DIR"
+exec "$HERE/usr/bin/electron/electron" "$HERE/usr/lib/zalo-app" --no-sandbox "$@"

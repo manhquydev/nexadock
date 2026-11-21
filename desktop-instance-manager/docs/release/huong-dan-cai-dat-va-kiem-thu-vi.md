@@ -104,7 +104,7 @@
 2. Nếu hệ thống thiếu `libfuse2t64` trên Ubuntu 24.04, cài thêm `sudo apt-get install -y libfuse2t64` hoặc giải nén chạy trực tiếp bằng `--appimage-extract`.
 
 ### 3.3. Cách kiểm tra adapter Linux & fixture
-- Kiểm tra trình quản lý mở được giao diện Account Dock (WebKitGTK 4.1), chuyển đổi `vi-VN` / `en-US`, chế độ sáng/tối, và mở màn hình `Cài đặt → Kiểm tra sự cố` để xác nhận bảng hỗ trợ ghi trung thực `Ubuntu LTS (Official Zalo): Không hỗ trợ` và `Ubuntu LTS (Fixture / Local AppImage): Thử nghiệm`.
+- Kiểm tra trình quản lý mở được giao diện Account Dock (WebKitGTK 4.1), chuyển đổi `vi-VN` / `en-US`, chế độ sáng/tối, và mở màn hình `Cài đặt → Kiểm tra sự cố` để xác nhận bảng hỗ trợ ghi trung thực `Ubuntu LTS (Official Zalo): Không hỗ trợ`, `Ubuntu LTS (Fixture / Local AppImage): Thử nghiệm` và dòng route repack community `zalo-linux`: `Thử nghiệm (NexaDock nhận diện được)` (client tại `/opt/zalo-linux/app`, dựng từ `tools/zalo-linux-repack/` — gọi thoại & đồng bộ chưa kiểm chứng).
 - Để kiểm thử vòng đời `bwrap` / `XDG_*` với synthetic fixture trên Ubuntu, chạy từ mã nguồn:
   ```bash
   cd desktop-instance-manager

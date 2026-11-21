@@ -38,8 +38,8 @@ use dim_platform_linux::{
     build_sanitized_linux_spawn_env_with_nonce, classify_binary_bytes,
     collect_profile_process_tree, compare_linux_isolation_mechanisms,
     discover_compatible_apps_in_roots, enforce_launch_security_policy, ensure_linux_profile_layout,
-    ensure_zalo_linux_instance_data_dir, evaluate_appimage_preflight, find_mount_for_path,
-    generate_instance_nonce, has_targeted_apparmor_userns_profile,
+    ensure_zalo_linux_instance_data_dir, entry_matches_profile, evaluate_appimage_preflight,
+    find_mount_for_path, generate_instance_nonce, has_targeted_apparmor_userns_profile,
     inspect_elf64_needed_libraries_at, inspect_user_binary, is_safe_bindable_socket_or_file,
     linux_zalo_data_dir, parse_dbus_session_socket_path, parse_desktop_entry,
     parse_elf64_dynamic_metadata, parse_ldd_missing_libraries, parse_proc_mounts,
@@ -2491,7 +2491,23 @@ fn regression_05_pid_reuse_starttime_ticks_and_nonce_defense() {
             killed, 0,
             "stop() must NEVER signal a live process whose starttime_ticks/nonce failed verification"
         );
-        assert!(!live_pdir.join(".runtime-pid").exists());
+        // Live-lock cleanup guard: while the lock PID (our own live test runner) is still alive,
+        // hints must NOT be deleted — the unverifiable tree may belong to a genuinely live
+        // instance (e.g. yama-masked environ), not just to a spoofed PID.
+        assert!(
+            live_pdir.join(".runtime-pid").exists(),
+            "stop() must not delete launch hints while the lock PID is still alive"
+        );
+        assert!(live_zdir.join("lockfile").exists());
+
+        // Once the lock PID is verified dead (dead PID in `lockfile`), cleanup proceeds.
+        fs::write(live_zdir.join("lockfile"), "{\"pid\":4194303}\n").unwrap();
+        let killed_dead = live_adapter.stop(&stale_state, &[], 200).unwrap();
+        assert_eq!(killed_dead, 0);
+        assert!(
+            !live_pdir.join(".runtime-pid").exists(),
+            "verified-dead stop must clean up launch hints"
+        );
     }
 }
 
@@ -4376,4 +4392,326 @@ fn test_17c_zalo_linux_route_launch_pins_zalo_data_dir_inside_profile() {
         assert_eq!(mode & 0o777, 0o700);
     }
     adapter.stop(&state, &[], 1_000).unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Regression 7. Yama zero-filled environ: SingletonLock PID discovery via cmdline subtree
+// ---------------------------------------------------------------------------
+/// Overwrites `<proc_root>/<pid>/environ` with an all-NUL buffer, simulating the zero-filled
+/// bytes `kernel.yama.ptrace_scope=1` returns to a non-ancestor reader (a successful read whose
+/// content is pure NUL filler, NOT an empty file).
+fn write_zeroed_environ(proc_root: &Path, pid: u32) {
+    fs::write(
+        proc_root.join(pid.to_string()).join("environ"),
+        vec![0u8; 64],
+    )
+    .unwrap();
+}
+
+#[test]
+fn regression_07_yama_zeroed_environ_lock_pid_cmdline_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    let proc_root = tmp.path().join("proc");
+    fs::create_dir_all(&proc_root).unwrap();
+
+    let p = ProfileRecord {
+        id: "7700aabb".to_owned(),
+        name: "Yama Masked Route".to_owned(),
+        directory_name: "yama_7700aabb".to_owned(),
+        created_at: "2026-11-21T00:00:00Z".to_owned(),
+        last_launched_at: None,
+        zalo_user_id: None,
+        notes: String::new(),
+    };
+    let pdir = tmp.path().join(&p.directory_name);
+    ensure_linux_profile_layout(&p, &pdir).unwrap();
+    let zdir = linux_zalo_data_dir(&pdir);
+    let zdir_str = zdir.to_string_lossy().into_owned();
+
+    // Zalo MAIN process: zero-filled environ AND cmdline without any profile/data-dir path.
+    write_fake_proc_entry_with_starttime(
+        &proc_root,
+        7001,
+        "zalo",
+        'S',
+        1,
+        88_000,
+        1000,
+        120_000,
+        None,
+        &["electron", "--no-sandbox", "/opt/zalo-linux/app"],
+    );
+    write_zeroed_environ(&proc_root, 7001);
+    // Electron child carries the route's `--user-data-dir` but its environ is masked too.
+    write_fake_proc_entry_with_starttime(
+        &proc_root,
+        7002,
+        "zalo (zygote)",
+        'S',
+        7001,
+        88_005,
+        1000,
+        40_000,
+        None,
+        &[
+            "electron",
+            "--no-sandbox",
+            "/opt/zalo-linux/app",
+            &format!("--user-data-dir={zdir_str}"),
+        ],
+    );
+    write_zeroed_environ(&proc_root, 7002);
+    // Unrelated process that must never be adopted.
+    write_fake_proc_entry_with_starttime(
+        &proc_root,
+        7099,
+        "sleep",
+        'S',
+        1,
+        88_010,
+        1000,
+        2_000,
+        None,
+        &["sleep", "30"],
+    );
+
+    // Precondition: per-entry verification fails for the MAIN process under yama masking.
+    let main_entry = read_proc_entry(&proc_root, 7001).unwrap();
+    assert!(!entry_matches_profile(
+        &main_entry,
+        &p.id,
+        &pdir,
+        Some(1000)
+    ));
+
+    // SingletonLock names the MAIN PID; discovery must recover the whole tree via the
+    // descendant `--user-data-dir` cmdline evidence.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("yama-test-host-7001", zdir.join("SingletonLock")).unwrap();
+
+    let tree = collect_profile_process_tree(&proc_root, &p.id, &pdir, &zdir, Some(1000));
+    assert_eq!(
+        tree.main_pid,
+        Some(7001),
+        "SingletonLock PID must be rediscovered via cmdline subtree when environ is masked"
+    );
+    assert!(tree.process_ids.contains(&7001));
+    assert!(tree.process_ids.contains(&7002));
+    assert!(
+        !tree.process_ids.contains(&7099),
+        "unrelated process must stay outside the verified tree"
+    );
+
+    // 7b. Unrelated lock PID (subtree carries NO profile/userData path evidence) must NOT be
+    //     adopted: absent DIM_PROFILE_ID alone is never a positive signal.
+    write_fake_proc_entry_with_starttime(
+        &proc_root,
+        7050,
+        "bash",
+        'S',
+        1,
+        88_020,
+        1000,
+        3_000,
+        None,
+        &["bash"],
+    );
+    #[cfg(unix)]
+    {
+        let _ = fs::remove_file(zdir.join("SingletonLock"));
+        std::os::unix::fs::symlink("yama-test-host-7050", zdir.join("SingletonLock")).unwrap();
+    }
+    let tree_unrelated = collect_profile_process_tree(&proc_root, &p.id, &pdir, &zdir, Some(1000));
+    assert!(
+        tree_unrelated.process_ids.is_empty(),
+        "lock PID without any cmdline path evidence must not be verified"
+    );
+
+    // 7c. Nonce-tracked hint whose recorded starttime matches the live PID, with the nonce
+    //     unreadable (zero-filled environ, no --setenv in cmdline — the real zalo-linux
+    //     route shape under `yama ptrace_scope=1`): the hint/lock PID agreement, the
+    //     starttime match, and the descendant `--user-data-dir` path evidence prove
+    //     ownership, so the tree MUST be discovered. Rejecting unreadable nonces here
+    //     would mark every healthy route launch "stopped/stale" on yama=1 systems
+    //     (observed E2E on Ubuntu before this fix).
+    let nonce = generate_instance_nonce();
+    fs::write(
+        pdir.join(".runtime-pid"),
+        serde_json::json!({
+            "pid": 7001,
+            "profile_id": p.id,
+            "instance_nonce": nonce,
+            "starttime_ticks": 88_000_u64,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        let _ = fs::remove_file(zdir.join("SingletonLock"));
+        std::os::unix::fs::symlink("yama-test-host-7001", zdir.join("SingletonLock")).unwrap();
+    }
+    let tree_nonce = collect_profile_process_tree(&proc_root, &p.id, &pdir, &zdir, Some(1000));
+    assert_eq!(
+        tree_nonce.main_pid,
+        Some(7001),
+        "hint+lock agreement with starttime match and descendant --user-data-dir evidence must verify the tree even when the nonce is unreadable"
+    );
+    assert!(tree_nonce.process_ids.contains(&7001));
+    assert!(tree_nonce.process_ids.contains(&7002));
+
+    // 7d. Hint nonce tracked, but the lock PID itself exposes a *readable conflicting*
+    //     nonce in its cmdline: the PID recorded in `.runtime-pid` demonstrably belongs to
+    //     a different instance and must be hard-rejected (no descendant rescue).
+    write_fake_proc_entry_with_starttime(
+        &proc_root,
+        7060,
+        "electron",
+        'S',
+        1,
+        88_030,
+        1000,
+        5_000,
+        None,
+        &[
+            "electron",
+            "--no-sandbox",
+            "--setenv",
+            "DIM_INSTANCE_NONCE",
+            "conflicting-nonce",
+            "/opt/zalo-linux/app",
+        ],
+    );
+    fs::write(
+        pdir.join(".runtime-pid"),
+        serde_json::json!({
+            "pid": 7060,
+            "profile_id": p.id,
+            "instance_nonce": nonce,
+            "starttime_ticks": 88_030_u64,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        let _ = fs::remove_file(zdir.join("SingletonLock"));
+        std::os::unix::fs::symlink("yama-test-host-7060", zdir.join("SingletonLock")).unwrap();
+    }
+    let tree_conflict = collect_profile_process_tree(&proc_root, &p.id, &pdir, &zdir, Some(1000));
+    assert!(
+        tree_conflict.process_ids.is_empty(),
+        "readable conflicting nonce on the lock PID must hard-reject the tree"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Regression 8. Live-lock stop protection (real /proc): hints preserved while lock PID alive
+// ---------------------------------------------------------------------------
+#[cfg(target_os = "linux")]
+#[test]
+fn regression_08_live_lock_stop_never_deletes_hints_and_verified_dead_cleans_up() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = ProfileRecord {
+        id: "8800aabb".to_owned(),
+        name: "Live Lock Guard".to_owned(),
+        directory_name: "livelock_8800aabb".to_owned(),
+        created_at: "2026-11-21T00:00:00Z".to_owned(),
+        last_launched_at: None,
+        zalo_user_id: None,
+        notes: String::new(),
+    };
+    let pdir = tmp.path().join(&p.directory_name);
+    ensure_linux_profile_layout(&p, &pdir).unwrap();
+    let zdir = linux_zalo_data_dir(&pdir);
+
+    // Real child process owned by this test (works for ANY uid; no ptrace assumptions).
+    let mut guard = ChildGuard(Some(
+        Command::new("sleep")
+            .arg("120")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("sleep must spawn"),
+    ));
+    let sleep_pid = guard.0.as_ref().unwrap().id();
+    let real_starttime =
+        dim_platform_linux::read_proc_stat_starttime(Path::new("/proc"), sleep_pid)
+            .expect("sleep pid must have a /proc stat entry");
+
+    // Hints name the live `sleep` process. Its tree is UNVERIFIABLE (no DIM tags, no profile
+    // paths in cmdline, no descendants), so `collect_profile_process_tree` returns empty — but
+    // the lock PID is demonstrably ALIVE.
+    fs::write(
+        pdir.join(".runtime-pid"),
+        serde_json::json!({
+            "pid": sleep_pid,
+            "profile_id": p.id,
+            "instance_nonce": "8800aabb8800aabb8800aabb8800aabb",
+            "starttime_ticks": real_starttime,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        format!("dim-test-host-{sleep_pid}"),
+        zdir.join("SingletonLock"),
+    )
+    .unwrap();
+
+    let adapter = LinuxPlatformAdapter::new();
+    let rt = adapter.inspect_profile(&p, &pdir).unwrap();
+    assert!(
+        !rt.running,
+        "unverifiable tree must not be reported as running (primary protection)"
+    );
+    let mut state = rt;
+    state.main_pid = Some(sleep_pid);
+
+    let stopped = adapter.stop(&state, &[], 150).unwrap();
+    assert_eq!(
+        stopped, 0,
+        "stop() must never signal the still-live unverified lock PID"
+    );
+    assert!(
+        pdir.join(".runtime-pid").exists(),
+        "hints must be preserved while the SingletonLock PID is alive"
+    );
+    assert!(
+        fs::symlink_metadata(zdir.join("SingletonLock")).is_ok(),
+        "live instance's SingletonLock must NOT be deleted"
+    );
+    assert!(
+        !zdir.join(".quit-signal").exists(),
+        "no quit-signal may be written for an unverified live lock PID"
+    );
+    // The `sleep` child is untouched.
+    assert!(read_proc_entry(Path::new("/proc"), sleep_pid).is_some());
+
+    // Verified-dead: terminate the process; the same stop() now cleans up hints.
+    {
+        let mut child = guard.0.take().unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    wait_until_absent(Path::new("/proc"), sleep_pid, 3_000);
+    let stopped_dead = adapter.stop(&state, &[], 300).unwrap();
+    assert_eq!(stopped_dead, 0);
+    assert!(
+        !pdir.join(".runtime-pid").exists(),
+        "verified-dead stop must clean up launch hints"
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn wait_until_absent(proc_path: &Path, pid: u32, timeout_ms: u64) {
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    while Instant::now() < deadline {
+        // A zombie still has a /proc entry; after `wait()` the entry disappears entirely.
+        if read_proc_entry(proc_path, pid).is_none() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
 }

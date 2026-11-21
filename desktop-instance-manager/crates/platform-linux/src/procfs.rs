@@ -149,9 +149,23 @@ pub fn parse_proc_status(status_text: &str) -> (u64, Option<u32>) {
     (rss_bytes, uid)
 }
 
+/// Returns `true` when `/proc/<pid>/environ` bytes were readable but consist entirely of NUL
+/// filler. Under `kernel.yama.ptrace_scope=1` a non-ancestor reader receives zero-filled bytes
+/// instead of an error, which would otherwise be indistinguishable from "no environment set".
+/// Such reads must be treated as *unknown* so callers fall through to `cmdline` matching.
+#[must_use]
+pub fn environ_bytes_zeroed(bytes: &[u8]) -> bool {
+    !bytes.is_empty() && bytes.iter().all(|&b| b == 0)
+}
+
 /// Parses a NUL-separated `/proc/<pid>/environ` byte buffer into a key-value map.
+/// Zero-filled (yama-masked) buffers are treated as unknown and yield an empty map so
+/// `cmdline`-based verification applies; see [`environ_bytes_zeroed`].
 #[must_use]
 pub fn parse_proc_environ(bytes: &[u8]) -> BTreeMap<String, String> {
+    if environ_bytes_zeroed(bytes) {
+        return BTreeMap::new();
+    }
     let mut map = BTreeMap::new();
     for raw_entry in bytes.split(|&b| b == 0) {
         if raw_entry.is_empty() {
@@ -459,14 +473,35 @@ pub fn collect_profile_process_tree(
         // after crash + PID reuse), `SingletonLock` for that recycled PID is also stale!
         if let Some(ref hint) = runtime_hint {
             if hint.pid == lock_pid && verified_runtime_root != Some(lock_pid) {
-                return false;
+                // Kernel `starttime_ticks` identity recorded at launch and still matching proves
+                // the SAME live process; only its profile tag is unverifiable (e.g. zero-filled
+                // `environ` under `yama ptrace_scope=1`), so allow cmdline-subtree verification
+                // below instead of rejecting outright.
+                let starttime_identity_ok = hint
+                    .starttime_ticks
+                    .is_some_and(|t| table.get(&lock_pid).is_some_and(|e| e.starttime_ticks == t));
+                if !starttime_identity_ok {
+                    return false;
+                }
             }
         }
         let Some(entry) = table.get(&lock_pid) else {
             return false;
         };
         if !entry_matches_profile(entry, profile_id, profile_dir, expected_uid) {
-            return false;
+            // Fallback for yama-masked `environ`: the lock PID's own cmdline may lack profile
+            // paths (e.g. `electron --no-sandbox /opt/zalo-linux/app`), so verify ownership via
+            // its own or a descendant's cmdline carrying the profile or Zalo userData directory
+            // (`--user-data-dir=<zalo_data_dir>` on Electron children).
+            return lock_pid_matches_profile_via_cmdline(
+                &table,
+                lock_pid,
+                profile_id,
+                profile_dir,
+                zalo_data_dir,
+                expected_uid,
+                expected_nonce,
+            );
         }
         if let Some(exp_nonce) = expected_nonce {
             match entry_instance_nonce(entry) {
@@ -736,4 +771,133 @@ fn cmdline_setenv_value<'a>(cmdline: &'a [String], key: &str) -> Option<&'a str>
         }
     }
     None
+}
+
+/// Verifies that a `SingletonLock` PID belongs to a profile when `/proc/<pid>/environ` is
+/// unreadable or zero-filled (e.g. `kernel.yama.ptrace_scope=1` masking a non-ancestor reader)
+/// and the PID's own `cmdline` lacks profile paths (`electron --no-sandbox /opt/zalo-linux/app`).
+///
+/// Ownership is proven when the PID itself, or any active descendant discovered by BFS over
+/// `ppid` links, has a `cmdline` argument containing `profile_dir` or `zalo_data_dir`
+/// (Electron children carry `--user-data-dir=<zalo_data_dir>`). Descendants tagged with a
+/// *different* `DIM_PROFILE_ID` are never trusted. Primary protection stays intact: absence of
+/// `DIM_PROFILE_ID` is never a positive signal on its own — concrete path evidence is required.
+///
+/// When `expected_nonce` is tracked (structured `.runtime-pid`), a *readable conflicting*
+/// nonce on the lock PID itself hard-rejects the subtree. Under `yama ptrace_scope=1` the
+/// nonce is unreadable (zero-filled environ, no `--setenv` on the zalo-linux route) even for
+/// a genuine launch, so absence alone is not a rejection: ownership is then proven by the
+/// hint/lock PID agreement, the recorded `starttime_ticks` match, and concrete
+/// `--user-data-dir` path evidence within the subtree. Subtrees without any path evidence
+/// stay unverifiable and are never signaled (see regression 8).
+#[must_use]
+fn lock_pid_matches_profile_via_cmdline(
+    table: &BTreeMap<u32, ProcEntry>,
+    lock_pid: u32,
+    profile_id: &str,
+    profile_dir: &Path,
+    zalo_data_dir: &Path,
+    expected_uid: Option<u32>,
+    expected_nonce: Option<&str>,
+) -> bool {
+    let profile_str = profile_dir.to_string_lossy();
+    let zalo_str = zalo_data_dir.to_string_lossy();
+    let cmdline_has_profile_path = |entry: &ProcEntry| {
+        entry
+            .cmdline
+            .iter()
+            .any(|arg| arg.contains(profile_str.as_ref()) || arg.contains(zalo_str.as_ref()))
+    };
+    let uid_allowed = |entry: &ProcEntry| {
+        expected_uid.is_none_or(|exp_u| entry.uid.is_none_or(|act_u| act_u == exp_u))
+    };
+
+    let mut children_map: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for entry in table.values() {
+        if entry.is_active() {
+            children_map.entry(entry.ppid).or_default().push(entry.pid);
+        }
+    }
+
+    let mut visited = BTreeSet::from([lock_pid]);
+    let mut queue = VecDeque::from([lock_pid]);
+    while let Some(cur) = queue.pop_front() {
+        let Some(entry) = table.get(&cur) else {
+            continue;
+        };
+        if !entry.is_active() || !uid_allowed(entry) {
+            continue;
+        }
+        if let Some(other_id) = entry_profile_id(entry) {
+            // Reject a *conflicting* tag; absence of `DIM_PROFILE_ID` is unknown, and
+            // ownership is still decided by the cmdline path evidence below.
+            if !other_id.eq_ignore_ascii_case(profile_id) {
+                if cur == lock_pid {
+                    // The lock PID itself openly claims another profile; never adopt it
+                    // through descendant evidence.
+                    return false;
+                }
+                continue;
+            }
+        }
+        if let Some(exp_nonce) = expected_nonce {
+            match entry_instance_nonce(entry) {
+                Some(actual_nonce) if actual_nonce == exp_nonce => {}
+                // Zero-filled/unreadable environ under `yama ptrace_scope=1` leaves the
+                // nonce unknown even for a genuine launch (the zalo-linux route runs
+                // without `bwrap`); ownership is then decided by the cmdline path
+                // evidence below.
+                None => {}
+                _ => {
+                    if cur == lock_pid {
+                        // Readable conflicting nonce on the lock PID: the PID recorded in
+                        // `.runtime-pid` demonstrably belongs to a different instance.
+                        return false;
+                    }
+                    continue;
+                }
+            }
+        }
+        if cmdline_has_profile_path(entry) {
+            return true;
+        }
+        if let Some(kids) = children_map.get(&cur) {
+            for &kid in kids {
+                if visited.insert(kid) {
+                    queue.push_back(kid);
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zeroed_environ_is_detected_as_unknown() {
+        assert!(environ_bytes_zeroed(&[0u8; 64]));
+        assert!(environ_bytes_zeroed(&[0]));
+        assert!(
+            !environ_bytes_zeroed(&[]),
+            "empty read means unreadable, not zero-filled"
+        );
+        assert!(!environ_bytes_zeroed(b"HOME=/home/u\0"));
+        assert!(!environ_bytes_zeroed(b"PATH=/usr/bin\0\0\0"));
+    }
+
+    #[test]
+    fn zeroed_environ_parses_to_unknown_empty_map() {
+        // Under yama ptrace_scope=1 a non-ancestor reader gets zero-filled bytes; parsing must
+        // yield an empty (unknown) map so verification falls through to cmdline matching.
+        let masked = vec![0u8; 128];
+        assert!(parse_proc_environ(&masked).is_empty());
+
+        let mut normal = b"DIM_PROFILE_ID=prof1\0HOME=/home/u\0".to_vec();
+        normal.push(0);
+        let map = parse_proc_environ(&normal);
+        assert_eq!(map.get("DIM_PROFILE_ID").map(String::as_str), Some("prof1"));
+    }
 }

@@ -77,7 +77,7 @@ Mỗi tài khoản được đặt trong một không gian lưu trữ riêng (`P
 | **Windows 10 / 11 (`x86_64`)** | Có (`Zalo.exe`) | **Hoạt động & Đã kiểm chứng L1/L2** | `cargo test` workspace + `src-tauri`, parity `dim-cli.exe` / `dim-host.ps1`, Tauri 2 native E2E (`12/12`), chạy song song `3` cửa sổ `Zalo 26.10.20` cùng Zalo gốc | Kiểm thử **L3 quét QR 2 tài khoản thật** đang ở mức `NOT_TESTED` chờ nghiệm thu trên máy người dùng; bản cài đặt là `UNSIGNED_DEVELOPMENT_ARTIFACT`. |
 | **Windows 11 bật Smart App Control (`SAC=1`)** | Có (`Zalo.exe`) | **Hoạt động qua Signed-Host Bridge** | Đã kiểm chứng trên máy bật `SAC=1` qua `ui-server.mjs` + `dim-host.ps1` | File `.exe`/`.msi` chưa ký số có thể bị `SAC=1` chặn; dùng trực tiếp **Signed-Host Bridge** từ mã nguồn (không tắt SAC). |
 | **macOS 11+ (`arm64` Apple Silicon; `WebIsolated` yêu cầu macOS 14+)** | Có (`/Applications/Zalo.app`) | **Đã build & kiểm chứng bundle/khởi chạy tự động / Chờ chứng chỉ Apple Developer ID & test `Zalo.app` thật** | Biên dịch trên `macos-15` (`arm64` `.dmg`), pass unit/scenario tests + `macos-release-acceptance.mjs` (cấu trúc bundle, Mach-O, dylibs, khởi chạy sạch) | **Intel `x86_64` chưa phát hành**; `release.yml` yêu cầu 6 Apple Developer Secrets (fail-closed) để ký/notarize; **chưa kiểm thử trên Mac vật lý hoặc `/Applications/Zalo.app` thật** (`LIVE_ZALO_NOT_TESTED`). |
-| **Ubuntu 22.04 / 24.04 LTS (`x86_64`)** | **Không** (VNG không phát hành bản Linux) | **Experimental (Manager + AppImage cục bộ / Fixture)** | Đã build `.deb` / `.AppImage` trên `ubuntu-24.04`, pass `dim-platform-linux` (`46/46`) + `C2` runtime fixture | **Official Zalo Desktop: `UNSUPPORTED`**. Chỉ dùng thử nghiệm NexaDock Manager, fixture kiểm thử hoặc AppImage cục bộ do bạn tự cung cấp. |
+| **Ubuntu 22.04 / 24.04 LTS (`x86_64`)** | **Không** (VNG không phát hành bản Linux) | **Experimental (Manager + AppImage cục bộ / Fixture + repack community)** | Đã build `.deb` / `.AppImage` trên `ubuntu-24.04`, pass `dim-platform-linux` (`46/46`) + `C2` runtime fixture | **Official Zalo Desktop: `UNSUPPORTED`**. Chỉ dùng thử nghiệm NexaDock Manager, fixture kiểm thử hoặc AppImage cục bộ do bạn tự cung cấp. Route Zalo desktop Linux không chính thức: repack community Experimental — NexaDock nhận diện được bản repack này; xem [`tools/zalo-linux-repack/`](tools/zalo-linux-repack/) và [Route vận hành](docs/operations.md). |
 
 ---
 
@@ -138,6 +138,7 @@ Tải gói cài đặt mới nhất (**`v0.1.1-beta.3`**) tại trang **[GitHub 
    ./NexaDock-0.1.1-beta.3-linux-x86_64.AppImage
    ```
 3. **Lưu ý:** VNG không cung cấp Zalo Desktop cho Linux; bản Ubuntu dành cho chạy thử giao diện Account Dock (WebKitGTK 4.1), fixture kiểm thử vòng đời `bwrap`/`XDG_*` hoặc AppImage cục bộ. Xem chi tiết: [Ubuntu AppImage Compatibility](desktop-instance-manager/docs/platform/ubuntu/appimage-compatibility.md).
+4. **Zalo desktop trên Linux (route Experimental):** có thể dùng bản repack community không chính thức — NexaDock nhận diện được. Xem [`tools/zalo-linux-repack/`](tools/zalo-linux-repack/) và [Route vận hành](docs/operations.md) (lưu ý: gọi thoại và đồng bộ chưa được kiểm chứng).
 
 </details>
 

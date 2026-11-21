@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Zalo
+Comment=Zalo Desktop (Linux repack of the official macOS client)
+Exec=AppRun
+Icon=zalo
+Categories=Network;InstantMessaging;
+Terminal=false
+StartupWMClass=Zalo

@@ -13,6 +13,7 @@
 | **Windows 11 (x64, Smart App Control ON)** | Yes (PE32 x86 `Zalo.exe`, `CN=VNG GROUP JSC`) | **`PARTIALLY_SUPPORTED`** (`SUPPORTED_AND_TESTED` via Signed-Host Bridge) | Host SAC verified (initially `1` at baseline; external transition to `0` logged cleanly) | **Signed-Host Bridge** (`scripts/dim-host.ps1` + `apps/desktop/ui-server.mjs`); standalone EXE distribution requires Authenticode cert (Gate F) |
 | **macOS (Apple Silicon `arm64` & Intel `x86_64`)** | Yes (`/Applications/Zalo.app`) | **`NOT_TESTED`** | Static `app.asar` + MIT `ducngfi` code review only | `dim-platform-macos` (`open -n -a ... --env CFFIXED_USER_HOME=...`, `SingletonLock`) — awaiting physical Mac test |
 | **Ubuntu 22.04 LTS / 24.04 LTS** | **No** (no VNG Linux build) | **`UNSUPPORTED`** (Official Zalo) / **`EXPERIMENTAL`** (Test fixture & local AppImage) | Static `app.asar` + `VN-Linux-Family` review only | `dim-platform-linux` (`HOME`/`XDG_*` + optional `bwrap`); Ubuntu 23.10+/24.04 AppArmor `--no-sandbox` caveat |
+| **Ubuntu 22.04 LTS / 24.04 LTS — `zalo-linux` community repack** | **No** (unofficial community repack of the macOS client) | **`EXPERIMENTAL`** (repack route, detected by NexaDock) | `crates/platform-linux/src/zalo_linux.rs` detection tests (audited allowlist `/usr/bin/zalo`, `/opt/zalo-linux/app`, provenance pinning) | Build from `tools/zalo-linux-repack/` in the repo root with a user-supplied `ZaloSetup-*.dmg` from zalo.me; voice calls & message sync unverified |
 
 ---
 

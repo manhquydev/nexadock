@@ -270,10 +270,11 @@ export const INSTALL_GUIDE_COPY: Record<Lang, InstallGuideCopy> = {
             shortTitle: 'Lưu ý về Zalo trên Linux',
             title: 'Bước 2: Phạm vi hỗ trợ trên Linux',
             summary:
-              'VNG hiện không phát hành ứng dụng Zalo Desktop chính thức cho Linux.',
+              'VNG hiện không phát hành ứng dụng Zalo Desktop chính thức cho Linux, nhưng có route repack community Experimental — NexaDock nhận diện được.',
             checklist: [
               'Bản Ubuntu (.deb / .AppImage) phục vụ kiểm thử giao diện NexaDock Manager và môi trường mô phỏng (fixture).',
-              'Để chạy đa tài khoản Zalo Desktop thực tế, hãy dùng trên Windows 10/11 hoặc macOS Apple Silicon.'
+              'Muốn chạy Zalo Desktop thực tế trên Linux: dùng route repack community không chính thức (Experimental) — tự dựng từ thư mục tools/zalo-linux-repack/ trong repo với file DMG bạn tự tải từ zalo.me; xem tài liệu docs/operations.md.',
+              'Lưu ý trung thực: client repack không chính thức (không phải của VNG), gọi thoại/video và đồng bộ tin nhắn chưa được kiểm chứng.'
             ],
             visual: 'linux-note'
           }
@@ -476,10 +477,11 @@ export const INSTALL_GUIDE_COPY: Record<Lang, InstallGuideCopy> = {
             shortTitle: 'Linux support scope',
             title: 'Step 2: Understand Linux scope',
             summary:
-              'VNG does not publish an official Zalo Desktop client for Linux.',
+              'VNG does not publish an official Zalo Desktop client for Linux, but an Experimental community repack route exists — NexaDock detects it.',
             checklist: [
               'The Linux packages let you evaluate the NexaDock Manager UI and synthetic fixtures.',
-              'For live multi-account Zalo Desktop sessions, use Windows 10/11 or Apple Silicon macOS.'
+              'To run the real Zalo Desktop on Linux: use the unofficial community repack route (Experimental) — build it yourself from the tools/zalo-linux-repack/ folder in this repo with a DMG you download from zalo.me; see docs/operations.md.',
+              'Honest caveats: the repack client is unofficial (not from VNG); voice/video calls and message sync are unverified.'
             ],
             visual: 'linux-note'
           }

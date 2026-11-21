@@ -28,6 +28,7 @@ Cross-platform-structured multi-instance profile manager for **Zalo Desktop**, e
 | **macOS** ([`crates/platform-macos`](crates/platform-macos/)) | **NOT_TESTED** | Uses `open -n -a ... --env CFFIXED_USER_HOME=...` and parameterized `osascript`; `/tmp/socketzalorecv2021` shared socket caveat noted. |
 | **Ubuntu / Linux — Official Zalo Desktop** | **UNSUPPORTED** | No official native Linux Zalo Desktop release; [`crates/platform-linux`](crates/platform-linux/) explicitly returns `UnsupportedPlatform`. |
 | **Ubuntu / Linux — Local `.AppImage` / Fixture** | **EXPERIMENTAL (`NOT_TESTED` on Linux host)** | `bwrap` (`bubblewrap`) + `HOME`/`XDG_*` sandbox isolation implemented; requires Ubuntu `23.10+`/`24.04` AppArmor `--no-sandbox` handling when unprivileged namespaces are restricted. |
+| **Ubuntu / Linux — `zalo-linux` community repack route** | **EXPERIMENTAL** | NexaDock detects the unofficial community repack (`/usr/bin/zalo`, `/opt/zalo-linux/app` — [`crates/platform-linux/src/zalo_linux.rs`](crates/platform-linux/src/zalo_linux.rs), audited-allowlist pinning + provenance). Build it yourself from [`../tools/zalo-linux-repack/`](../tools/zalo-linux-repack/) with your own ZaloSetup DMG; voice calls & sync unverified. See [`../docs/operations.md`](../docs/operations.md). |
 
 ---
 

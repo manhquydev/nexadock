@@ -1321,7 +1321,12 @@ impl InstanceLauncher for LinuxPlatformAdapter {
             // process); clean up hints and NEVER signal unverified `state.main_pid`!
             if initial_tree.process_ids.is_empty() {
                 reap_direct_children(&[main_pid]);
-                cleanup_post_stop_hints(&state.profile_dir, &state.zalo_data_dir);
+                // Cleanup ONLY when the instance is verified dead: an empty verified tree with a
+                // STILL-LIVE lock PID means the tree is merely unverifiable (e.g. yama-masked
+                // environ) — never delete the live instance's hints.
+                if !singleton_lock_pid_alive(&state.zalo_data_dir) {
+                    cleanup_post_stop_hints(&state.profile_dir, &state.zalo_data_dir);
+                }
                 return Ok(0);
             }
 
@@ -1358,7 +1363,7 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                     &state.zalo_data_dir,
                     Some(euid),
                 );
-                if live.process_ids.is_empty() {
+                if live.process_ids.is_empty() && !singleton_lock_pid_alive(&state.zalo_data_dir) {
                     cleanup_post_stop_hints(&state.profile_dir, &state.zalo_data_dir);
                     return Ok(initial_count);
                 }
@@ -1431,7 +1436,9 @@ impl InstanceLauncher for LinuxPlatformAdapter {
             std::thread::sleep(std::time::Duration::from_millis(40));
             reap_direct_children(&initial_targets);
             reap_direct_children(&remaining.process_ids);
-            cleanup_post_stop_hints(&state.profile_dir, &state.zalo_data_dir);
+            if !singleton_lock_pid_alive(&state.zalo_data_dir) {
+                cleanup_post_stop_hints(&state.profile_dir, &state.zalo_data_dir);
+            }
             Ok(initial_count)
         }
         #[cfg(not(target_os = "linux"))]
@@ -1578,6 +1585,17 @@ fn reap_direct_children(pids: &[u32]) {
 fn cleanup_post_stop_hints(profile_dir: &Path, zalo_data_dir: &Path) {
     let _ = remove_file_no_follow(&profile_dir.join(".runtime-pid"));
     let _ = remove_file_no_follow(&zalo_data_dir.join(".quit-signal"));
+}
+
+/// Returns `true` when the PID named by `SingletonLock`/`lockfile` in `zalo_data_dir` is still a
+/// live `/proc` entry. When this is `true` the instance may still be running even though
+/// `collect_profile_process_tree` could not verify it (e.g. yama-masked `environ`), so hint
+/// cleanup must be skipped: deleting launch hints of a live instance would orphan it.
+#[cfg(target_os = "linux")]
+fn singleton_lock_pid_alive(zalo_data_dir: &Path) -> bool {
+    read_lock_pid(zalo_data_dir)
+        .and_then(|pid| read_proc_entry(Path::new("/proc"), pid))
+        .is_some_and(|entry| entry.is_active())
 }
 
 #[cfg(target_os = "linux")]
