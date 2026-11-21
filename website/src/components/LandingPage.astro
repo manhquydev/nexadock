@@ -33,33 +33,57 @@ const signingLabel =
       ? 'Bản thử nghiệm chưa ký số'
       : 'Unsigned beta build'
     : release.signingStatus;
-const secTags =
-  lang === 'vi'
-    ? {
-        sec1: 'SEC-01 // KHÔNG GIAN TÁCH BIỆT',
-        sec2: 'SEC-02 // MÔ PHỎNG & GIAO DIỆN THỰC TẾ',
-        sec3: 'SEC-03 // KIẾN TRÚC AN TOÀN',
-        sec4: 'SEC-04 // MA TRẬN NỀN TẢNG',
-        sec5: 'SEC-05 // TẢI XUỐNG & KIỂM CHỨNG'
-      }
-    : {
-        sec1: 'SEC-01 // ISOLATED WORKSPACE',
-        sec2: 'SEC-02 // INTERACTIVE & DESKTOP UI',
-        sec3: 'SEC-03 // SAFETY ARCHITECTURE',
-        sec4: 'SEC-04 // PLATFORM MATRIX',
-        sec5: 'SEC-05 // RELEASES & CHECKSUMS'
-      };
+
+const vi = lang === 'vi';
+
+// Rack units: LED state derives only from the platform facts already in the copy.
+// Windows beta tested (running), macOS packaged but unsigned (running, warn chip),
+// Linux experimental (amber LED + explicit Experimental label).
+const rackUnits = [
+  {
+    num: 'U01',
+    name: vi ? 'Windows 10 / 11 (x64)' : 'Windows 10 / 11 (x64)',
+    os: copy.compat.rows[0].zalo,
+    led: 'running' as const,
+    ledLabel: copy.compat.rows[0].status,
+    chip: null as 'warn' | null,
+    chipLabel: null as string | null,
+    note: copy.compat.rows[0].note,
+    extra: copy.compat.rows[1].note,
+  },
+  {
+    num: 'U02',
+    name: vi ? 'macOS Apple Silicon (arm64)' : 'macOS Apple Silicon (arm64)',
+    os: copy.compat.rows[2].zalo,
+    led: 'running' as const,
+    ledLabel: copy.compat.rows[2].status,
+    chip: 'warn' as const,
+    chipLabel: copy.download.prereleaseBadge,
+    note: copy.compat.rows[2].note,
+    extra: null,
+  },
+  {
+    num: 'U03',
+    name: vi ? 'Linux (Ubuntu 24.04 x64)' : 'Linux (Ubuntu 24.04 x64)',
+    os: copy.compat.rows[3].zalo,
+    led: 'attention' as const,
+    ledLabel: vi ? 'Experimental' : 'Experimental',
+    chip: null as 'warn' | null,
+    chipLabel: null as string | null,
+    note: copy.compat.rows[3].note,
+    extra: null,
+  },
+];
 ---
 <BaseLayout lang={lang} canonicalPath={lang === 'vi' ? '/' : '/en/'}>
   <section class="hero-section bp-grid-surface">
     <div class="container hero-grid">
       <div>
-        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec1}</span></p>
         <h1 class="hero-title">{copy.hero.title}</h1>
         <p class="hero-lead">{copy.hero.lead}</p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="#download">
-            {copy.hero.primaryCta} ({release.tag})
+            {copy.hero.primaryCta}
           </a>
           <a class="btn btn-secondary" href="https://github.com/manhquydev/nexadock">
             {copy.hero.secondaryCta}
@@ -90,7 +114,6 @@ const secTags =
   <section class="section" id="experience">
     <div class="container">
       <div class="section-header">
-        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec2}</span></p>
         <h2 class="section-title">{copy.showcase.title}</h2>
         <p class="section-desc">{copy.showcase.desc}</p>
       </div>
@@ -98,7 +121,6 @@ const secTags =
       <WorkspaceShowcase lang={lang} />
 
       <div class="section-header section-header--spaced">
-        <p class="bp-fig-id">{lang === 'vi' ? 'FIG. 03 // ẢNH CHỤP DESKTOP' : 'FIG. 03 // DESKTOP CAPTURES'}</p>
         <h2 class="section-title">{copy.shots.title}</h2>
         <p class="section-desc">{copy.shots.desc}</p>
       </div>
@@ -123,7 +145,6 @@ const secTags =
   <section class="section bp-grid-surface" id="safety">
     <div class="container">
       <div class="section-header">
-        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec3}</span></p>
         <h2 class="section-title">{copy.isolation.title}</h2>
         <p class="section-desc">{copy.isolation.desc}</p>
       </div>
@@ -131,36 +152,15 @@ const secTags =
       <IsolationBlueprint lang={lang} />
 
       <div class="mechanism-list">
-        {copy.isolation.items.map((item, idx) => (
+        {copy.isolation.items.map((item) => (
           <div class="mechanism-row">
             <div class="mechanism-head">
               <span class="pixel-icon-box" aria-hidden="true">
-                {idx === 0 && (
-                  <svg width="20" height="20" viewBox="0 0 16 16" shape-rendering="crispEdges">
-                    <rect x="5" y="2" width="6" height="2" fill="#7c3b04" />
-                    <rect x="3" y="4" width="2" height="4" fill="#7c3b04" />
-                    <rect x="11" y="4" width="2" height="4" fill="#7c3b04" />
-                    <rect x="2" y="8" width="12" height="6" fill="#7c3b04" />
-                    <rect x="7" y="10" width="2" height="3" fill="#fef3c7" />
-                  </svg>
-                )}
-                {idx === 1 && (
-                  <svg width="20" height="20" viewBox="0 0 16 16" shape-rendering="crispEdges">
-                    <rect x="1" y="3" width="6" height="2" fill="#145e56" />
-                    <rect x="1" y="5" width="14" height="9" fill="#145e56" />
-                    <rect x="3" y="7" width="4" height="5" fill="#ffffff" />
-                    <rect x="9" y="7" width="4" height="2" fill="#ffffff" />
-                    <rect x="9" y="10" width="4" height="2" fill="#9fd3b4" />
-                  </svg>
-                )}
-                {idx === 2 && (
-                  <svg width="20" height="20" viewBox="0 0 16 16" shape-rendering="crispEdges">
-                    <rect x="2" y="2" width="12" height="3" fill="#172723" />
-                    <rect x="3" y="6" width="10" height="8" fill="#172723" />
-                    <rect x="6" y="8" width="4" height="2" fill="#efece5" />
-                    <rect x="5" y="11" width="6" height="1" fill="#9fd3b4" />
-                  </svg>
-                )}
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="2.5" y="2.5" width="13" height="13" rx="1" />
+                  <circle cx="9" cy="9" r="3" />
+                  <path d="M9 2.5v3.5M9 12v3.5M2.5 9H6M12 9h3.5" />
+                </svg>
               </span>
               <h3>{item.name}</h3>
             </div>
@@ -174,35 +174,28 @@ const secTags =
   <section class="section" id="platforms">
     <div class="container">
       <div class="section-header">
-        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec4}</span></p>
         <h2 class="section-title">{copy.compat.title}</h2>
         <p class="section-desc">{copy.compat.desc}</p>
       </div>
 
-      <div class="table-wrap">
-        <table class="compat-table">
-          <thead>
-            <tr>
-              {copy.compat.headers.map((h) => (
-                <th scope="col">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {copy.compat.rows.map((row) => (
-              <tr>
-                <td data-label={copy.compat.headers[0]}><strong>{row.os}</strong></td>
-                <td data-label={copy.compat.headers[1]}>{row.zalo}</td>
-                <td data-label={copy.compat.headers[2]}>
-                  <span class={`state-tag ${row.kind === 'ok' ? 'is-ok' : row.kind === 'warn' ? 'is-warn' : 'is-neutral'}`}>
-                    {row.status}
-                  </span>
-                </td>
-                <td data-label={copy.compat.headers[3]}>{row.note}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div class="rack-list">
+        {rackUnits.map((unit) => (
+          <div class="rack-unit">
+            <span class="rack-unit-id" aria-hidden="true">{unit.num}</span>
+            <div class="rack-unit-body">
+              <h3>{unit.name}</h3>
+              <p class="rack-unit-os">{unit.os}</p>
+              <span class={`led led--${unit.led}`}>{unit.ledLabel}</span>
+              {unit.note && <p class="rack-unit-note">{unit.note}</p>}
+              {unit.extra && <p class="rack-unit-note">{unit.extra}</p>}
+            </div>
+            <div class="rack-unit-aside">
+              {unit.chip && (
+                <span class={`state-tag is-${unit.chip}`}>{unit.chipLabel}</span>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   </section>
@@ -210,7 +203,6 @@ const secTags =
   <section class="section" id="download">
     <div class="container">
       <div class="section-header">
-        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>{secTags.sec5}</span></p>
         <h2 class="section-title">{copy.download.title} ({release.tag})</h2>
         <div class="download-meta-row">
           <span class="state-tag is-warn">{copy.download.prereleaseBadge}</span>
@@ -241,7 +233,6 @@ const secTags =
                   <div class="asset-specs">
                     <span>Windows x64</span>
                     <span>{fmtBytes(a.size)}</span>
-                    <span>{release.signingStatus}</span>
                     {a.sha256 && <span>SHA-256: {a.sha256}</span>}
                   </div>
                 </div>
@@ -278,7 +269,6 @@ const secTags =
                   <div class="asset-specs">
                     <span>macOS arm64</span>
                     <span>{fmtBytes(a.size)}</span>
-                    <span>{release.signingStatus}</span>
                     {a.sha256 && <span>SHA-256: {a.sha256}</span>}
                   </div>
                 </div>
@@ -332,7 +322,6 @@ const secTags =
                   <div class="asset-specs">
                     <span>Linux x64</span>
                     <span>{fmtBytes(a.size)}</span>
-                    <span>{release.signingStatus}</span>
                     {a.sha256 && <span>SHA-256: {a.sha256}</span>}
                   </div>
                 </div>

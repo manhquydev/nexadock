@@ -3,30 +3,20 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 <BaseLayout lang="vi" title="404 | NexaDock" canonicalPath="/404.html" noindex={true}>
-  <section class="section section--404 bp-grid-surface">
+  <section class="section section--404">
     <div class="container container--404">
-      <div class="notfound-card bp-frame">
-        <p class="bp-tag"><span class="bp-tag-pixel" aria-hidden="true"></span><span>ERR-404 // ROUTE UNMAPPED</span></p>
+      <div class="notfound-card">
         <div class="notfound-visual" aria-hidden="true">
-          <svg width="144" height="56" viewBox="0 0 36 14" shape-rendering="crispEdges">
-            <!-- Left Dock Rail -->
-            <rect x="1" y="2" width="12" height="10" fill="#172723" />
-            <rect x="3" y="4" width="3" height="6" fill="#f6f5f2" />
-            <rect x="7" y="4" width="4" height="2" fill="#145e56" />
-            <rect x="7" y="7" width="4" height="3" fill="#dcebe5" />
-            <!-- Disconnected Blueprint Dashed Gap -->
-            <rect x="15" y="6" width="2" height="2" fill="#7c3b04" />
-            <rect x="19" y="6" width="2" height="2" fill="#7c3b04" />
-            <!-- Detached Pixel Window Node -->
-            <rect x="23" y="2" width="12" height="10" fill="#efece5" />
-            <rect x="23" y="2" width="12" height="2" fill="#8a8377" />
-            <rect x="27" y="6" width="1" height="1" fill="#7c3b04" />
-            <rect x="30" y="6" width="1" height="1" fill="#7c3b04" />
-            <rect x="28" y="7" width="2" height="2" fill="#7c3b04" />
-            <rect x="27" y="9" width="1" height="1" fill="#7c3b04" />
-            <rect x="30" y="9" width="1" height="1" fill="#7c3b04" />
+          <svg width="168" height="48" viewBox="0 0 42 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="1" y="1" width="16" height="10" rx="1" />
+            <circle cx="5" cy="6" r="1.5" fill="#3fb950" stroke="none" />
+            <path d="M9 6h5" />
+            <path d="M22 6h3" stroke-dasharray="2 2" />
+            <path d="M30 3.5h8M30 6h8M30 8.5h5" />
+            <rect x="27" y="1" width="14" height="10" rx="1" stroke-dasharray="3 2" />
           </svg>
         </div>
+        <p class="notfound-code">ERR-404</p>
         <h1 class="section-title">Không tìm thấy trang (404)</h1>
         <p class="section-desc">
           Đường dẫn bạn truy cập không tồn tại trên trang NexaDock.
@@ -42,23 +32,3 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     </div>
   </section>
 </BaseLayout>
-
-<style>
-  .notfound-card {
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
-    padding: var(--space-6);
-    box-shadow: var(--shadow-frame);
-  }
-
-  .notfound-visual {
-    margin-bottom: var(--space-4);
-  }
-
-  .notfound-en {
-    margin: var(--space-2) 0 var(--space-5);
-    font-size: 0.9375rem;
-    color: var(--text-secondary);
-  }
-</style>

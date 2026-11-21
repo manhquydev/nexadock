@@ -127,3 +127,91 @@ const macPrimaryPath = '~/Library/Application Support/ZaloData';
     </div>
   </section>
 </BaseLayout>
+
+<style>
+  .mechanism-list {
+    display: grid;
+    gap: var(--space-5);
+  }
+
+  .mechanism-row {
+    background: var(--nd-panel, #14181d);
+    border: 1px solid var(--nd-line, #232a32);
+    border-radius: 4px;
+    padding: var(--space-4);
+  }
+
+  .mechanism-row h2 {
+    margin: 0 0 var(--space-3);
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--nd-ink, #e6e9ee);
+  }
+
+  .mechanism-row p,
+  .mechanism-row li {
+    color: var(--nd-ink-2, #9aa3ad);
+    line-height: 1.6;
+    max-width: 72ch;
+    text-wrap: pretty;
+  }
+
+  .mechanism-row strong {
+    color: var(--nd-ink, #e6e9ee);
+  }
+
+  .code-inline {
+    font-family: var(--nd-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 0.875em;
+    color: var(--nd-ink, #e6e9ee);
+    background: var(--nd-raised, #1a1f26);
+    border: 1px solid var(--nd-line, #232a32);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  .cmd-block {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    background: var(--nd-bg, #0b0e11);
+    border: 1px solid var(--nd-line, #232a32);
+    border-radius: 4px;
+    padding: var(--space-2) var(--space-3);
+    margin-top: var(--space-3);
+  }
+
+  .cmd-block code {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-family: var(--nd-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 0.8125rem;
+    color: var(--nd-ink, #e6e9ee);
+  }
+
+  .cmd-copy-btn {
+    flex: none;
+    min-height: 36px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: 1px solid var(--nd-line, #232a32);
+    background: var(--nd-raised, #1a1f26);
+    color: var(--nd-ink, #e6e9ee);
+    font-family: var(--nd-sans, -apple-system, "Segoe UI", Roboto, sans-serif);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .cmd-copy-btn:hover {
+    border-color: var(--nd-ink-2, #9aa3ad);
+  }
+
+  .cmd-copy-btn:focus-visible {
+    outline: 2px solid var(--nd-cta, #2f81f7);
+    outline-offset: 2px;
+  }
+</style>

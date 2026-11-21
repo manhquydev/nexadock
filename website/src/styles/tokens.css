@@ -1,82 +1,96 @@
-/* hallmark: v2.0.0 | shape: workbench-editorial | theme: nexadock-alabaster-jade | genre: modern-minimal | signature: real-app-hero-and-account-rail */
-/* critique: warm alabaster paper ground with deep jade primary signal, semantic surface/text/border/action/status tokens, and zero generic gradients */
+/* Rack Console | world per DESIGN.md | dark near-black ground, hairline panels, LED-only color */
 
 :root {
-  /* Surface tokens */
-  --surface-page: #f6f5f2;
-  --surface-elevated: #ffffff;
-  --surface-inset: #efece5;
-  --surface-subtle: #e7e3da;
-  --surface-hover: #eae6dd;
-  --surface-ink: #142420;
+  /* ---- Shared token contract (DESIGN.md --nd-* names, mandatory) ---- */
+  --nd-bg: #0b0e11;
+  --nd-panel: #14181d;
+  --nd-raised: #1a1f26;
+  --nd-ink: #e6e9ee;
+  --nd-ink-2: #9aa3ad;
+  --nd-line: #232a32;
+  --nd-led-running: #3fb950;
+  --nd-led-attention: #d29922;
+  --nd-led-idle: #6e7681;
+  --nd-led-danger: #f85149;
+  --nd-cta: #1f6feb;
+  --nd-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, "JetBrains Mono", monospace;
+  --nd-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-  /* Text tokens (all >= 4.5:1 on page/elevated/inset) */
-  --text-primary: #172723;
-  --text-secondary: #484641;
-  --text-muted: #5b5852;
+  /* ---- Semantic aliases (existing components read these) ---- */
+  --surface-page: var(--nd-bg);
+  --surface-elevated: var(--nd-panel);
+  --surface-inset: var(--nd-raised);
+  --surface-subtle: var(--nd-raised);
+  --surface-hover: #1f252e;
+  --surface-ink: var(--nd-ink);
+
+  /* Text: all >= 4.5:1 on bg/panel/raised */
+  --text-primary: var(--nd-ink);
+  --text-secondary: var(--nd-ink-2);
+  --text-muted: #8b96a2;
   --text-on-accent: #ffffff;
-  --text-on-ink: #f6f5f2;
+  --text-on-ink: var(--nd-bg);
 
-  /* Border tokens */
-  --border-subtle: #ded8cd;
-  --border-strong: #8a8377;
-  --border-focus: #0f4c45;
+  /* Borders */
+  --border-subtle: var(--nd-line);
+  --border-strong: #2e3742;
+  --border-focus: var(--nd-cta);
 
-  /* Action tokens */
-  --action-primary: #145e56;
-  --action-primary-hover: #0f4c45;
-  --action-primary-pressed: #0b3c36;
-  --action-secondary: #ffffff;
-  --action-secondary-hover: #efece5;
-  --action-secondary-pressed: #e5e0d6;
-  --action-soft: #dcebe5;
-  --accent-soft: #bce5d8;
+  /* Actions */
+  --action-primary: var(--nd-cta);
+  --action-primary-hover: #3b82f6;
+  --action-primary-pressed: #1a5fc4;
+  --action-secondary: var(--nd-raised);
+  --action-secondary-hover: var(--surface-hover);
+  --action-secondary-pressed: #252b34;
+  --action-soft: var(--nd-panel);
+  --accent-soft: var(--nd-panel);
 
-  /* Blueprint surface & technical annotation tokens */
-  --bp-grid-major: rgba(20, 94, 86, 0.11);
-  --bp-crosshair: #8a8377;
-  --bp-callout-bg: #efece5;
+  /* Rack annotations */
+  --bp-grid-major: transparent;
+  --bp-crosshair: #2e3742;
+  --bp-callout-bg: var(--nd-raised);
 
-  /* Desktop parity account identity palette (WCAG AA >= 4.5:1 with #ffffff) */
-  --id-blue: #1e56a0;
-  --id-teal: #0f6b66;
-  --id-green: #1c6e3b;
-  --id-amber: #a14a0a;
-  --id-coral: #a92b5b;
-  --id-plum: #6d3b9e;
-  --id-indigo: #4b468e;
-  --id-slate: #0e6488;
+  /* Account identity: neutral in Rack Console; color lives in the state LED */
+  --id-blue: #9aa3ad;
+  --id-teal: #9aa3ad;
+  --id-green: #9aa3ad;
+  --id-amber: #9aa3ad;
+  --id-coral: #9aa3ad;
+  --id-plum: #9aa3ad;
+  --id-indigo: #9aa3ad;
+  --id-slate: #9aa3ad;
 
-  /* Status tokens (WCAG AA contrast >= 4.5:1) */
-  --status-ok-fg: #135d34;
-  --status-ok-bg: #e6f4ec;
-  --status-ok-border: #9fd3b4;
+  /* Status chips (text >= 4.5:1 on dark tinted ground) */
+  --status-ok-fg: #4ec964;
+  --status-ok-bg: rgba(63, 185, 80, 0.12);
+  --status-ok-border: rgba(63, 185, 80, 0.4);
 
-  --status-warn-fg: #7c3b04;
-  --status-warn-bg: #fef3c7;
-  --status-warn-border: #e5c068;
+  --status-warn-fg: #d9a83f;
+  --status-warn-bg: rgba(210, 153, 34, 0.12);
+  --status-warn-border: rgba(210, 153, 34, 0.4);
 
-  --status-error-fg: #8c1d18;
-  --status-error-bg: #fdecec;
-  --status-error-border: #e5a39f;
+  --status-error-fg: #f66a62;
+  --status-error-bg: rgba(248, 81, 73, 0.12);
+  --status-error-border: rgba(248, 81, 73, 0.4);
 
-  --status-info-fg: #134e6f;
-  --status-info-bg: #e7f3fa;
-  --status-info-border: #9cc7e0;
+  --status-info-fg: #6ea8f5;
+  --status-info-bg: rgba(31, 111, 235, 0.12);
+  --status-info-border: rgba(31, 111, 235, 0.4);
 
-  /* Disabled state tokens */
-  --disabled-bg: #eae7e0;
-  --disabled-fg: #6b6760;
-  --disabled-border: #d5d0c5;
+  /* Disabled */
+  --disabled-bg: #171c22;
+  --disabled-fg: #59636e;
+  --disabled-border: #232a32;
 
   /* Typography */
-  --font-sans: "Be Vietnam Pro", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  --font-sans: var(--nd-sans);
+  --font-mono: var(--nd-mono);
 
-  /* Radii */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  /* Radii: rack controls are 4px */
+  --radius-sm: 4px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
   --radius-pill: 999px;
 
   /* Spacing scale */
@@ -94,7 +108,9 @@
   --container-max: 1180px;
   --container-narrow: 840px;
   --container-404: 600px;
-  --shadow-frame: 0 12px 32px rgba(20, 36, 32, 0.08), 0 1px 3px rgba(20, 36, 32, 0.05);
+
+  /* Depth: single soft shadow, low alpha (Calm Precision) */
+  --shadow-frame: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 @media (forced-colors: active) {

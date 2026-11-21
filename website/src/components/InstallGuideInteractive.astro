@@ -97,7 +97,6 @@ function renderVisualLabel(visual: GuideVisualId): string {
             {os.steps.map((step, sIdx) => (
               <button
                 type="button"
-                class={`guide-step-btn ${sIdx === 0 ? 'is-active' : ''}`}
                 role="tab"
                 id={`${idPrefix}-${os.id}-step-tab-${sIdx}`}
                 aria-controls={`${idPrefix}-${os.id}-step-panel-${sIdx}`}
@@ -105,7 +104,13 @@ function renderVisualLabel(visual: GuideVisualId): string {
                 tabindex={sIdx === 0 ? '0' : '-1'}
                 data-guide-step-tab={sIdx}
                 data-guide-os={os.id}
+                class:list={[
+                  'guide-step-btn',
+                  'guide-led-state',
+                  sIdx === 0 ? 'is-current' : 'is-pending'
+                ]}
               >
+                <span class="guide-led" aria-hidden="true"></span>
                 <span class="guide-step-num">{sIdx + 1}</span>
                 <span class="guide-step-text">{step.shortTitle}</span>
               </button>
@@ -302,19 +307,38 @@ function renderVisualLabel(visual: GuideVisualId): string {
                           <div class="mock-sub">Windows 10/11 &amp; macOS arm64 for live Zalo</div>
                         </div>
                       </div>
+                      <div class="mock-row is-warn">
+                        <span class="mock-badge is-warn">EXP</span>
+                        <div>
+                          <div class="mock-strong">Community repack — Experimental</div>
+                          <div class="mock-sub">tools/zalo-linux-repack/ + docs/operations.md</div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
 
               <div class="guide-copy-box">
-                <h3>{step.title}</h3>
+                <h2>{step.title}</h2>
                 <p class="guide-summary">{step.summary}</p>
                 <ul class="guide-checklist">
                   {step.checklist.map((item) => (
                     <li>{item}</li>
                   ))}
                 </ul>
+                {step.links && step.links.length > 0 && (
+                  <p class="guide-links">
+                    {step.links.map((link, lIdx) => (
+                      <>
+                        {lIdx > 0 && <span aria-hidden="true"> · </span>}
+                        <a href={link.href} target="_blank" rel="noopener noreferrer">
+                          {link.label}
+                        </a>
+                      </>
+                    ))}
+                  </p>
+                )}
                 {step.tip && (
                   <p class="guide-tip">
                     <span class="state-tag is-ok">{step.tip}</span>
@@ -401,6 +425,9 @@ function renderVisualLabel(visual: GuideVisualId): string {
         stepTabs.forEach((t, i) => {
           const active = i === current;
           t.classList.toggle('is-active', active);
+          t.classList.toggle('is-current', active);
+          t.classList.toggle('is-done', i < current);
+          t.classList.toggle('is-pending', i > current);
           t.setAttribute('aria-selected', active ? 'true' : 'false');
           t.setAttribute('tabindex', active ? '0' : '-1');
         });
@@ -446,8 +473,8 @@ function renderVisualLabel(visual: GuideVisualId): string {
 <style>
   .guide-shell {
     margin-top: var(--space-5);
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-strong);
+    background: var(--nd-raised, #1a1f26);
+    border: 1px solid var(--nd-line, #232a32);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-frame);
     overflow: hidden;
@@ -460,8 +487,8 @@ function renderVisualLabel(visual: GuideVisualId): string {
     justify-content: space-between;
     gap: var(--space-2) var(--space-3);
     padding: 12px 16px;
-    background: var(--surface-inset);
-    border-bottom: 1px solid var(--border-subtle);
+    background: var(--nd-bg, #0b0e11);
+    border-bottom: 1px solid var(--nd-line, #232a32);
   }
 
   .guide-brand {
@@ -474,12 +501,12 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .guide-fig-tag {
-    font-family: var(--font-mono);
+    font-family: var(--nd-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.6875rem;
     font-weight: 600;
-    color: var(--action-primary);
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-strong);
+    color: var(--nd-ink-2, #9aa3ad);
+    background: var(--nd-raised, #1a1f26);
+    border: 1px solid var(--nd-line, #232a32);
     border-radius: 3px;
     padding: 1px 6px;
     flex: none;
@@ -490,13 +517,13 @@ function renderVisualLabel(visual: GuideVisualId): string {
     align-items: center;
     padding: 2px 8px;
     border-radius: 4px;
-    font-family: var(--font-mono);
+    font-family: var(--nd-sans, -apple-system, "Segoe UI", Roboto, sans-serif);
     font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 0.04em;
-    background: var(--status-info-bg);
-    color: var(--status-info-fg);
-    border: 1px solid var(--status-info-border);
+    background: var(--nd-panel, #14181d);
+    color: var(--nd-ink-2, #9aa3ad);
+    border: 1px solid var(--nd-line, #232a32);
   }
 
   .guide-toolbar {
@@ -506,14 +533,14 @@ function renderVisualLabel(visual: GuideVisualId): string {
     justify-content: space-between;
     gap: var(--space-3) var(--space-4);
     padding: var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--surface-page);
+    border-bottom: 1px solid var(--nd-line, #232a32);
+    background: var(--nd-panel, #14181d);
   }
 
   .guide-subtitle {
     margin: 0;
     font-size: 0.9375rem;
-    color: var(--text-secondary);
+    color: var(--nd-ink-2, #9aa3ad);
     max-width: 56ch;
   }
 
@@ -522,8 +549,8 @@ function renderVisualLabel(visual: GuideVisualId): string {
     flex-wrap: wrap;
     gap: 4px;
     padding: 4px;
-    background: var(--surface-inset);
-    border: 1px solid var(--border-subtle);
+    background: var(--nd-bg, #0b0e11);
+    border: 1px solid var(--nd-line, #232a32);
     border-radius: var(--radius-sm);
     max-width: 100%;
   }
@@ -534,16 +561,16 @@ function renderVisualLabel(visual: GuideVisualId): string {
     min-block-size: 36px;
     padding: 6px 12px;
     border-radius: 4px;
-    font-family: var(--font-sans);
+    font-family: var(--nd-sans, -apple-system, "Segoe UI", Roboto, sans-serif);
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--nd-ink-2, #9aa3ad);
     cursor: pointer;
   }
 
   .guide-os-tab[aria-selected="true"] {
-    background: var(--surface-elevated);
-    color: var(--text-primary);
+    background: var(--nd-raised, #1a1f26);
+    color: var(--nd-ink, #e6e9ee);
   }
 
   .guide-grid {
@@ -562,14 +589,14 @@ function renderVisualLabel(visual: GuideVisualId): string {
     flex-direction: column;
     gap: var(--space-3);
     padding: var(--space-4);
-    background: var(--surface-page);
-    border-right: 1px solid var(--border-subtle);
+    background: var(--nd-panel, #14181d);
+    border-right: 1px solid var(--nd-line, #232a32);
   }
 
   @media (max-width: 820px) {
     .guide-steps-col {
       border-right: 0;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--nd-line, #232a32);
     }
   }
 
@@ -582,10 +609,10 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .guide-counter {
-    font-family: var(--font-mono);
+    font-family: var(--nd-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--nd-ink-2, #9aa3ad);
   }
 
   .guide-step-rail {
@@ -599,11 +626,11 @@ function renderVisualLabel(visual: GuideVisualId): string {
     gap: 10px;
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--nd-line, #232a32);
     border-radius: var(--radius-sm);
-    background: var(--surface-elevated);
-    color: var(--text-primary);
-    font-family: var(--font-sans);
+    background: var(--nd-raised, #1a1f26);
+    color: var(--nd-ink, #e6e9ee);
+    font-family: var(--nd-sans, -apple-system, "Segoe UI", Roboto, sans-serif);
     font-size: 0.875rem;
     font-weight: 500;
     text-align: left;
@@ -611,12 +638,12 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .guide-step-btn:hover {
-    background: var(--surface-hover);
+    background: var(--nd-raised, #1a1f26);
   }
 
   .guide-step-btn.is-active {
-    border-color: var(--action-primary);
-    background: var(--action-soft);
+    border-color: var(--nd-ink-2, #9aa3ad);
+    background: var(--nd-bg, #0b0e11);
     font-weight: 700;
   }
 
@@ -627,18 +654,18 @@ function renderVisualLabel(visual: GuideVisualId): string {
     border-radius: 999px;
     display: grid;
     place-items: center;
-    font-family: var(--font-mono);
+    font-family: var(--nd-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.75rem;
     font-weight: 700;
-    background: var(--surface-inset);
-    color: var(--text-primary);
-    border: 1px solid var(--border-strong);
+    background: var(--nd-bg, #0b0e11);
+    color: var(--nd-ink, #e6e9ee);
+    border: 1px solid var(--nd-line, #232a32);
   }
 
   .guide-step-btn.is-active .guide-step-num {
-    background: var(--action-primary);
-    color: var(--text-on-accent);
-    border-color: var(--action-primary);
+    background: var(--nd-led-attention, #d29922);
+    color: #0b0e11;
+    border-color: var(--nd-led-attention, #d29922);
   }
 
   .guide-step-text {
@@ -661,15 +688,15 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .guide-nav-btn:disabled {
-    background: var(--disabled-bg);
-    color: var(--disabled-fg);
-    border-color: var(--disabled-border);
+    background: var(--nd-bg, #0b0e11);
+    color: var(--nd-led-idle, #6e7681);
+    border-color: var(--nd-line, #232a32);
     cursor: not-allowed;
   }
 
   .guide-stage-col {
     padding: var(--space-4);
-    background: var(--surface-elevated);
+    background: var(--nd-raised, #1a1f26);
   }
 
   .guide-stage-pane {
@@ -682,9 +709,9 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .guide-visual-card {
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--nd-line, #232a32);
     border-radius: var(--radius-md);
-    background: var(--surface-inset);
+    background: var(--nd-bg, #0b0e11);
     overflow: hidden;
   }
 
@@ -694,8 +721,8 @@ function renderVisualLabel(visual: GuideVisualId): string {
     justify-content: space-between;
     gap: var(--space-2);
     padding: 8px 12px;
-    background: var(--surface-subtle);
-    border-bottom: 1px solid var(--border-subtle);
+    background: var(--nd-bg, #0b0e11);
+    border-bottom: 1px solid var(--nd-line, #232a32);
   }
 
   .guide-dots {
@@ -707,13 +734,13 @@ function renderVisualLabel(visual: GuideVisualId): string {
     width: 8px;
     height: 8px;
     border-radius: 999px;
-    background: var(--border-strong);
+    background: var(--nd-line, #232a32);
   }
 
   .guide-visual-caption {
-    font-family: var(--font-mono);
+    font-family: var(--nd-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.75rem;
-    color: var(--text-secondary);
+    color: var(--nd-ink-2, #9aa3ad);
   }
 
   .mock-canvas {
@@ -721,8 +748,8 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .mock-window {
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-strong);
+    background: var(--nd-raised, #1a1f26);
+    border: 1px solid var(--nd-line, #232a32);
     border-radius: var(--radius-sm);
     padding: var(--space-3);
     display: grid;
@@ -730,15 +757,15 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .mock-window.is-win-blue {
-    background: var(--status-info-bg);
-    border-color: var(--status-info-border);
+    background: var(--nd-panel, #14181d);
+    border-color: var(--nd-led-danger, #f85149);
   }
 
   .mock-title {
     font-size: 0.8125rem;
     font-weight: 700;
-    color: var(--text-primary);
-    border-bottom: 1px solid var(--border-subtle);
+    color: var(--nd-ink, #e6e9ee);
+    border-bottom: 1px solid var(--nd-line, #232a32);
     padding-bottom: 6px;
   }
 
@@ -748,13 +775,13 @@ function renderVisualLabel(visual: GuideVisualId): string {
     gap: 10px;
     padding: 8px 10px;
     border-radius: 4px;
-    border: 1px solid var(--border-subtle);
-    background: var(--surface-page);
+    border: 1px solid var(--nd-line, #232a32);
+    background: var(--nd-panel, #14181d);
   }
 
   .mock-row.is-ok {
-    background: var(--status-ok-bg);
-    border-color: var(--status-ok-border);
+    background: var(--nd-panel, #14181d);
+    border-color: var(--nd-led-running, #3fb950);
   }
 
   .mock-badge {
@@ -765,20 +792,20 @@ function renderVisualLabel(visual: GuideVisualId): string {
     border-radius: 4px;
     display: grid;
     place-items: center;
-    font-family: var(--font-mono);
+    font-family: var(--nd-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.75rem;
     font-weight: 700;
   }
 
   .mock-badge.is-ok {
-    background: var(--action-primary);
-    color: var(--text-on-accent);
+    background: var(--nd-led-running, #3fb950);
+    color: #0b0e11;
   }
 
   .mock-badge.is-muted {
-    background: var(--surface-subtle);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-strong);
+    background: var(--nd-bg, #0b0e11);
+    color: var(--nd-ink-2, #9aa3ad);
+    border: 1px solid var(--nd-line, #232a32);
   }
 
   .mock-app-mark {
@@ -788,9 +815,10 @@ function renderVisualLabel(visual: GuideVisualId): string {
     border-radius: 6px;
     display: grid;
     place-items: center;
-    background: var(--action-primary);
-    color: var(--text-on-accent);
-    font-family: var(--font-mono);
+    background: var(--nd-raised, #1a1f26);
+    color: var(--nd-ink, #e6e9ee);
+    border: 1px solid var(--nd-line, #232a32);
+    font-family: var(--nd-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.75rem;
     font-weight: 700;
   }
@@ -798,12 +826,12 @@ function renderVisualLabel(visual: GuideVisualId): string {
   .mock-strong {
     font-size: 0.875rem;
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--nd-ink, #e6e9ee);
   }
 
   .mock-sub {
     font-size: 0.8125rem;
-    color: var(--text-secondary);
+    color: var(--nd-ink-2, #9aa3ad);
   }
 
   .mock-dmg-stage {
@@ -823,15 +851,15 @@ function renderVisualLabel(visual: GuideVisualId): string {
     padding: var(--space-3);
     min-width: 112px;
     border-radius: var(--radius-sm);
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-strong);
+    background: var(--nd-raised, #1a1f26);
+    border: 1px solid var(--nd-line, #232a32);
     font-size: 0.8125rem;
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--nd-ink, #e6e9ee);
   }
 
   .mock-app-tile.is-highlighted {
-    border-color: var(--action-primary);
+    border-color: var(--nd-led-attention, #d29922);
   }
 
   .mock-arrow-wrap {
@@ -842,7 +870,7 @@ function renderVisualLabel(visual: GuideVisualId): string {
   .mock-arrow {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--action-primary);
+    color: var(--nd-ink-2, #9aa3ad);
   }
 
   .mock-hint {
@@ -850,7 +878,7 @@ function renderVisualLabel(visual: GuideVisualId): string {
     text-align: center;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--nd-ink-2, #9aa3ad);
   }
 
   .mock-split {
@@ -866,8 +894,8 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .mock-dialog {
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-subtle);
+    background: var(--nd-raised, #1a1f26);
+    border: 1px solid var(--nd-line, #232a32);
     border-radius: var(--radius-sm);
     padding: var(--space-3);
     display: grid;
@@ -876,7 +904,7 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .mock-dialog.is-highlight {
-    border-color: var(--action-primary);
+    border-color: var(--nd-led-attention, #d29922);
   }
 
   .mock-btn-pill,
@@ -890,14 +918,14 @@ function renderVisualLabel(visual: GuideVisualId): string {
   }
 
   .mock-btn-pill {
-    background: var(--surface-inset);
-    color: var(--text-primary);
-    border: 1px solid var(--border-strong);
+    background: var(--nd-bg, #0b0e11);
+    color: var(--nd-ink, #e6e9ee);
+    border: 1px solid var(--nd-line, #232a32);
   }
 
   .mock-btn-accent {
-    background: var(--action-primary);
-    color: var(--text-on-accent);
+    background: var(--nd-cta, #2f81f7);
+    color: #ffffff;
   }
 
   .mock-win-actions {
@@ -907,17 +935,17 @@ function renderVisualLabel(visual: GuideVisualId): string {
     margin-top: 4px;
   }
 
-  .guide-copy-box h3 {
+  .guide-copy-box h2 {
     margin: 0 0 6px;
-    font-size: 1.0625rem;
+    font-size: 1.1875rem;
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--nd-ink, #e6e9ee);
   }
 
   .guide-summary {
     margin: 0 0 var(--space-2);
     font-size: 0.9375rem;
-    color: var(--text-secondary);
+    color: var(--nd-ink-2, #9aa3ad);
   }
 
   .guide-checklist {
@@ -926,7 +954,7 @@ function renderVisualLabel(visual: GuideVisualId): string {
     display: grid;
     gap: 6px;
     font-size: 0.9375rem;
-    color: var(--text-primary);
+    color: var(--nd-ink, #e6e9ee);
   }
 
   .guide-tip {
@@ -935,9 +963,9 @@ function renderVisualLabel(visual: GuideVisualId): string {
 
   .guide-optional-cmd {
     margin-top: var(--space-3);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--nd-line, #232a32);
     border-radius: var(--radius-sm);
-    background: var(--surface-page);
+    background: var(--nd-panel, #14181d);
     padding: var(--space-2) var(--space-3);
   }
 
@@ -945,10 +973,75 @@ function renderVisualLabel(visual: GuideVisualId): string {
     cursor: pointer;
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--nd-ink-2, #9aa3ad);
   }
 
   .guide-optional-cmd .cmd-block {
     margin-top: var(--space-2);
+  }
+
+  .guide-led {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--nd-led-idle, #6e7681);
+  }
+
+  .guide-led-state.is-current .guide-led {
+    background: var(--nd-led-attention, #d29922);
+  }
+
+  .guide-led-state.is-done .guide-led {
+    background: var(--nd-led-running, #3fb950);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .guide-led-state.is-current .guide-led {
+      animation: guide-led-pulse 2s ease-in-out infinite;
+    }
+  }
+
+  @keyframes guide-led-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  .guide-links {
+    margin: var(--space-2) 0 0;
+    font-size: 0.875rem;
+    color: var(--nd-ink-2, #9aa3ad);
+  }
+
+  .guide-links a {
+    color: var(--nd-ink, #e6e9ee);
+    text-underline-offset: 3px;
+  }
+
+  .guide-links a:hover,
+  .guide-links a:focus-visible {
+    color: var(--nd-cta, #2f81f7);
+  }
+
+  .mock-row.is-warn {
+    border-color: var(--nd-led-attention, #d29922);
+  }
+
+  .mock-badge.is-warn {
+    background: var(--nd-led-attention, #d29922);
+    color: #0b0e11;
+  }
+
+  .guide-os-tab:focus-visible,
+  .guide-step-btn:focus-visible,
+  .guide-nav-btn:focus-visible,
+  .cmd-copy-btn:focus-visible {
+    outline: 2px solid var(--nd-cta, #2f81f7);
+    outline-offset: 2px;
   }
 </style>

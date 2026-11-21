@@ -1,0 +1,34 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<BaseLayout lang="en" title="404 | NexaDock" canonicalPath="/en/404.html" altPath="/404.html" noindex={true}>
+  <section class="section section--404">
+    <div class="container container--404">
+      <div class="notfound-card">
+        <div class="notfound-visual" aria-hidden="true">
+          <svg width="168" height="48" viewBox="0 0 42 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="1" y="1" width="16" height="10" rx="1" />
+            <circle cx="5" cy="6" r="1.5" fill="#3fb950" stroke="none" />
+            <path d="M9 6h5" />
+            <path d="M22 6h3" stroke-dasharray="2 2" />
+            <path d="M30 3.5h8M30 6h8M30 8.5h5" />
+            <rect x="27" y="1" width="14" height="10" rx="1" stroke-dasharray="3 2" />
+          </svg>
+        </div>
+        <p class="notfound-code">ERR-404</p>
+        <h1 class="section-title">Page not found (404)</h1>
+        <p class="section-desc">
+          The requested route does not exist on the NexaDock website.
+        </p>
+        <p class="notfound-en" lang="vi">
+          Không tìm thấy trang — đường dẫn bạn truy cập không tồn tại trên trang NexaDock.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href={`${base}/en/`}>English Home</a>
+          <a class="btn btn-secondary" href={`${base}/`}>Trang chủ (Tiếng Việt)</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

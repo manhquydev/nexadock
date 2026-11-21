@@ -85,3 +85,5 @@ Cookies-journal
 Desktop.ini
 .DS_Store
 Thumbs.db
+# Impeccable project hook contains a machine-local absolute executable path
+.gemini/settings.json

@@ -50,12 +50,7 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
         <link rel="alternate" hreflang="x-default" href={viAbsoluteUrl} />
       </>
     )}
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-    />
+
     <link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
     <link rel="alternate icon" href={`${base}/favicon.ico`} />
     <meta property="og:type" content="website" />
@@ -84,11 +79,11 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
         </a>
 
         <nav class="nav-links" aria-label={lang === 'vi' ? 'Điều hướng chính' : 'Primary navigation'}>
-          <a href={`${homeHref}#experience`}>{copy.nav.experience}</a>
-          <a href={`${homeHref}#safety`}>{copy.nav.safety}</a>
-          <a href={`${homeHref}#platforms`}>{copy.nav.platforms}</a>
-          <a href={`${homeHref}#download`}>{copy.nav.download}</a>
-          <a href={docsHref}>{copy.nav.docs}</a>
+          <a href={`${homeHref}#experience`}><span class="nav-num" aria-hidden="true">01</span>{copy.nav.experience}</a>
+          <a href={`${homeHref}#safety`}><span class="nav-num" aria-hidden="true">02</span>{copy.nav.safety}</a>
+          <a href={`${homeHref}#platforms`}><span class="nav-num" aria-hidden="true">03</span>{copy.nav.platforms}</a>
+          <a href={`${homeHref}#download`}><span class="nav-num" aria-hidden="true">04</span>{copy.nav.download}</a>
+          <a href={docsHref}><span class="nav-num" aria-hidden="true">05</span>{copy.nav.docs}</a>
         </nav>
 
         <div class="header-actions">
@@ -96,8 +91,13 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
             <a href={viHref} aria-current={lang === 'vi' ? 'page' : undefined}>VI</a>
             <a href={enHref} aria-current={lang === 'en' ? 'page' : undefined}>EN</a>
           </div>
-          <a class="btn btn-primary header-cta" href={`${homeHref}#download`}>
-            {copy.nav.cta} ({release.tag})
+          <a
+            class="releases-link"
+            href="https://github.com/manhquydev/nexadock/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Releases
           </a>
           <button
             type="button"
@@ -117,8 +117,13 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
         <a href={`${homeHref}#platforms`}>{copy.nav.platforms}</a>
         <a href={`${homeHref}#download`}>{copy.nav.download}</a>
         <a href={docsHref}>{copy.nav.docs}</a>
-        <a class="btn btn-primary" href={`${homeHref}#download`}>
-          {copy.nav.cta} ({release.tag})
+        <a
+          class="releases-link"
+          href="https://github.com/manhquydev/nexadock/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Releases
         </a>
       </div>
     </header>
@@ -134,6 +139,9 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
             <img src={`${base}/brand/nexadock-mark.svg`} alt="" width="22" height="22" />
             <span>NexaDock</span>
           </a>
+          <p class="footer-version">
+            <a href={release.htmlUrl} style="color: inherit">{release.tag}</a> · {release.isPrerelease ? (lang === 'vi' ? 'Pre-release' : 'Pre-release') : (lang === 'vi' ? 'Bản phát hành' : 'Release')}
+          </p>
           <p class="footer-disclaimer">{copy.footer.disclaimer}</p>
         </div>
         <div>

@@ -24,6 +24,7 @@ export interface GuideStep {
   tip?: string;
   optionalCmdLabel?: string;
   optionalCmd?: string;
+  links?: { label: string; href: string }[];
   visual: GuideVisualId;
 }
 
@@ -276,6 +277,16 @@ export const INSTALL_GUIDE_COPY: Record<Lang, InstallGuideCopy> = {
               'Muốn chạy Zalo Desktop thực tế trên Linux: dùng route repack community không chính thức (Experimental) — tự dựng từ thư mục tools/zalo-linux-repack/ trong repo với file DMG bạn tự tải từ zalo.me; xem tài liệu docs/operations.md.',
               'Lưu ý trung thực: client repack không chính thức (không phải của VNG), gọi thoại/video và đồng bộ tin nhắn chưa được kiểm chứng.'
             ],
+            links: [
+              {
+                label: 'tools/zalo-linux-repack/ (GitHub)',
+                href: 'https://github.com/manhquydev/nexadock/tree/main/tools/zalo-linux-repack'
+              },
+              {
+                label: 'docs/operations.md (GitHub)',
+                href: 'https://github.com/manhquydev/nexadock/blob/main/docs/operations.md'
+              }
+            ],
             visual: 'linux-note'
           }
         ]
@@ -482,6 +493,16 @@ export const INSTALL_GUIDE_COPY: Record<Lang, InstallGuideCopy> = {
               'The Linux packages let you evaluate the NexaDock Manager UI and synthetic fixtures.',
               'To run the real Zalo Desktop on Linux: use the unofficial community repack route (Experimental) — build it yourself from the tools/zalo-linux-repack/ folder in this repo with a DMG you download from zalo.me; see docs/operations.md.',
               'Honest caveats: the repack client is unofficial (not from VNG); voice/video calls and message sync are unverified.'
+            ],
+            links: [
+              {
+                label: 'tools/zalo-linux-repack/ (GitHub)',
+                href: 'https://github.com/manhquydev/nexadock/tree/main/tools/zalo-linux-repack'
+              },
+              {
+                label: 'docs/operations.md (GitHub)',
+                href: 'https://github.com/manhquydev/nexadock/blob/main/docs/operations.md'
+              }
             ],
             visual: 'linux-note'
           }
