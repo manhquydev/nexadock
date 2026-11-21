@@ -107,9 +107,14 @@ impl TelegramTransport for MockTransport {
         })
     }
 }
+#[cfg(feature = "live")]
+mod file_session;
 
 #[cfg(feature = "live")]
 mod live;
+
+#[cfg(feature = "live")]
+pub use file_session::{FileSession, FileSessionError};
 
 #[cfg(feature = "live")]
 pub use live::{LiveTransport, PendingPhoneLogin, TelegramCredentials};

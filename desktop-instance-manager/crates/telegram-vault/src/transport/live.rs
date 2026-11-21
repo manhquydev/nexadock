@@ -1,13 +1,13 @@
-//! Phone-code authenticated MTProto transport backed by an isolated SQLite session.
+//! Phone-code authenticated MTProto transport backed by an isolated JSON file session.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::transport::file_session::FileSession;
 use grammers_client::client::LoginToken;
 use grammers_client::media::InputMedia;
 use grammers_client::sender::SenderPool;
 use grammers_client::{Client, SignInError};
-use grammers_session::storages::SqliteSession;
 use tokio::runtime::Runtime;
 
 use crate::transport::{RemoteRef, TelegramTransport};
@@ -82,8 +82,7 @@ impl LiveTransport {
         let session_path = profile_session_path(data_dir.as_ref(), &profile_id)?;
         let runtime = build_runtime()?;
         let session = Arc::new(
-            runtime
-                .block_on(SqliteSession::open(&session_path))
+            FileSession::open(&session_path)
                 .map_err(|error| VaultError::Transport(error.to_string()))?,
         );
         let pool = SenderPool::new(session, api_id);
@@ -115,8 +114,7 @@ impl LiveTransport {
         let session_path = profile_session_path(data_dir.as_ref(), &profile_id)?;
         let runtime = build_runtime()?;
         let session = Arc::new(
-            runtime
-                .block_on(SqliteSession::open(&session_path))
+            FileSession::open(&session_path)
                 .map_err(|error| VaultError::Transport(error.to_string()))?,
         );
         let pool = SenderPool::new(session, credentials.api_id);

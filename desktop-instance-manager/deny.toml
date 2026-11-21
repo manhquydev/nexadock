@@ -26,6 +26,8 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    # notify (file watcher used by the Telegram Vault engine) is CC0-1.0.
+    "CC0-1.0",
     "ISC",
     "Unicode-3.0",
     "Zlib",
