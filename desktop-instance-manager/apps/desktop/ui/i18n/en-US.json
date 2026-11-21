@@ -216,7 +216,11 @@
       "status": "Support status",
       "strategy": "Mechanism",
       "limits": "Limitations",
-      "empty": "No platform compatibility data."
+      "empty": "No platform compatibility data.",
+      "linuxCommunityRepack": {
+        "strategy": "Community repack detected: the zalo-linux package launches Zalo Desktop with an isolated HOME/XDG environment and a per-instance ZALO_DATA_DIR.",
+        "limits": "Unofficial community client — NOT signed or endorsed by VNG. Voice/video calls are limited because native call helpers are stubbed on Linux; weigh the risk before using sensitive accounts."
+      }
     },
     "noLogs": "No logs available."
   },

@@ -216,7 +216,11 @@
       "status": "Mức độ hỗ trợ",
       "strategy": "Cơ chế",
       "limits": "Giới hạn",
-      "empty": "Chưa có dữ liệu tương thích nền tảng."
+      "empty": "Chưa có dữ liệu tương thích nền tảng.",
+      "linuxCommunityRepack": {
+        "strategy": "Phát hiện bản đóng gói lại của cộng đồng: gói zalo-linux khởi chạy Zalo Desktop với môi trường HOME/XDG tách biệt và ZALO_DATA_DIR riêng cho từng phiên.",
+        "limits": "Ứng dụng không chính thức từ cộng đồng — KHÔNG do VNG ký hoặc chứng thực. Cuộc gọi thoại/video bị hạn chế vì các mô-đun gốc bị thay thế trên Linux; hãy cân nhắc rủi ro trước khi dùng tài khoản quan trọng."
+      }
     },
     "noLogs": "Chưa có nhật ký nào."
   },

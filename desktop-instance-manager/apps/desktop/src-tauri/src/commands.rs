@@ -603,6 +603,33 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, 
             "limits": "On Ubuntu 24.04+, configure an AppArmor userns profile in /etc/apparmor.d/ for local AppImages (never pass --no-sandbox); never bundle proprietary VNG app.asar.",
         })
     };
+    // Linux official-launch row: honest `UNSUPPORTED` for a missing official build, or
+    // `EXPERIMENTAL` provenance when the audited community `zalo-linux` repack is detected.
+    // `strategy_key`/`limits_key` let the UI render locale strings (vi-VN/en-US parity) while
+    // the plain `strategy`/`limits` values stay as English fallbacks.
+    let linux_official_row = if caps.platform == PlatformKind::Linux
+        && caps.official_zalo_status == dim_core::SupportStatus::Experimental
+    {
+        serde_json::json!({
+            "platform": "Ubuntu LTS (Community repack zalo-linux)",
+            "status": format_status(caps.official_zalo_status),
+            "strategy": "Community repack detected (zalo-linux package): launcher /usr/bin/zalo with app payload under /opt/zalo-linux; isolated HOME/XDG plus per-instance ZALO_DATA_DIR",
+            "limits": "Unofficial community client (NOT VNG signed or endorsed); voice/video calls limited by stubbed native helpers.",
+            "strategy_key": "diagnostics.readiness.linuxCommunityRepack.strategy",
+            "limits_key": "diagnostics.readiness.linuxCommunityRepack.limits",
+        })
+    } else {
+        serde_json::json!({
+            "platform": "Ubuntu LTS (Official Zalo)",
+            "status": if caps.platform == PlatformKind::Linux {
+                format_status(caps.official_zalo_status)
+            } else {
+                "UNSUPPORTED"
+            },
+            "strategy": "No official VNG Linux desktop build exists",
+            "limits": "Official VNG Linux package does not exist.",
+        })
+    };
     let user_home = current_user_home();
     let sanitized_logs: Vec<String> = caps
         .diagnostics
@@ -628,12 +655,7 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, 
         "platform_support_matrix": [
             win_row,
             mac_row,
-            {
-                "platform": "Ubuntu LTS (Official Zalo)",
-                "status": "UNSUPPORTED",
-                "strategy": "No official VNG Linux desktop build exists",
-                "limits": "Official VNG Linux package does not exist.",
-            },
+            linux_official_row,
             linux_appimage_row,
             {
                 "platform": "WebIsolated (Zalo Web Child WebView)",

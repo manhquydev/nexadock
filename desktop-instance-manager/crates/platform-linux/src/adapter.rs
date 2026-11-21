@@ -43,6 +43,7 @@ use crate::layout::{
     BwrapSandboxPlan, DesktopSocketSurface, LauncherLifetimePolicy, APPARMOR_NO_SANDBOX_NOTE,
 };
 use crate::procfs::{collect_primary_process_tree, collect_profile_process_tree, read_lock_pid};
+use crate::zalo_linux::ZaloLinuxAllowlist;
 
 #[cfg(target_os = "linux")]
 use crate::isolation::find_executable_in_path;
@@ -71,6 +72,11 @@ pub struct LinuxPlatformAdapter {
     lifetime_policy: LauncherLifetimePolicy,
     portal_file_chooser: bool,
     pinned_sha256: Option<String>,
+    /// Audited-allowlist snapshot of the community `zalo-linux` route (wrapper + payload
+    /// digests + app-dir uid/mode), recorded at discovery time and re-verified before every
+    /// launch (`None` until a route probe audited the bytes). In-memory only: it resets per
+    /// process, so each process's first route use re-audits the current bytes.
+    zalo_linux_pinned_allowlist: std::sync::Arc<std::sync::Mutex<Option<ZaloLinuxAllowlist>>>,
     virtual_env: Option<VirtualLinuxEnv>,
 }
 
@@ -90,6 +96,7 @@ impl LinuxPlatformAdapter {
             lifetime_policy: LauncherLifetimePolicy::PersistentDetachedSession,
             portal_file_chooser: true,
             pinned_sha256: None,
+            zalo_linux_pinned_allowlist: std::sync::Arc::new(std::sync::Mutex::new(None)),
             virtual_env: None,
         }
     }
@@ -153,6 +160,7 @@ impl LinuxPlatformAdapter {
             lifetime_policy: LauncherLifetimePolicy::PersistentDetachedSession,
             portal_file_chooser: true,
             pinned_sha256: None,
+            zalo_linux_pinned_allowlist: std::sync::Arc::new(std::sync::Mutex::new(None)),
             virtual_env: Some(VirtualLinuxEnv {
                 fs_root,
                 proc_root,
@@ -270,6 +278,21 @@ impl LinuxPlatformAdapter {
             .as_ref()
             .map_or_else(|| Path::new("/"), |v| v.fs_root.as_path())
     }
+
+    /// Returns the audited-allowlist snapshot recorded for the community `zalo-linux` route.
+    fn recorded_zalo_linux_allowlist(&self) -> Option<ZaloLinuxAllowlist> {
+        self.zalo_linux_pinned_allowlist
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    /// Records the audited-allowlist snapshot for the community `zalo-linux` route.
+    fn record_zalo_linux_allowlist(&self, snapshot: ZaloLinuxAllowlist) {
+        if let Ok(mut guard) = self.zalo_linux_pinned_allowlist.lock() {
+            *guard = Some(snapshot);
+        }
+    }
 }
 
 impl ApplicationLocator for LinuxPlatformAdapter {
@@ -356,11 +379,74 @@ impl ApplicationLocator for LinuxPlatformAdapter {
             }
         }
 
+        // Community `zalo-linux` repack route (Experimental): detected only when both the
+        // audited wrapper launcher and the application directory exist. The wrapper is
+        // hazard-audited and its exact SHA-256 is recorded here for launch-time re-verification;
+        // the official-gate Unsupported semantics stay intact when the route is absent or the
+        // audited allowlist rejects a present wrapper.
+        let mut zalo_linux_rejection: Option<String> = None;
+        if custom_root.is_none() {
+            let route = match crate::zalo_linux::probe_zalo_linux_route(self.active_fs_root(), None)
+            {
+                Ok(route) => route,
+                Err(rejection) => {
+                    zalo_linux_rejection = Some(rejection.to_string());
+                    None
+                }
+            };
+            if let Some(route) = route {
+                self.record_zalo_linux_allowlist(ZaloLinuxAllowlist::from_route(&route));
+                let mut notes = vec![
+                    format!(
+                        "Audited allowlist: wrapper SHA-256 {} is pinned; app/package.json and the bundled Electron binary digests plus app-directory uid/mode are recorded and re-verified at launch. Changes to those checked inputs revoke the route; other application payload files are not hashed, so same-user edits to them may go undetected.",
+                        route.launcher_sha256
+                    ),
+                    "Payload trust boundary: the repack payload is NOT VNG-signed; integrity relies on the discovery-time snapshot and filesystem ownership (the repack commonly installs user-owned, sometimes group-writable), so treat the payload as user-trust and verify package provenance before sensitive use.".to_owned(),
+                    "UNOFFICIAL community client: NOT VNG signed or endorsed; verify the package provenance before using sensitive accounts.".to_owned(),
+                    APPARMOR_NO_SANDBOX_NOTE.to_owned(),
+                ];
+                #[cfg(unix)]
+                if route
+                    .app_dir_mode_bits
+                    .is_some_and(|mode| mode & 0o020 != 0)
+                {
+                    notes.push(
+                        "Advisory: the zalo-linux application directory is group-writable (common repack default); payload writes by same-group processes cannot be prevented, only detected at the next launch."
+                            .to_owned(),
+                    );
+                }
+                return Ok(ApplicationInstallation {
+                    is_valid: true,
+                    platform: PlatformKind::Linux,
+                    install_root: route.install_root.clone(),
+                    launcher_path: Some(route.launcher_path.clone()),
+                    executable_path: Some(
+                        route
+                            .electron_path
+                            .clone()
+                            .unwrap_or_else(|| route.app_dir.clone()),
+                    ),
+                    app_asar_path: None,
+                    version: route.version.clone(),
+                    signature_status: route.signature_status(),
+                    signer_subject: None,
+                    support_status: crate::zalo_linux::ZaloLinuxRoute::support_status(),
+                    notes,
+                    error: None,
+                });
+            }
+        }
+
         let mut notes = vec![
             "OFFICIAL_ZALO_UNSUPPORTED: VNG does not ship an official native Linux Zalo Desktop release."
                 .to_owned(),
             APPARMOR_NO_SANDBOX_NOTE.to_owned(),
         ];
+        if let Some(rejection) = zalo_linux_rejection {
+            notes.push(format!(
+                "zalo-linux community repack route rejected by the audited allowlist: {rejection}"
+            ));
+        }
         if custom_root.is_none() {
             let candidates = self.discover_compatible_applications();
             for cand in candidates.iter().take(5) {
@@ -402,6 +488,18 @@ impl PlatformCapabilities for LinuxPlatformAdapter {
 
     fn capabilities(&self) -> PlatformCapabilityReport {
         let probe = self.probe_ubuntu_environment();
+        // The community `zalo-linux` repack route upgrades the official-launch route status to
+        // Experimental (the coordinator gate allows Experimental, still blocks Unsupported);
+        // without the route the honest OFFICIAL_ZALO_UNSUPPORTED status is preserved.
+        let zalo_linux_route =
+            crate::zalo_linux::probe_zalo_linux_route(self.active_fs_root(), None)
+                .ok()
+                .flatten();
+        let official_zalo_status = if zalo_linux_route.is_some() {
+            SupportStatus::Experimental
+        } else {
+            SupportStatus::Unsupported
+        };
         let mut diagnostics = vec![
             format!(
                 "prefer_bwrap={} lifetime_policy={} portal_file_chooser={}",
@@ -435,6 +533,14 @@ impl PlatformCapabilities for LinuxPlatformAdapter {
         if let Some(de) = &probe.desktop_environment {
             diagnostics.push(format!("desktop_environment={de}"));
         }
+        if let Some(route) = &zalo_linux_route {
+            diagnostics.push(format!(
+                "zalo_linux_route=experimental launcher={} sha256_prefix={} version={}",
+                route.launcher_path.display(),
+                &route.launcher_sha256[..16.min(route.launcher_sha256.len())],
+                route.version.as_deref().unwrap_or("unknown")
+            ));
+        }
 
         // Surface explicit sandbox socket security-tradeoff notes for active host surfaces.
         if probe.display_session == DisplaySessionKind::X11 {
@@ -467,25 +573,44 @@ impl PlatformCapabilities for LinuxPlatformAdapter {
         PlatformCapabilityReport {
             platform: PlatformKind::Linux,
             overall_status: SupportStatus::Unsupported,
-            official_zalo_status: SupportStatus::Unsupported,
+            official_zalo_status,
             fixture_status: SupportStatus::Experimental,
             appimage_status: Some(SupportStatus::Experimental),
             concurrent_calls_status: SupportStatus::Blocked,
             folder_redirection_detected: false,
             folder_redirection_path: None,
-            limitations: vec![
-                "OFFICIAL_ZALO_UNSUPPORTED: Official VNG Zalo Desktop does not exist on Linux."
-                    .to_owned(),
-                "User-supplied local AppImage and Node.js/Rust test fixtures run in EXPERIMENTAL HOME/XDG/bwrap isolation."
-                    .to_owned(),
-                APPARMOR_NO_SANDBOX_NOTE.to_owned(),
-                "Sharing X11 (`/tmp/.X11-unix/X<n>`), unfiltered session D-Bus (`DBUS_SESSION_BUS_ADDRESS`), or PipeWire/PulseAudio sockets for desktop compatibility reduces `bwrap` sandbox isolation compared to pure Wayland + `xdg-desktop-portal` + `xdg-dbus-proxy`."
-                    .to_owned(),
-                "Community port `VN-Linux-Family/zalo-for-linux` binds hardcoded TCP `127.0.0.1:29631` and `127.0.0.1:29632` for zcall; concurrent calls across instances in shared host networking are BLOCKED."
-                    .to_owned(),
-                "Native Wayland (GNOME Mutter on Ubuntu 24.04) restricts external window activation without an xdg-activation-v1 surface token; GUI window focus returns UNSUPPORTED_OPERATION on Wayland and uses strict PID-verified XID activation on X11 (`.focus-signal` for test fixtures)."
-                    .to_owned(),
-            ],
+            limitations: {
+                let mut limitations = vec![
+                    "OFFICIAL_ZALO_UNSUPPORTED: Official VNG Zalo Desktop does not exist on Linux."
+                        .to_owned(),
+                    "User-supplied local AppImage and Node.js/Rust test fixtures run in EXPERIMENTAL HOME/XDG/bwrap isolation."
+                        .to_owned(),
+                ];
+                if zalo_linux_route.is_some() {
+                    limitations.push(
+                        "EXPERIMENTAL community repack route (zalo-linux) detected: UNOFFICIAL client, NOT VNG signed or endorsed; per-profile isolation relies on separate HOME/XDG plus per-instance ZALO_DATA_DIR (0700)."
+                            .to_owned(),
+                    );
+                    limitations.push(
+                        "zalo-linux community repack stubs Linux-incompatible native addons (voice/video call helpers, sqlite3, db-cross), so voice/video calls may be unavailable and concurrent calls across instances remain BLOCKED on shared host networking."
+                            .to_owned(),
+                    );
+                }
+                limitations.push(APPARMOR_NO_SANDBOX_NOTE.to_owned());
+                limitations.push(
+                    "Sharing X11 (`/tmp/.X11-unix/X<n>`), unfiltered session D-Bus (`DBUS_SESSION_BUS_ADDRESS`), or PipeWire/PulseAudio sockets for desktop compatibility reduces `bwrap` sandbox isolation compared to pure Wayland + `xdg-desktop-portal` + `xdg-dbus-proxy`."
+                        .to_owned(),
+                );
+                limitations.push(
+                    "Community port `VN-Linux-Family/zalo-for-linux` binds hardcoded TCP `127.0.0.1:29631` and `127.0.0.1:29632` for zcall; concurrent calls across instances in shared host networking are BLOCKED."
+                        .to_owned(),
+                );
+                limitations.push(
+                    "Native Wayland (GNOME Mutter on Ubuntu 24.04) restricts external window activation without an xdg-activation-v1 surface token; GUI window focus returns UNSUPPORTED_OPERATION on Wayland and uses strict PID-verified XID activation on X11 (`.focus-signal` for test fixtures)."
+                        .to_owned(),
+                );
+                limitations
+            },
             diagnostics,
         }
     }
@@ -644,11 +769,27 @@ impl InstanceMonitor for LinuxPlatformAdapter {
         profile_dir: &Path,
         include_size: bool,
     ) -> Result<ProfileRuntimeState, DimError> {
-        let zalo_data = linux_zalo_data_dir(profile_dir);
-        let singleton_lock = zalo_data.join("SingletonLock");
-        let fixture_lock = zalo_data.join("lockfile");
+        let standard_zalo_data = linux_zalo_data_dir(profile_dir);
+        let route_data_dir =
+            crate::layout::zalo_linux_instance_data_dir_path(profile_dir, &profile.directory_name);
+        // A route profile retains its per-instance Electron userData directory across runs.
+        // Expose that actual directory in ProfileRuntimeState so stop() writes its quit signal
+        // there and SQLite/WAL guards inspect the correct userData tree.
+        let route_data_dir_present = fs::symlink_metadata(&route_data_dir)
+            .is_ok_and(|meta| meta.is_dir() && !is_symlink_or_reparse(&meta));
+        let zalo_data = if route_data_dir_present {
+            route_data_dir.clone()
+        } else {
+            standard_zalo_data.clone()
+        };
+        let singleton_lock = standard_zalo_data.join("SingletonLock");
+        let fixture_lock = standard_zalo_data.join("lockfile");
         let runtime_pid_file = profile_dir.join(".runtime-pid");
         let detected_uid = detect_zalo_user_id(&zalo_data);
+        // Route instances key their Chromium singleton inside their per-instance userData.
+        let route_lock = route_data_dir.join("SingletonLock");
+        let route_lock_present =
+            route_data_dir_present && fs::symlink_metadata(&route_lock).is_ok();
 
         if let Some(venv) = &self.virtual_env {
             let tree = collect_profile_process_tree(
@@ -658,13 +799,15 @@ impl InstanceMonitor for LinuxPlatformAdapter {
                 &zalo_data,
                 Some(venv.effective_uid),
             );
-            let singleton_present = fs::symlink_metadata(&singleton_lock).is_ok();
+            let singleton_present =
+                route_lock_present || fs::symlink_metadata(&singleton_lock).is_ok();
             let fixture_present = fs::symlink_metadata(&fixture_lock).is_ok();
             let runtime_hint_present = fs::symlink_metadata(&runtime_pid_file).is_ok();
             let stale = tree.main_pid.is_none()
                 && (singleton_present || fixture_present || runtime_hint_present);
-            let lockfile_path = if singleton_present || (!fixture_present && !runtime_hint_present)
-            {
+            let lockfile_path = if route_lock_present {
+                route_lock.clone()
+            } else if singleton_present || (!fixture_present && !runtime_hint_present) {
                 singleton_lock
             } else if fixture_present {
                 fixture_lock
@@ -719,13 +862,15 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             );
             // Note: `SingletonLock` is typically a dangling symlink (`<host>-<pid>`), so `exists()`
             // returns `false` on Unix! `symlink_metadata` accurately detects dangling symlinks.
-            let singleton_present = fs::symlink_metadata(&singleton_lock).is_ok();
+            let singleton_present =
+                route_lock_present || fs::symlink_metadata(&singleton_lock).is_ok();
             let fixture_present = fs::symlink_metadata(&fixture_lock).is_ok();
             let runtime_hint_present = fs::symlink_metadata(&runtime_pid_file).is_ok();
             let stale = tree.main_pid.is_none()
                 && (singleton_present || fixture_present || runtime_hint_present);
-            let lockfile_path = if singleton_present || (!fixture_present && !runtime_hint_present)
-            {
+            let lockfile_path = if route_lock_present {
+                route_lock
+            } else if singleton_present || (!fixture_present && !runtime_hint_present) {
                 singleton_lock
             } else if fixture_present {
                 fixture_lock
@@ -778,6 +923,7 @@ impl InstanceMonitor for LinuxPlatformAdapter {
             let _ = (
                 profile,
                 singleton_lock,
+                route_lock,
                 fixture_lock,
                 runtime_pid_file,
                 detected_uid,
@@ -805,13 +951,6 @@ impl InstanceLauncher for LinuxPlatformAdapter {
         profile: &ProfileRecord,
         profile_dir: &Path,
     ) -> Result<ProfileRuntimeState, DimError> {
-        if matches!(target, LaunchTarget::OfficialZalo { .. }) {
-            return Err(DimError::UnsupportedPlatform(
-                "OFFICIAL_ZALO_UNSUPPORTED: Official VNG Zalo Desktop does not exist for Linux"
-                    .to_owned(),
-            ));
-        }
-
         let probe = self.probe_ubuntu_environment();
         if probe.effective_uid == 0 {
             return Err(DimError::ProcessError(
@@ -822,7 +961,8 @@ impl InstanceLauncher for LinuxPlatformAdapter {
         ensure_linux_profile_layout(profile, profile_dir)?;
 
         // Perform portable preflight validation across both virtualized tests and live Linux.
-        let (exe, args, is_electron_appimage, extra_ro_files) = match target {
+        let (exe, args, is_electron_appimage, extra_ro_files, zalo_data_dir_override) = match target
+        {
             LaunchTarget::CustomExecutable { path, args } => {
                 validate_directory_input(path)?;
                 ensure_not_primary_zalo_path(path)?;
@@ -853,7 +993,7 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                             | BinaryFormatKind::AppImageUruntimeDwarfs
                             | BinaryFormatKind::ExtractedAppDir
                     );
-                (report.path, args.clone(), is_appimage, Vec::new())
+                (report.path, args.clone(), is_appimage, Vec::new(), None)
             }
             LaunchTarget::NodeFixture {
                 node_path,
@@ -903,9 +1043,47 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                     full.push(resolved_uid);
                 }
                 full.extend(extra_args.iter().cloned());
-                (resolved_node, full, false, vec![script_path.clone()])
+                (resolved_node, full, false, vec![script_path.clone()], None)
             }
-            LaunchTarget::OfficialZalo { .. } => unreachable!(),
+            LaunchTarget::OfficialZalo { .. } => {
+                // Experimental community `zalo-linux` repack route: the coordinator gate only
+                // reaches this arm when `capabilities()` reported Experimental for the route.
+                if self.prefer_bwrap {
+                    // The bwrap planner ro-binds `/usr` and the executable but never `/opt`,
+                    // so the wrapper's `exec /opt/zalo-linux/electron/electron` cannot resolve
+                    // inside the sandbox. Fail closed instead of shipping a broken launch.
+                    return Err(DimError::ProcessError(
+                        "SECURITY_BLOCKED: the community zalo-linux route cannot run under bubblewrap because the sandbox planner does not bind /opt/zalo-linux; launch without bwrap for this route."
+                            .to_owned(),
+                    ));
+                }
+                // Verify-then-exec TOCTOU note: the allowlist snapshot is in-memory per process,
+                // so this re-verification covers discovery→launch within the current process; a
+                // fresh process re-audits at its first route use (documented in ubuntu.md).
+                let recorded = self.recorded_zalo_linux_allowlist();
+                let Some(route) = crate::zalo_linux::probe_zalo_linux_route(
+                    self.active_fs_root(),
+                    recorded.as_ref(),
+                )?
+                else {
+                    return Err(DimError::UnsupportedPlatform(
+                        "OFFICIAL_ZALO_UNSUPPORTED: Official VNG Zalo Desktop does not exist for Linux"
+                            .to_owned(),
+                    ));
+                };
+                self.record_zalo_linux_allowlist(ZaloLinuxAllowlist::from_route(&route));
+                let data_dir = crate::layout::ensure_zalo_linux_instance_data_dir(
+                    profile_dir,
+                    &profile.directory_name,
+                )?;
+                (
+                    route.launcher_path,
+                    vec![profile.directory_name.clone()],
+                    false,
+                    Vec::new(),
+                    Some(data_dir),
+                )
+            }
         };
 
         enforce_launch_security_policy(
@@ -926,13 +1104,25 @@ impl InstanceLauncher for LinuxPlatformAdapter {
                 .map_err(|reason| DimError::ProcessError(reason.to_audit_message()))?;
 
             let instance_nonce = generate_instance_nonce();
-            let env_map = build_sanitized_linux_spawn_env_with_nonce(
+            let mut env_map = build_sanitized_linux_spawn_env_with_nonce(
                 profile,
                 profile_dir,
                 Some(&instance_nonce),
                 self.portal_file_chooser,
                 &|k| std::env::var(k).ok(),
             );
+            // Community `zalo-linux` repack route: the wrapper derives ZALO_DATA_DIR itself as
+            // `${ZALO_DATA_ROOT:-$HOME/.local/share/zalo-linux}/$(basename "$1")` and HOME is
+            // already the profile dir with the instance slug as argv[1], so the value below is
+            // recomputed identically by the wrapper. The injection is defense-in-depth: any
+            // wrapper variant that honors a pre-set ZALO_DATA_DIR stays pinned to this path,
+            // and tests assert the env var reached the child.
+            if let Some(data_dir) = &zalo_data_dir_override {
+                env_map.insert(
+                    "ZALO_DATA_DIR".to_owned(),
+                    data_dir.to_string_lossy().into_owned(),
+                );
+            }
 
             let mut child = if self.prefer_bwrap {
                 let bwrap_bin = probe.bwrap_path.ok_or_else(|| {
@@ -997,11 +1187,19 @@ impl InstanceLauncher for LinuxPlatformAdapter {
             );
 
             // Wait up to 1,500 ms for `SingletonLock` or `lockfile` creation (exiting early if ready or exited).
+            // Route instances create their Chromium singleton inside the per-instance
+            // `ZALO_DATA_DIR` userData, so its `SingletonLock` also satisfies readiness.
             let zalo_data = linux_zalo_data_dir(profile_dir);
+            let route_singleton_lock = zalo_data_dir_override
+                .as_ref()
+                .map(|dir| dir.join("SingletonLock"));
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1_500);
             while std::time::Instant::now() < deadline {
                 if fs::symlink_metadata(zalo_data.join("SingletonLock")).is_ok()
                     || fs::symlink_metadata(zalo_data.join("lockfile")).is_ok()
+                    || route_singleton_lock
+                        .as_ref()
+                        .is_some_and(|lock| fs::symlink_metadata(lock).is_ok())
                 {
                     break;
                 }
@@ -1015,7 +1213,7 @@ impl InstanceLauncher for LinuxPlatformAdapter {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = (exe, args, extra_ro_files);
+            let _ = (exe, args, extra_ro_files, zalo_data_dir_override);
             Err(DimError::UnsupportedPlatform(
                 "Linux launch requires Linux".to_owned(),
             ))

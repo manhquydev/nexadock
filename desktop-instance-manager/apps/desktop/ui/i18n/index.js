@@ -194,14 +194,17 @@ export function normalizeSupportStatus(rawStatus) {
     .toUpperCase();
 }
 
+export function hasTranslation(key) {
+  return resolvePath(DICTIONARIES[currentLocale], key) !== undefined
+    || resolvePath(DICTIONARIES['en-US'], key) !== undefined;
+}
+
 export function translateSupportStatus(rawStatus) {
   const code = normalizeSupportStatus(rawStatus);
   const key = `supportStatus.${code}`;
-  const hasKey = resolvePath(DICTIONARIES[currentLocale], key) !== undefined
-    || resolvePath(DICTIONARIES['en-US'], key) !== undefined;
   return {
     code,
-    label: hasKey ? t(key) : code
+    label: hasTranslation(key) ? t(key) : code
   };
 }
 

@@ -38,12 +38,13 @@ use dim_platform_linux::{
     build_sanitized_linux_spawn_env_with_nonce, classify_binary_bytes,
     collect_profile_process_tree, compare_linux_isolation_mechanisms,
     discover_compatible_apps_in_roots, enforce_launch_security_policy, ensure_linux_profile_layout,
-    evaluate_appimage_preflight, find_mount_for_path, generate_instance_nonce,
-    has_targeted_apparmor_userns_profile, inspect_elf64_needed_libraries_at, inspect_user_binary,
-    is_safe_bindable_socket_or_file, linux_zalo_data_dir, parse_dbus_session_socket_path,
-    parse_desktop_entry, parse_elf64_dynamic_metadata, parse_ldd_missing_libraries,
-    parse_proc_mounts, parse_singleton_lock_target, parse_wmctrl_windows_for_pids,
-    parse_x11_display_socket_path, plan_bwrap_desktop_sandbox, probe_ubuntu_runtime_at,
+    ensure_zalo_linux_instance_data_dir, evaluate_appimage_preflight, find_mount_for_path,
+    generate_instance_nonce, has_targeted_apparmor_userns_profile,
+    inspect_elf64_needed_libraries_at, inspect_user_binary, is_safe_bindable_socket_or_file,
+    linux_zalo_data_dir, parse_dbus_session_socket_path, parse_desktop_entry,
+    parse_elf64_dynamic_metadata, parse_ldd_missing_libraries, parse_proc_mounts,
+    parse_singleton_lock_target, parse_wmctrl_windows_for_pids, parse_x11_display_socket_path,
+    plan_bwrap_desktop_sandbox, probe_ubuntu_runtime_at, probe_zalo_linux_route,
     read_elf64_dynamic_metadata, read_proc_entry, read_runtime_pid_hint,
     render_recommended_apparmor_profile, resolve_elf64_missing_libraries_at,
     resolve_pipewire_socket_path, resolve_pulse_socket_path, resolve_wayland_socket_path,
@@ -227,16 +228,24 @@ fn test_01_application_discovery_and_elf_appimage_provenance() {
     fs::create_dir_all(&apps_dir).unwrap();
     fs::create_dir_all(&desktop_dir).unwrap();
 
-    // Official VNG Zalo discovery must always be Unsupported (`OFFICIAL_ZALO_UNSUPPORTED`).
+    // Official VNG Zalo discovery must fail closed: honest `OFFICIAL_ZALO_UNSUPPORTED` when the
+    // community `zalo-linux` repack route is absent, or Experimental provenance when present.
     let adapter = LinuxPlatformAdapter::new();
     let official = adapter.discover_installation(None).unwrap();
-    assert!(!official.is_valid);
-    assert_eq!(official.support_status, SupportStatus::Unsupported);
-    assert!(official
-        .error
-        .as_deref()
-        .unwrap()
-        .contains("OFFICIAL_ZALO_UNSUPPORTED"));
+    if official.support_status == SupportStatus::Experimental {
+        assert!(official.is_valid);
+        assert!(official
+            .signature_status
+            .contains("CommunityRepack (zalo-linux pkg, NOT VNG signed)"));
+    } else {
+        assert!(!official.is_valid);
+        assert_eq!(official.support_status, SupportStatus::Unsupported);
+        assert!(official
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("OFFICIAL_ZALO_UNSUPPORTED"));
+    }
 
     // Type-2 ELF64 AppImage + SHA-256 verification.
     let type2_bytes = make_elf64_stub(host_elf_machine(), true, b"payload");
@@ -3899,4 +3908,471 @@ fn regression_14_restart_persistence_across_graceful_stop_and_relaunch() {
         assert!(status.success());
     }
     assert!(!zdir.join("lockfile").exists());
+}
+
+// ---------------------------------------------------------------------------
+// 17. Community `zalo-linux` repack route (Experimental discovery + audited allowlist)
+// ---------------------------------------------------------------------------
+const REPACK_WRAPPER_LINES: &[&str] = &[
+    "INSTANCE=\"$(basename \"${1:-default}\")\"",
+    "if [ \"$#\" -gt 0 ]; then shift; fi",
+    "DATA_ROOT=\"${ZALO_DATA_ROOT:-$HOME/.local/share/zalo-linux}\"",
+    "export ZALO_DATA_DIR=\"$DATA_ROOT/$INSTANCE\"",
+    "mkdir -p \"$ZALO_DATA_DIR\"",
+    "exec /opt/zalo-linux/electron/electron /opt/zalo-linux/app --no-sandbox \"$@\"",
+];
+
+/// Materializes a synthetic `zalo-linux` repack under a virtualized `fs_root` and returns the
+/// wrapper script's SHA-256 (the audited-allowlist digest).
+fn write_zalo_linux_repack_fixture(fs_root: &Path, wrapper_lines: &[&str]) -> String {
+    let electron_stub = fs_root.join("opt/zalo-linux/electron/electron");
+    let app_dir = fs_root.join("opt/zalo-linux/app");
+    // Anchor absolute paths in the synthetic fixture to this virtualized root. Tests must
+    // never exec the host's real `/opt/zalo-linux` payload, even though the wrapper keeps the
+    // repack's `--no-sandbox` bytes for route-specific hazard allowlist coverage.
+    let wrapper_body = wrapper_lines
+        .join("\n")
+        .replace(
+            "/opt/zalo-linux/electron/electron",
+            &electron_stub.display().to_string(),
+        )
+        .replace("/opt/zalo-linux/app", &app_dir.display().to_string());
+    let wrapper = format!("#!/bin/bash\n{wrapper_body}\n");
+    write_executable_file(&fs_root.join("usr/bin/zalo"), wrapper.as_bytes());
+    fs::create_dir_all(&app_dir).unwrap();
+    fs::write(
+        app_dir.join("package.json"),
+        br#"{"name":"Zalo","version":"26.11.10","main":"bootstrap.js"}"#,
+    )
+    .unwrap();
+    fs::create_dir_all(electron_stub.parent().unwrap()).unwrap();
+    fs::write(&electron_stub, b"\x7fELF-electron-stub").unwrap();
+    sha256_bytes(wrapper.as_bytes())
+}
+
+fn route_test_profile(id: &str, name: &str) -> ProfileRecord {
+    ProfileRecord {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        directory_name: format!("repack_{id}"),
+        created_at: "2026-11-21T00:00:00Z".to_owned(),
+        last_launched_at: None,
+        zalo_user_id: None,
+        notes: String::new(),
+    }
+}
+
+#[test]
+fn test_17a_zalo_linux_route_discovery_and_gate_status() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fs_root = tmp.path().join("fs");
+    let adapter_without = LinuxPlatformAdapter::with_virtual_roots(
+        fs_root.clone(),
+        tmp.path().join("proc"),
+        tmp.path().join("cfg"),
+        1000,
+        "x86_64",
+        None,
+    );
+
+    // Without the repack, official-gate semantics stay Unsupported end to end.
+    let caps = adapter_without.capabilities();
+    assert_eq!(caps.official_zalo_status, SupportStatus::Unsupported);
+    let official = adapter_without.discover_installation(None).unwrap();
+    assert!(!official.is_valid);
+    assert_eq!(official.support_status, SupportStatus::Unsupported);
+    assert!(official
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("OFFICIAL_ZALO_UNSUPPORTED"));
+    let p = route_test_profile("17a11111", "Missing Repack");
+    let pdir = tmp.path().join("Profiles").join(&p.directory_name);
+    let launch_err = adapter_without
+        .launch(
+            &LaunchTarget::OfficialZalo {
+                custom_install_root: None,
+            },
+            &p,
+            &pdir,
+        )
+        .unwrap_err();
+    assert_eq!(launch_err.code(), "UNSUPPORTED_PLATFORM");
+    assert!(launch_err.to_string().contains("OFFICIAL_ZALO_UNSUPPORTED"));
+
+    // With the audited repack fixture, discovery reports Experimental provenance.
+    let digest = write_zalo_linux_repack_fixture(&fs_root, REPACK_WRAPPER_LINES);
+    let adapter = LinuxPlatformAdapter::with_virtual_roots(
+        fs_root.clone(),
+        tmp.path().join("proc"),
+        tmp.path().join("cfg"),
+        1000,
+        "x86_64",
+        None,
+    );
+    let caps = adapter.capabilities();
+    assert_eq!(caps.official_zalo_status, SupportStatus::Experimental);
+    assert_eq!(caps.overall_status, SupportStatus::Unsupported);
+    assert!(caps
+        .limitations
+        .iter()
+        .any(|l| l.contains("zalo-linux") && l.contains("UNOFFICIAL")));
+    assert!(caps
+        .limitations
+        .iter()
+        .any(|l| l.contains("voice/video calls may be unavailable")));
+    assert!(caps
+        .diagnostics
+        .iter()
+        .any(|d| d.starts_with("zalo_linux_route=experimental")));
+
+    let install = adapter.discover_installation(None).unwrap();
+    assert!(install.is_valid);
+    assert_eq!(install.support_status, SupportStatus::Experimental);
+    assert_eq!(install.install_root, fs_root.join("opt/zalo-linux"));
+    assert_eq!(install.launcher_path, Some(fs_root.join("usr/bin/zalo")));
+    assert_eq!(
+        install.executable_path,
+        Some(fs_root.join("opt/zalo-linux/electron/electron"))
+    );
+    assert_eq!(install.version.as_deref(), Some("26.11.10"));
+    assert!(install
+        .signature_status
+        .contains("CommunityRepack (zalo-linux pkg, NOT VNG signed)"));
+    assert!(install.signature_status.contains(&digest[..16]));
+    assert!(install.notes.iter().any(|n| n.contains(&digest)));
+    assert!(install.error.is_none());
+}
+
+#[test]
+fn test_17b_zalo_linux_audited_allowlist_fails_closed() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // (a) Hazards beyond the wrapper's own --no-sandbox revoke the route (killall).
+    let fs_root_kill = tmp.path().join("kill");
+    let mut kill_lines = REPACK_WRAPPER_LINES.to_vec();
+    kill_lines.insert(1, "killall zalo");
+    let _ = write_zalo_linux_repack_fixture(&fs_root_kill, &kill_lines);
+    let kill_adapter = LinuxPlatformAdapter::with_virtual_roots(
+        fs_root_kill.clone(),
+        tmp.path().join("proc"),
+        tmp.path().join("cfg"),
+        1000,
+        "x86_64",
+        None,
+    );
+    let install = kill_adapter.discover_installation(None).unwrap();
+    assert!(!install.is_valid);
+    assert_eq!(install.support_status, SupportStatus::Unsupported);
+    assert!(install
+        .notes
+        .iter()
+        .any(|n| n.contains("rejected by the audited allowlist") && n.contains("killall")));
+    assert_eq!(
+        kill_adapter.capabilities().official_zalo_status,
+        SupportStatus::Unsupported
+    );
+    let probe_err = probe_zalo_linux_route(&fs_root_kill, None)
+        .expect_err("killall hazard must revoke the route");
+    assert_eq!(probe_err.code(), "PROCESS_ERROR");
+    assert!(probe_err.to_string().contains("killall"));
+
+    // (b) A wrapper without the executable bit is rejected.
+    #[cfg(unix)]
+    {
+        let fs_root_nox = tmp.path().join("nox");
+        let wrapper = format!("#!/bin/bash\n{}\n", REPACK_WRAPPER_LINES.join("\n"));
+        fs::create_dir_all(fs_root_nox.join("usr/bin")).unwrap();
+        fs::write(fs_root_nox.join("usr/bin/zalo"), wrapper.as_bytes()).unwrap();
+        fs::create_dir_all(fs_root_nox.join("opt/zalo-linux/app")).unwrap();
+        let nox_err = probe_zalo_linux_route(&fs_root_nox, None)
+            .expect_err("missing +x must reject the route");
+        assert_eq!(nox_err.code(), "PROCESS_ERROR");
+        assert!(nox_err.to_string().contains("executable bit"));
+    }
+
+    // (c) World-writable and setuid launcher modes are rejected by the ordinary binary audit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fs_root_world = tmp.path().join("world-writable");
+        write_zalo_linux_repack_fixture(&fs_root_world, REPACK_WRAPPER_LINES);
+        let world_launcher = fs_root_world.join("usr/bin/zalo");
+        let mut world_perms = fs::metadata(&world_launcher).unwrap().permissions();
+        world_perms.set_mode(world_perms.mode() | 0o002);
+        fs::set_permissions(&world_launcher, world_perms).unwrap();
+        let world_err = probe_zalo_linux_route(&fs_root_world, None)
+            .expect_err("world-writable launcher must be rejected");
+        assert_eq!(world_err.code(), "PROCESS_ERROR");
+        assert!(world_err.to_string().contains("world-writable"));
+
+        let fs_root_setuid = tmp.path().join("setuid");
+        write_zalo_linux_repack_fixture(&fs_root_setuid, REPACK_WRAPPER_LINES);
+        let setuid_launcher = fs_root_setuid.join("usr/bin/zalo");
+        let mut setuid_perms = fs::metadata(&setuid_launcher).unwrap().permissions();
+        setuid_perms.set_mode(setuid_perms.mode() | 0o4000);
+        fs::set_permissions(&setuid_launcher, setuid_perms).unwrap();
+        let setuid_err = probe_zalo_linux_route(&fs_root_setuid, None)
+            .expect_err("setuid launcher must be rejected");
+        assert_eq!(setuid_err.code(), "PROCESS_ERROR");
+        assert!(setuid_err.to_string().contains("setuid"));
+
+        // (d) The package launcher must be a regular file, not a symlink to an untracked target.
+        let fs_root_symlink = tmp.path().join("symlink");
+        write_zalo_linux_repack_fixture(&fs_root_symlink, REPACK_WRAPPER_LINES);
+        let symlink_launcher = fs_root_symlink.join("usr/bin/zalo");
+        let outside_target = fs_root_symlink.join("outside-zalo");
+        fs::rename(&symlink_launcher, &outside_target).unwrap();
+        std::os::unix::fs::symlink(&outside_target, &symlink_launcher).unwrap();
+        let symlink_err = probe_zalo_linux_route(&fs_root_symlink, None)
+            .expect_err("symlink launcher must be rejected");
+        assert_eq!(symlink_err.code(), "PROCESS_ERROR");
+        assert!(symlink_err.to_string().contains("is a symlink"));
+        let fs_root_world_app = tmp.path().join("world-writable-app");
+        write_zalo_linux_repack_fixture(&fs_root_world_app, REPACK_WRAPPER_LINES);
+        let app_dir = fs_root_world_app.join("opt/zalo-linux/app");
+        let mut app_perms = fs::metadata(&app_dir).unwrap().permissions();
+        app_perms.set_mode(app_perms.mode() | 0o002);
+        fs::set_permissions(&app_dir, app_perms).unwrap();
+        let app_err = probe_zalo_linux_route(&fs_root_world_app, None)
+            .expect_err("world-writable app directory must be rejected");
+        assert_eq!(app_err.code(), "PROCESS_ERROR");
+        assert!(app_err.to_string().contains("world-writable"));
+        let fs_root_mode = tmp.path().join("mode-changed");
+        write_zalo_linux_repack_fixture(&fs_root_mode, REPACK_WRAPPER_LINES);
+        let mode_adapter = LinuxPlatformAdapter::with_virtual_roots(
+            fs_root_mode.clone(),
+            tmp.path().join("proc"),
+            tmp.path().join("cfg"),
+            1000,
+            "x86_64",
+            None,
+        );
+        assert!(mode_adapter.discover_installation(None).unwrap().is_valid);
+        let mode_app_dir = fs_root_mode.join("opt/zalo-linux/app");
+        let mut changed_mode = fs::metadata(&mode_app_dir).unwrap().permissions();
+        changed_mode.set_mode(changed_mode.mode() ^ 0o020);
+        fs::set_permissions(&mode_app_dir, changed_mode).unwrap();
+        let mode_profile = route_test_profile("17b44444", "Mode Changed");
+        let mode_profile_dir = tmp
+            .path()
+            .join("Profiles")
+            .join(&mode_profile.directory_name);
+        let mode_err = mode_adapter
+            .launch(
+                &LaunchTarget::OfficialZalo {
+                    custom_install_root: None,
+                },
+                &mode_profile,
+                &mode_profile_dir,
+            )
+            .unwrap_err();
+        assert_eq!(mode_err.code(), "PROCESS_ERROR");
+        assert!(mode_err.to_string().contains("changed since discovery"));
+    }
+    // (e) Payload digests and app-directory metadata are also re-verified at launch.
+    let fs_root_payload = tmp.path().join("payload-tamper");
+    write_zalo_linux_repack_fixture(&fs_root_payload, REPACK_WRAPPER_LINES);
+    let payload_adapter = LinuxPlatformAdapter::with_virtual_roots(
+        fs_root_payload.clone(),
+        tmp.path().join("proc"),
+        tmp.path().join("cfg"),
+        1000,
+        "x86_64",
+        None,
+    );
+    assert!(
+        payload_adapter
+            .discover_installation(None)
+            .unwrap()
+            .is_valid
+    );
+    fs::write(
+        fs_root_payload.join("opt/zalo-linux/app/package.json"),
+        br#"{"name":"Zalo","version":"26.11.11","main":"bootstrap.js"}"#,
+    )
+    .unwrap();
+    let payload_profile = route_test_profile("17b33333", "Tampered Payload");
+    let payload_dir = tmp
+        .path()
+        .join("Profiles")
+        .join(&payload_profile.directory_name);
+    let payload_err = payload_adapter
+        .launch(
+            &LaunchTarget::OfficialZalo {
+                custom_install_root: None,
+            },
+            &payload_profile,
+            &payload_dir,
+        )
+        .unwrap_err();
+    assert_eq!(payload_err.code(), "PROCESS_ERROR");
+    assert!(payload_err.to_string().contains("changed since discovery"));
+
+    let fs_root_electron = tmp.path().join("electron-tamper");
+    write_zalo_linux_repack_fixture(&fs_root_electron, REPACK_WRAPPER_LINES);
+    let electron_adapter = LinuxPlatformAdapter::with_virtual_roots(
+        fs_root_electron.clone(),
+        tmp.path().join("proc"),
+        tmp.path().join("cfg"),
+        1000,
+        "x86_64",
+        None,
+    );
+    assert!(
+        electron_adapter
+            .discover_installation(None)
+            .unwrap()
+            .is_valid
+    );
+    fs::write(
+        fs_root_electron.join("opt/zalo-linux/electron/electron"),
+        b"tampered electron payload",
+    )
+    .unwrap();
+    let electron_profile = route_test_profile("17b55555", "Electron Changed");
+    let electron_profile_dir = tmp
+        .path()
+        .join("Profiles")
+        .join(&electron_profile.directory_name);
+    let electron_err = electron_adapter
+        .launch(
+            &LaunchTarget::OfficialZalo {
+                custom_install_root: None,
+            },
+            &electron_profile,
+            &electron_profile_dir,
+        )
+        .unwrap_err();
+    assert_eq!(electron_err.code(), "PROCESS_ERROR");
+    assert!(electron_err.to_string().contains("changed since discovery"));
+
+    // (c) Tampering after discovery fails the launch with UNVERIFIED_BINARY (digest re-check).
+    let fs_root_tamper = tmp.path().join("tamper");
+    let _ = write_zalo_linux_repack_fixture(&fs_root_tamper, REPACK_WRAPPER_LINES);
+    let tamper_adapter = LinuxPlatformAdapter::with_virtual_roots(
+        fs_root_tamper.clone(),
+        tmp.path().join("proc"),
+        tmp.path().join("cfg"),
+        1000,
+        "x86_64",
+        None,
+    );
+    let tamper_install = tamper_adapter.discover_installation(None).unwrap();
+    assert!(tamper_install.is_valid);
+    let launcher = fs_root_tamper.join("usr/bin/zalo");
+    let mut tampered_wrapper = fs::read_to_string(&launcher).unwrap();
+    tampered_wrapper.push_str("# changed after discovery\n");
+    fs::write(&launcher, tampered_wrapper).unwrap();
+    let p = route_test_profile("17b22222", "Tampered Repack");
+    let pdir = tmp.path().join("Profiles").join(&p.directory_name);
+    let tamper_err = tamper_adapter
+        .launch(
+            &LaunchTarget::OfficialZalo {
+                custom_install_root: None,
+            },
+            &p,
+            &pdir,
+        )
+        .unwrap_err();
+    assert_eq!(tamper_err.code(), "UNVERIFIED_BINARY");
+
+    // (d) The ZALO_DATA_DIR helper rejects traversal slugs outright.
+    let slug_err = ensure_zalo_linux_instance_data_dir(&tmp.path().join("Profiles"), "../escape")
+        .expect_err("traversal slug must be rejected");
+    assert_eq!(slug_err.code(), "PATH_TRAVERSAL");
+}
+
+#[test]
+fn test_17d_zalo_linux_route_refuses_bwrap() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fs_root = tmp.path().join("fs");
+    write_zalo_linux_repack_fixture(&fs_root, REPACK_WRAPPER_LINES);
+    let adapter = LinuxPlatformAdapter::with_virtual_roots(
+        fs_root,
+        tmp.path().join("proc"),
+        tmp.path().join("cfg"),
+        1000,
+        "x86_64",
+        None,
+    )
+    .with_bwrap(true);
+    assert!(adapter.discover_installation(None).unwrap().is_valid);
+
+    let profile = route_test_profile("17d44444", "Bwrap Repack");
+    let profile_dir = tmp.path().join("Profiles").join(&profile.directory_name);
+    let err = adapter
+        .launch(
+            &LaunchTarget::OfficialZalo {
+                custom_install_root: None,
+            },
+            &profile,
+            &profile_dir,
+        )
+        .expect_err("zalo-linux must fail closed when bwrap is requested");
+    assert_eq!(err.code(), "PROCESS_ERROR");
+    assert!(err.to_string().contains("does not bind /opt/zalo-linux"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_17c_zalo_linux_route_launch_pins_zalo_data_dir_inside_profile() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fs_root = tmp.path().join("fs");
+    let mut lines = REPACK_WRAPPER_LINES.to_vec();
+    lines.insert(
+        lines.len() - 1,
+        "printf '%s\\n' \"$INSTANCE\" >> \"$ZALO_DATA_DIR/fixture-launch-marker\"",
+    );
+    lines.insert(
+        lines.len() - 1,
+        "ln -s 'fixture-host-42424' \"$ZALO_DATA_DIR/SingletonLock\"",
+    );
+    let _ = write_zalo_linux_repack_fixture(&fs_root, &lines);
+    let adapter = LinuxPlatformAdapter::with_virtual_roots(
+        fs_root,
+        tmp.path().join("proc"),
+        tmp.path().join("cfg"),
+        1000,
+        "x86_64",
+        None,
+    );
+    let install = adapter.discover_installation(None).unwrap();
+    assert!(install.is_valid);
+
+    let p = route_test_profile("17c33333", "Repack Route");
+    let pdir = tmp.path().join("Profiles").join(&p.directory_name);
+    let state = adapter
+        .launch(
+            &LaunchTarget::OfficialZalo {
+                custom_install_root: None,
+            },
+            &p,
+            &pdir,
+        )
+        .expect("Experimental community-repack route must launch");
+    assert_eq!(state.profile_id, p.id);
+
+    // Runtime inspection and readiness must use the route's actual Electron userData lock,
+    // not the ordinary `<profile>/.config/ZaloData` path.
+    let data_dir = pdir.join(".local/share/zalo-linux/repack_17c33333");
+    assert_eq!(state.zalo_data_dir, data_dir);
+    assert_eq!(state.lockfile_path, data_dir.join("SingletonLock"));
+    // With HOME=<profile_dir> and the slug as argv[1], the wrapper derives its own
+    // ZALO_DATA_DIR inside the isolated profile; the marker proves that derived path.
+    assert_eq!(
+        fs::read_to_string(data_dir.join("fixture-launch-marker"))
+            .unwrap()
+            .trim(),
+        "repack_17c33333"
+    );
+    // The instance data dir is private (0700), pre-created before the wrapper's `mkdir -p`.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&data_dir).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+    adapter.stop(&state, &[], 1_000).unwrap();
 }

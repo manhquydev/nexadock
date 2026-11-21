@@ -12,6 +12,7 @@ pub mod isolation;
 pub mod layout;
 pub mod procfs;
 pub mod status;
+pub mod zalo_linux;
 
 pub use adapter::{
     derive_deterministic_fixture_user_id, pid_holds_open_sqlite_db_fd, read_linux_pid,
@@ -41,13 +42,14 @@ pub use layout::{
     build_bwrap_args, build_bwrap_desktop_args, build_bwrap_desktop_args_with_policy,
     build_linux_isolated_env, build_sanitized_linux_spawn_env,
     build_sanitized_linux_spawn_env_with_nonce, ensure_linux_profile_layout,
-    generate_instance_nonce, is_safe_bindable_socket_or_file, linux_zalo_data_dir,
-    looks_like_appimage, measure_profile_disk_usage_bytes, parse_dbus_session_socket_path,
-    parse_x11_display_socket_path, plan_bwrap_desktop_sandbox, resolve_pipewire_socket_path,
-    resolve_pulse_socket_path, resolve_wayland_socket_path, verify_directory_ownership_and_mode,
-    BwrapSandboxOptions, BwrapSandboxPlan, DesktopSocketSurface, LauncherLifetimePolicy,
-    APPARMOR_NO_SANDBOX_NOTE, DIM_INSTANCE_NONCE_ENV, DIM_PROFILE_ID_ENV,
-    PASSTHROUGH_SESSION_ENV_KEYS,
+    ensure_zalo_linux_instance_data_dir, generate_instance_nonce, is_safe_bindable_socket_or_file,
+    linux_zalo_data_dir, looks_like_appimage, measure_profile_disk_usage_bytes,
+    parse_dbus_session_socket_path, parse_x11_display_socket_path, plan_bwrap_desktop_sandbox,
+    resolve_pipewire_socket_path, resolve_pulse_socket_path, resolve_wayland_socket_path,
+    verify_directory_ownership_and_mode, zalo_linux_instance_data_dir_path, BwrapSandboxOptions,
+    BwrapSandboxPlan, DesktopSocketSurface, LauncherLifetimePolicy, APPARMOR_NO_SANDBOX_NOTE,
+    DIM_INSTANCE_NONCE_ENV, DIM_PROFILE_ID_ENV, PASSTHROUGH_SESSION_ENV_KEYS,
+    ZALO_LINUX_DATA_SEGMENT,
 };
 pub use procfs::{
     collect_primary_process_tree, collect_profile_process_tree, entry_matches_profile,
@@ -59,6 +61,11 @@ pub use procfs::{
 pub use status::{
     PreflightCategory, PreflightDiagnosticKind, PreflightSeverity, SecurityBlockReason,
     UbuntuTargetTier, VerificationLabel,
+};
+pub use zalo_linux::{
+    probe_zalo_linux_route, zalo_linux_app_dir, zalo_linux_install_root, zalo_linux_launcher_path,
+    ZaloLinuxAllowlist, ZaloLinuxRoute, ZALO_LINUX_APP_DIR, ZALO_LINUX_INSTALL_ROOT,
+    ZALO_LINUX_LAUNCHER_PATH, ZALO_LINUX_PROVENANCE_TAG,
 };
 
 #[cfg(test)]
@@ -139,7 +146,6 @@ mod tests {
             LauncherLifetimePolicy::PersistentDetachedSession
         );
         let caps = adapter.capabilities();
-        assert_eq!(caps.official_zalo_status, SupportStatus::Unsupported);
         assert_eq!(caps.fixture_status, SupportStatus::Experimental);
         assert_eq!(caps.appimage_status, Some(SupportStatus::Experimental));
         assert!(caps
@@ -155,9 +161,23 @@ mod tests {
             .iter()
             .any(|d| d.contains("SANDBOX_TRADEOFF [dbus-session]")));
 
+        // Official-route discovery depends on whether the audited community `zalo-linux`
+        // repack route is installed on the live host: Experimental when found, honest
+        // OFFICIAL_ZALO_UNSUPPORTED otherwise. Both branches fail closed when invalid.
         let official = adapter.discover_installation(None).unwrap();
-        assert!(!official.is_valid);
-        assert_eq!(official.support_status, SupportStatus::Unsupported);
+        if caps.official_zalo_status == SupportStatus::Experimental {
+            assert_eq!(caps.overall_status, SupportStatus::Unsupported);
+            assert!(caps.limitations.iter().any(|l| l.contains("zalo-linux")));
+            assert!(official.is_valid);
+            assert_eq!(official.support_status, SupportStatus::Experimental);
+            assert!(official
+                .signature_status
+                .contains("CommunityRepack (zalo-linux pkg, NOT VNG signed)"));
+        } else {
+            assert_eq!(caps.official_zalo_status, SupportStatus::Unsupported);
+            assert!(!official.is_valid);
+            assert_eq!(official.support_status, SupportStatus::Unsupported);
+        }
 
         let local_appimage = adapter.discover_installation(Some(&appimage)).unwrap();
         assert!(local_appimage.is_valid);
@@ -691,7 +711,17 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let profile = sample_profile();
         let pdir = tmp.path().join(&profile.directory_name);
-        let adapter = LinuxPlatformAdapter::new();
+        // Virtualized empty root: deterministic OFFICIAL_ZALO_UNSUPPORTED rejection even on
+        // hosts where the audited community `zalo-linux` route is installed (that route's
+        // Experimental launch behavior is covered by its own virtualized tests).
+        let adapter = LinuxPlatformAdapter::with_virtual_roots(
+            tmp.path().join("fs"),
+            tmp.path().join("proc"),
+            tmp.path().join("cfg"),
+            1000,
+            "x86_64",
+            None,
+        );
         let err = adapter
             .launch(
                 &LaunchTarget::OfficialZalo {

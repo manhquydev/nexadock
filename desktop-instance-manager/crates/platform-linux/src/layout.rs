@@ -255,6 +255,58 @@ pub fn linux_zalo_data_dir(profile_dir: &Path) -> PathBuf {
     profile_dir.join(".config").join("ZaloData")
 }
 
+/// Directory segment under `<profile_dir>/.local/share/` reserved for per-instance
+/// `zalo-linux` community-repack `userData` directories (exported as `ZALO_DATA_DIR`).
+pub const ZALO_LINUX_DATA_SEGMENT: &str = "zalo-linux";
+
+/// Returns `<profile_dir>/.local/share/zalo-linux/<instance_slug>` after creating the
+/// `zalo-linux` root and the instance directory with `0700` permissions.
+///
+/// Rejects path traversal, primary-`ZaloData` overlap, and symlink escapes. Existing instance
+/// directories are reused with their mode re-tightened to `0700` (the `zalo-linux` wrapper's
+/// own `mkdir -p` never tightens permissions, so NexaDock always pre-creates the directory).
+pub fn ensure_zalo_linux_instance_data_dir(
+    profile_dir: &Path,
+    instance_slug: &str,
+) -> Result<PathBuf, DimError> {
+    validate_directory_input(profile_dir)?;
+    ensure_not_primary_zalo_path(profile_dir)?;
+    if instance_slug.is_empty()
+        || instance_slug == "."
+        || instance_slug == ".."
+        || instance_slug.contains(['/', '\\'])
+    {
+        return Err(DimError::PathTraversal(format!(
+            "invalid zalo-linux instance slug: {instance_slug}"
+        )));
+    }
+    let instance_dir = zalo_linux_instance_data_dir_path(profile_dir, instance_slug);
+    let segment_root = instance_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            DimError::PathTraversal(format!("invalid instance slug: {instance_slug}"))
+        })?;
+    reject_if_symlink(&segment_root)?;
+    reject_if_symlink(&instance_dir)?;
+    fs::create_dir_all(&segment_root)?;
+    set_dir_mode_0700(&segment_root)?;
+    fs::create_dir_all(&instance_dir)?;
+    set_dir_mode_0700(&instance_dir)?;
+    Ok(instance_dir)
+}
+
+/// Returns `<profile_dir>/.local/share/zalo-linux/<instance_slug>` WITHOUT creating anything
+/// (read-only companion for runtime inspection and lock detection).
+#[must_use]
+pub fn zalo_linux_instance_data_dir_path(profile_dir: &Path, instance_slug: &str) -> PathBuf {
+    profile_dir
+        .join(".local")
+        .join("share")
+        .join(ZALO_LINUX_DATA_SEGMENT)
+        .join(instance_slug)
+}
+
 /// Ensures isolated Linux XDG directories, user-dirs confinement files, pre-seed migration
 /// markers, `0o700` permissions, and `.zalo-profile-id` exist inside `profile_dir`.
 ///

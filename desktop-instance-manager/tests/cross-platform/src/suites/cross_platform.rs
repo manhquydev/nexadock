@@ -973,13 +973,27 @@ fn xp_lnx_02_appimage_and_singleton_lock() -> Result<CaseSuccess, String> {
     let sandbox = IsolatedSandbox::new()?;
     let adapter = LinuxPlatformAdapter::new();
 
-    // Default official discovery on Linux MUST report `is_valid=false` and `SupportStatus::Unsupported`
+    // Default official discovery on Linux MUST fail closed: `SupportStatus::Unsupported` when the
+    // community `zalo-linux` repack route is absent, or Experimental provenance when present.
     let official = adapter
         .discover_installation(None)
         .map_err(|e| e.to_string())?;
-    if official.is_valid || official.support_status != SupportStatus::Unsupported {
+    let community_repack_found = official.support_status == SupportStatus::Experimental;
+    if !community_repack_found
+        && (official.is_valid || official.support_status != SupportStatus::Unsupported)
+    {
         return Err(format!(
             "expected Unsupported for official Linux Zalo, got {official:?}"
+        ));
+    }
+    if community_repack_found
+        && (!official.is_valid
+            || !official
+                .signature_status
+                .contains("CommunityRepack (zalo-linux pkg, NOT VNG signed)"))
+    {
+        return Err(format!(
+            "expected audited Experimental community repack, got {official:?}"
         ));
     }
 

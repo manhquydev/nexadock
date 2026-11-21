@@ -5,6 +5,7 @@ import {
   onLocaleChange,
   t,
   translateSupportStatus,
+  hasTranslation,
   resolveErrorInfo,
   formatBytes,
   formatDateTime,
@@ -2776,6 +2777,17 @@ function renderBackups() {
   }
 }
 
+/**
+ * Resolves a backend-provided i18n key for a readiness-matrix cell, falling back to the
+ * backend's English text when the key is absent from the active dictionaries.
+ */
+function matrixCellText(translationKey, fallback) {
+  if (translationKey && hasTranslation(translationKey)) {
+    return t(translationKey);
+  }
+  return fallback || '—';
+}
+
 function renderDiagnostics() {
   const appList = document.getElementById('diag-app-list');
   const secList = document.getElementById('diag-security-list');
@@ -2992,11 +3004,11 @@ function renderDiagnostics() {
         tr.appendChild(stTd);
 
         const stratTd = document.createElement('td');
-        stratTd.textContent = row.strategy || '—';
+        stratTd.textContent = matrixCellText(row.strategy_key, row.strategy);
         tr.appendChild(stratTd);
 
         const limTd = document.createElement('td');
-        limTd.textContent = row.limits || '—';
+        limTd.textContent = matrixCellText(row.limits_key, row.limits);
         tr.appendChild(limTd);
 
         readyTbody.appendChild(tr);
