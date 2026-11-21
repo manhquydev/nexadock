@@ -27,7 +27,7 @@ const macPrimaryPath = '~/Library/Application Support/ZaloData';
         NexaDock Installation &amp; Operations Guide
       </h1>
       <p class="section-desc section-desc--spaced">
-        Current published build: <strong>{release.tag}</strong> ({release.signingStatus}).
+        Current published build: <strong>{release.tag}</strong> ({release.signingStatus === 'UNSIGNED_DEVELOPMENT_ARTIFACT' ? 'development build, unsigned' : 'signed release'}).
       </p>
 
       <div style="margin-bottom: var(--space-6);">

@@ -73,7 +73,7 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
 
     <header class="site-header">
       <div class="container header-inner">
-        <a class="brand-link" href={homeHref}>
+        <a class="brand-link" href={homeHref} aria-label={lang === 'vi' ? 'NexaDock — Trang chủ' : 'NexaDock — Home'}>
           <img src={`${base}/brand/nexadock-mark.svg`} alt="" width="24" height="24" />
           <span>NexaDock</span>
         </a>
@@ -135,7 +135,7 @@ const ogAltLocale = lang === 'vi' ? 'en_US' : 'vi_VN';
     <footer class="site-footer">
       <div class="container footer-grid">
         <div>
-          <a class="brand-link" href={homeHref}>
+          <a class="brand-link" href={homeHref} aria-label={lang === 'vi' ? 'NexaDock — Trang chủ' : 'NexaDock — Home'}>
             <img src={`${base}/brand/nexadock-mark.svg`} alt="" width="22" height="22" />
             <span>NexaDock</span>
           </a>

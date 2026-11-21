@@ -380,7 +380,15 @@ async function main() {
             axeResults.violations.length,
             0,
             `${url} [${vp.name}] axe-core violations: ${JSON.stringify(
-              axeResults.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }))
+              axeResults.violations.map((v) => ({
+                id: v.id,
+                impact: v.impact,
+                nodes: v.nodes.map((n) => ({
+                  target: n.target,
+                  html: n.html,
+                  summary: n.failureSummary
+                }))
+              }))
             )}`
           );
 
