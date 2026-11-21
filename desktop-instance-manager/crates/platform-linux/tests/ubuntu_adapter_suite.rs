@@ -4408,6 +4408,9 @@ fn write_zeroed_environ(proc_root: &Path, pid: u32) {
     .unwrap();
 }
 
+// Models Linux /proc environ semantics (zero-filled reads under masked
+// dumpable/yama); the virtualized proc root is Linux-specific.
+#[cfg(target_os = "linux")]
 #[test]
 fn regression_07_yama_zeroed_environ_lock_pid_cmdline_discovery() {
     let tmp = tempfile::tempdir().unwrap();
