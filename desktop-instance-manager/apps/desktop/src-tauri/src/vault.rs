@@ -230,8 +230,17 @@ impl VaultManager {
     pub fn resume_all(&self) {
         // Requeue items left `uploading` by an unclean exit before any
         // consumer can claim work; plain `open()` never touches row state.
-        if let Ok(queue) = VaultQueue::open(&self.queue_path) {
-            let _ = queue.recover_interrupted();
+        // A failed recovery is surfaced (never swallowed): items stuck in
+        // `uploading` would never retry otherwise.
+        match VaultQueue::open(&self.queue_path) {
+            Ok(queue) => {
+                if let Err(error) = queue.recover_interrupted() {
+                    eprintln!("NexaDock vault crash recovery failed: {error}");
+                }
+            }
+            Err(error) => {
+                eprintln!("NexaDock vault queue unavailable during startup: {error}");
+            }
         }
         let Ok(configs) = self.config_store.list() else {
             return;
