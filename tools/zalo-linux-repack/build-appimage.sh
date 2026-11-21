@@ -17,5 +17,5 @@ install -m 644 "$HERE/appimage/zalo.desktop" "$WORK/zalo.desktop"
 install -m 644 "$HERE/appimage/zalo.png" "$WORK/.DirIcon"
 install -m 644 "$HERE/appimage/zalo.png" "$WORK/zalo.png"
 
-ARCH=x86_64 "$APPIMAGETOOL"  --comp xz "$WORK" "$HERE/Zalo-$VERSION-linux-x86_64.AppImage"
+ARCH=x86_64 "$APPIMAGETOOL"  --comp zstd "$WORK" "$HERE/Zalo-$VERSION-linux-x86_64.AppImage"
 echo "OK: $HERE/Zalo-$VERSION-linux-x86_64.AppImage"

@@ -15,20 +15,18 @@ const IS_LINUX = process.platform === 'linux';
 // --- 1. userData override for multi-instance (before migration.js sets it) ---
 // ZALO_DATA_DIR=/path  → instance-specific userData; distinct dirs bypass
 // requestSingleInstanceLock (Electron keys that lock on userData).
+let electron = null;
+try { electron = require('electron'); } catch { electron = null; }
 const dataDir = process.env.ZALO_DATA_DIR;
-if (dataDir) {
-  let electron;
-  try { electron = require('electron'); } catch { electron = null; }
-  if (electron && electron.app) {
-    const origSetPath = electron.app.setPath.bind(electron.app);
-    electron.app.setPath = function (name, p) {
-      if (name === 'userData') {
-        fs.mkdirSync(dataDir, { recursive: true });
-        return origSetPath('userData', dataDir);
-      }
-      return origSetPath(name, p);
-    };
-  }
+if (dataDir && electron && electron.app) {
+  const origSetPath = electron.app.setPath.bind(electron.app);
+  electron.app.setPath = function (name, p) {
+    if (name === 'userData') {
+      fs.mkdirSync(dataDir, { recursive: true });
+      return origSetPath('userData', dataDir);
+    }
+    return origSetPath(name, p);
+  };
 }
 
 if (!IS_LINUX) return;
@@ -69,6 +67,43 @@ function makeStub(request) {
   });
   stubCache.set(request, stub);
   return stub;
+}
+
+// --- 3. Linux tray: the macOS client has none (it uses the Dock); close
+// hides the window, so without a tray the app appears dead. Provide the
+// Windows-parity tray (official icon, click reopens, menu has Quit).
+if (IS_LINUX && electron.Tray && electron.Menu && electron.nativeImage) {
+  const trayIconPath = path.join(__dirname, 'zalo.png');
+  const showWindows = () => {
+    for (const w of electron.BrowserWindow.getAllWindows()) {
+      if (w.isMinimized()) w.restore();
+      w.show();
+    }
+  };
+  electron.app
+    .whenReady()
+    .then(() => {
+      const icon = electron.nativeImage.createFromPath(trayIconPath).resize({
+        width: 22,
+        height: 22,
+      });
+      if (icon.isEmpty()) return;
+      const tray = new electron.Tray(icon);
+      tray.setToolTip('Zalo');
+      tray.setContextMenu(
+        electron.Menu.buildFromTemplate([
+          { label: 'Mở Zalo', click: showWindows },
+          {
+            label: 'Thoát',
+            click: () => {
+              electron.app.quit();
+            },
+          },
+        ]),
+      );
+      tray.on('click', showWindows);
+    })
+    .catch(() => {});
 }
 
 const origLoad = Module._load;

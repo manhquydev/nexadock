@@ -55,11 +55,16 @@ if(i>=0 && !s.includes("darwin\"!==process.platform){this.isAppSigned=!1;return!
 node -e '
 const fs=require("fs");
 const p=process.argv[1]; let s=fs.readFileSync(p,"utf8");
-let a=0,b=0;
+let a=0,b=0,c=0;
 s=s.replace(/frame:!1,titleBarStyle:\"hidden\"/g,()=>{a++;return "frame:!0,titleBarStyle:\"hidden\"";});
 s=s.replace(/titleBarStyle:\"hidden\"/g,()=>{b++;return "titleBarStyle:\"darwin\"===process.platform?\"hidden\":\"default\"";});
-fs.writeFileSync(p,s); console.log("window patch:",a,b);
+s=s.replace(/titleBarStyle:\"darwin\"===process\.platform\?\"hidden\":\"default\"/g,(m)=>{c++;return "icon:require(\"path\").join(__dirname,\"..\",\"zalo.png\"),"+m[0];});
+fs.writeFileSync(p,s); console.log("window patch:",a,b,c);
 ' "$WORK/app/main-dist/main.js"
+# Ship the official icon into the app root: used by the window icon patch
+# and by the Linux tray the shim creates (the macOS client has no tray;
+# close-to-background would otherwise be unreachable).
+install -m 644 "$PATCHES/zalo.png" "$WORK/app/zalo.png"
 # db-cross-v4: Rust native addon (community build) for message-sync DB access
 # across processes. Install the prebuilt linux/electron/x64 binary and patch
 # the JS loader, which only knows darwin/win32 paths.
