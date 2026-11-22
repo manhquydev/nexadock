@@ -136,7 +136,8 @@ pub struct VaultStatus {
 pub struct PairFlow {
     pub paired: bool,
     pub requires_login: bool,
-    pub credentials_from_env: bool,
+    /// Telegram application credentials are available (stored pairing or env).
+    pub credentials_available: bool,
 }
 
 /// One row of the per-profile synchronization log, newest first.
@@ -203,6 +204,10 @@ pub struct VaultManager {
 struct PendingLogin {
     pending: dim_telegram_vault::transport::PendingPhoneLogin,
     received_dir: PathBuf,
+    /// Resolved Telegram application credentials, persisted with the pairing
+    /// so the engine can reconnect after an application restart without env.
+    api_id: i32,
+    api_hash: String,
 }
 
 impl VaultManager {
@@ -249,7 +254,7 @@ impl VaultManager {
             if !config.enabled || !self.session_file_exists(&config.profile_id) {
                 continue;
             }
-            if self.env_credentials().is_none() {
+            if self.credentials_for(&config).is_none() {
                 continue;
             }
             if let Ok(received_dir) = self.received_dir_for(&config.profile_id) {
@@ -313,7 +318,11 @@ impl VaultManager {
 
     /// Starts or resumes pairing. Returns the login requirements for the UI.
     pub fn pair(&self, profile_id: &str) -> VaultManagerResult<PairFlow> {
-        let credentials_from_env = self.env_credentials().is_some();
+        let stored = self
+            .config_store
+            .load(profile_id)?
+            .and_then(|config| config_credentials(&config));
+        let credentials_available = stored.is_some() || self.env_credentials().is_some();
         if let Some(config) = self.config_store.load(profile_id)? {
             if self.session_file_exists(profile_id) {
                 // Already paired with a usable session; make sure the engine runs.
@@ -321,14 +330,14 @@ impl VaultManager {
                 return Ok(PairFlow {
                     paired: true,
                     requires_login: false,
-                    credentials_from_env,
+                    credentials_available,
                 });
             }
         }
         Ok(PairFlow {
             paired: false,
             requires_login: true,
-            credentials_from_env,
+            credentials_available,
         })
     }
 
@@ -340,7 +349,35 @@ impl VaultManager {
         api_id: Option<i32>,
         api_hash: Option<&str>,
     ) -> VaultManagerResult<()> {
-        let (resolved_api_id, resolved_api_hash) = self.resolve_credentials(api_id, api_hash)?;
+        // Resolution order: explicit arguments (UI fields) > previously stored
+        // pairing credentials > environment variables.
+        let stored = self
+            .config_store
+            .load(profile_id)?
+            .and_then(|config| config_credentials(&config));
+        let resolved = match (api_id, api_hash) {
+            (Some(id), Some(hash)) if !hash.trim().is_empty() => TelegramCredentials {
+                api_id: id,
+                api_hash: hash.trim().to_owned(),
+                phone: None,
+                login_code: None,
+                two_factor_password: None,
+            },
+            _ => stored
+                .or_else(|| {
+                    self.env_credentials()
+                        .map(|(api_id, api_hash)| TelegramCredentials {
+                            api_id,
+                            api_hash,
+                            phone: None,
+                            login_code: None,
+                            two_factor_password: None,
+                        })
+                })
+                .ok_or(VaultManagerError::MissingCredentials)?,
+        };
+        let resolved_api_id = resolved.api_id;
+        let resolved_api_hash = resolved.api_hash.clone();
         let received_dir = self.received_dir_for(profile_id)?;
         let pending = LiveTransport::begin_phone_login(
             self.data_dir.as_ref(),
@@ -358,6 +395,8 @@ impl VaultManager {
             PendingLogin {
                 pending,
                 received_dir,
+                api_id: resolved_api_id,
+                api_hash: resolved_api_hash,
             },
         );
         Ok(())
@@ -389,6 +428,8 @@ impl VaultManager {
             telegram_session_dir: self.session_file_for(profile_id),
             destination: Default::default(),
             enabled: true,
+            telegram_api_id: Some(pending.api_id),
+            telegram_api_hash: Some(pending.api_hash),
         };
         self.config_store.save(&config)?;
         self.spawn_engine(&config, Some(transport), pending.received_dir)?;
@@ -481,6 +522,22 @@ impl VaultManager {
         VaultManagerError::Vault(format!("{what} lock was poisoned"))
     }
 
+    /// Resolves reconnect credentials for a paired profile: stored pairing
+    /// credentials first, then environment variables.
+    fn credentials_for(&self, config: &VaultConfig) -> Option<TelegramCredentials> {
+        if let Some(credentials) = config_credentials(config) {
+            return Some(credentials);
+        }
+        let (api_id, api_hash) = self.env_credentials()?;
+        Some(TelegramCredentials {
+            api_id,
+            api_hash,
+            phone: None,
+            login_code: None,
+            two_factor_password: None,
+        })
+    }
+
     fn env_credentials(&self) -> Option<(i32, String)> {
         let api_id = std::env::var("TELEGRAM_API_ID").ok()?;
         let api_id = api_id.trim().parse::<i32>().ok()?;
@@ -490,21 +547,6 @@ impl VaultManager {
             return None;
         }
         Some((api_id, api_hash))
-    }
-
-    fn resolve_credentials(
-        &self,
-        api_id: Option<i32>,
-        api_hash: Option<&str>,
-    ) -> VaultManagerResult<(i32, String)> {
-        if let (Some(id), Some(hash)) = (api_id, api_hash) {
-            let hash = hash.trim().to_owned();
-            if !hash.is_empty() {
-                return Ok((id, hash));
-            }
-        }
-        self.env_credentials()
-            .ok_or(VaultManagerError::MissingCredentials)
     }
 
     fn session_file_for(&self, profile_id: &str) -> PathBuf {
@@ -538,27 +580,20 @@ impl VaultManager {
         }
         let received_dir = self.received_dir_for(&config.profile_id)?;
         let transport = if self.session_file_exists(&config.profile_id) {
-            self.connect_existing_session(&config.profile_id).ok()
+            self.connect_existing_session(config).ok()
         } else {
             None
         };
         self.spawn_engine(config, transport, received_dir)
     }
 
-    fn connect_existing_session(&self, profile_id: &str) -> VaultManagerResult<LiveTransport> {
-        let Some((api_id, api_hash)) = self.env_credentials() else {
+    fn connect_existing_session(&self, config: &VaultConfig) -> VaultManagerResult<LiveTransport> {
+        let Some(credentials) = self.credentials_for(config) else {
             return Err(VaultManagerError::MissingCredentials);
-        };
-        let credentials = TelegramCredentials {
-            api_id,
-            api_hash,
-            phone: None,
-            login_code: None,
-            two_factor_password: None,
         };
         Ok(LiveTransport::connect(
             self.data_dir.as_ref(),
-            profile_id,
+            &config.profile_id,
             &credentials,
         )?)
     }
@@ -598,6 +633,7 @@ impl VaultManager {
         let consumer_profile = profile_id.clone();
         let consumer_queue = Arc::clone(&self.queue_path);
         let consumer_data = Arc::clone(&self.data_dir);
+        let consumer_credentials = self.credentials_for(config);
         let consumer_thread = std::thread::Builder::new()
             .name(format!("vault-sync-{consumer_profile}"))
             .spawn(move || {
@@ -606,6 +642,7 @@ impl VaultManager {
                     consumer_data,
                     consumer_queue,
                     transport,
+                    consumer_credentials,
                     consumer_stop,
                     consumer_wake,
                 );
@@ -698,25 +735,38 @@ fn enqueue_files(profile_id: &str, queue_path: &Path, files: &[StableFile]) -> u
 }
 
 /// Connects (reconnecting on failure) and drains the upload queue.
+///
+/// `credentials` are resolved once at spawn time (stored pairing credentials,
+/// else environment); reconnect attempts reuse them for the persisted session.
 fn run_consumer_loop(
     profile_id: String,
     data_dir: Arc<Path>,
     queue_path: Arc<Path>,
     transport: Option<LiveTransport>,
+    credentials: Option<TelegramCredentials>,
     stop: Arc<AtomicBool>,
     wake: Arc<WakeSignal>,
 ) {
     let mut transport = transport;
     while !stop.load(Ordering::Acquire) {
         let client = match transport.take() {
-            Some(existing) => existing,
-            None => match connect_session(&data_dir, &profile_id) {
-                Some(client) => client,
+            Some(existing) => Some(existing),
+            None => match credentials.as_ref() {
+                Some(credentials) => {
+                    LiveTransport::connect(&data_dir, &profile_id, credentials).ok()
+                }
+                // No credentials available: wait; a resumed manager spawns a
+                // fresh engine once pairing provides them.
                 None => {
                     wake.wait(RECONNECT_DELAY);
                     continue;
                 }
             },
+        };
+        let Some(client) = client else {
+            // Connect failed with credentials present: retry after the delay.
+            wake.wait(RECONNECT_DELAY);
+            continue;
         };
         let mut queue = match VaultQueue::open(queue_path.as_ref()) {
             Ok(queue) => queue,
@@ -746,24 +796,19 @@ fn run_consumer_loop(
     }
 }
 
-/// Connects using the persisted session; requires env credentials for MTProto.
-fn connect_session(data_dir: &Path, profile_id: &str) -> Option<LiveTransport> {
-    let api_id = std::env::var("TELEGRAM_API_ID")
-        .ok()
-        .and_then(|value| value.trim().parse::<i32>().ok());
-    let api_hash = std::env::var("TELEGRAM_API_HASH")
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty());
-    let (api_id, api_hash) = (api_id?, api_hash?);
-    let credentials = TelegramCredentials {
-        api_id,
+/// Resolves stored Telegram application credentials from a pairing config.
+fn config_credentials(config: &VaultConfig) -> Option<TelegramCredentials> {
+    let api_hash = config.telegram_api_hash.as_ref()?.trim().to_owned();
+    if api_hash.is_empty() {
+        return None;
+    }
+    Some(TelegramCredentials {
+        api_id: config.telegram_api_id?,
         api_hash,
         phone: None,
         login_code: None,
         two_factor_password: None,
-    };
-    LiveTransport::connect(data_dir, profile_id, &credentials).ok()
+    })
 }
 
 /// Uploads one claimed item through the live transport and records the outcome.

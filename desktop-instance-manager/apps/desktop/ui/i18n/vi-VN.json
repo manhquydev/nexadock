@@ -377,11 +377,13 @@
       "phoneLabel": "Số điện thoại Telegram",
       "phonePlaceholder": "+84...",
       "phoneSubmit": "Nhận mã",
+      "apiIdLabel": "Telegram API ID",
+      "apiHashLabel": "Telegram API Hash",
       "codeLabel": "Mã xác nhận",
       "codePlaceholder": "Mã từ Telegram",
       "passwordLabel": "Mật khẩu xác minh hai bước (nếu có)",
       "codeSubmit": "Hoàn tất ghép",
-      "credentialsHint": "Ứng dụng đọc TELEGRAM_API_ID và TELEGRAM_API_HASH từ môi trường khi đăng nhập; không lưu mật khẩu hay mã xác nhận."
+      "credentialsHint": "Nhập API ID và API Hash một lần từ my.telegram.org. Ứng dụng lưu chúng cục bộ trong cấu hình vault, chỉ tài khoản người dùng của bạn đọc được để kết nối lại; thông tin này không được gửi đi nơi khác."
     },
     "log": {
       "heading": "Đồng bộ gần nhất",

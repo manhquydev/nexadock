@@ -377,11 +377,13 @@
       "phoneLabel": "Telegram phone number",
       "phonePlaceholder": "+84...",
       "phoneSubmit": "Request code",
+      "apiIdLabel": "Telegram API ID",
+      "apiHashLabel": "Telegram API Hash",
       "codeLabel": "Confirmation code",
       "codePlaceholder": "Code from Telegram",
       "passwordLabel": "Two-step verification password (if set)",
       "codeSubmit": "Finish pairing",
-      "credentialsHint": "The app reads TELEGRAM_API_ID and TELEGRAM_API_HASH from the environment at login; passwords and codes are never stored."
+      "credentialsHint": "Enter your API ID and API Hash once from my.telegram.org. The app stores them locally in the vault config, readable only by your user account for reconnecting; they are not sent anywhere else."
     },
     "log": {
       "heading": "Recent sync",

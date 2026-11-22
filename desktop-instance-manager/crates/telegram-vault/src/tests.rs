@@ -125,7 +125,7 @@ fn reopening_database_keeps_uploading_state_until_explicit_recovery() {
 }
 
 #[test]
-fn profile_configuration_defaults_to_saved_messages() {
+fn profile_configuration_round_trips_telegram_credentials() {
     let tmp = tempfile::tempdir().unwrap();
     let store = VaultConfigStore::new(tmp.path()).unwrap();
     let config = VaultConfig {
@@ -133,6 +133,8 @@ fn profile_configuration_defaults_to_saved_messages() {
         telegram_session_dir: tmp.path().join("TelegramVault/sessions/profile-a"),
         destination: Destination::default(),
         enabled: true,
+        telegram_api_id: Some(12345),
+        telegram_api_hash: Some("test-api-hash".into()),
     };
     store.save(&config).unwrap();
     assert_eq!(store.load("profile-a").unwrap(), Some(config));

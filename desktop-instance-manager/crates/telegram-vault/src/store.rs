@@ -29,6 +29,12 @@ pub struct VaultConfig {
     pub destination: Destination,
     /// Whether the profile is currently synchronized.
     pub enabled: bool,
+    /// Telegram application ID used to reconnect the isolated session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_api_id: Option<i32>,
+    /// Telegram application hash used to reconnect the isolated session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_api_hash: Option<String>,
 }
 
 /// Stores configurations as `<data_dir>/TelegramVault/profiles/<profile_id>.json`.
@@ -57,6 +63,17 @@ impl VaultConfigStore {
         let path = self.config_path(&config.profile_id)?;
         let bytes = serde_json::to_vec_pretty(config)?;
         write_bytes_atomic(&path, &bytes)?;
+        // The configuration can carry Telegram application credentials; keep it
+        // readable only by the owning user.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&path)
+                .map_err(|e| VaultError::io(&path, e))?
+                .permissions();
+            permissions.set_mode(0o600);
+            fs::set_permissions(&path, permissions).map_err(|e| VaultError::io(&path, e))?;
+        }
         Ok(())
     }
 

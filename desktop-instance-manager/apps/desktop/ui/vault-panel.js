@@ -93,6 +93,12 @@ export function applyStatus(status, message) {
   const state = stateFor(status);
   const stateNode = section.querySelector('.vault-state');
   if (stateNode) stateNode.textContent = t(STATE_KEYS[state]);
+  const credentialsFields = section.querySelector('.vault-credentials-fields');
+  if (credentialsFields) credentialsFields.hidden = Boolean(status?.credentialsAvailable);
+  const apiIdInput = section.querySelector('.vault-api-id');
+  const apiHashInput = section.querySelector('.vault-api-hash');
+  if (apiIdInput) apiIdInput.required = !status?.credentialsAvailable;
+  if (apiHashInput) apiHashInput.required = !status?.credentialsAvailable;
   const statsNode = section.querySelector('.vault-stats');
   if (statsNode) {
     statsNode.textContent = status?.paired
@@ -188,14 +194,43 @@ function buildForms() {
   phoneInput.placeholder = t('vault.login.phonePlaceholder');
   phoneInput.autocomplete = 'tel';
   phoneInput.required = true;
+  const credentialsFields = make('div', 'vault-credentials-fields');
+  credentialsFields.hidden = true;
+  const apiIdLabel = make('label', undefined, t('vault.login.apiIdLabel'));
+  apiIdLabel.setAttribute('for', 'vault-api-id');
+  const apiIdInput = document.createElement('input');
+  apiIdInput.type = 'text';
+  apiIdInput.id = 'vault-api-id';
+  apiIdInput.className = 'vault-input vault-api-id';
+  apiIdInput.inputMode = 'numeric';
+  apiIdInput.autocomplete = 'off';
+  apiIdInput.required = true;
+  const apiHashLabel = make('label', undefined, t('vault.login.apiHashLabel'));
+  apiHashLabel.setAttribute('for', 'vault-api-hash');
+  const apiHashInput = document.createElement('input');
+  apiHashInput.type = 'password';
+  apiHashInput.id = 'vault-api-hash';
+  apiHashInput.className = 'vault-input vault-api-hash';
+  apiHashInput.autocomplete = 'off';
+  apiHashInput.required = true;
+  credentialsFields.append(apiIdLabel, apiIdInput, apiHashLabel, apiHashInput);
   const phoneSubmit = make('button', 'btn btn-primary', t('vault.login.phoneSubmit'));
   phoneSubmit.type = 'submit';
-  phoneForm.append(phoneLabel, phoneInput, phoneSubmit);
+  phoneForm.append(phoneLabel, phoneInput, credentialsFields, phoneSubmit);
   phoneForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const invoke = getInvoke();
     if (!invoke || !panelId) return;
-    invoke('vault_login_phone', { profileId: panelId, phone: phoneInput.value.trim() })
+    const phone = phoneInput.value.trim().replace(/[\s()-]/g, '');
+    const apiIdValue = apiIdInput.value.trim();
+    const apiId = apiIdValue ? Number(apiIdValue) : null;
+    const apiHash = apiHashInput.value.trim() || null;
+    invoke('vault_login_phone', {
+      profileId: panelId,
+      phone,
+      apiId: Number.isSafeInteger(apiId) ? apiId : null,
+      apiHash,
+    })
       .then((envelope) => {
         if (envelope?.ok) setLoginStep('code');
         else showError(envelope?.message || t('vault.errors.requestFailed'));

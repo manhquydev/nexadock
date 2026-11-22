@@ -140,6 +140,12 @@ test('vault panel renders unpaired, syncing, and offline states', () => {
       assert.equal(section.id, PANEL_ID, 'section must carry the stable panel id');
       assert.ok(dialog.children.length >= before, 'section must be attached to the details dialog');
       panel.applyStatus(status, '');
+      const apiIdInput = section.querySelector('.vault-api-id');
+      const apiHashInput = section.querySelector('.vault-api-hash');
+      assert.equal(apiIdInput?.inputMode, 'numeric');
+      assert.equal(apiHashInput?.type, 'password');
+      assert.equal(apiHashInput?.autocomplete, 'off');
+      assert.equal(section.querySelector('.vault-credentials-fields')?.hidden, false);
       const stateText = section.querySelector('.vault-state')?.textContent || '';
       assert.notEqual(stateText, '', 'state label must resolve through i18n');
       assert.equal(stateText === stateText.trim(), true, 'state label must not be padded');
@@ -152,6 +158,8 @@ test('vault panel renders unpaired, syncing, and offline states', () => {
     const section = dialog.children.at(-1);
     panel.applyStatus(statuses()[0], '');
     assert.equal(section.querySelector('.vault-actions').children.length, 1);
+    panel.applyStatus({ ...statuses()[0], credentialsAvailable: true }, '');
+    assert.equal(section.querySelector('.vault-credentials-fields')?.hidden, true);
     panel.applyStatus(statuses()[1], '');
     const stats = section.querySelector('.vault-stats')?.textContent || '';
     assert.match(stats, /1/);
