@@ -59,7 +59,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Ubuntu 24.04 WebKitGTK & Ayatana AppIndicator headers
         timeout-minutes: 20
@@ -97,7 +97,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache Cargo registry and check artifacts (lockfile-keyed, zero secrets)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index/
@@ -127,10 +127,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -175,7 +175,7 @@ jobs:
           cat "${RUNNER_TEMP}/ci-dependency-audit/dependency-audit.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload dependency & advisory audit report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dependency-audit-report
           path: ${{ runner.temp }}/ci-dependency-audit/*
@@ -190,10 +190,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -254,7 +254,7 @@ jobs:
           echo "${RUSTC_VV}" | grep -q '^host: x86_64-unknown-linux-gnu$'
 
       - name: Cache Cargo registry and Ubuntu 24.04 build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index/
@@ -420,7 +420,7 @@ jobs:
           cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Ubuntu 24.04 validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: manifest-ubuntu-2404-x86_64
           path: ${{ runner.temp }}/ci-ubuntu-2404/*
@@ -435,10 +435,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -471,7 +471,7 @@ jobs:
           Write-Host "Verified MSVC installation: $vcInstall"
 
       - name: Cache Cargo registry and Windows MSVC build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index/
@@ -626,7 +626,7 @@ jobs:
           Get-Content "$outDir/artifact-summary.md" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Upload Windows validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: manifest-windows-x86_64
           path: ${{ runner.temp }}/ci-windows-msvc/*
@@ -641,10 +641,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -665,7 +665,7 @@ jobs:
           echo "${RUSTC_VV}" | grep -q '^host: aarch64-apple-darwin$'
 
       - name: Cache Cargo registry and macOS arm64 build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index/
@@ -807,7 +807,7 @@ jobs:
           cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload macOS arm64 validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: manifest-macos-arm64
           path: ${{ runner.temp }}/ci-macos-arm64/*
@@ -824,10 +824,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -851,7 +851,7 @@ jobs:
           echo "${RUSTC_VV}" | grep -q '^host: x86_64-apple-darwin$'
 
       - name: Cache Cargo registry and macOS Intel x86_64 build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index/
@@ -993,7 +993,7 @@ jobs:
           cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload macOS Intel validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: manifest-macos-x86_64
           path: ${{ runner.temp }}/ci-macos-intel/*
@@ -1012,15 +1012,15 @@ jobs:
     if: always()
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
       - name: Download per-OS validation manifests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: manifest-*
           path: ${{ runner.temp }}/downloaded-manifests
@@ -1166,7 +1166,7 @@ jobs:
 
       - name: Upload consolidated cross-platform manifest
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cross-platform-artifact-manifest
           path: ${{ runner.temp }}/verified-manifests/*
