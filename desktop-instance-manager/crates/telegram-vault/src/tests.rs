@@ -138,4 +138,17 @@ fn profile_configuration_round_trips_telegram_credentials() {
     };
     store.save(&config).unwrap();
     assert_eq!(store.load("profile-a").unwrap(), Some(config));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(store.root().join("profile-a.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "vault config with credentials must be owner-only"
+        );
+    }
 }
