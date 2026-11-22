@@ -113,8 +113,12 @@ mod file_session;
 #[cfg(feature = "live")]
 mod live;
 
+mod bot;
+
 #[cfg(feature = "live")]
 pub use file_session::{FileSession, FileSessionError};
 
 #[cfg(feature = "live")]
 pub use live::{LiveTransport, PendingPhoneLogin, TelegramCredentials};
+
+pub use bot::{BotInfo, BotTransport};

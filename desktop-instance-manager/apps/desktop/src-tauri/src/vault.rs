@@ -2,13 +2,16 @@
 //! threads, and queue/log access backing the `vault_*` Tauri commands.
 //!
 //! The sync path uses the real `dim-telegram-vault` crate primitives end to
-//! end: `ZaloReceivedWatcher` -> `VaultQueue` -> `LiveTransport` uploads via
-//! the `TelegramTransport` trait with claim/mark-done/mark-failed
-//! bookkeeping. Telegram credentials are read from the `TELEGRAM_API_ID` /
-//! `TELEGRAM_API_HASH` environment variables at login time and are never
-//! persisted; the MTProto session lives in the file
+//! end: `ZaloReceivedWatcher` -> `VaultQueue` -> a `TelegramTransport` upload
+//! with claim/mark-done/mark-failed bookkeeping. One pairing uses exactly one
+//! transport layer: either the Telegram Bot API (`BotTransport`, stateless
+//! reconnect from a stored token + captured chat id) or the phone-code MTProto
+//! session (`LiveTransport`). Telegram MTProto credentials are read from the
+//! `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` environment variables at login time
+//! and are never persisted; the MTProto session lives in the file
 //! `<data_dir>/TelegramVault/sessions/<profile_id>.session`. Telegram
-//! Desktop `tdata` is never touched.
+//! Desktop `tdata` is never touched. Bot tokens and chat identifiers are never
+//! logged.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -19,8 +22,10 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use dim_telegram_vault::queue::{QueueItem, QueueStatus, VaultLogEntry, VaultQueue};
-use dim_telegram_vault::store::{VaultConfig, VaultConfigStore};
-use dim_telegram_vault::transport::{LiveTransport, TelegramCredentials, TelegramTransport};
+use dim_telegram_vault::store::{Transport, TransportKind, VaultConfig, VaultConfigStore};
+use dim_telegram_vault::transport::{
+    BotTransport, LiveTransport, TelegramCredentials, TelegramTransport,
+};
 use dim_telegram_vault::watch::{StableFile, ZaloReceivedWatcher};
 use serde::Serialize;
 
@@ -30,6 +35,8 @@ const WATCH_INTERVAL: Duration = Duration::from_millis(1500);
 const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 /// Consumer idle timeout; `vault_sync_now` interrupts this wait immediately.
 const CONSUMER_IDLE_WAIT: Duration = Duration::from_secs(1);
+/// Wall-clock limit of one `vault_pair_bot_wait` chat-capture wait.
+const BOT_CHAT_WAIT_SECS: u64 = 60;
 
 /// Wake signal shared between command handlers and engine threads.
 #[derive(Debug)]
@@ -89,6 +96,21 @@ impl WakeSignal {
     }
 }
 
+/// Transport handed to one profile's consumer thread at spawn time.
+///
+/// Bot pairings are stateless (`Ready`); MTProto pairings keep their
+/// credentials so the persisted session can be reconnected whenever the
+/// initial live transport is absent or dies. `None` means pairing is not yet
+/// usable and the thread idles until a resumed manager respawns it.
+enum ConsumerTransport {
+    /// A fully built upload transport.
+    Ready(Box<dyn TelegramTransport>),
+    /// MTProto credentials to (re)connect `LiveTransport` from.
+    MtprotoReconnect(TelegramCredentials),
+    /// No transport is currently available for this profile.
+    None,
+}
+
 /// Joinable worker handles for one profile's sync engine.
 struct ProfileEngine {
     stop: Arc<AtomicBool>,
@@ -123,6 +145,10 @@ pub struct VaultStatus {
     pub session_exists: bool,
     pub engine_running: bool,
     pub queue_db_exists: bool,
+    /// Active pairing transport: `"bot"` or `"mtproto"`.
+    pub transport: String,
+    /// The bot pairing is fully configured (token stored, chat captured).
+    pub bot_configured: bool,
     pub pending: u64,
     pub uploading: u64,
     pub failed: u64,
@@ -138,6 +164,25 @@ pub struct PairFlow {
     pub requires_login: bool,
     /// Telegram application credentials are available (stored pairing or env).
     pub credentials_available: bool,
+}
+
+/// Result of a successful bot token validation and pairing.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BotPairFlow {
+    /// The bot's public username without the leading `@`.
+    pub bot_username: String,
+    /// `https://t.me/<username>` link the vault owner opens to start the chat.
+    pub deep_link: String,
+}
+
+/// Outcome of waiting for the vault owner to message the bot.
+#[derive(Debug)]
+pub enum BotWaitOutcome {
+    /// A private chat was captured; carries the resulting vault status.
+    Captured(VaultStatus),
+    /// The wait timed out before any private chat message arrived.
+    TimedOut,
 }
 
 /// One row of the per-profile synchronization log, newest first.
@@ -251,15 +296,33 @@ impl VaultManager {
             return;
         };
         for config in configs {
-            if !config.enabled || !self.session_file_exists(&config.profile_id) {
-                continue;
-            }
-            if self.credentials_for(&config).is_none() {
+            if !config.enabled || !self.pairing_is_runnable(&config) {
                 continue;
             }
             if let Ok(received_dir) = self.received_dir_for(&config.profile_id) {
-                let _ = self.spawn_engine(&config, None, received_dir);
+                let _ =
+                    self.spawn_engine(&config, self.consumer_transport_for(&config), received_dir);
             }
+        }
+    }
+
+    /// Whether a pairing config has everything its transport needs to run:
+    /// bot pairings need the token and a captured chat; MTProto pairings need
+    /// a persisted session plus reconnect credentials.
+    fn pairing_is_runnable(&self, config: &VaultConfig) -> bool {
+        match config.transport_kind() {
+            Ok(TransportKind::Bot) => {
+                config
+                    .telegram_bot_token
+                    .as_deref()
+                    .is_some_and(|token| !token.trim().is_empty())
+                    && config.telegram_chat_id.is_some()
+            }
+            Ok(TransportKind::Mtproto) => {
+                self.session_file_exists(&config.profile_id)
+                    && self.credentials_for(config).is_some()
+            }
+            Err(_) => false,
         }
     }
 
@@ -281,10 +344,21 @@ impl VaultManager {
         let config = self.config_store.load(profile_id)?;
         let mut snapshot = VaultStatus {
             paired: config.is_some(),
-            enabled: config.map(|value| value.enabled).unwrap_or(false),
+            enabled: config.as_ref().is_some_and(|value| value.enabled),
             session_exists: self.session_file_exists(profile_id),
             engine_running: self.engine_running(profile_id),
             queue_db_exists: self.queue_path.exists(),
+            transport: config
+                .as_ref()
+                .map(|value| match value.transport {
+                    Transport::Bot => "bot",
+                    Transport::Mtproto => "mtproto",
+                })
+                .unwrap_or("mtproto")
+                .to_owned(),
+            bot_configured: config.as_ref().is_some_and(|value| {
+                value.telegram_bot_token.is_some() && value.telegram_chat_id.is_some()
+            }),
             pending: 0,
             uploading: 0,
             failed: 0,
@@ -324,6 +398,15 @@ impl VaultManager {
             .and_then(|config| config_credentials(&config));
         let credentials_available = stored.is_some() || self.env_credentials().is_some();
         if let Some(config) = self.config_store.load(profile_id)? {
+            // Bot pairings never use the phone-login flow.
+            if config.transport == Transport::Bot && self.pairing_is_runnable(&config) {
+                self.ensure_engine(&config)?;
+                return Ok(PairFlow {
+                    paired: true,
+                    requires_login: false,
+                    credentials_available,
+                });
+            }
             if self.session_file_exists(profile_id) {
                 // Already paired with a usable session; make sure the engine runs.
                 self.ensure_engine(&config)?;
@@ -428,12 +511,87 @@ impl VaultManager {
             telegram_session_dir: self.session_file_for(profile_id),
             destination: Default::default(),
             enabled: true,
+            transport: Transport::Mtproto,
             telegram_api_id: Some(pending.api_id),
             telegram_api_hash: Some(pending.api_hash),
+            telegram_bot_token: None,
+            telegram_chat_id: None,
         };
         self.config_store.save(&config)?;
-        self.spawn_engine(&config, Some(transport), pending.received_dir)?;
+        self.spawn_engine(
+            &config,
+            ConsumerTransport::Ready(Box::new(transport)),
+            pending.received_dir,
+        )?;
         Ok(())
+    }
+
+    /// Validates a bot token and stores a bot transport pairing for the
+    /// profile. The chat is not captured yet; `pair_bot_wait` completes it.
+    pub fn pair_bot(&self, profile_id: &str, token: &str) -> VaultManagerResult<BotPairFlow> {
+        // Reject unknown/invalid profile identifiers through the resolver.
+        self.received_dir_for(profile_id)?;
+        let token = token.trim();
+        if token.is_empty() {
+            return Err(VaultManagerError::Vault(
+                "Telegram bot token is required".into(),
+            ));
+        }
+        let info = BotTransport::validate_token(token)?;
+        let config = VaultConfig {
+            profile_id: profile_id.to_owned(),
+            telegram_session_dir: self.session_file_for(profile_id),
+            destination: Default::default(),
+            enabled: true,
+            transport: Transport::Bot,
+            telegram_api_id: None,
+            telegram_api_hash: None,
+            telegram_bot_token: Some(token.to_owned()),
+            telegram_chat_id: None,
+        };
+        self.config_store.save(&config)?;
+        Ok(BotPairFlow {
+            bot_username: info.username.clone(),
+            deep_link: format!("https://t.me/{}", info.username),
+        })
+    }
+
+    /// Waits for the vault owner to message the bot, captures the private
+    /// chat id, persists it, and starts the sync engine.
+    ///
+    /// Blocking (long-polls the Bot API); run it off the UI thread, e.g. via
+    /// `tauri::async_runtime::spawn_blocking`.
+    pub fn pair_bot_wait(&self, profile_id: &str) -> VaultManagerResult<BotWaitOutcome> {
+        let mut config = self.config_store.load(profile_id)?.ok_or_else(|| {
+            VaultManagerError::Vault("profile is not paired with a bot yet".into())
+        })?;
+        if config.transport != Transport::Bot {
+            return Err(VaultManagerError::Vault(
+                "this profile is not paired with a bot token".into(),
+            ));
+        }
+        let token = config
+            .telegram_bot_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .ok_or_else(|| {
+                VaultManagerError::Vault("this profile is not paired with a bot token".into())
+            })?
+            .to_owned();
+        if config.telegram_chat_id.is_none() {
+            let chat_id = match BotTransport::wait_for_chat(&token, BOT_CHAT_WAIT_SECS) {
+                Ok(chat_id) => chat_id,
+                Err(dim_telegram_vault::VaultError::Timeout(_)) => {
+                    return Ok(BotWaitOutcome::TimedOut);
+                }
+                Err(error) => return Err(error.into()),
+            };
+            config.telegram_chat_id = Some(chat_id);
+            self.config_store.save(&config)?;
+        }
+        self.ensure_engine(&config)?;
+        Ok(BotWaitOutcome::Captured(self.status(profile_id)?))
     }
 
     /// Removes the pairing; the persisted MTProto session file is only deleted
@@ -579,12 +737,49 @@ impl VaultManager {
             return Ok(());
         }
         let received_dir = self.received_dir_for(&config.profile_id)?;
-        let transport = if self.session_file_exists(&config.profile_id) {
-            self.connect_existing_session(config).ok()
-        } else {
-            None
-        };
+        let transport = self.consumer_transport_for(config);
         self.spawn_engine(config, transport, received_dir)
+    }
+
+    /// Resolves the consumer transport for one pairing config.
+    ///
+    /// Bot pairings are rebuilt statelessly from the stored token and chat
+    /// (nothing to reconnect). MTProto pairings hand an existing live session
+    /// to `Ready` when present and otherwise park the credentials in
+    /// `MtprotoReconnect` so the consumer can (re)connect by itself.
+    fn consumer_transport_for(&self, config: &VaultConfig) -> ConsumerTransport {
+        match config.transport_kind() {
+            Ok(TransportKind::Bot) => {
+                let token = config
+                    .telegram_bot_token
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or_default();
+                match (token.is_empty(), config.telegram_chat_id) {
+                    (false, Some(chat_id)) => ConsumerTransport::Ready(Box::new(
+                        BotTransport::new(token.to_owned(), chat_id),
+                    )),
+                    _ => ConsumerTransport::None,
+                }
+            }
+            Ok(TransportKind::Mtproto) => {
+                let initial = if self.session_file_exists(&config.profile_id) {
+                    self.connect_existing_session(config).ok()
+                } else {
+                    None
+                };
+                match initial {
+                    Some(transport) => ConsumerTransport::Ready(Box::new(transport)),
+                    None => match self.credentials_for(config) {
+                        Some(credentials) => ConsumerTransport::MtprotoReconnect(credentials),
+                        None => ConsumerTransport::None,
+                    },
+                }
+            }
+            // Mixed or missing credentials are surfaced by the store on save;
+            // a consumer cannot run either layer for them.
+            Err(_) => ConsumerTransport::None,
+        }
     }
 
     fn connect_existing_session(&self, config: &VaultConfig) -> VaultManagerResult<LiveTransport> {
@@ -601,7 +796,7 @@ impl VaultManager {
     fn spawn_engine(
         &self,
         config: &VaultConfig,
-        transport: Option<LiveTransport>,
+        transport: ConsumerTransport,
         received_dir: PathBuf,
     ) -> VaultManagerResult<()> {
         let profile_id = config.profile_id.clone();
@@ -633,7 +828,6 @@ impl VaultManager {
         let consumer_profile = profile_id.clone();
         let consumer_queue = Arc::clone(&self.queue_path);
         let consumer_data = Arc::clone(&self.data_dir);
-        let consumer_credentials = self.credentials_for(config);
         let consumer_thread = std::thread::Builder::new()
             .name(format!("vault-sync-{consumer_profile}"))
             .spawn(move || {
@@ -642,7 +836,6 @@ impl VaultManager {
                     consumer_data,
                     consumer_queue,
                     transport,
-                    consumer_credentials,
                     consumer_stop,
                     consumer_wake,
                 );
@@ -734,39 +927,43 @@ fn enqueue_files(profile_id: &str, queue_path: &Path, files: &[StableFile]) -> u
     enqueued
 }
 
-/// Connects (reconnecting on failure) and drains the upload queue.
+/// Drains the upload queue through whichever transport the pairing provides.
 ///
-/// `credentials` are resolved once at spawn time (stored pairing credentials,
-/// else environment); reconnect attempts reuse them for the persisted session.
+/// The transport is resolved once at spawn time: `Ready` pairs (bot, or an
+/// MTProto session that already connected) reuse the built transport, while
+/// `MtprotoReconnect` keeps retrying the persisted-session connect on each
+/// outer pass. `None` idles until pairing completes and a fresh engine is
+/// spawned.
 fn run_consumer_loop(
     profile_id: String,
     data_dir: Arc<Path>,
     queue_path: Arc<Path>,
-    transport: Option<LiveTransport>,
-    credentials: Option<TelegramCredentials>,
+    transport: ConsumerTransport,
     stop: Arc<AtomicBool>,
     wake: Arc<WakeSignal>,
 ) {
-    let mut transport = transport;
+    let mut transport = Some(transport);
     while !stop.load(Ordering::Acquire) {
-        let client = match transport.take() {
-            Some(existing) => Some(existing),
-            None => match credentials.as_ref() {
-                Some(credentials) => {
-                    LiveTransport::connect(&data_dir, &profile_id, credentials).ok()
+        let client: Box<dyn TelegramTransport> = match transport.take() {
+            Some(ConsumerTransport::Ready(transport)) => transport,
+            Some(ConsumerTransport::MtprotoReconnect(credentials)) => {
+                match LiveTransport::connect(&data_dir, &profile_id, &credentials) {
+                    Ok(live) => Box::new(live),
+                    Err(_) => {
+                        // Connect failed with credentials present: retry after the delay.
+                        transport = Some(ConsumerTransport::MtprotoReconnect(credentials));
+                        wake.wait(RECONNECT_DELAY);
+                        continue;
+                    }
                 }
+            }
+            Some(ConsumerTransport::None) | None => {
                 // No credentials available: wait; a resumed manager spawns a
                 // fresh engine once pairing provides them.
-                None => {
-                    wake.wait(RECONNECT_DELAY);
-                    continue;
-                }
-            },
-        };
-        let Some(client) = client else {
-            // Connect failed with credentials present: retry after the delay.
-            wake.wait(RECONNECT_DELAY);
-            continue;
+                transport = Some(ConsumerTransport::None);
+                wake.wait(RECONNECT_DELAY);
+                continue;
+            }
         };
         let mut queue = match VaultQueue::open(queue_path.as_ref()) {
             Ok(queue) => queue,
@@ -781,7 +978,7 @@ fn run_consumer_loop(
             }
             match queue.claim_next(&profile_id, current_unix_seconds()) {
                 Ok(Some(item)) => {
-                    upload_item(&mut queue, &client, &item);
+                    upload_item(&mut queue, client.as_ref(), &item);
                 }
                 Ok(None) => {
                     wake.wait(CONSUMER_IDLE_WAIT);
@@ -791,7 +988,7 @@ fn run_consumer_loop(
             }
         }
         // The transport stays usable; reuse it across queue reopen attempts.
-        transport = Some(client);
+        transport = Some(ConsumerTransport::Ready(client));
         wake.wait(RECONNECT_DELAY);
     }
 }
@@ -816,7 +1013,7 @@ fn config_credentials(config: &VaultConfig) -> Option<TelegramCredentials> {
 /// Queue state failures are never swallowed silently: a `mark_done` that finds
 /// the row no longer `uploading` demotes the item to `failed` with the reason
 /// so it becomes visible in the sync log instead of re-uploading forever.
-fn upload_item(queue: &mut VaultQueue, client: &LiveTransport, item: &QueueItem) {
+fn upload_item(queue: &mut VaultQueue, client: &dyn TelegramTransport, item: &QueueItem) {
     match upload_with_caption(client, item) {
         Ok(()) => {
             if let Err(error) = queue.mark_done(item) {
@@ -830,7 +1027,7 @@ fn upload_item(queue: &mut VaultQueue, client: &LiveTransport, item: &QueueItem)
 }
 
 /// Builds the metadata caption and uploads the document, like `SyncEngine`.
-fn upload_with_caption(client: &LiveTransport, item: &QueueItem) -> Result<(), String> {
+fn upload_with_caption(client: &dyn TelegramTransport, item: &QueueItem) -> Result<(), String> {
     let uploaded_at = current_unix_seconds();
     let file_name = item
         .path
@@ -882,6 +1079,60 @@ mod tests {
         assert!(!status.engine_running);
         assert_eq!(status.pending, 0);
         assert_eq!(status.last_synced_at, None);
+        assert_eq!(status.transport, "mtproto");
+        assert!(!status.bot_configured);
+    }
+
+    #[test]
+    fn status_of_bot_pairing_reports_transport_and_capture_state() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        std::fs::create_dir_all(tmp.path().join("Profiles/work_1")).expect("profile dir");
+        let config = VaultConfig {
+            profile_id: "work_1".into(),
+            telegram_session_dir: tmp.path().join("TelegramVault/sessions/work_1.session"),
+            destination: Default::default(),
+            enabled: true,
+            transport: dim_telegram_vault::store::Transport::Bot,
+            telegram_api_id: None,
+            telegram_api_hash: None,
+            telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
+            telegram_chat_id: Some(987_654_321),
+        };
+        manager
+            .config_store
+            .save(&config)
+            .expect("bot config should save");
+        let status = manager.status("work_1").expect("status");
+        assert!(status.paired);
+        assert_eq!(status.transport, "bot");
+        assert!(status.bot_configured);
+        assert!(!status.session_exists);
+    }
+
+    #[test]
+    fn status_of_token_only_bot_pairing_is_not_configured_yet() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        std::fs::create_dir_all(tmp.path().join("Profiles/work_1")).expect("profile dir");
+        let config = VaultConfig {
+            profile_id: "work_1".into(),
+            telegram_session_dir: tmp.path().join("TelegramVault/sessions/work_1.session"),
+            destination: Default::default(),
+            enabled: true,
+            transport: dim_telegram_vault::store::Transport::Bot,
+            telegram_api_id: None,
+            telegram_api_hash: None,
+            telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
+            telegram_chat_id: None,
+        };
+        manager
+            .config_store
+            .save(&config)
+            .expect("token-only bot config should save");
+        let status = manager.status("work_1").expect("status");
+        assert_eq!(status.transport, "bot");
+        assert!(!status.bot_configured);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::engine::SyncEngine;
 use crate::queue::{QueueStatus, VaultQueue};
-use crate::store::{Destination, VaultConfig, VaultConfigStore};
+use crate::store::{Destination, Transport, TransportKind, VaultConfig, VaultConfigStore};
 use crate::transport::MockTransport;
 use crate::watch::ZaloReceivedWatcher;
 
@@ -133,8 +133,11 @@ fn profile_configuration_round_trips_telegram_credentials() {
         telegram_session_dir: tmp.path().join("TelegramVault/sessions/profile-a"),
         destination: Destination::default(),
         enabled: true,
+        transport: Transport::Mtproto,
         telegram_api_id: Some(12345),
         telegram_api_hash: Some("test-api-hash".into()),
+        telegram_bot_token: None,
+        telegram_chat_id: None,
     };
     store.save(&config).unwrap();
     assert_eq!(store.load("profile-a").unwrap(), Some(config));
@@ -151,4 +154,94 @@ fn profile_configuration_round_trips_telegram_credentials() {
             "vault config with credentials must be owner-only"
         );
     }
+}
+
+#[test]
+fn bot_configuration_round_trips_token_and_chat() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = VaultConfigStore::new(tmp.path()).unwrap();
+    let config = VaultConfig {
+        profile_id: "profile-b".into(),
+        telegram_session_dir: tmp.path().join("TelegramVault/sessions/profile-b"),
+        destination: Destination::default(),
+        enabled: true,
+        transport: Transport::Bot,
+        telegram_api_id: None,
+        telegram_api_hash: None,
+        telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
+        telegram_chat_id: Some(987_654_321),
+    };
+    store.save(&config).unwrap();
+    assert_eq!(store.load("profile-b").unwrap(), Some(config.clone()));
+    let serialized = std::fs::read_to_string(store.root().join("profile-b.json")).unwrap();
+    assert!(serialized.contains("\"transport\": \"bot\""));
+    // Empty optional fields must stay out of the document.
+    let minimal = VaultConfig {
+        telegram_bot_token: None,
+        telegram_chat_id: None,
+        ..config.clone()
+    };
+    let json = serde_json::to_string(&minimal).unwrap();
+    assert!(!json.contains("telegram_bot_token"));
+    assert!(!json.contains("telegram_chat_id"));
+}
+
+#[test]
+fn legacy_config_without_transport_field_resolves_mtproto() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = VaultConfigStore::new(tmp.path()).unwrap();
+    let legacy = serde_json::json!({
+        "profile_id": "profile-c",
+        "telegram_session_dir": tmp.path().join("sessions/profile-c"),
+        "destination": "saved_messages",
+        "enabled": true,
+        "telegram_api_id": 12345,
+        "telegram_api_hash": "test-api-hash",
+    });
+    std::fs::write(
+        store.root().join("profile-c.json"),
+        serde_json::to_vec_pretty(&legacy).unwrap(),
+    )
+    .unwrap();
+    let config = store.load("profile-c").unwrap().expect("legacy config");
+    assert_eq!(config.transport, Transport::Mtproto);
+    assert_eq!(config.transport_kind().unwrap(), TransportKind::Mtproto);
+}
+
+#[test]
+fn transport_kind_rejects_mixed_and_missing_credentials() {
+    let mixed = VaultConfig {
+        profile_id: "profile-d".into(),
+        telegram_session_dir: "sessions".into(),
+        destination: Destination::default(),
+        enabled: true,
+        transport: Transport::Bot,
+        telegram_api_id: Some(12345),
+        telegram_api_hash: Some("hash".into()),
+        telegram_bot_token: Some("123:secret".into()),
+        telegram_chat_id: Some(1),
+    };
+    let error = mixed.transport_kind().unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            crate::VaultError::InvalidRecord(message)
+                if message == "mixed or missing vault transport"
+        ),
+        "expected InvalidRecord, got {error:?}"
+    );
+    let neither = VaultConfig {
+        telegram_api_id: None,
+        telegram_api_hash: None,
+        telegram_bot_token: None,
+        ..mixed.clone()
+    };
+    assert!(neither.transport_kind().is_err());
+    let whitespace_token = VaultConfig {
+        telegram_api_id: None,
+        telegram_api_hash: None,
+        telegram_bot_token: Some("   ".into()),
+        ..mixed
+    };
+    assert!(whitespace_token.transport_kind().is_err());
 }

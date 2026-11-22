@@ -32,6 +32,9 @@ pub enum VaultError {
     /// A Telegram transport operation failed.
     #[error("Telegram transport error: {0}")]
     Transport(String),
+    /// A bounded wait elapsed before the expected Telegram event occurred.
+    #[error("timed out waiting for Telegram: {0}")]
+    Timeout(String),
     /// A persisted record violates the vault schema.
     #[error("invalid vault record: {0}")]
     InvalidRecord(String),

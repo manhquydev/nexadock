@@ -17,6 +17,29 @@ pub enum Destination {
     SavedMessages,
 }
 
+/// Telegram transport layer used by a pairing.
+///
+/// Defaults to MTProto so configurations written before the Bot API transport
+/// existed keep working without migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Transport {
+    /// Phone-code MTProto session (the pre-existing pairing flow).
+    #[default]
+    Mtproto,
+    /// Telegram Bot API with a chat captured through the bot deep link.
+    Bot,
+}
+
+/// Which transport layer a resolved configuration actually uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportKind {
+    /// The Telegram Bot API transport.
+    Bot,
+    /// The MTProto session transport.
+    Mtproto,
+}
+
 /// Pairing and synchronization settings for one isolated Zalo profile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultConfig {
@@ -29,12 +52,48 @@ pub struct VaultConfig {
     pub destination: Destination,
     /// Whether the profile is currently synchronized.
     pub enabled: bool,
+    /// Transport layer this pairing uses; defaults to MTProto for legacy configs.
+    #[serde(default)]
+    pub transport: Transport,
     /// Telegram application ID used to reconnect the isolated session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub telegram_api_id: Option<i32>,
     /// Telegram application hash used to reconnect the isolated session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub telegram_api_hash: Option<String>,
+    /// Telegram Bot API token used by the `bot` transport.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_bot_token: Option<String>,
+    /// Telegram chat identifier that first messaged the bot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_chat_id: Option<i64>,
+}
+
+impl VaultConfig {
+    /// Resolves which transport layer this configuration actually uses.
+    ///
+    /// The Bot API transport requires a non-empty bot token; the MTProto
+    /// transport requires both the application ID and hash. Configurations
+    /// carrying both layers' credentials, or neither, are invalid because one
+    /// pairing must use exactly one transport.
+    pub fn transport_kind(&self) -> Result<TransportKind> {
+        let bot = self
+            .telegram_bot_token
+            .as_deref()
+            .is_some_and(|token| !token.trim().is_empty());
+        let mtproto = self.telegram_api_id.is_some()
+            && self
+                .telegram_api_hash
+                .as_deref()
+                .is_some_and(|hash| !hash.trim().is_empty());
+        match (bot, mtproto) {
+            (true, false) => Ok(TransportKind::Bot),
+            (false, true) => Ok(TransportKind::Mtproto),
+            _ => Err(VaultError::InvalidRecord(
+                "mixed or missing vault transport".into(),
+            )),
+        }
+    }
 }
 
 /// Stores configurations as `<data_dir>/TelegramVault/profiles/<profile_id>.json`.

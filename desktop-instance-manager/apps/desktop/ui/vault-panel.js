@@ -39,6 +39,18 @@ export const PANEL_ID = 'vault-panel';
 let panelId = '';
 let section = null;
 
+// Pairing flow state: one tier per pairing — Telegram bot (default) or the
+// advanced full-account login. Reset per profile in render().
+let pairMode = 'bot';
+let loginStep = '';
+let botStep = 'token';
+let botLink = '';
+let botUsername = '';
+let botWaiting = false;
+let lastState = 'unpaired';
+let lastStatus = null;
+let lastMessage = '';
+
 function showError(message) {
   const node = section?.querySelector('.vault-error');
   if (!node) return;
@@ -47,10 +59,33 @@ function showError(message) {
 }
 
 function setLoginStep(step) {
+  loginStep = step;
+  updatePairUi();
+}
+
+/** Shows exactly one pairing surface: mode chooser, bot form, bot link, or the advanced login. */
+function updatePairUi() {
+  const unpaired = lastState === 'unpaired';
+  const chooser = section?.querySelector('.vault-mode-chooser');
+  if (chooser) chooser.hidden = !unpaired;
+  const botForm = section?.querySelector('.vault-form-bot');
+  if (botForm) botForm.hidden = !(unpaired && pairMode === 'bot' && botStep === 'token');
+  const botLinkNode = section?.querySelector('.vault-bot-link');
+  if (botLinkNode) {
+    botLinkNode.hidden = !(unpaired && pairMode === 'bot' && botStep === 'link');
+    const anchor = botLinkNode.querySelector('.vault-bot-link-anchor');
+    if (anchor) {
+      anchor.hidden = !botLink;
+      anchor.setAttribute('href', botLink);
+      anchor.textContent = botUsername || botLink;
+    }
+  }
+  const hint = section?.querySelector('.vault-hint');
+  if (hint) hint.hidden = !(unpaired && pairMode === 'mtproto');
   const phoneForm = section?.querySelector('.vault-form-phone');
+  if (phoneForm) phoneForm.hidden = !(unpaired && pairMode === 'mtproto' && loginStep === 'phone');
   const codeForm = section?.querySelector('.vault-form-code');
-  if (phoneForm) phoneForm.hidden = step !== 'phone';
-  if (codeForm) codeForm.hidden = step !== 'code';
+  if (codeForm) codeForm.hidden = !(unpaired && pairMode === 'mtproto' && loginStep === 'code');
 }
 
 function refresh() {
@@ -89,10 +124,21 @@ function run(command, args) {
 /** Applies one status snapshot (or null) to the rendered panel. */
 export function applyStatus(status, message) {
   if (!section) return;
+  lastStatus = status;
+  lastMessage = message || '';
   showError(message);
   const state = stateFor(status);
+  lastState = state;
   const stateNode = section.querySelector('.vault-state');
   if (stateNode) stateNode.textContent = t(STATE_KEYS[state]);
+  const transportNode = section.querySelector('.vault-transport');
+  if (transportNode) {
+    transportNode.hidden = !status?.paired;
+    transportNode.textContent = status?.paired
+      ? t(status?.transport === 'bot' ? 'vault.transport.bot' : 'vault.transport.mtproto')
+      : '';
+  }
+  updatePairUi();
   const credentialsFields = section.querySelector('.vault-credentials-fields');
   if (credentialsFields) credentialsFields.hidden = Boolean(status?.credentialsAvailable);
   const apiIdInput = section.querySelector('.vault-api-id');
@@ -113,23 +159,25 @@ export function applyStatus(status, message) {
   if (!actions) return;
   actions.replaceChildren();
   if (state === 'unpaired') {
-    const pairButton = make('button', 'btn btn-primary', t('vault.actions.pair'));
-    pairButton.type = 'button';
-    pairButton.addEventListener('click', () => {
-      const invoke = getInvoke();
-      if (!invoke || !panelId) return;
-      invoke('vault_pair', { profileId: panelId })
-        .then((envelope) => {
-          if (!envelope?.ok) {
-            showError(envelope?.message || t('vault.errors.requestFailed'));
-            return;
-          }
-          if (envelope.data?.requiresLogin) setLoginStep('phone');
-          refresh();
-        })
-        .catch(() => showError(t('vault.errors.requestFailed')));
-    });
-    actions.appendChild(pairButton);
+    if (pairMode === 'mtproto') {
+      const pairButton = make('button', 'btn btn-primary', t('vault.actions.pair'));
+      pairButton.type = 'button';
+      pairButton.addEventListener('click', () => {
+        const invoke = getInvoke();
+        if (!invoke || !panelId) return;
+        invoke('vault_pair', { profileId: panelId })
+          .then((envelope) => {
+            if (!envelope?.ok) {
+              showError(envelope?.message || t('vault.errors.requestFailed'));
+              return;
+            }
+            if (envelope.data?.requiresLogin) setLoginStep('phone');
+            refresh();
+          })
+          .catch(() => showError(t('vault.errors.requestFailed')));
+      });
+      actions.appendChild(pairButton);
+    }
     return;
   }
   const syncButton = make('button', 'btn btn-secondary', t('vault.actions.syncNow'));
@@ -179,8 +227,138 @@ function renderLog(rows) {
   }
 }
 
+function buildPairModeChooser() {
+  const chooser = document.createElement('fieldset');
+  chooser.className = 'vault-mode-chooser';
+  chooser.appendChild(make('legend', 'vault-mode-legend', t('vault.mode.legend')));
+  const options = [
+    {
+      value: 'bot',
+      optionClass: 'vault-mode-option-bot',
+      radioClass: 'vault-mode-radio-bot',
+      titleKey: 'vault.mode.botTitle',
+      descKey: 'vault.mode.botDesc',
+    },
+    {
+      value: 'mtproto',
+      optionClass: 'vault-mode-option-mtp',
+      radioClass: 'vault-mode-radio-mtp',
+      titleKey: 'vault.mode.mtpTitle',
+      descKey: 'vault.mode.mtpDesc',
+    },
+  ];
+  for (const option of options) {
+    const label = make('label', `vault-mode-option ${option.optionClass}`);
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'vault-pair-mode';
+    radio.value = option.value;
+    radio.className = option.radioClass;
+    radio.checked = pairMode === option.value;
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      pairMode = option.value;
+      botStep = 'token';
+      loginStep = '';
+      // The actions row depends on the tier (pair button only for the advanced tier).
+      applyStatus(lastStatus, lastMessage);
+    });
+    label.append(radio, make('span', 'vault-mode-name', t(option.titleKey)), make('span', 'vault-mode-desc', t(option.descKey)));
+    chooser.appendChild(label);
+  }
+  return [chooser];
+}
+
+function buildBotForms() {
+  const tokenForm = document.createElement('form');
+  tokenForm.className = 'vault-form vault-form-bot';
+  tokenForm.hidden = true;
+  const tokenLabel = make('label', undefined, t('vault.bot.tokenLabel'));
+  tokenLabel.setAttribute('for', 'vault-bot-token');
+  const tokenInput = document.createElement('input');
+  tokenInput.type = 'password';
+  tokenInput.id = 'vault-bot-token';
+  tokenInput.className = 'vault-input vault-bot-token';
+  tokenInput.autocomplete = 'off';
+  tokenInput.spellcheck = false;
+  tokenInput.placeholder = t('vault.bot.tokenPlaceholder');
+  tokenInput.required = true;
+  const tokenHint = make('p', 'vault-bot-hint', t('vault.bot.tokenHint'));
+  const pairButton = make('button', 'btn btn-primary vault-bot-pair-button', t('vault.bot.pairButton'));
+  pairButton.type = 'submit';
+  tokenForm.append(tokenLabel, tokenInput, tokenHint, pairButton);
+  tokenForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const invoke = getInvoke();
+    if (!invoke || !panelId) return;
+    const token = tokenInput.value.trim();
+    if (!token) return;
+    invoke('vault_pair_bot', { profileId: panelId, token })
+      .then((envelope) => {
+        if (!envelope?.ok) {
+          showError(envelope?.message || t('vault.errors.requestFailed'));
+          return;
+        }
+        showError('');
+        botLink = envelope.data?.deepLink || '';
+        botUsername = envelope.data?.botUsername || '';
+        botStep = 'link';
+        tokenInput.value = '';
+        updatePairUi();
+      })
+      .catch(() => showError(t('vault.errors.requestFailed')));
+  });
+
+  const linkStep = make('div', 'vault-bot-link');
+  linkStep.hidden = true;
+  const linkHeading = make('p', 'vault-bot-link-heading', t('vault.bot.linkHeading'));
+  const anchor = document.createElement('a');
+  anchor.className = 'vault-bot-link-anchor';
+  anchor.setAttribute('target', '_blank');
+  anchor.setAttribute('rel', 'noopener');
+  anchor.hidden = true;
+  const startHint = make('p', 'vault-bot-hint', t('vault.bot.startHint'));
+  const waitButton = make('button', 'btn btn-primary vault-bot-wait', t('vault.bot.startConfirm'));
+  waitButton.type = 'button';
+  waitButton.addEventListener('click', () => {
+    if (botWaiting) return;
+    const invoke = getInvoke();
+    if (!invoke || !panelId) return;
+    botWaiting = true;
+    waitButton.disabled = true;
+    waitButton.textContent = t('vault.bot.waiting');
+    invoke('vault_pair_bot_wait', { profileId: panelId })
+      .then((envelope) => {
+        botWaiting = false;
+        waitButton.disabled = false;
+        if (!envelope?.ok || envelope.data?.chatCaptured === false) {
+          showError(envelope?.message || t('vault.bot.notCaptured'));
+          waitButton.textContent = t('vault.bot.waitAgain');
+          return;
+        }
+        showError('');
+        waitButton.textContent = t('vault.bot.startConfirm');
+        botStep = 'token';
+        botLink = '';
+        botUsername = '';
+        updatePairUi();
+        refresh();
+      })
+      .catch(() => {
+        botWaiting = false;
+        waitButton.disabled = false;
+        waitButton.textContent = t('vault.bot.waitAgain');
+        showError(t('vault.errors.requestFailed'));
+      });
+  });
+  linkStep.append(linkHeading, anchor, startHint, waitButton);
+
+  return [tokenForm, linkStep];
+}
+
 function buildForms() {
   const hint = make('p', 'vault-hint', t('vault.login.credentialsHint'));
+  hint.hidden = true;
 
   const phoneForm = document.createElement('form');
   phoneForm.className = 'vault-form vault-form-phone';
@@ -317,13 +495,24 @@ function buildSection() {
   const heading = make('h3', 'vault-heading', t('vault.title'));
   const stateNode = make('strong', 'vault-state');
   const statsNode = make('span', 'vault-stats');
+  const transportNode = make('span', 'vault-transport');
+  transportNode.hidden = true;
   const stateLine = make('p', 'vault-state-line');
-  stateLine.append(stateNode, statsNode);
+  stateLine.append(stateNode, statsNode, transportNode);
   const errorNode = make('p', 'vault-error');
   errorNode.setAttribute('role', 'alert');
   errorNode.hidden = true;
   const actions = make('div', 'vault-actions');
-  node.append(heading, stateLine, errorNode, actions, ...buildForms(), ...buildLogTable());
+  node.append(
+    heading,
+    stateLine,
+    errorNode,
+    actions,
+    ...buildPairModeChooser(),
+    ...buildBotForms(),
+    ...buildForms(),
+    ...buildLogTable()
+  );
   return node;
 }
 
@@ -331,6 +520,15 @@ function buildSection() {
 export function render(profile) {
   if (typeof document === 'undefined' || !profile?.id) return;
   panelId = profile.id;
+  pairMode = 'bot';
+  loginStep = '';
+  botStep = 'token';
+  botLink = '';
+  botUsername = '';
+  botWaiting = false;
+  lastState = 'unpaired';
+  lastStatus = null;
+  lastMessage = '';
   const dialog = document.getElementById('profile-details-dialog');
   if (!dialog) return;
   section = buildSection();

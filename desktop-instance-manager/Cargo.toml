@@ -32,6 +32,7 @@ notify-debouncer-full = "0.3"
 rusqlite = { version = "0.41", features = ["bundled"] }
 grammers-client = "0.12"
 grammers-session = { version = "0.12", default-features = false, features = ["serde"] }
+ureq = { version = "2", features = ["json"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "time", "net", "fs", "io-util"] }
 dim-core = { path = "crates/core", version = "0.1.0" }
 dim-profile-store = { path = "crates/profile-store", version = "0.1.0" }

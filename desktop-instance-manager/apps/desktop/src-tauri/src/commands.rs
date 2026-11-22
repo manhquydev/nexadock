@@ -1395,7 +1395,11 @@ mod tests {
 // Telegram Vault
 // =========================================================================
 
-use crate::vault::{PairFlow, VaultLogRow, VaultManagerError, VaultStatus};
+use std::sync::Arc;
+
+use crate::vault::{
+    BotPairFlow, BotWaitOutcome, PairFlow, VaultLogRow, VaultManagerError, VaultStatus,
+};
 
 fn vault_err<T: Serialize>(error: VaultManagerError) -> ApiEnvelope<T> {
     ApiEnvelope::err(&DimError::ProcessError(format!("vault: {error}")))
@@ -1419,6 +1423,42 @@ pub fn vault_pair(
 ) -> Result<ApiEnvelope<PairFlow>, String> {
     match state.vault.pair(&profile_id) {
         Ok(flow) => Ok(ApiEnvelope::ok("Vault pairing flow ready.", flow)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub fn vault_pair_bot(
+    state: State<'_, AppState>,
+    profile_id: String,
+    token: String,
+) -> Result<ApiEnvelope<BotPairFlow>, String> {
+    match state.vault.pair_bot(&profile_id, &token) {
+        Ok(flow) => Ok(ApiEnvelope::ok("Bot token validated.", flow)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_pair_bot_wait(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    // The wait long-polls the Bot API for up to a minute; keep it off the main
+    // thread by running the blocking manager call on a worker.
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || vault.pair_bot_wait(&profile_id))
+        .await
+        .map_err(|error| format!("vault bot wait task failed: {error}"))?;
+    match outcome {
+        Ok(BotWaitOutcome::Captured(status)) => {
+            let data = serde_json::to_value(status).unwrap_or(serde_json::Value::Null);
+            Ok(ApiEnvelope::ok("Bot chat captured.", data))
+        }
+        Ok(BotWaitOutcome::TimedOut) => Ok(ApiEnvelope::ok(
+            "No bot chat captured yet; ask again later.",
+            serde_json::json!({ "chatCaptured": false }),
+        )),
         Err(error) => Ok(vault_err(error)),
     }
 }

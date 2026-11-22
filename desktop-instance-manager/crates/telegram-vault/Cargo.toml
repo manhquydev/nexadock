@@ -25,6 +25,7 @@ rusqlite = { workspace = true }
 grammers-client = { workspace = true, optional = true }
 grammers-session = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
+ureq = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

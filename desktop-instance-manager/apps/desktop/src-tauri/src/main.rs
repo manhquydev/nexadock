@@ -137,6 +137,8 @@ fn main() {
             commands::web_session_rename,
             commands::vault_get_status,
             commands::vault_pair,
+            commands::vault_pair_bot,
+            commands::vault_pair_bot_wait,
             commands::vault_login_phone,
             commands::vault_login_code,
             commands::vault_unpair,
