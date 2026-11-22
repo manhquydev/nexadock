@@ -258,7 +258,8 @@
     },
     "advanced": {
       "heading": "Nâng cao",
-      "description": "Dành cho trường hợp cần kiểm tra lỗi, dung lượng đĩa hoặc nhật ký kỹ thuật.",
+      "toggleLabel": "Chế độ nâng cao",
+      "description": "Mở khóa mục Kiểm tra sự cố, thông tin tiến trình/thư mục kỹ thuật và tùy chọn tạo Zalo Web (Thử nghiệm).",
       "openDiagnostics": "Kiểm tra sự cố"
     }
   },

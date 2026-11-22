@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" data-advanced-mode="false">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -143,7 +143,7 @@
           </svg>
           <span class="rail-btn-label" data-i18n="nav.settings">Cài đặt</span>
         </button>
-        <button type="button" class="rail-util-btn top-nav-btn" data-view="diagnostics" data-i18n-title="diagnostics.title" title="Kiểm tra sự cố" data-i18n-aria-label="diagnostics.title" aria-label="Kiểm tra sự cố">
+        <button type="button" class="rail-util-btn top-nav-btn advanced-only" data-view="diagnostics" data-i18n-title="diagnostics.title" title="Kiểm tra sự cố" data-i18n-aria-label="diagnostics.title" aria-label="Kiểm tra sự cố">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
           </svg>
@@ -173,7 +173,7 @@
             <span id="status-banner-text"></span>
             <button type="button" class="btn-link banner-dismiss" id="btn-dismiss-banner" data-i18n="dialogs.close">Đóng</button>
           </div>
-          <details id="status-banner-details" class="banner-details" hidden>
+          <details id="status-banner-details" class="banner-details advanced-only" hidden>
             <summary data-i18n="errors.technicalDetails">Chi tiết kỹ thuật</summary>
             <pre id="status-banner-raw" class="banner-raw" role="region" tabindex="0" data-i18n-aria-label="errors.technicalDetails"></pre>
           </details>
@@ -328,7 +328,7 @@
               <span class="stage-danger-label" data-i18n="desktopStage.dangerZoneTitle">Thao tác không thể hoàn tác</span>
               <button type="button" class="btn btn-subtle-danger btn-sm" id="btn-desktop-delete" data-i18n="accounts.actions.delete">Xóa tài khoản</button>
             </div>
-            <details class="advanced-details">
+            <details class="advanced-details advanced-only">
               <summary data-i18n="desktopStage.sessionDetailsSummary">Chi tiết phiên &amp; lưu trữ</summary>
               <dl class="kv-list kv-list-spaced" id="desktop-stage-kv"></dl>
             </details>
@@ -520,10 +520,16 @@
             <dl class="kv-list" id="settings-about-list"></dl>
           </section>
 
-          <section class="panel settings-panel">
+          <section class="panel settings-panel" id="settings-advanced-section">
             <h2 class="settings-title" data-i18n="settings.advanced.heading">Nâng cao</h2>
-            <p class="settings-desc" data-i18n="settings.advanced.description">Dành cho trường hợp cần kiểm tra lỗi, dung lượng đĩa hoặc nhật ký kỹ thuật.</p>
-            <div class="settings-actions">
+            <p class="settings-desc" data-i18n="settings.advanced.description">Mở khóa mục Kiểm tra sự cố, thông tin tiến trình/thư mục kỹ thuật và tùy chọn tạo Zalo Web (Thử nghiệm).</p>
+            <div class="settings-toggle-stack">
+              <label class="settings-toggle-row">
+                <input type="checkbox" id="toggle-advanced-mode">
+                <span data-i18n="settings.advanced.toggleLabel">Chế độ nâng cao</span>
+              </label>
+            </div>
+            <div class="settings-actions advanced-only">
               <button type="button" class="btn btn-secondary" id="btn-goto-diagnostics" data-i18n="settings.advanced.openDiagnostics">Kiểm tra sự cố</button>
             </div>
           </section>
@@ -670,7 +676,7 @@
           </section>
         </div>
 
-        <div class="panel help-footer-bar">
+        <div class="panel help-footer-bar advanced-only">
           <span data-i18n="help.troubleshootPrompt">Cần kiểm tra chi tiết cài đặt hoặc nhật ký hệ thống?</span>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-help-diagnostics" data-i18n="help.openTroubleshoot">Mở Kiểm tra sự cố</button>
         </div>
@@ -684,7 +690,7 @@
       <h2 id="create-dialog-title" class="modal-title" data-i18n="dialogs.create.title">Thêm tài khoản Zalo</h2>
       <p class="modal-subtitle" data-i18n="dialogs.create.subtitle">Tạo không gian Zalo riêng trên máy.</p>
       <form id="create-profile-form" novalidate>
-        <fieldset class="mode-fieldset">
+        <fieldset class="mode-fieldset advanced-only">
           <legend data-i18n="dialogs.create.modeLegend">Chế độ hoạt động</legend>
           <div class="mode-options">
             <label class="mode-card">
@@ -840,7 +846,7 @@
     <h2 id="details-dialog-title" class="modal-title" data-i18n="accounts.details.title">Thông tin tài khoản</h2>
     <p class="modal-subtitle" data-i18n="accounts.details.subtitle">Thông tin lưu trữ và phiên chạy của tài khoản này.</p>
     <dl class="kv-list" id="profile-details-list"></dl>
-    <details class="advanced-details">
+    <details class="advanced-details advanced-only">
       <summary data-i18n="accounts.details.technicalSummary">Thông tin nâng cao</summary>
       <dl class="kv-list kv-list-spaced" id="profile-details-advanced-list"></dl>
     </details>

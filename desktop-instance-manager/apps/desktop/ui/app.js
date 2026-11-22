@@ -29,6 +29,7 @@ const ACTIVE_ACCOUNT_KEY = 'nexadock.activeAccountId';
 const LEGACY_ACTIVE_ACCOUNT_KEY = 'khoang.activeAccountId';
 const VIEW_MODE_KEY = 'nexadock.viewMode';
 const LEGACY_VIEW_MODE_KEY = 'khoang.viewMode';
+const ADVANCED_MODE_STORAGE_KEY = 'nexadock.advancedMode';
 
 const ACCOUNT_COLORS = [
   { id: 'blue', cssVar: '--id-blue' },
@@ -366,7 +367,7 @@ function renderBanner() {
       rawLines.push(`${t('errors.rawMessageLabel')}: ${info.rawDetail}`);
     }
     rawEl.textContent = rawLines.join('\n');
-    detailsEl.hidden = false;
+    detailsEl.hidden = !getSavedAdvancedMode();
   } else {
     textEl.textContent = state.banner.messageKey
       ? t(state.banner.messageKey, state.banner.messageParams || {})
@@ -732,6 +733,86 @@ function updateLanguageControls() {
   const current = getLocale();
   for (const input of document.querySelectorAll('input[name="ui-locale"]')) {
     input.checked = input.value === current;
+  }
+}
+
+export function getSavedAdvancedMode() {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(ADVANCED_MODE_STORAGE_KEY) === 'true';
+  } catch (_err) {
+    return false;
+  }
+}
+
+export function isMacPlatform() {
+  if (typeof navigator === 'undefined') return false;
+  const platform = navigator.platform || '';
+  const ua = navigator.userAgent || '';
+  return /mac/i.test(platform) || /macintosh|mac os x/i.test(ua);
+}
+
+export function formatShortcut(key) {
+  const normalized = String(key || '').trim();
+  return isMacPlatform() ? `⌘${normalized}` : `Ctrl+${normalized}`;
+}
+
+function updateShortcutHints() {
+  if (typeof document === 'undefined') return;
+  const mac = isMacPlatform();
+  if (document.documentElement) {
+    document.documentElement.dataset.platform = mac ? 'macos' : 'default';
+  }
+  const qsBtn = document.getElementById('btn-quick-switcher');
+  if (qsBtn) {
+    const baseLabel = t('quickSwitcher.triggerAria');
+    const formatted = mac ? baseLabel.replace('Ctrl+K', '⌘K') : baseLabel;
+    qsBtn.setAttribute('aria-label', formatted);
+    qsBtn.setAttribute('title', formatted);
+  }
+  const railToggle = document.getElementById('btn-rail-toggle');
+  if (railToggle) {
+    const expanded = document.getElementById('workspace-shell')?.dataset.railExpanded === 'true';
+    const baseRail = expanded ? t('rail.collapse') : t('rail.expand');
+    railToggle.setAttribute('title', `${baseRail} (${formatShortcut('B')})`);
+  }
+  const openCreateBtn = document.getElementById('btn-open-create');
+  if (openCreateBtn) {
+    openCreateBtn.setAttribute('title', `${t('accounts.add')} (${formatShortcut('N')})`);
+  }
+}
+
+export function applyAdvancedMode(enabled) {
+  const isAdvanced = Boolean(enabled);
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(ADVANCED_MODE_STORAGE_KEY, String(isAdvanced));
+    }
+  } catch (_err) {
+    // Ignore storage errors
+  }
+
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.dataset.advancedMode = String(isAdvanced);
+  }
+
+  const toggle = document.getElementById('toggle-advanced-mode');
+  if (toggle) {
+    toggle.checked = isAdvanced;
+  }
+
+  if (!isAdvanced) {
+    const desktopRadio = document.querySelector('input[name="create-session-mode"][value="desktop_isolated"]');
+    if (desktopRadio) desktopRadio.checked = true;
+    const notesField = document.getElementById('create-notes-field');
+    if (notesField) notesField.hidden = false;
+    if (state.activeView === 'diagnostics') {
+      selectView('settings');
+    }
+  }
+
+  if (state.banner) {
+    renderBanner();
   }
 }
 
@@ -3100,13 +3181,18 @@ function updateCreateSessionModeControls() {
   const webRadio = document.getElementById('create-mode-web-radio');
   const webDesc = document.getElementById('create-mode-web-desc');
   if (!webRadio || !webDesc) return;
+  const desktopRadio = document.querySelector('input[name="create-session-mode"][value="desktop_isolated"]');
+  if (!getSavedAdvancedMode()) {
+    if (desktopRadio && webRadio.checked) desktopRadio.checked = true;
+    const notesField = document.getElementById('create-notes-field');
+    if (notesField) notesField.hidden = false;
+  }
   const supported = Boolean(state.workspace?.web_workspace?.supported);
   const invoke = getTauriInvoke();
   if (invoke && !supported) {
     webRadio.disabled = true;
     const code = state.workspace?.web_workspace?.reason_code;
     webDesc.textContent = code ? resolveErrorInfo(code).userMessage : t('dialogs.create.modeWebUnsupported');
-    const desktopRadio = document.querySelector('input[name="create-session-mode"][value="desktop_isolated"]');
     if (desktopRadio && webRadio.checked) desktopRadio.checked = true;
   } else {
     webRadio.disabled = false;
@@ -3702,7 +3788,9 @@ function renderQuickSwitcherList() {
       const kbd = document.createElement('span');
       kbd.className = 'switcher-shortcut';
       kbd.setAttribute('aria-hidden', 'true');
-      kbd.textContent = t('quickSwitcher.shortcutHint', { num: String(globalIdx + 1) });
+      kbd.textContent = isMacPlatform()
+        ? formatShortcut(globalIdx + 1)
+        : t('quickSwitcher.shortcutHint', { num: String(globalIdx + 1) });
       opt.appendChild(kbd);
     }
 
@@ -4571,8 +4659,12 @@ function wireGlobalShortcuts() {
       return;
     }
     if (mod && event.key === ',') {
-      event.preventDefault();
-      selectView('settings');
+      const active = document.activeElement;
+      const inInput = active && active.matches?.('input, textarea, select, [contenteditable="true"]');
+      if (!inInput) {
+        event.preventDefault();
+        selectView('settings');
+      }
       return;
     }
     if (mod && /^[1-9]$/.test(event.key)) {
@@ -4609,6 +4701,8 @@ export async function initApp() {
   await initI18n();
   applyDomTranslations();
   applyThemePreference(getSavedThemePreference());
+  applyAdvancedMode(getSavedAdvancedMode());
+  updateShortcutHints();
 
   const shell = document.getElementById('workspace-shell');
   const railToggle = document.getElementById('btn-rail-toggle');
@@ -4810,6 +4904,7 @@ export async function initApp() {
 
   onLocaleChange((nextLocale) => {
     applyDomTranslations();
+    updateShortcutHints();
     renderAll();
     const invoke = getTauriInvoke();
     if (invoke) {
@@ -4920,10 +5015,16 @@ export async function initApp() {
     });
   }
 
+  document.getElementById('toggle-advanced-mode')?.addEventListener('change', (event) => {
+    applyAdvancedMode(Boolean(event.target.checked));
+  });
+
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (event) => {
       if (event.key === THEME_STORAGE_KEY) {
         applyThemePreference(getSavedThemePreference());
+      } else if (event.key === ADVANCED_MODE_STORAGE_KEY) {
+        applyAdvancedMode(getSavedAdvancedMode());
       }
     });
   }

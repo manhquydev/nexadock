@@ -258,7 +258,8 @@
     },
     "advanced": {
       "heading": "Advanced",
-      "description": "For troubleshooting, disk size measurement, or viewing technical logs.",
+      "toggleLabel": "Advanced mode",
+      "description": "Unlocks Diagnostics, technical process and folder details, and the Zalo Web (Experimental) creation option.",
       "openDiagnostics": "Troubleshoot"
     }
   },
