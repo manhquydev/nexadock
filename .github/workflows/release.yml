@@ -174,7 +174,7 @@ jobs:
           chmod +x "${OUT}/${PROD}-${VER}-linux-x86_64.AppImage"
 
       - name: Upload Ubuntu release assets
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets-ubuntu
           path: release-assets-ubuntu/
@@ -223,7 +223,7 @@ jobs:
           Copy-Item $msi.FullName (Join-Path $out "$env:PROD-$env:VER-windows-x64.msi") -Force
 
       - name: Upload Windows release assets
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets-windows
           path: release-assets-windows/
@@ -381,7 +381,7 @@ jobs:
             --out "release-assets-macos-arm64/macos-arm64-acceptance.json"
 
       - name: Upload macOS arm64 release assets
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets-macos-arm64
           path: release-assets-macos-arm64/
@@ -418,7 +418,7 @@ jobs:
           fi
 
       - name: Download all platform build artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: dist-staging
           merge-multiple: true

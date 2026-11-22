@@ -175,7 +175,7 @@ jobs:
           cat "${RUNNER_TEMP}/ci-dependency-audit/dependency-audit.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload dependency & advisory audit report
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-audit-report
           path: ${{ runner.temp }}/ci-dependency-audit/*
@@ -420,7 +420,7 @@ jobs:
           cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Ubuntu 24.04 validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: manifest-ubuntu-2404-x86_64
           path: ${{ runner.temp }}/ci-ubuntu-2404/*
@@ -626,7 +626,7 @@ jobs:
           Get-Content "$outDir/artifact-summary.md" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Upload Windows validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: manifest-windows-x86_64
           path: ${{ runner.temp }}/ci-windows-msvc/*
@@ -807,7 +807,7 @@ jobs:
           cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload macOS arm64 validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: manifest-macos-arm64
           path: ${{ runner.temp }}/ci-macos-arm64/*
@@ -993,7 +993,7 @@ jobs:
           cat "${OUT_DIR}/artifact-summary.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload macOS Intel validation manifest and reports (unsigned dev only)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: manifest-macos-x86_64
           path: ${{ runner.temp }}/ci-macos-intel/*
@@ -1020,7 +1020,7 @@ jobs:
           node-version: "22"
 
       - name: Download per-OS validation manifests
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: manifest-*
           path: ${{ runner.temp }}/downloaded-manifests
@@ -1166,7 +1166,7 @@ jobs:
 
       - name: Upload consolidated cross-platform manifest
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: cross-platform-artifact-manifest
           path: ${{ runner.temp }}/verified-manifests/*
