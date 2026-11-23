@@ -67,6 +67,9 @@ pub struct VaultConfig {
     /// Telegram chat identifier that first messaged the bot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub telegram_chat_id: Option<i64>,
+    /// Public username of the validated Telegram bot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_bot_username: Option<String>,
 }
 
 impl VaultConfig {
@@ -119,6 +122,7 @@ impl VaultConfigStore {
     /// Atomically writes one profile configuration.
     pub fn save(&self, config: &VaultConfig) -> Result<()> {
         validate_profile_id(&config.profile_id)?;
+        config.transport_kind()?;
         let path = self.config_path(&config.profile_id)?;
         let bytes = serde_json::to_vec_pretty(config)?;
         write_bytes_atomic(&path, &bytes)?;

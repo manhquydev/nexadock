@@ -30,6 +30,16 @@ const GET_UPDATES_LONG_POLL_SECS: u64 = 50;
 const GET_UPDATES_SLACK_SECS: u64 = 5;
 /// Hard ceiling for the total `wait_for_chat` wait.
 const WAIT_FOR_CHAT_MAX_SECS: u64 = 60;
+/// Maximum Telegram Bot API document size (decimal 50 MB).
+const BOT_API_MAX_DOCUMENT_BYTES: u64 = 50_000_000;
+fn validate_bot_upload_size(size: u64) -> Result<()> {
+    if size > BOT_API_MAX_DOCUMENT_BYTES {
+        return Err(VaultError::Transport(
+            "file exceeds the Bot API 50 MB limit; use the full Telegram account tier for large files".into(),
+        ));
+    }
+    Ok(())
+}
 
 /// Public metadata about a validated Telegram bot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +91,11 @@ impl BotTransport {
     }
 
     /// Long-polls `getUpdates` until the bot receives a private chat message.
+    ///
+    /// Updates are consumed by advancing the poll offset. Therefore, a second
+    /// pairing that uses the same bot token will not see messages already
+    /// consumed by the first pairing; each bot token is single-owner and must
+    /// be dedicated to one profile.
     ///
     /// Uses a monotonically increasing `offset` so updates are consumed once,
     /// waits at most `min(timeout_secs, 60)` seconds in total, and returns the
@@ -135,6 +150,10 @@ impl TelegramTransport for BotTransport {
         sha256: &str,
         caption: &str,
     ) -> Result<RemoteRef> {
+        let size = fs::metadata(path)
+            .map_err(|error| VaultError::io(path, error))?
+            .len();
+        validate_bot_upload_size(size)?;
         // Same source-mutation guard as the MTProto transport: never upload a
         // file that no longer matches its queued digest.
         let actual_sha256 = crate::watch::sha256_file(path)?;
@@ -546,6 +565,18 @@ mod tests {
         assert!(tail.contains("name=\"chat\"\r\n\r\n987654321\r\n"));
         assert!(tail.contains("name=\"caption\"\r\n\r\n{\"sha256\":\"x\"}"));
         assert!(tail.ends_with("--dimvault0--\r\n"));
+    }
+
+    #[test]
+    fn bot_upload_size_accepts_limit_and_rejects_larger_files() {
+        assert!(validate_bot_upload_size(50_000_000).is_ok());
+        assert!(validate_bot_upload_size(0).is_ok());
+        let error = validate_bot_upload_size(50_000_001).unwrap_err();
+        assert!(matches!(
+            error,
+            VaultError::Transport(message)
+                if message == "file exceeds the Bot API 50 MB limit; use the full Telegram account tier for large files"
+        ));
     }
 
     #[test]

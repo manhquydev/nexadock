@@ -360,7 +360,8 @@
       "unpaired": "Not paired",
       "paired": "Paired",
       "syncing": "Syncing...",
-      "offline": "Paired · Paused"
+      "offline": "Paired · Paused",
+      "continuingBot": "Bot connection needed"
     },
     "stats": {
       "summary": "{pending} waiting · {failed} failed · {done} synced"
@@ -394,7 +395,12 @@
       "startConfirm": "I pressed Start — connect",
       "waiting": "Waiting for Telegram...",
       "waitAgain": "Try connecting again",
-      "notCaptured": "We haven't seen your message to the bot yet — open the link, press Start, then try again."
+      "notCaptured": "We haven't seen your message to the bot yet — open the link, press Start, then try again.",
+      "show": "Show token",
+      "hide": "Hide token",
+      "continuationHeading": "Bot paired. Open this link in Telegram:",
+      "continuationHint": "Press START in Telegram, then press the connect button below to finish.",
+      "continuationConfirm": "I pressed Start — connect"
     },
     "login": {
       "phoneLabel": "Telegram phone number",
@@ -406,7 +412,9 @@
       "codePlaceholder": "Code from Telegram",
       "passwordLabel": "Two-step verification password (if set)",
       "codeSubmit": "Finish pairing",
-      "credentialsHint": "Enter your API ID and API Hash once from my.telegram.org. The app stores them locally in the vault config, readable only by your user account for reconnecting; they are not sent anywhere else."
+      "credentialsHint": "Enter your API ID and API Hash once from my.telegram.org. The app stores them locally in the vault config, readable only by your user account for reconnecting; they are not sent anywhere else.",
+      "show": "Show password",
+      "hide": "Hide password"
     },
     "log": {
       "heading": "Recent sync",

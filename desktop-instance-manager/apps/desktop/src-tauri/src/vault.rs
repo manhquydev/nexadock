@@ -149,6 +149,8 @@ pub struct VaultStatus {
     pub transport: String,
     /// The bot pairing is fully configured (token stored, chat captured).
     pub bot_configured: bool,
+    /// Public username of the bot, available while the owner is still connecting it.
+    pub bot_username: Option<String>,
     pub pending: u64,
     pub uploading: u64,
     pub failed: u64,
@@ -359,6 +361,9 @@ impl VaultManager {
             bot_configured: config.as_ref().is_some_and(|value| {
                 value.telegram_bot_token.is_some() && value.telegram_chat_id.is_some()
             }),
+            bot_username: config
+                .as_ref()
+                .and_then(|value| value.telegram_bot_username.clone()),
             pending: 0,
             uploading: 0,
             failed: 0,
@@ -516,6 +521,7 @@ impl VaultManager {
             telegram_api_hash: Some(pending.api_hash),
             telegram_bot_token: None,
             telegram_chat_id: None,
+            telegram_bot_username: None,
         };
         self.config_store.save(&config)?;
         self.spawn_engine(
@@ -548,6 +554,7 @@ impl VaultManager {
             telegram_api_hash: None,
             telegram_bot_token: Some(token.to_owned()),
             telegram_chat_id: None,
+            telegram_bot_username: Some(info.username.clone()),
         };
         self.config_store.save(&config)?;
         Ok(BotPairFlow {
@@ -776,7 +783,7 @@ impl VaultManager {
                     },
                 }
             }
-            // Mixed or missing credentials are surfaced by the store on save;
+            // Invalid transport credentials are rejected when the store saves configs;
             // a consumer cannot run either layer for them.
             Err(_) => ConsumerTransport::None,
         }
@@ -1098,6 +1105,7 @@ mod tests {
             telegram_api_hash: None,
             telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
             telegram_chat_id: Some(987_654_321),
+            telegram_bot_username: Some("vault_bot".into()),
         };
         manager
             .config_store
@@ -1106,6 +1114,7 @@ mod tests {
         let status = manager.status("work_1").expect("status");
         assert!(status.paired);
         assert_eq!(status.transport, "bot");
+        assert_eq!(status.bot_username.as_deref(), Some("vault_bot"));
         assert!(status.bot_configured);
         assert!(!status.session_exists);
     }
@@ -1125,6 +1134,7 @@ mod tests {
             telegram_api_hash: None,
             telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
             telegram_chat_id: None,
+            telegram_bot_username: Some("vault_bot".into()),
         };
         manager
             .config_store

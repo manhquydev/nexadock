@@ -138,6 +138,7 @@ fn profile_configuration_round_trips_telegram_credentials() {
         telegram_api_hash: Some("test-api-hash".into()),
         telegram_bot_token: None,
         telegram_chat_id: None,
+        telegram_bot_username: None,
     };
     store.save(&config).unwrap();
     assert_eq!(store.load("profile-a").unwrap(), Some(config));
@@ -170,20 +171,24 @@ fn bot_configuration_round_trips_token_and_chat() {
         telegram_api_hash: None,
         telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
         telegram_chat_id: Some(987_654_321),
+        telegram_bot_username: Some("vault_bot".into()),
     };
     store.save(&config).unwrap();
     assert_eq!(store.load("profile-b").unwrap(), Some(config.clone()));
     let serialized = std::fs::read_to_string(store.root().join("profile-b.json")).unwrap();
     assert!(serialized.contains("\"transport\": \"bot\""));
+    assert!(serialized.contains("\"telegram_bot_username\": \"vault_bot\""));
     // Empty optional fields must stay out of the document.
     let minimal = VaultConfig {
         telegram_bot_token: None,
         telegram_chat_id: None,
+        telegram_bot_username: None,
         ..config.clone()
     };
     let json = serde_json::to_string(&minimal).unwrap();
     assert!(!json.contains("telegram_bot_token"));
     assert!(!json.contains("telegram_chat_id"));
+    assert!(!json.contains("telegram_bot_username"));
 }
 
 #[test]
@@ -220,6 +225,7 @@ fn transport_kind_rejects_mixed_and_missing_credentials() {
         telegram_api_hash: Some("hash".into()),
         telegram_bot_token: Some("123:secret".into()),
         telegram_chat_id: Some(1),
+        telegram_bot_username: None,
     };
     let error = mixed.transport_kind().unwrap_err();
     assert!(
@@ -244,4 +250,28 @@ fn transport_kind_rejects_mixed_and_missing_credentials() {
         ..mixed
     };
     assert!(whitespace_token.transport_kind().is_err());
+}
+
+#[test]
+fn config_store_rejects_invalid_transport_before_writing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = VaultConfigStore::new(tmp.path()).unwrap();
+    let invalid = VaultConfig {
+        profile_id: "invalid-profile".into(),
+        telegram_session_dir: tmp.path().join("sessions"),
+        destination: Destination::default(),
+        enabled: true,
+        transport: Transport::Bot,
+        telegram_api_id: Some(12345),
+        telegram_api_hash: Some("hash".into()),
+        telegram_bot_token: Some("123:secret".into()),
+        telegram_chat_id: None,
+        telegram_bot_username: Some("bot".into()),
+    };
+    assert!(matches!(
+        store.save(&invalid),
+        Err(crate::VaultError::InvalidRecord(message))
+            if message == "mixed or missing vault transport"
+    ));
+    assert!(!store.root().join("invalid-profile.json").exists());
 }

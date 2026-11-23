@@ -1428,12 +1428,16 @@ pub fn vault_pair(
 }
 
 #[tauri::command]
-pub fn vault_pair_bot(
+pub async fn vault_pair_bot(
     state: State<'_, AppState>,
     profile_id: String,
     token: String,
 ) -> Result<ApiEnvelope<BotPairFlow>, String> {
-    match state.vault.pair_bot(&profile_id, &token) {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || vault.pair_bot(&profile_id, &token))
+        .await
+        .map_err(|error| format!("vault bot pairing task failed: {error}"))?;
+    match outcome {
         Ok(flow) => Ok(ApiEnvelope::ok("Bot token validated.", flow)),
         Err(error) => Ok(vault_err(error)),
     }
@@ -1464,17 +1468,20 @@ pub async fn vault_pair_bot_wait(
 }
 
 #[tauri::command]
-pub fn vault_login_phone(
+pub async fn vault_login_phone(
     state: State<'_, AppState>,
     profile_id: String,
     phone: String,
     api_id: Option<i32>,
     api_hash: Option<String>,
 ) -> Result<ApiEnvelope<serde_json::Value>, String> {
-    match state
-        .vault
-        .login_phone(&profile_id, &phone, api_id, api_hash.as_deref())
-    {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        vault.login_phone(&profile_id, &phone, api_id, api_hash.as_deref())
+    })
+    .await
+    .map_err(|error| format!("vault phone login task failed: {error}"))?;
+    match outcome {
         Ok(()) => Ok(ApiEnvelope::ok(
             "Telegram login code requested.",
             serde_json::json!({ "codeRequested": true }),

@@ -99,7 +99,9 @@ class FakeNode {
     return this.attributes.has(name) ? this.attributes.get(name) : null;
   }
 
-  removeAttribute() {}
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
 
   addEventListener(name, listener) {
     this.listeners.set(name, listener);
@@ -170,7 +172,7 @@ test('vault panel renders unpaired, syncing, and offline states', () => {
       const apiHashInput = section.querySelector('.vault-api-hash');
       assert.equal(apiIdInput?.inputMode, 'numeric');
       assert.equal(apiHashInput?.type, 'password');
-      assert.equal(apiHashInput?.autocomplete, 'off');
+      assert.equal(apiHashInput?.autocomplete, 'new-password');
       assert.equal(section.querySelector('.vault-credentials-fields')?.hidden, false);
       const stateText = section.querySelector('.vault-state')?.textContent || '';
       assert.notEqual(stateText, '', 'state label must resolve through i18n');
@@ -243,7 +245,7 @@ test('unpaired panel defaults to the bot tier with a two-option mode chooser', (
     const tokenInput = section.querySelector('.vault-bot-token');
     assert.equal(tokenInput?.type, 'password', 'bot token must be masked');
     assert.equal(tokenInput?.required, true);
-    assert.equal(tokenInput?.autocomplete, 'off');
+    assert.equal(tokenInput?.autocomplete, 'new-password');
     assert.ok(botForm.querySelector('.vault-bot-pair-button'), 'bot form must expose its own pair action');
 
     assert.equal(section.querySelector('.vault-form-phone')?.hidden, true, 'phone form must hide in bot tier');
@@ -284,7 +286,7 @@ test('bot pairing flow: token -> deep link -> retry wait -> paired', async () =>
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   let statusResult = statuses()[0];
-  let waitResult = { ok: true, data: { chatCaptured: false } };
+  let waitResult = { ok: true, message: 'No bot chat captured yet; ask again later.', data: { chatCaptured: false } };
   const calls = [];
   const invoke = (command, args) => {
     calls.push([command, args]);

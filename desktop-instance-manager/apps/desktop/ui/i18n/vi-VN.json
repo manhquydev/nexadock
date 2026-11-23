@@ -360,7 +360,8 @@
       "unpaired": "Chưa ghép",
       "paired": "Đã ghép",
       "syncing": "Đang đồng bộ...",
-      "offline": "Đã ghép · Tạm tắt"
+      "offline": "Đã ghép · Tạm tắt",
+      "continuingBot": "Cần kết nối bot"
     },
     "stats": {
       "summary": "{pending} đang chờ · {failed} lỗi · {done} đã đồng bộ"
@@ -394,7 +395,12 @@
       "startConfirm": "Tôi đã bấm Start — kết nối",
       "waiting": "Đang chờ Telegram...",
       "waitAgain": "Thử kết nối lại",
-      "notCaptured": "Chưa thấy bạn nhắn bot — hãy mở link và bấm Start rồi thử lại."
+      "notCaptured": "Chưa thấy bạn nhắn bot — hãy mở link và bấm Start rồi thử lại.",
+      "show": "Hiện token",
+      "hide": "Ẩn token",
+      "continuationHeading": "Bot đã ghép. Mở liên kết này trong Telegram:",
+      "continuationHint": "Bấm START trong Telegram rồi bấm nút kết nối bên dưới để hoàn tất.",
+      "continuationConfirm": "Tôi đã bấm Start — kết nối"
     },
     "login": {
       "phoneLabel": "Số điện thoại Telegram",
@@ -406,7 +412,9 @@
       "codePlaceholder": "Mã từ Telegram",
       "passwordLabel": "Mật khẩu xác minh hai bước (nếu có)",
       "codeSubmit": "Hoàn tất ghép",
-      "credentialsHint": "Nhập API ID và API Hash một lần từ my.telegram.org. Ứng dụng lưu chúng cục bộ trong cấu hình vault, chỉ tài khoản người dùng của bạn đọc được để kết nối lại; thông tin này không được gửi đi nơi khác."
+      "credentialsHint": "Nhập API ID và API Hash một lần từ my.telegram.org. Ứng dụng lưu chúng cục bộ trong cấu hình vault, chỉ tài khoản người dùng của bạn đọc được để kết nối lại; thông tin này không được gửi đi nơi khác.",
+      "show": "Hiện mật khẩu",
+      "hide": "Ẩn mật khẩu"
     },
     "log": {
       "heading": "Đồng bộ gần nhất",

@@ -12,6 +12,7 @@ const STATE_KEYS = {
   paired: 'vault.states.paired',
   syncing: 'vault.states.syncing',
   offline: 'vault.states.offline',
+  'bot-continuation': 'vault.states.continuingBot',
 };
 
 function getInvoke() {
@@ -29,6 +30,7 @@ function make(tag, className, text) {
 /** Resolves the panel lifecycle state key from a status envelope payload. */
 export function stateFor(status) {
   if (!status || !status.paired) return 'unpaired';
+  if (status.transport === 'bot' && status.botConfigured === false) return 'bot-continuation';
   if (status.engineRunning && (status.uploading || 0) > 0) return 'syncing';
   return status.enabled ? 'paired' : 'offline';
 }
@@ -51,6 +53,34 @@ let lastState = 'unpaired';
 let lastStatus = null;
 let lastMessage = '';
 
+/** Mirrors a validation failure to assistive tech: aria-invalid plus a
+ *  describedby target ('vault-error-msg'); restores the input's hint on clear. */
+function setInvalid(input, on) {
+  if (!input) return;
+  if (on) {
+    input.setAttribute('aria-invalid', 'true');
+    input.setAttribute('aria-describedby', 'vault-error-msg');
+  } else {
+    input.removeAttribute('aria-invalid');
+    const hintId = input.getAttribute('data-hint-id');
+    if (hintId) input.setAttribute('aria-describedby', hintId);
+    else input.removeAttribute('aria-describedby');
+  }
+}
+/** Adds a native password visibility toggle while restoring focus to the input. */
+function addPasswordToggle(input, button, showLabel, hideLabel) {
+  button.type = 'button';
+  button.setAttribute('aria-pressed', 'false');
+  button.textContent = showLabel;
+  button.addEventListener('click', () => {
+    const visible = input.type === 'password';
+    input.type = visible ? 'text' : 'password';
+    button.setAttribute('aria-pressed', String(visible));
+    button.textContent = visible ? hideLabel : showLabel;
+    input.focus?.();
+  });
+}
+
 function showError(message) {
   const node = section?.querySelector('.vault-error');
   if (!node) return;
@@ -65,6 +95,7 @@ function setLoginStep(step) {
 
 /** Shows exactly one pairing surface: mode chooser, bot form, bot link, or the advanced login. */
 function updatePairUi() {
+  const continuation = lastState === 'bot-continuation';
   const unpaired = lastState === 'unpaired';
   const chooser = section?.querySelector('.vault-mode-chooser');
   if (chooser) chooser.hidden = !unpaired;
@@ -72,12 +103,22 @@ function updatePairUi() {
   if (botForm) botForm.hidden = !(unpaired && pairMode === 'bot' && botStep === 'token');
   const botLinkNode = section?.querySelector('.vault-bot-link');
   if (botLinkNode) {
-    botLinkNode.hidden = !(unpaired && pairMode === 'bot' && botStep === 'link');
+    botLinkNode.hidden = !(continuation || (unpaired && pairMode === 'bot' && botStep === 'link'));
     const anchor = botLinkNode.querySelector('.vault-bot-link-anchor');
+    const username = continuation ? lastStatus?.botUsername : botUsername;
+    const link = continuation && username ? `https://t.me/${username}` : botLink;
     if (anchor) {
-      anchor.hidden = !botLink;
-      anchor.setAttribute('href', botLink);
-      anchor.textContent = botUsername || botLink;
+      anchor.hidden = !link;
+      anchor.setAttribute('href', link || '');
+      anchor.textContent = username || link || '';
+    }
+    const heading = botLinkNode.querySelector('.vault-bot-link-heading');
+    if (heading) heading.textContent = t(continuation ? 'vault.bot.continuationHeading' : 'vault.bot.linkHeading');
+    const startHint = botLinkNode.querySelector('.vault-bot-start-hint');
+    if (startHint) startHint.textContent = t(continuation ? 'vault.bot.continuationHint' : 'vault.bot.startHint');
+    const waitButton = botLinkNode.querySelector('.vault-bot-wait');
+    if (waitButton && !botWaiting) {
+      waitButton.textContent = t(continuation ? 'vault.bot.continuationConfirm' : 'vault.bot.startConfirm');
     }
   }
   const hint = section?.querySelector('.vault-hint');
@@ -180,6 +221,7 @@ export function applyStatus(status, message) {
     }
     return;
   }
+  if (state === 'bot-continuation') return;
   const syncButton = make('button', 'btn btn-secondary', t('vault.actions.syncNow'));
   syncButton.type = 'button';
   syncButton.addEventListener('click', () => run('vault_sync_now', {}));
@@ -190,18 +232,23 @@ export function applyStatus(status, message) {
   );
   toggleButton.type = 'button';
   toggleButton.addEventListener('click', () => run('vault_set_enabled', { enabled: !status.enabled }));
-  const deleteLabel = make('label', 'vault-delete-session');
-  const checkbox = document.createElement('input');
-  checkbox.type = 'checkbox';
-  checkbox.className = 'vault-delete-session-check';
-  deleteLabel.appendChild(checkbox);
-  deleteLabel.appendChild(make('span', undefined, t('vault.actions.deleteSession')));
+  let deleteLabel = null;
+  let checkbox = null;
+  if (status.transport !== 'bot') {
+    deleteLabel = make('label', 'vault-delete-session');
+    checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'vault-delete-session-check';
+    deleteLabel.appendChild(checkbox);
+    deleteLabel.appendChild(make('span', undefined, t('vault.actions.deleteSession')));
+  }
   const unpairButton = make('button', 'btn btn-subtle-danger', t('vault.actions.unpair'));
   unpairButton.type = 'button';
   unpairButton.addEventListener('click', () => {
-    run('vault_unpair', { deleteSession: Boolean(checkbox.checked) });
+    run('vault_unpair', { deleteSession: Boolean(checkbox?.checked) });
   });
-  actions.append(syncButton, toggleButton, unpairButton, deleteLabel);
+  actions.append(syncButton, toggleButton, unpairButton);
+  if (deleteLabel) actions.appendChild(deleteLabel);
 }
 
 function renderLog(rows) {
@@ -279,14 +326,19 @@ function buildBotForms() {
   tokenInput.type = 'password';
   tokenInput.id = 'vault-bot-token';
   tokenInput.className = 'vault-input vault-bot-token';
-  tokenInput.autocomplete = 'off';
+  tokenInput.autocomplete = 'new-password';
   tokenInput.spellcheck = false;
+  tokenInput.setAttribute('data-hint-id', 'vault-bot-token-hint');
+  tokenInput.setAttribute('aria-describedby', 'vault-bot-token-hint');
   tokenInput.placeholder = t('vault.bot.tokenPlaceholder');
   tokenInput.required = true;
   const tokenHint = make('p', 'vault-bot-hint', t('vault.bot.tokenHint'));
+  tokenHint.setAttribute('id', 'vault-bot-token-hint');
+  const tokenVisibility = make('button', 'btn btn-subtle vault-password-toggle');
+  addPasswordToggle(tokenInput, tokenVisibility, t('vault.bot.show'), t('vault.bot.hide'));
   const pairButton = make('button', 'btn btn-primary vault-bot-pair-button', t('vault.bot.pairButton'));
   pairButton.type = 'submit';
-  tokenForm.append(tokenLabel, tokenInput, tokenHint, pairButton);
+  tokenForm.append(tokenLabel, tokenInput, tokenVisibility, tokenHint, pairButton);
   tokenForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const invoke = getInvoke();
@@ -296,9 +348,11 @@ function buildBotForms() {
     invoke('vault_pair_bot', { profileId: panelId, token })
       .then((envelope) => {
         if (!envelope?.ok) {
+          setInvalid(tokenInput, true);
           showError(envelope?.message || t('vault.errors.requestFailed'));
           return;
         }
+        setInvalid(tokenInput, false);
         showError('');
         botLink = envelope.data?.deepLink || '';
         botUsername = envelope.data?.botUsername || '';
@@ -306,7 +360,10 @@ function buildBotForms() {
         tokenInput.value = '';
         updatePairUi();
       })
-      .catch(() => showError(t('vault.errors.requestFailed')));
+      .catch(() => {
+        setInvalid(tokenInput, true);
+        showError(t('vault.errors.requestFailed'));
+      });
   });
 
   const linkStep = make('div', 'vault-bot-link');
@@ -317,7 +374,7 @@ function buildBotForms() {
   anchor.setAttribute('target', '_blank');
   anchor.setAttribute('rel', 'noopener');
   anchor.hidden = true;
-  const startHint = make('p', 'vault-bot-hint', t('vault.bot.startHint'));
+  const startHint = make('p', 'vault-bot-hint vault-bot-start-hint', t('vault.bot.startHint'));
   const waitButton = make('button', 'btn btn-primary vault-bot-wait', t('vault.bot.startConfirm'));
   waitButton.type = 'button';
   waitButton.addEventListener('click', () => {
@@ -332,7 +389,9 @@ function buildBotForms() {
         botWaiting = false;
         waitButton.disabled = false;
         if (!envelope?.ok || envelope.data?.chatCaptured === false) {
-          showError(envelope?.message || t('vault.bot.notCaptured'));
+          showError(envelope?.data?.chatCaptured === false
+            ? t('vault.bot.notCaptured')
+            : envelope?.message || t('vault.errors.requestFailed'));
           waitButton.textContent = t('vault.bot.waitAgain');
           return;
         }
@@ -389,9 +448,11 @@ function buildForms() {
   apiHashInput.type = 'password';
   apiHashInput.id = 'vault-api-hash';
   apiHashInput.className = 'vault-input vault-api-hash';
-  apiHashInput.autocomplete = 'off';
+  apiHashInput.autocomplete = 'new-password';
   apiHashInput.required = true;
-  credentialsFields.append(apiIdLabel, apiIdInput, apiHashLabel, apiHashInput);
+  const apiHashVisibility = make('button', 'btn btn-subtle vault-password-toggle');
+  addPasswordToggle(apiHashInput, apiHashVisibility, t('vault.login.show'), t('vault.login.hide'));
+  credentialsFields.append(apiIdLabel, apiIdInput, apiHashLabel, apiHashInput, apiHashVisibility);
   const phoneSubmit = make('button', 'btn btn-primary', t('vault.login.phoneSubmit'));
   phoneSubmit.type = 'submit';
   phoneForm.append(phoneLabel, phoneInput, credentialsFields, phoneSubmit);
@@ -410,10 +471,24 @@ function buildForms() {
       apiHash,
     })
       .then((envelope) => {
-        if (envelope?.ok) setLoginStep('code');
-        else showError(envelope?.message || t('vault.errors.requestFailed'));
+        if (envelope?.ok) {
+          setInvalid(phoneInput, false);
+          setInvalid(apiIdInput, false);
+          setInvalid(apiHashInput, false);
+          setLoginStep('code');
+        } else {
+          setInvalid(phoneInput, true);
+          setInvalid(apiIdInput, true);
+          setInvalid(apiHashInput, true);
+          showError(envelope?.message || t('vault.errors.requestFailed'));
+        }
       })
-      .catch(() => showError(t('vault.errors.requestFailed')));
+      .catch(() => {
+        setInvalid(phoneInput, true);
+        setInvalid(apiIdInput, true);
+        setInvalid(apiHashInput, true);
+        showError(t('vault.errors.requestFailed'));
+      });
   });
 
   const codeForm = document.createElement('form');
@@ -451,14 +526,19 @@ function buildForms() {
     })
       .then((envelope) => {
         if (envelope?.ok) {
+          setInvalid(codeInput, false);
           setLoginStep('');
           passwordInput.value = '';
         } else {
+          setInvalid(codeInput, true);
           showError(envelope?.message || t('vault.errors.requestFailed'));
         }
         refresh();
       })
-      .catch(() => showError(t('vault.errors.requestFailed')));
+      .catch(() => {
+        setInvalid(codeInput, true);
+        showError(t('vault.errors.requestFailed'));
+      });
   });
   return [hint, phoneForm, codeForm];
 }
@@ -501,6 +581,7 @@ function buildSection() {
   stateLine.append(stateNode, statsNode, transportNode);
   const errorNode = make('p', 'vault-error');
   errorNode.setAttribute('role', 'alert');
+  errorNode.setAttribute('id', 'vault-error-msg');
   errorNode.hidden = true;
   const actions = make('div', 'vault-actions');
   node.append(
