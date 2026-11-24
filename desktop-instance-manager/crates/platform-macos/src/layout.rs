@@ -462,9 +462,11 @@ pub fn ensure_macos_user_symlinks_with_options(
                 if is_symlink_or_reparse(&existing_meta) {
                     continue;
                 }
-                // Replace an empty pre-created placeholder directory with the requested opt-in symlink.
-                if existing_meta.is_dir() && is_dir_empty(&dst) {
-                    let _ = fs::remove_dir(&dst);
+                // Replace an empty (or .DS_Store-only for Library/Keychains) placeholder directory with the requested opt-in symlink.
+                if existing_meta.is_dir()
+                    && remove_empty_or_ds_store_placeholder_dir(&dst, rel == "Library/Keychains")
+                {
+                    // Placeholder removed; proceed to create symlink below.
                 } else {
                     continue;
                 }
@@ -1072,11 +1074,34 @@ fn purge_dir_contents_no_follow(dir: &Path) -> Result<usize, DimError> {
     Ok(removed)
 }
 
+/// Removes a placeholder directory only if it is empty, or (when `allow_ds_store_cleanup` is true)
+/// contains solely Finder's `.DS_Store` regular file so upgrading legacy slots never deletes real data.
 #[cfg(unix)]
-fn is_dir_empty(dir: &Path) -> bool {
-    fs::read_dir(dir)
-        .map(|mut it| it.next().is_none())
-        .unwrap_or(false)
+fn remove_empty_or_ds_store_placeholder_dir(dir: &Path, allow_ds_store_cleanup: bool) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    let mut saw_ds_store = false;
+    for entry_res in entries {
+        let Ok(entry) = entry_res else {
+            return false;
+        };
+        if allow_ds_store_cleanup && entry.file_name() == ".DS_Store" {
+            let entry_path = entry.path();
+            if fs::symlink_metadata(&entry_path)
+                .map(|m| m.is_file() && !is_symlink_or_reparse(&m))
+                .unwrap_or(false)
+            {
+                saw_ds_store = true;
+                continue;
+            }
+        }
+        return false;
+    }
+    if saw_ds_store && fs::remove_file(dir.join(".DS_Store")).is_err() {
+        return false;
+    }
+    fs::remove_dir(dir).is_ok()
 }
 
 fn write_profile_meta_atomic(
@@ -1326,5 +1351,57 @@ fn latin_vietnamese_nfd(ch: char) -> Option<&'static [char]> {
         'Ỹ' => Some(&['Y', '\u{0303}']),
         'ỹ' => Some(&['y', '\u{0303}']),
         _ => None,
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use std::fs;
+    use std::path::Path;
+
+    use super::{ensure_macos_user_symlinks_with_options, MacOsLayoutOptions};
+
+    #[test]
+    fn keychain_symlink_migrates_empty_and_ds_store_placeholders_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real_home = tmp.path().join("real_home");
+        let real_kc = real_home.join("Library").join("Keychains");
+        fs::create_dir_all(&real_kc).unwrap();
+        let options = MacOsLayoutOptions::default().with_keychain_symlink(true);
+
+        // 1. Pre-existing empty Library/Keychains placeholder is upgraded to symlink.
+        let p_empty = tmp.path().join("profile_empty");
+        let kc_empty = p_empty.join("Library").join("Keychains");
+        fs::create_dir_all(&kc_empty).unwrap();
+        ensure_macos_user_symlinks_with_options(&p_empty, &real_home, options).unwrap();
+        let meta_empty = fs::symlink_metadata(&kc_empty).unwrap();
+        assert!(meta_empty.file_type().is_symlink());
+        assert_eq!(fs::read_link(&kc_empty).unwrap(), real_kc);
+
+        // 2. Library/Keychains containing only Finder's .DS_Store regular file is upgraded to symlink.
+        let p_ds = tmp.path().join("profile_ds_store");
+        let kc_ds = p_ds.join("Library").join("Keychains");
+        fs::create_dir_all(&kc_ds).unwrap();
+        fs::write(kc_ds.join(".DS_Store"), b"finder").unwrap();
+        ensure_macos_user_symlinks_with_options(&p_ds, &real_home, options).unwrap();
+        let meta_ds = fs::symlink_metadata(&kc_ds).unwrap();
+        assert!(meta_ds.file_type().is_symlink());
+        assert_eq!(fs::read_link(&kc_ds).unwrap(), real_kc);
+
+        // 3. Library/Keychains containing any real file (even alongside .DS_Store) is preserved untouched.
+        let p_real = tmp.path().join("profile_real_file");
+        let kc_real = p_real.join("Library").join("Keychains");
+        fs::create_dir_all(&kc_real).unwrap();
+        fs::write(kc_real.join(".DS_Store"), b"finder").unwrap();
+        let custom_db = kc_real.join("custom.keychain-db");
+        fs::write(&custom_db, b"keychain").unwrap();
+        ensure_macos_user_symlinks_with_options(&p_real, &real_home, options).unwrap();
+        let meta_real = fs::symlink_metadata(&kc_real).unwrap();
+        assert!(!meta_real.file_type().is_symlink());
+        assert!(meta_real.is_dir());
+        assert!(Path::new(&custom_db).is_file());
+        assert!(kc_real.join(".DS_Store").is_file());
     }
 }

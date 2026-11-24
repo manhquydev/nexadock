@@ -325,7 +325,11 @@ fn save_web_sessions(data_dir: &Path, doc: &WebSessionsDocument) -> Result<(), D
 fn build_active_adapter() -> ActiveAdapter {
     #[cfg(target_os = "macos")]
     {
-        ActiveAdapter::new().with_pinned_publisher("com.vng.zalo", "CVB6BX97VM")
+        ActiveAdapter::new()
+            .with_pinned_publisher("com.vng.zalo", "CVB6BX97VM")
+            .with_layout_options(
+                dim_platform_macos::MacOsLayoutOptions::default().with_keychain_symlink(true),
+            )
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -723,6 +727,81 @@ mod tests {
             .expect("AppState adapter must pin Official Zalo publisher");
         assert_eq!(state_policy.bundle_identifier, "com.vng.zalo");
         assert_eq!(state_policy.team_identifier, "CVB6BX97VM");
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_active_adapter_enables_keychain_symlink_and_migrates_placeholder() {
+        use dim_core::InstanceLauncher;
+
+        let adapter = build_active_adapter();
+        assert!(adapter.config().layout_options.symlink_keychain);
+        assert!(!adapter.config().layout_options.symlink_user_dirs);
+
+        let data_dir = temp_sandbox_dir("macos-keychain-symlink");
+        let state = AppState::from_data_dir(Some(&data_dir)).expect("initialize AppState");
+        assert!(state.adapter.config().layout_options.symlink_keychain);
+        assert!(!state.adapter.config().layout_options.symlink_user_dirs);
+
+        let profile = state
+            .store
+            .create_profile("Mac Keychain Upgrade", "")
+            .expect("create profile");
+        let profile_dir = state.store.profile_dir_for(&profile).expect("profile dir");
+
+        // Simulate a legacy v0.1.1-beta.6 slot with an empty Library/Keychains placeholder directory.
+        let kc_path = profile_dir.join("Library").join("Keychains");
+        fs::create_dir_all(&kc_path).expect("create legacy empty Keychains placeholder");
+
+        state
+            .adapter
+            .ensure_profile_layout(&profile, &profile_dir)
+            .expect("ensure macOS profile layout with keychain symlink");
+
+        let real_home = std::env::var_os("HOME").map(PathBuf::from);
+        if let Some(real_kc) = real_home
+            .as_deref()
+            .map(|h| h.join("Library").join("Keychains"))
+            .filter(|p| fs::symlink_metadata(p).is_ok())
+        {
+            let kc_meta = fs::symlink_metadata(&kc_path).expect("Keychains metadata");
+            assert!(
+                kc_meta.file_type().is_symlink(),
+                "Library/Keychains must be upgraded to a symlink"
+            );
+            assert_eq!(
+                fs::read_link(&kc_path).expect("read Keychains symlink target"),
+                real_kc
+            );
+        }
+
+        let meta_raw = fs::read_to_string(profile_dir.join(".macos-profile-meta.json"))
+            .expect("read .macos-profile-meta.json");
+        let meta_json: serde_json::Value =
+            serde_json::from_str(&meta_raw).expect("parse .macos-profile-meta.json");
+        assert_eq!(
+            meta_json
+                .get("symlink_keychain")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+
+        for isolated_rel in [
+            "Library/Application Support/ZaloData",
+            "Library/Preferences",
+            "Library/Caches",
+            "Documents",
+            "Downloads",
+        ] {
+            let meta = fs::symlink_metadata(profile_dir.join(isolated_rel))
+                .expect("isolated surface metadata");
+            assert!(
+                !meta.file_type().is_symlink() && meta.is_dir(),
+                "{isolated_rel} must remain an isolated non-symlink directory"
+            );
+        }
+
         let _ = fs::remove_dir_all(&data_dir);
     }
 }
