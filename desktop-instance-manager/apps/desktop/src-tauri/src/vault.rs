@@ -330,6 +330,7 @@ pub struct VaultManager {
     config_store: Arc<VaultConfigStore>,
     queue_path: Arc<Path>,
     pending_logins: Arc<Mutex<HashMap<String, PendingLogin>>>,
+    pairing_epochs: Arc<Mutex<HashMap<String, u64>>>,
     engines: Arc<Mutex<HashMap<String, Arc<ProfileEngine>>>>,
     config_lock: Arc<Mutex<()>>,
     profile_dir_for: ProfileDirResolver,
@@ -338,6 +339,7 @@ pub struct VaultManager {
 struct PendingLogin {
     pending: dim_telegram_vault::transport::PendingPhoneLogin,
     received_dir: PathBuf,
+    epoch: u64,
     /// Resolved Telegram application credentials, persisted with the pairing
     /// so the engine can reconnect after an application restart without env.
     api_id: i32,
@@ -358,10 +360,29 @@ impl VaultManager {
             config_store,
             queue_path,
             pending_logins: Arc::new(Mutex::new(HashMap::new())),
+            pairing_epochs: Arc::new(Mutex::new(HashMap::new())),
             engines: Arc::new(Mutex::new(HashMap::new())),
             config_lock: Arc::new(Mutex::new(())),
             profile_dir_for,
         })
+    }
+
+    fn current_pairing_epoch(&self, profile_id: &str) -> VaultManagerResult<u64> {
+        let epochs = self
+            .pairing_epochs
+            .lock()
+            .map_err(|_| Self::lock_poisoned("pairing epoch"))?;
+        Ok(epochs.get(profile_id).copied().unwrap_or(0))
+    }
+
+    fn bump_pairing_epoch(&self, profile_id: &str) -> VaultManagerResult<u64> {
+        let mut epochs = self
+            .pairing_epochs
+            .lock()
+            .map_err(|_| Self::lock_poisoned("pairing epoch"))?;
+        let next = epochs.get(profile_id).copied().unwrap_or(0).wrapping_add(1);
+        epochs.insert(profile_id.to_owned(), next);
+        Ok(next)
     }
 
     /// Restarts sync engines for every paired profile that is enabled and has
@@ -529,7 +550,9 @@ impl VaultManager {
         if let Some(config) = config {
             // Bot pairings never use the phone-login flow.
             if config.transport == Transport::Bot && self.pairing_is_runnable(&config) {
-                self.ensure_engine(&config)?;
+                if config.enabled {
+                    self.ensure_engine(&config)?;
+                }
                 return Ok(PairFlow {
                     paired: true,
                     requires_login: false,
@@ -541,7 +564,9 @@ impl VaultManager {
                 && self.credentials_for(&config).is_some()
             {
                 // Already paired MTProto with a usable session and credentials.
-                self.ensure_engine(&config)?;
+                if config.enabled {
+                    self.ensure_engine(&config)?;
+                }
                 return Ok(PairFlow {
                     paired: true,
                     requires_login: false,
@@ -593,10 +618,18 @@ impl VaultManager {
         };
         let resolved_api_id = resolved.api_id;
         let resolved_api_hash = resolved.api_hash.clone();
-        let received_dir = self.received_dir_for(profile_id)?;
-        // Stop any running engine for this profile before opening FileSession
-        // so two FileSession instances never race on the session file.
-        self.stop_engine(profile_id);
+        let (received_dir, epoch) = {
+            let _guard = self
+                .config_lock
+                .lock()
+                .map_err(|_| Self::lock_poisoned("config"))?;
+            let received_dir = self.received_dir_for(profile_id)?;
+            // Stop any running engine for this profile before opening FileSession
+            // so two FileSession instances never race on the session file.
+            self.stop_engine(profile_id);
+            let epoch = self.bump_pairing_epoch(profile_id)?;
+            (received_dir, epoch)
+        };
         let pending = LiveTransport::begin_phone_login(
             self.data_dir.as_ref(),
             profile_id,
@@ -604,6 +637,15 @@ impl VaultManager {
             &resolved_api_hash,
             phone,
         )?;
+        let _guard = self
+            .config_lock
+            .lock()
+            .map_err(|_| Self::lock_poisoned("config"))?;
+        if self.current_pairing_epoch(profile_id)? != epoch {
+            return Err(VaultManagerError::Vault(
+                "pairing was cancelled or replaced while requesting login code".into(),
+            ));
+        }
         let mut logins = self
             .pending_logins
             .lock()
@@ -613,6 +655,7 @@ impl VaultManager {
             PendingLogin {
                 pending,
                 received_dir,
+                epoch,
                 api_id: resolved_api_id,
                 api_hash: resolved_api_hash,
             },
@@ -641,29 +684,57 @@ impl VaultManager {
             ));
         };
         let transport = pending.pending.complete(code, password)?;
+        self.commit_login_code(
+            profile_id,
+            pending.epoch,
+            pending.api_id,
+            pending.api_hash,
+            pending.received_dir,
+            Box::new(transport),
+        )
+    }
+
+    fn commit_login_code(
+        &self,
+        profile_id: &str,
+        expected_epoch: u64,
+        api_id: i32,
+        api_hash: String,
+        received_dir: PathBuf,
+        transport: Box<dyn TelegramTransport>,
+    ) -> VaultManagerResult<()> {
+        let _guard = self
+            .config_lock
+            .lock()
+            .map_err(|_| Self::lock_poisoned("config"))?;
+        if self.current_pairing_epoch(profile_id)? != expected_epoch {
+            return Err(VaultManagerError::Vault(
+                "pairing was cancelled or replaced before login completed".into(),
+            ));
+        }
+        self.received_dir_for(profile_id)?;
+        let existing = self.config_store.load(profile_id)?;
+        let enabled = existing
+            .as_ref()
+            .filter(|cfg| cfg.transport == Transport::Mtproto)
+            .is_none_or(|cfg| cfg.enabled);
         let config = VaultConfig {
             profile_id: profile_id.to_owned(),
             telegram_session_dir: self.session_file_for(profile_id),
             destination: Default::default(),
-            enabled: true,
+            enabled,
             transport: Transport::Mtproto,
-            telegram_api_id: Some(pending.api_id),
-            telegram_api_hash: Some(pending.api_hash),
+            telegram_api_id: Some(api_id),
+            telegram_api_hash: Some(api_hash),
             telegram_bot_token: None,
             telegram_chat_id: None,
             telegram_bot_username: None,
             telegram_bot_pair_nonce: None,
         };
-        let _guard = self
-            .config_lock
-            .lock()
-            .map_err(|_| Self::lock_poisoned("config"))?;
         self.config_store.save(&config)?;
-        self.spawn_engine(
-            &config,
-            ConsumerTransport::Ready(Box::new(transport)),
-            pending.received_dir,
-        )?;
+        if config.enabled {
+            self.spawn_engine(&config, ConsumerTransport::Ready(transport), received_dir)?;
+        }
         Ok(())
     }
 
@@ -679,6 +750,15 @@ impl VaultManager {
             ));
         }
         let info = BotTransport::validate_token(token)?;
+        self.commit_pair_bot(profile_id, token, &info.username)
+    }
+
+    fn commit_pair_bot(
+        &self,
+        profile_id: &str,
+        token: &str,
+        username: &str,
+    ) -> VaultManagerResult<BotPairFlow> {
         let nonce = BotTransport::generate_pair_nonce();
         let config = VaultConfig {
             profile_id: profile_id.to_owned(),
@@ -690,7 +770,7 @@ impl VaultManager {
             telegram_api_hash: None,
             telegram_bot_token: Some(token.to_owned()),
             telegram_chat_id: None,
-            telegram_bot_username: Some(info.username.clone()),
+            telegram_bot_username: Some(username.to_owned()),
             telegram_bot_pair_nonce: Some(nonce.clone()),
         };
         {
@@ -698,15 +778,17 @@ impl VaultManager {
                 .config_lock
                 .lock()
                 .map_err(|_| Self::lock_poisoned("config"))?;
+            self.received_dir_for(profile_id)?;
             self.stop_engine(profile_id);
+            self.bump_pairing_epoch(profile_id)?;
             if let Ok(mut logins) = self.pending_logins.lock() {
                 logins.remove(profile_id);
             }
             self.config_store.save(&config)?;
         }
         Ok(BotPairFlow {
-            bot_username: info.username.clone(),
-            deep_link: format!("https://t.me/{}?start={nonce}", info.username),
+            bot_username: username.to_owned(),
+            deep_link: format!("https://t.me/{username}?start={nonce}"),
         })
     }
 
@@ -823,6 +905,7 @@ impl VaultManager {
             .lock()
             .map_err(|_| Self::lock_poisoned("config"))?;
         self.stop_engine(profile_id);
+        self.bump_pairing_epoch(profile_id)?;
         {
             let mut logins = self
                 .pending_logins
@@ -1183,6 +1266,26 @@ fn run_consumer_loop(
     stop: Arc<AtomicBool>,
     consumer_wake: Arc<WakeSignal>,
 ) {
+    run_consumer_loop_with_observer(
+        profile_id,
+        data_dir,
+        queue_path,
+        transport,
+        stop,
+        consumer_wake,
+        None,
+    );
+}
+
+fn run_consumer_loop_with_observer(
+    profile_id: String,
+    data_dir: Arc<Path>,
+    queue_path: Arc<Path>,
+    transport: ConsumerTransport,
+    stop: Arc<AtomicBool>,
+    consumer_wake: Arc<WakeSignal>,
+    on_queue_open_err: Option<&(dyn Fn() + Sync)>,
+) {
     let mut transport = Some(transport);
     let mut recover_needed = false;
     while !stop.load(Ordering::Acquire) {
@@ -1211,6 +1314,9 @@ fn run_consumer_loop(
             Ok(queue) => queue,
             Err(_) => {
                 transport = Some(ConsumerTransport::Ready(client));
+                if let Some(hook) = on_queue_open_err {
+                    hook();
+                }
                 consumer_wake.wait(RECONNECT_DELAY);
                 continue;
             }
@@ -1689,17 +1795,47 @@ mod tests {
         let transport = ConsumerTransport::Ready(Box::new(SharedMock(Arc::clone(&mock))));
         let stop = Arc::new(AtomicBool::new(false));
         let wake = Arc::new(WakeSignal::default());
+        let open_err_signal = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
 
         let t_stop = Arc::clone(&stop);
         let t_wake = Arc::clone(&wake);
         let t_data: Arc<Path> = Arc::from(tmp.path().to_path_buf());
         let t_queue: Arc<Path> = Arc::from(queue_path.clone());
+        let hook_signal = Arc::clone(&open_err_signal);
         let handle = std::thread::spawn(move || {
-            run_consumer_loop("work_1".into(), t_data, t_queue, transport, t_stop, t_wake);
+            let hook = move || {
+                let (lock, cv) = &*hook_signal;
+                if let Ok(mut hit) = lock.lock() {
+                    *hit = true;
+                    cv.notify_all();
+                }
+            };
+            run_consumer_loop_with_observer(
+                "work_1".into(),
+                t_data,
+                t_queue,
+                transport,
+                t_stop,
+                t_wake,
+                Some(&hook),
+            );
         });
 
-        // Wait briefly so the consumer hits the VaultQueue::open Err branch and sleeps.
-        std::thread::sleep(Duration::from_millis(80));
+        // Deterministically wait until the consumer hits VaultQueue::open -> Err.
+        let (lock, cv) = &*open_err_signal;
+        let open_deadline = Instant::now() + Duration::from_secs(3);
+        let mut guard = lock.lock().expect("signal lock");
+        while !*guard {
+            let remaining = open_deadline.saturating_duration_since(Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "timed out waiting for transient queue open failure"
+            );
+            let (next_guard, _) = cv.wait_timeout(guard, remaining).expect("signal wait");
+            guard = next_guard;
+        }
+        drop(guard);
+
         std::fs::remove_dir(&queue_path).expect("remove blocking dir");
         let mut queue = VaultQueue::open(&queue_path).expect("open real queue");
         queue
@@ -1734,6 +1870,187 @@ mod tests {
         let flow = manager.pair("work_1").expect("pair flow");
         assert!(!flow.paired);
         assert!(flow.requires_login);
+    }
+
+    #[test]
+    fn pair_respects_enabled_false_for_bot_and_mtproto() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        std::fs::create_dir_all(tmp.path().join("Profiles/work_1/Zalo Received Files"))
+            .expect("mkdir bot");
+        let bot_cfg = VaultConfig {
+            profile_id: "work_1".into(),
+            telegram_session_dir: manager.session_file_for("work_1"),
+            destination: Default::default(),
+            enabled: false,
+            transport: Transport::Bot,
+            telegram_api_id: None,
+            telegram_api_hash: None,
+            telegram_bot_token: Some("123456:secret".into()),
+            telegram_chat_id: Some(42),
+            telegram_bot_username: Some("vault_bot".into()),
+            telegram_bot_pair_nonce: None,
+        };
+        manager.config_store.save(&bot_cfg).expect("save bot");
+        let bot_flow = manager.pair("work_1").expect("pair bot disabled");
+        assert!(bot_flow.paired);
+        assert!(!bot_flow.requires_login);
+        assert!(
+            !manager.engine_running("work_1"),
+            "pair() must not auto-start disabled bot pairing"
+        );
+
+        let session_path = manager.session_file_for("work_2");
+        std::fs::create_dir_all(session_path.parent().expect("session parent"))
+            .expect("session mkdir");
+        std::fs::write(&session_path, b"stub-session").expect("write stub session");
+        std::fs::create_dir_all(tmp.path().join("Profiles/work_2/Zalo Received Files"))
+            .expect("mkdir mtp");
+        let mtp_cfg = VaultConfig {
+            profile_id: "work_2".into(),
+            telegram_session_dir: session_path,
+            destination: Default::default(),
+            enabled: false,
+            transport: Transport::Mtproto,
+            telegram_api_id: Some(12345),
+            telegram_api_hash: Some("0123456789abcdef0123456789abcdef".into()),
+            telegram_bot_token: None,
+            telegram_chat_id: None,
+            telegram_bot_username: None,
+            telegram_bot_pair_nonce: None,
+        };
+        manager.config_store.save(&mtp_cfg).expect("save mtp");
+        let mtp_flow = manager.pair("work_2").expect("pair mtp disabled");
+        assert!(mtp_flow.paired);
+        assert!(!mtp_flow.requires_login);
+        assert!(
+            !manager.engine_running("work_2"),
+            "pair() must not auto-start disabled mtproto pairing"
+        );
+    }
+
+    #[test]
+    fn commit_login_code_checks_epoch_and_preserves_mtproto_enabled_state() {
+        use dim_telegram_vault::transport::MockTransport;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        let received_1 = tmp.path().join("Profiles/work_1/Zalo Received Files");
+        std::fs::create_dir_all(&received_1).expect("mkdir 1");
+
+        // 1. Stale epoch (bumped by concurrent unpair / pair_bot) aborts without saving config.
+        let epoch_1 = manager.current_pairing_epoch("work_1").expect("epoch");
+        manager.bump_pairing_epoch("work_1").expect("bump epoch");
+        let err = manager
+            .commit_login_code(
+                "work_1",
+                epoch_1,
+                12345,
+                "hash".into(),
+                received_1.clone(),
+                Box::new(MockTransport::default()),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("cancelled"));
+        assert!(
+            manager.config_store.load("work_1").expect("load").is_none(),
+            "stale epoch must not resurrect unpaired config"
+        );
+
+        // 2. Re-auth of a paused MTProto pairing preserves enabled = false and skips engine start.
+        let disabled_mtp = VaultConfig {
+            profile_id: "work_1".into(),
+            telegram_session_dir: manager.session_file_for("work_1"),
+            destination: Default::default(),
+            enabled: false,
+            transport: Transport::Mtproto,
+            telegram_api_id: Some(11111),
+            telegram_api_hash: Some("oldhash".into()),
+            telegram_bot_token: None,
+            telegram_chat_id: None,
+            telegram_bot_username: None,
+            telegram_bot_pair_nonce: None,
+        };
+        manager.config_store.save(&disabled_mtp).expect("save");
+        let epoch_reauth = manager.current_pairing_epoch("work_1").expect("epoch");
+        manager
+            .commit_login_code(
+                "work_1",
+                epoch_reauth,
+                99999,
+                "newhash".into(),
+                received_1,
+                Box::new(MockTransport::default()),
+            )
+            .expect("commit reauth");
+        let reloaded = manager
+            .config_store
+            .load("work_1")
+            .expect("load")
+            .expect("config saved");
+        assert!(!reloaded.enabled);
+        assert_eq!(reloaded.telegram_api_id, Some(99999));
+        assert!(!manager.engine_running("work_1"));
+
+        // 3. Fresh MTProto pairing enables sync and spawns engine.
+        let received_2 = tmp.path().join("Profiles/work_2/Zalo Received Files");
+        std::fs::create_dir_all(&received_2).expect("mkdir 2");
+        let epoch_fresh = manager.current_pairing_epoch("work_2").expect("epoch");
+        manager
+            .commit_login_code(
+                "work_2",
+                epoch_fresh,
+                22222,
+                "freshhash".into(),
+                received_2,
+                Box::new(MockTransport::default()),
+            )
+            .expect("commit fresh");
+        let fresh_cfg = manager
+            .config_store
+            .load("work_2")
+            .expect("load")
+            .expect("fresh config");
+        assert!(fresh_cfg.enabled);
+        assert!(manager.engine_running("work_2"));
+        manager.shutdown_with_timeout(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn commit_pair_bot_rejects_deleted_profile_inside_lock() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let profile_exists = Arc::new(AtomicBool::new(true));
+        let flag = Arc::clone(&profile_exists);
+        let profiles_root = tmp.path().join("Profiles");
+        let manager = VaultManager::new(
+            tmp.path(),
+            Arc::new(move |profile_id| {
+                if flag.load(Ordering::Acquire) {
+                    Ok(profiles_root.join(profile_id))
+                } else {
+                    Err(format!("profile not found: {profile_id}"))
+                }
+            }),
+        )
+        .expect("manager");
+
+        // Pre-check succeeds while profile still exists, then profile is deleted
+        // concurrently while token validation runs off-lock.
+        assert!(manager.received_dir_for("deleted_prof").is_ok());
+        profile_exists.store(false, Ordering::Release);
+
+        let err = manager
+            .commit_pair_bot("deleted_prof", "123456:secret", "vault_bot")
+            .unwrap_err();
+        assert!(err.to_string().contains("deleted_prof"));
+        assert!(
+            manager
+                .config_store
+                .load("deleted_prof")
+                .expect("load")
+                .is_none(),
+            "deleted profile must not receive orphaned bot config"
+        );
     }
 
     #[test]

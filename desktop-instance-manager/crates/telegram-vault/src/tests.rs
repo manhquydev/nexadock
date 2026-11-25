@@ -361,19 +361,22 @@ fn queue_normalizes_digests_filters_by_profile_and_backs_off_renamed_failures() 
 
     let claimed = queue.claim_next("profile-a", now()).unwrap().unwrap();
     queue.mark_failed(&claimed, "network error").unwrap();
+    let failed_ts = queue.log_for_profile("profile-a", 1).unwrap()[0].ts;
     // Refreshing path after failure must still honor retry backoff via sha256.
     let path3 = tmp.path().join("moved-again.bin");
     assert!(!queue.enqueue("profile-a", &path3, &lower, 10).unwrap());
-    let immediate = queue.claim_next("profile-a", now()).unwrap();
+    let immediate = queue.claim_next("profile-a", failed_ts).unwrap();
     assert!(
         immediate.is_none(),
-        "renamed failed item must respect exponential backoff"
+        "renamed failed item must respect exponential backoff before delay expires"
     );
 
     // Other profile log entries must not truncate profile-a's per-profile log or last_done_ts.
     let done_digest = "b".repeat(64);
     assert!(queue.enqueue("profile-a", &path1, &done_digest, 5).unwrap());
-    let claimed_a = queue.claim_next("profile-a", now()).unwrap().unwrap();
+    // Claim using `failed_ts` so the failed item stays in backoff even across a second boundary.
+    let claimed_a = queue.claim_next("profile-a", failed_ts).unwrap().unwrap();
+    assert_eq!(claimed_a.sha256, done_digest);
     queue.mark_done(&claimed_a).unwrap();
 
     for idx in 0..30 {
@@ -389,4 +392,10 @@ fn queue_normalizes_digests_filters_by_profile_and_backs_off_renamed_failures() 
     let counts_a = queue.profile_counts("profile-a").unwrap();
     assert_eq!(counts_a.done, 1);
     assert_eq!(counts_a.failed, 1);
+    // Attempt 1 backoff is 2^0 = 1s, so at failed_ts + 1 the renamed item is claimable again.
+    let retried = queue
+        .claim_next("profile-a", failed_ts + 1)
+        .unwrap()
+        .expect("renamed failed item must become claimable once 1s backoff expires");
+    assert_eq!(retried.sha256, lower);
 }

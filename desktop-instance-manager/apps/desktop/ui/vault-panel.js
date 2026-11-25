@@ -60,6 +60,8 @@ let botStep = 'token';
 let botLink = '';
 let botUsername = '';
 let botWaiting = false;
+let botPairing = false;
+let botPairRequestSeq = 0;
 let lastState = 'unpaired';
 let lastStatus = null;
 let lastMessage = '';
@@ -395,15 +397,21 @@ function buildBotForms() {
   tokenForm.append(tokenLabel, tokenInput, tokenVisibility, tokenHint, pairButton);
   tokenForm.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (botPairing) return;
     const invoke = getInvoke();
     if (!invoke || !panelId) return;
     const token = String(tokenInput.value || '').trim();
     if (!token) return;
     const gen = renderGeneration;
     const activeProfileId = panelId;
+    const reqSeq = ++botPairRequestSeq;
+    botPairing = true;
+    pairButton.disabled = true;
     invoke('vault_pair_bot', { profileId: activeProfileId, token })
       .then((envelope) => {
-        if (isStale(gen, activeProfileId)) return;
+        if (isStale(gen, activeProfileId) || reqSeq !== botPairRequestSeq) return;
+        botPairing = false;
+        pairButton.disabled = false;
         if (!envelope?.ok) {
           setInvalid(tokenInput, true);
           showError(envelope?.message || t('vault.errors.requestFailed'));
@@ -418,7 +426,9 @@ function buildBotForms() {
         updatePairUi();
       })
       .catch(() => {
-        if (isStale(gen, activeProfileId)) return;
+        if (isStale(gen, activeProfileId) || reqSeq !== botPairRequestSeq) return;
+        botPairing = false;
+        pairButton.disabled = false;
         setInvalid(tokenInput, true);
         showError(t('vault.errors.requestFailed'));
       });
@@ -603,12 +613,16 @@ function buildForms() {
           refresh();
         } else {
           setInvalid(codeInput, true);
+          passwordInput.value = '';
+          setLoginStep(lastState === 'session-missing' ? '' : 'phone');
           showError(envelope?.message || t('vault.errors.requestFailed'));
         }
       })
       .catch(() => {
         if (isStale(gen, activeProfileId)) return;
         setInvalid(codeInput, true);
+        passwordInput.value = '';
+        setLoginStep(lastState === 'session-missing' ? '' : 'phone');
         showError(t('vault.errors.requestFailed'));
       });
   });
@@ -692,6 +706,8 @@ export function render(profile) {
   botLink = '';
   botUsername = '';
   botWaiting = false;
+  botPairing = false;
+  botPairRequestSeq += 1;
   lastState = 'unpaired';
   lastStatus = null;
   lastMessage = '';

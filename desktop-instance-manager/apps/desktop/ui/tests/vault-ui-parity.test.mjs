@@ -543,12 +543,23 @@ test('half-paired bot status resumes deep-link and Start flow with unpair button
   const originalWindow = globalThis.window;
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   const calls = [];
+  let isPaired = true;
   const invoke = (command, args) => {
     calls.push([command, args]);
-    if (command === 'vault_get_status') return Promise.resolve({ ok: true, data: { paired: true, transport: 'bot', botConfigured: false, botUsername: 'saved_bot', botDeepLink: 'https://t.me/saved_bot?start=nonce123', enabled: true, engineRunning: false, pending: 0, failed: 0, done: 0 } });
+    if (command === 'vault_get_status') {
+      return Promise.resolve({
+        ok: true,
+        data: isPaired
+          ? { paired: true, transport: 'bot', botConfigured: false, botUsername: 'saved_bot', botDeepLink: 'https://t.me/saved_bot?start=nonce123', enabled: true, engineRunning: false, pending: 0, failed: 0, done: 0 }
+          : { paired: false, transport: 'bot', botConfigured: false, credentialsAvailable: false, enabled: false, engineRunning: false, pending: 0, failed: 0, done: 0 },
+      });
+    }
     if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
     if (command === 'vault_pair_bot_wait') return Promise.resolve({ ok: true, message: 'No bot chat captured yet; ask again later.', data: { chatCaptured: false } });
-    if (command === 'vault_unpair') return Promise.resolve({ ok: true, data: { removed: true } });
+    if (command === 'vault_unpair') {
+      isPaired = false;
+      return Promise.resolve({ ok: true, data: { removed: true } });
+    }
     return Promise.resolve({ ok: false, message: `unexpected command: ${command}` });
   };
   globalThis.document = documentMock;
@@ -590,7 +601,11 @@ test('half-paired bot status resumes deep-link and Start flow with unpair button
     const unpairBtn = section.querySelector('.vault-actions').children[0];
     unpairBtn.listeners.get('click')();
     await flush();
+    await flush();
     assert.ok(calls.some(([command]) => command === 'vault_unpair'), 'continuation unpair button must call vault_unpair');
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.unpaired, 'unpair in bot-continuation must transition UI back to unpaired');
+    assert.equal(section.querySelector('.vault-mode-chooser')?.hidden, false);
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, false);
   } finally {
     globalThis.document = originalDocument;
     if (originalWindow === undefined) delete globalThis.window;
@@ -733,6 +748,156 @@ test('bot token and API hash visibility toggles are native pressed buttons and r
     assert.equal(apiHash.type, 'text');
     assert.equal(hashToggle.getAttribute('aria-pressed'), 'true');
     assert.equal(apiHash.focused, true);
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('failed vault_login_code during session-missing re-auth returns to phone form and keeps error visible', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const invoke = (command) => {
+    if (command === 'vault_get_status') {
+      return Promise.resolve({
+        ok: true,
+        data: {
+          paired: true,
+          transport: 'mtproto',
+          sessionExists: false,
+          credentialsAvailable: true,
+          enabled: true,
+          engineRunning: false,
+          pending: 0,
+          failed: 0,
+          done: 0,
+        },
+      });
+    }
+    if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
+    if (command === 'vault_login_phone') return Promise.resolve({ ok: true, data: null });
+    if (command === 'vault_login_code') {
+      return Promise.resolve({ ok: false, message: 'invalid verification code' });
+    }
+    return Promise.resolve({ ok: false, message: `unexpected command: ${command}` });
+  };
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke } };
+  try {
+    const section = renderSection();
+    await flush();
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.sessionMissing);
+    const phoneForm = section.querySelector('.vault-form-phone');
+    const codeForm = section.querySelector('.vault-form-code');
+    assert.equal(phoneForm?.hidden, false);
+    assert.equal(codeForm?.hidden, true);
+
+    phoneForm.children[1].value = '+84901234567';
+    phoneForm.listeners.get('submit')({ preventDefault() {} });
+    await flush();
+    assert.equal(phoneForm.hidden, true);
+    assert.equal(codeForm.hidden, false);
+
+    codeForm.children[1].value = '123456';
+    codeForm.listeners.get('submit')({ preventDefault() {} });
+    await flush();
+    assert.equal(codeForm.hidden, true, 'code form must hide because failed login consumed pending challenge');
+    assert.equal(phoneForm.hidden, false, 'phone form must reappear so user can request a new code');
+    assert.equal(section.querySelector('.vault-error')?.textContent, 'invalid verification code');
+    assert.equal(section.querySelector('.vault-error')?.hidden, false);
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('bot token submit blocks concurrent in-flight submits and ignores stale responses after re-render', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const pendingPairBots = [];
+  const invoke = (command, args) => {
+    if (command === 'vault_get_status') {
+      return Promise.resolve({
+        ok: true,
+        data: {
+          paired: false,
+          transport: 'bot',
+          botConfigured: false,
+          credentialsAvailable: false,
+          enabled: false,
+          engineRunning: false,
+          pending: 0,
+          failed: 0,
+          done: 0,
+        },
+      });
+    }
+    if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
+    if (command === 'vault_pair_bot') {
+      return new Promise((resolve) => {
+        pendingPairBots.push({ args, resolve });
+      });
+    }
+    return Promise.resolve({ ok: false, message: `unexpected command: ${command}` });
+  };
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke } };
+  try {
+    const section1 = renderSection();
+    await flush();
+    const tokenForm1 = section1.querySelector('.vault-form-bot');
+    const tokenInput1 = section1.querySelector('.vault-bot-token');
+    const pairButton1 = section1.querySelector('.vault-bot-pair-button');
+    tokenInput1.value = '123456:first';
+    tokenForm1.listeners.get('submit')({ preventDefault() {} });
+    tokenForm1.listeners.get('submit')({ preventDefault() {} });
+    assert.equal(pendingPairBots.length, 1, 'duplicate submit while vault_pair_bot is in flight must be ignored');
+    assert.equal(pairButton1.disabled, true);
+
+    pendingPairBots[0].resolve({
+      ok: true,
+      data: { botUsername: 'first_bot', deepLink: 'https://t.me/first_bot?start=n1' },
+    });
+    await flush();
+    assert.equal(pairButton1.disabled, false);
+    assert.equal(section1.querySelector('.vault-bot-link')?.hidden, false);
+    assert.equal(section1.querySelector('.vault-bot-link-anchor')?.getAttribute('href'), 'https://t.me/first_bot?start=n1');
+
+    // Re-render for another profile while a new vault_pair_bot is in flight:
+    // the stale response must neither leak into the new profile nor keep botPairing locked.
+    const section2 = renderSection();
+    await flush();
+    section2.querySelector('.vault-bot-token').value = '123456:stale';
+    section2.querySelector('.vault-form-bot').listeners.get('submit')({ preventDefault() {} });
+    assert.equal(pendingPairBots.length, 2);
+
+    panel.render({ id: 'work_2', name: 'Work 2' });
+    const section3 = dialog.children.at(-1);
+    await flush();
+    assert.equal(Boolean(section3.querySelector('.vault-bot-pair-button').disabled), false);
+
+    pendingPairBots[1].resolve({
+      ok: true,
+      data: { botUsername: 'stale_bot', deepLink: 'https://t.me/stale_bot?start=old' },
+    });
+    await flush();
+    assert.equal(section3.querySelector('.vault-bot-link')?.hidden, true, 'stale pair_bot response must not populate re-rendered profile');
+
+    section3.querySelector('.vault-bot-token').value = '123456:second';
+    section3.querySelector('.vault-form-bot').listeners.get('submit')({ preventDefault() {} });
+    assert.equal(pendingPairBots.length, 3);
+    assert.equal(pendingPairBots[2].args.profileId, 'work_2');
+    pendingPairBots[2].resolve({
+      ok: true,
+      data: { botUsername: 'second_bot', deepLink: 'https://t.me/second_bot?start=n2' },
+    });
+    await flush();
+    assert.equal(section3.querySelector('.vault-bot-link')?.hidden, false);
+    assert.equal(section3.querySelector('.vault-bot-link-anchor')?.getAttribute('href'), 'https://t.me/second_bot?start=n2');
   } finally {
     globalThis.document = originalDocument;
     if (originalWindow === undefined) delete globalThis.window;

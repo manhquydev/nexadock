@@ -73,6 +73,9 @@ impl<T: TelegramTransport> SyncEngine<T> {
     /// Uploads one ready item for this engine's profile, returning `None` when no work is
     /// eligible. Items of other profiles are never claimed: `claim_next` filters by profile,
     /// so a foreign row keeps its original state and retry schedule.
+    ///
+    /// If `mark_done` fails after a successful upload, the item is demoted to `failed` with
+    /// the error reason (matching `upload_item` in `src-tauri`) so no row stalls in `uploading`.
     pub fn process_one(&mut self, now: i64) -> Result<Option<QueueItem>> {
         let Some(item) = self.queue.claim_next(&self.profile_id, now)? else {
             return Ok(None);
@@ -83,7 +86,10 @@ impl<T: TelegramTransport> SyncEngine<T> {
             .upload_document(&item.profile_id, &item.path, &item.sha256, &caption)
         {
             Ok(_remote) => {
-                self.queue.mark_done(&item)?;
+                if let Err(error) = self.queue.mark_done(&item) {
+                    self.queue
+                        .mark_failed(&item, &format!("mark_done failed: {error}"))?;
+                }
                 Ok(Some(item))
             }
             Err(error) => {
