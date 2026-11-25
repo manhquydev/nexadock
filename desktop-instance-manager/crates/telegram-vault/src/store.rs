@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use dim_core::write_bytes_atomic;
+use dim_core::write_bytes_atomic_private;
 use serde::{Deserialize, Serialize};
 
 use crate::{error::VaultError, Result};
@@ -70,15 +70,18 @@ pub struct VaultConfig {
     /// Public username of the validated Telegram bot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub telegram_bot_username: Option<String>,
+    /// Per-pair random nonce required in `/start <nonce>` during bot chat capture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_bot_pair_nonce: Option<String>,
 }
 
 impl VaultConfig {
     /// Resolves which transport layer this configuration actually uses.
     ///
-    /// The Bot API transport requires a non-empty bot token; the MTProto
-    /// transport requires both the application ID and hash. Configurations
-    /// carrying both layers' credentials, or neither, are invalid because one
-    /// pairing must use exactly one transport.
+    /// The Bot API transport requires `transport == Transport::Bot` and a non-empty
+    /// bot token; the MTProto transport requires `transport == Transport::Mtproto`
+    /// and both the application ID and hash. Configurations carrying both layers'
+    /// credentials, neither, or a transport selector mismatch are invalid.
     pub fn transport_kind(&self) -> Result<TransportKind> {
         let bot = self
             .telegram_bot_token
@@ -89,9 +92,9 @@ impl VaultConfig {
                 .telegram_api_hash
                 .as_deref()
                 .is_some_and(|hash| !hash.trim().is_empty());
-        match (bot, mtproto) {
-            (true, false) => Ok(TransportKind::Bot),
-            (false, true) => Ok(TransportKind::Mtproto),
+        match (self.transport, bot, mtproto) {
+            (Transport::Bot, true, false) => Ok(TransportKind::Bot),
+            (Transport::Mtproto, false, true) => Ok(TransportKind::Mtproto),
             _ => Err(VaultError::InvalidRecord(
                 "mixed or missing vault transport".into(),
             )),
@@ -119,24 +122,13 @@ impl VaultConfigStore {
         &self.root
     }
 
-    /// Atomically writes one profile configuration.
+    /// Atomically writes one profile configuration with owner-only permissions before rename.
     pub fn save(&self, config: &VaultConfig) -> Result<()> {
         validate_profile_id(&config.profile_id)?;
         config.transport_kind()?;
         let path = self.config_path(&config.profile_id)?;
         let bytes = serde_json::to_vec_pretty(config)?;
-        write_bytes_atomic(&path, &bytes)?;
-        // The configuration can carry Telegram application credentials; keep it
-        // readable only by the owning user.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = fs::metadata(&path)
-                .map_err(|e| VaultError::io(&path, e))?
-                .permissions();
-            permissions.set_mode(0o600);
-            fs::set_permissions(&path, permissions).map_err(|e| VaultError::io(&path, e))?;
-        }
+        write_bytes_atomic_private(&path, &bytes)?;
         Ok(())
     }
 
@@ -161,26 +153,27 @@ impl VaultConfigStore {
     }
 
     /// Lists all valid profile configurations in deterministic order.
+    ///
+    /// Corrupt or mismatched individual profile files are logged and skipped so
+    /// one damaged record cannot disable startup resumption for other profiles.
     pub fn list(&self) -> Result<Vec<VaultConfig>> {
         let entries = fs::read_dir(&self.root).map_err(|e| VaultError::io(&self.root, e))?;
         let mut configs = Vec::new();
         for entry in entries {
             let entry = entry.map_err(|e| VaultError::io(&self.root, e))?;
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let path = entry.path();
-            let bytes = fs::read(&path).map_err(|error| VaultError::io(&path, error))?;
-            let config: VaultConfig = serde_json::from_slice(&bytes)?;
-            validate_profile_id(&config.profile_id)?;
-            if path.file_stem().and_then(|value| value.to_str()) != Some(config.profile_id.as_str())
-            {
-                return Err(VaultError::InvalidRecord(format!(
-                    "configuration filename does not match profile {}",
-                    config.profile_id
-                )));
+            match load_valid_config_entry(&path) {
+                Ok(config) => configs.push(config),
+                Err(error) => {
+                    eprintln!(
+                        "NexaDock vault skipping invalid configuration {}: {error}",
+                        path.display()
+                    );
+                }
             }
-            configs.push(config);
         }
         configs.sort_by(|a, b| a.profile_id.cmp(&b.profile_id));
         Ok(configs)
@@ -200,6 +193,20 @@ impl VaultConfigStore {
         validate_profile_id(profile_id)?;
         Ok(self.root.join(format!("{profile_id}.json")))
     }
+}
+
+fn load_valid_config_entry(path: &Path) -> Result<VaultConfig> {
+    let bytes = fs::read(path).map_err(|error| VaultError::io(path, error))?;
+    let config: VaultConfig = serde_json::from_slice(&bytes)?;
+    validate_profile_id(&config.profile_id)?;
+    config.transport_kind()?;
+    if path.file_stem().and_then(|value| value.to_str()) != Some(config.profile_id.as_str()) {
+        return Err(VaultError::InvalidRecord(format!(
+            "configuration filename does not match profile {}",
+            config.profile_id
+        )));
+    }
+    Ok(config)
 }
 
 fn validate_profile_id(profile_id: &str) -> Result<()> {

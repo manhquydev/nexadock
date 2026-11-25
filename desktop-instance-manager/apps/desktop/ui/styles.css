@@ -3245,7 +3245,7 @@ dialog.modal-switcher {
 
 .vault-error {
   margin: 0;
-  color: var(--text-danger, currentcolor);
+  color: var(--danger-fg, currentcolor);
   font-size: 0.9375rem;
 }
 

@@ -361,7 +361,11 @@
       "paired": "Đã ghép",
       "syncing": "Đang đồng bộ...",
       "offline": "Đã ghép · Tạm tắt",
-      "continuingBot": "Cần kết nối bot"
+      "continuingBot": "Cần kết nối bot",
+      "sessionMissing": "Cần đăng nhập lại"
+    },
+    "bridge": {
+      "desktopOnly": "Telegram Vault chỉ khả dụng trong ứng dụng NexaDock trên máy tính và không hỗ trợ qua cầu nối trình duyệt."
     },
     "stats": {
       "summary": "{pending} đang chờ · {failed} lỗi · {done} đã đồng bộ"

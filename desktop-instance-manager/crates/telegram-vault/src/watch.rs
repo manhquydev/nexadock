@@ -2,9 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use notify::Watcher;
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
@@ -23,6 +23,23 @@ pub struct StableFile {
     pub sha256: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileObservation {
+    size: u64,
+    modified: Option<SystemTime>,
+    created: Option<SystemTime>,
+}
+
+impl FileObservation {
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        Self {
+            size: metadata.len(),
+            modified: metadata.modified().ok(),
+            created: metadata.created().ok(),
+        }
+    }
+}
+
 /// Recursive watcher for one profile's `Zalo Received Files` directory.
 pub struct ZaloReceivedWatcher {
     root: PathBuf,
@@ -31,7 +48,7 @@ pub struct ZaloReceivedWatcher {
         notify_debouncer_full::FileIdMap,
     >,
     events: std::sync::mpsc::Receiver<DebounceEventResult>,
-    observed: HashMap<PathBuf, (u64, u8)>,
+    observed: HashMap<PathBuf, (FileObservation, u8)>,
     emitted: HashSet<PathBuf>,
 }
 
@@ -77,6 +94,8 @@ impl ZaloReceivedWatcher {
 
     /// Performs a full recursive scan and returns newly stable files.
     ///
+    /// Callers must call [`Self::mark_emitted`] for each path only after durable
+    /// enqueue succeeds, so transient queue errors never lose discovered files.
     /// The scan is deliberately also performed after notification events, so dropped OS watcher
     /// events do not permanently omit files from the queue.
     pub fn poll(&mut self) -> Result<Vec<StableFile>> {
@@ -98,41 +117,44 @@ impl ZaloReceivedWatcher {
         let mut stable = Vec::new();
         for path in paths {
             let metadata = fs::metadata(&path).map_err(|error| VaultError::io(&path, error))?;
-            let size = metadata.len();
+            let observation = FileObservation::from_metadata(&metadata);
             let count = match self.observed.get_mut(&path) {
-                Some((previous, stable_polls)) if *previous == size => {
+                Some((previous, stable_polls)) if *previous == observation => {
                     *stable_polls = stable_polls.saturating_add(1);
                     *stable_polls
                 }
                 Some((previous, stable_polls)) => {
-                    *previous = size;
+                    *previous = observation;
                     *stable_polls = 1;
                     self.emitted.remove(&path);
                     1
                 }
                 None => {
-                    self.observed.insert(path.clone(), (size, 1));
+                    self.observed.insert(path.clone(), (observation, 1));
                     1
                 }
             };
             if count >= 2 && !self.emitted.contains(&path) {
-                let digest = sha256_file(&path)?;
-                let final_size = fs::metadata(&path)
-                    .map_err(|error| VaultError::io(&path, error))?
-                    .len();
-                if final_size != size {
-                    self.observed.insert(path.clone(), (final_size, 1));
+                let (digest, final_observation) = hash_and_observe(&path)?;
+                if final_observation != observation {
+                    self.observed.insert(path.clone(), (final_observation, 1));
+                    self.emitted.remove(&path);
                     continue;
                 }
-                self.emitted.insert(path.clone());
                 stable.push(StableFile {
                     path,
-                    size,
+                    size: observation.size,
                     sha256: digest,
                 });
             }
         }
         Ok(stable)
+    }
+
+    /// Records that `path` has been durably enqueued and need not be emitted
+    /// again until its metadata changes.
+    pub fn mark_emitted(&mut self, path: &Path) {
+        self.emitted.insert(path.to_path_buf());
     }
 
     /// Returns the watched profile directory.
@@ -145,10 +167,54 @@ impl ZaloReceivedWatcher {
 /// Computes a lowercase SHA-256 digest of a file without reading it all into memory.
 pub fn sha256_file(path: &Path) -> Result<String> {
     let mut file = File::open(path).map_err(|error| VaultError::io(path, error))?;
+    sha256_reader_with_path(&mut file, path)
+}
+
+/// Verifies an already-open file matches `expected_sha256` without reopening `path`,
+/// checks metadata stability across the hash read, rewinds to offset 0, and returns the byte length.
+pub fn verify_opened_file(file: &mut File, path: &Path, expected_sha256: &str) -> Result<u64> {
+    let meta_before = file
+        .metadata()
+        .map_err(|error| VaultError::io(path, error))?;
+    let obs_before = FileObservation::from_metadata(&meta_before);
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| VaultError::io(path, error))?;
+    let actual_sha256 = sha256_reader_with_path(file, path)?;
+    let meta_after = file
+        .metadata()
+        .map_err(|error| VaultError::io(path, error))?;
+    let obs_after = FileObservation::from_metadata(&meta_after);
+    if obs_after != obs_before {
+        return Err(VaultError::Transport(format!(
+            "source file changed during verification: {}",
+            path.display()
+        )));
+    }
+    if !actual_sha256.eq_ignore_ascii_case(expected_sha256) {
+        return Err(VaultError::Transport(format!(
+            "source file changed after enqueue: {}",
+            path.display()
+        )));
+    }
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| VaultError::io(path, error))?;
+    Ok(obs_before.size)
+}
+
+fn hash_and_observe(path: &Path) -> Result<(String, FileObservation)> {
+    let mut file = File::open(path).map_err(|error| VaultError::io(path, error))?;
+    let digest = sha256_reader_with_path(&mut file, path)?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| VaultError::io(path, error))?;
+    Ok((digest, FileObservation::from_metadata(&metadata)))
+}
+
+fn sha256_reader_with_path(reader: &mut impl Read, path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read = file
+        let read = reader
             .read(&mut buffer)
             .map_err(|error| VaultError::io(path, error))?;
         if read == 0 {

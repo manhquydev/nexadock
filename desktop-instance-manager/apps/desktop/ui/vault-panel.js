@@ -13,11 +13,12 @@ const STATE_KEYS = {
   syncing: 'vault.states.syncing',
   offline: 'vault.states.offline',
   'bot-continuation': 'vault.states.continuingBot',
+  'session-missing': 'vault.states.sessionMissing',
 };
 
 function getInvoke() {
   if (typeof window === 'undefined') return null;
-  return window.__TAURI_INTERNALS__?.invoke || null;
+  return window.__TAURI__?.core?.invoke || window.__TAURI_INTERNALS__?.invoke || null;
 }
 
 function make(tag, className, text) {
@@ -31,6 +32,7 @@ function make(tag, className, text) {
 export function stateFor(status) {
   if (!status || !status.paired) return 'unpaired';
   if (status.transport === 'bot' && status.botConfigured === false) return 'bot-continuation';
+  if (status.transport !== 'bot' && status.sessionExists === false) return 'session-missing';
   if (status.engineRunning && (status.uploading || 0) > 0) return 'syncing';
   return status.enabled ? 'paired' : 'offline';
 }
@@ -40,6 +42,15 @@ export const PANEL_ID = 'vault-panel';
 
 let panelId = '';
 let section = null;
+let renderGeneration = 0;
+let refreshGeneration = 0;
+
+function isStale(gen, activeProfileId, rGen = null) {
+  if (typeof document === 'undefined') return true;
+  if (gen !== renderGeneration || panelId !== activeProfileId) return true;
+  if (rGen !== null && rGen !== refreshGeneration) return true;
+  return false;
+}
 
 // Pairing flow state: one tier per pairing — Telegram bot (default) or the
 // advanced full-account login. Reset per profile in render().
@@ -96,6 +107,7 @@ function setLoginStep(step) {
 /** Shows exactly one pairing surface: mode chooser, bot form, bot link, or the advanced login. */
 function updatePairUi() {
   const continuation = lastState === 'bot-continuation';
+  const reauth = lastState === 'session-missing';
   const unpaired = lastState === 'unpaired';
   const chooser = section?.querySelector('.vault-mode-chooser');
   if (chooser) chooser.hidden = !unpaired;
@@ -106,7 +118,9 @@ function updatePairUi() {
     botLinkNode.hidden = !(continuation || (unpaired && pairMode === 'bot' && botStep === 'link'));
     const anchor = botLinkNode.querySelector('.vault-bot-link-anchor');
     const username = continuation ? lastStatus?.botUsername : botUsername;
-    const link = continuation && username ? `https://t.me/${username}` : botLink;
+    const link = continuation
+      ? (lastStatus?.botDeepLink || (username ? `https://t.me/${username}` : ''))
+      : botLink;
     if (anchor) {
       anchor.hidden = !link;
       anchor.setAttribute('href', link || '');
@@ -121,55 +135,81 @@ function updatePairUi() {
       waitButton.textContent = t(continuation ? 'vault.bot.continuationConfirm' : 'vault.bot.startConfirm');
     }
   }
+  const mtprotoVisible = (unpaired && pairMode === 'mtproto') || reauth;
   const hint = section?.querySelector('.vault-hint');
-  if (hint) hint.hidden = !(unpaired && pairMode === 'mtproto');
+  if (hint) hint.hidden = !mtprotoVisible;
   const phoneForm = section?.querySelector('.vault-form-phone');
-  if (phoneForm) phoneForm.hidden = !(unpaired && pairMode === 'mtproto' && loginStep === 'phone');
+  if (phoneForm) {
+    phoneForm.hidden = !(
+      (unpaired && pairMode === 'mtproto' && loginStep === 'phone')
+      || (reauth && loginStep !== 'code')
+    );
+  }
   const codeForm = section?.querySelector('.vault-form-code');
-  if (codeForm) codeForm.hidden = !(unpaired && pairMode === 'mtproto' && loginStep === 'code');
+  if (codeForm) codeForm.hidden = !(mtprotoVisible && loginStep === 'code');
 }
 
 function refresh() {
   const invoke = getInvoke();
   if (!invoke || !panelId || !section) return;
-  invoke('vault_get_status', { profileId: panelId })
+  const gen = renderGeneration;
+  const activeProfileId = panelId;
+  const rGen = ++refreshGeneration;
+  invoke('vault_get_status', { profileId: activeProfileId })
     .then((envelope) => {
+      if (isStale(gen, activeProfileId, rGen)) return;
       if (!envelope?.ok) {
         applyStatus(null, envelope?.message || t('vault.errors.requestFailed'));
-        return null;
+        return;
       }
       applyStatus(envelope.data, '');
-      return invoke('vault_get_log', { profileId: panelId, limit: 5 });
+      invoke('vault_get_log', { profileId: activeProfileId, limit: 5 })
+        .then((logEnvelope) => {
+          if (isStale(gen, activeProfileId, rGen)) return;
+          if (logEnvelope?.ok) renderLog(logEnvelope.data || []);
+        })
+        .catch(() => {
+          // Keep the loaded paired status intact if log retrieval fails.
+        });
     })
-    .then((logEnvelope) => {
-      if (logEnvelope?.ok) renderLog(logEnvelope.data || []);
-    })
-    .catch(() => applyStatus(null, t('vault.errors.requestFailed')));
+    .catch(() => {
+      if (isStale(gen, activeProfileId, rGen)) return;
+      applyStatus(null, t('vault.errors.requestFailed'));
+    });
 }
 
 function run(command, args) {
   const invoke = getInvoke();
   if (!invoke || !panelId) return;
-  invoke(command, { profileId: panelId, ...args })
+  const gen = renderGeneration;
+  const activeProfileId = panelId;
+  invoke(command, { profileId: activeProfileId, ...args })
     .then((envelope) => {
+      if (isStale(gen, activeProfileId)) return;
       if (!envelope?.ok) {
         showError(envelope?.message || t('vault.errors.requestFailed'));
-      } else {
-        showError('');
+        return;
       }
+      showError('');
       refresh();
     })
-    .catch(() => showError(t('vault.errors.requestFailed')));
+    .catch(() => {
+      if (isStale(gen, activeProfileId)) return;
+      showError(t('vault.errors.requestFailed'));
+    });
 }
 
 /** Applies one status snapshot (or null) to the rendered panel. */
 export function applyStatus(status, message) {
-  if (!section) return;
+  if (!section || !section.querySelector('.vault-state')) return;
   lastStatus = status;
   lastMessage = message || '';
   showError(message);
   const state = stateFor(status);
   lastState = state;
+  if (state === 'session-missing') {
+    pairMode = 'mtproto';
+  }
   const stateNode = section.querySelector('.vault-state');
   if (stateNode) stateNode.textContent = t(STATE_KEYS[state]);
   const transportNode = section.querySelector('.vault-transport');
@@ -206,8 +246,11 @@ export function applyStatus(status, message) {
       pairButton.addEventListener('click', () => {
         const invoke = getInvoke();
         if (!invoke || !panelId) return;
-        invoke('vault_pair', { profileId: panelId })
+        const gen = renderGeneration;
+        const activeProfileId = panelId;
+        invoke('vault_pair', { profileId: activeProfileId })
           .then((envelope) => {
+            if (isStale(gen, activeProfileId)) return;
             if (!envelope?.ok) {
               showError(envelope?.message || t('vault.errors.requestFailed'));
               return;
@@ -215,13 +258,24 @@ export function applyStatus(status, message) {
             if (envelope.data?.requiresLogin) setLoginStep('phone');
             refresh();
           })
-          .catch(() => showError(t('vault.errors.requestFailed')));
+          .catch(() => {
+            if (isStale(gen, activeProfileId)) return;
+            showError(t('vault.errors.requestFailed'));
+          });
       });
       actions.appendChild(pairButton);
     }
     return;
   }
-  if (state === 'bot-continuation') return;
+  if (state === 'bot-continuation' || state === 'session-missing') {
+    const unpairButton = make('button', 'btn btn-subtle-danger', t('vault.actions.unpair'));
+    unpairButton.type = 'button';
+    unpairButton.addEventListener('click', () => {
+      run('vault_unpair', { deleteSession: false });
+    });
+    actions.appendChild(unpairButton);
+    return;
+  }
   const syncButton = make('button', 'btn btn-secondary', t('vault.actions.syncNow'));
   syncButton.type = 'button';
   syncButton.addEventListener('click', () => run('vault_sync_now', {}));
@@ -343,10 +397,13 @@ function buildBotForms() {
     event.preventDefault();
     const invoke = getInvoke();
     if (!invoke || !panelId) return;
-    const token = tokenInput.value.trim();
+    const token = String(tokenInput.value || '').trim();
     if (!token) return;
-    invoke('vault_pair_bot', { profileId: panelId, token })
+    const gen = renderGeneration;
+    const activeProfileId = panelId;
+    invoke('vault_pair_bot', { profileId: activeProfileId, token })
       .then((envelope) => {
+        if (isStale(gen, activeProfileId)) return;
         if (!envelope?.ok) {
           setInvalid(tokenInput, true);
           showError(envelope?.message || t('vault.errors.requestFailed'));
@@ -361,6 +418,7 @@ function buildBotForms() {
         updatePairUi();
       })
       .catch(() => {
+        if (isStale(gen, activeProfileId)) return;
         setInvalid(tokenInput, true);
         showError(t('vault.errors.requestFailed'));
       });
@@ -381,11 +439,14 @@ function buildBotForms() {
     if (botWaiting) return;
     const invoke = getInvoke();
     if (!invoke || !panelId) return;
+    const gen = renderGeneration;
+    const activeProfileId = panelId;
     botWaiting = true;
     waitButton.disabled = true;
     waitButton.textContent = t('vault.bot.waiting');
-    invoke('vault_pair_bot_wait', { profileId: panelId })
+    invoke('vault_pair_bot_wait', { profileId: activeProfileId })
       .then((envelope) => {
+        if (isStale(gen, activeProfileId)) return;
         botWaiting = false;
         waitButton.disabled = false;
         if (!envelope?.ok || envelope.data?.chatCaptured === false) {
@@ -404,6 +465,7 @@ function buildBotForms() {
         refresh();
       })
       .catch(() => {
+        if (isStale(gen, activeProfileId)) return;
         botWaiting = false;
         waitButton.disabled = false;
         waitButton.textContent = t('vault.bot.waitAgain');
@@ -460,21 +522,25 @@ function buildForms() {
     event.preventDefault();
     const invoke = getInvoke();
     if (!invoke || !panelId) return;
-    const phone = phoneInput.value.trim().replace(/[\s()-]/g, '');
-    const apiIdValue = apiIdInput.value.trim();
+    const phone = String(phoneInput.value || '').trim().replace(/[\s()-]/g, '');
+    const apiIdValue = String(apiIdInput.value || '').trim();
     const apiId = apiIdValue ? Number(apiIdValue) : null;
-    const apiHash = apiHashInput.value.trim() || null;
+    const apiHash = String(apiHashInput.value || '').trim() || null;
+    const gen = renderGeneration;
+    const activeProfileId = panelId;
     invoke('vault_login_phone', {
-      profileId: panelId,
+      profileId: activeProfileId,
       phone,
       apiId: Number.isSafeInteger(apiId) ? apiId : null,
       apiHash,
     })
       .then((envelope) => {
+        if (isStale(gen, activeProfileId)) return;
         if (envelope?.ok) {
           setInvalid(phoneInput, false);
           setInvalid(apiIdInput, false);
           setInvalid(apiHashInput, false);
+          showError('');
           setLoginStep('code');
         } else {
           setInvalid(phoneInput, true);
@@ -484,6 +550,7 @@ function buildForms() {
         }
       })
       .catch(() => {
+        if (isStale(gen, activeProfileId)) return;
         setInvalid(phoneInput, true);
         setInvalid(apiIdInput, true);
         setInvalid(apiHashInput, true);
@@ -518,24 +585,29 @@ function buildForms() {
     event.preventDefault();
     const invoke = getInvoke();
     if (!invoke || !panelId) return;
-    const password = passwordInput.value;
+    const password = String(passwordInput.value || '');
+    const gen = renderGeneration;
+    const activeProfileId = panelId;
     invoke('vault_login_code', {
-      profileId: panelId,
-      code: codeInput.value.trim(),
+      profileId: activeProfileId,
+      code: String(codeInput.value || '').trim(),
       password: password ? password : null,
     })
       .then((envelope) => {
+        if (isStale(gen, activeProfileId)) return;
         if (envelope?.ok) {
           setInvalid(codeInput, false);
+          showError('');
           setLoginStep('');
           passwordInput.value = '';
+          refresh();
         } else {
           setInvalid(codeInput, true);
           showError(envelope?.message || t('vault.errors.requestFailed'));
         }
-        refresh();
       })
       .catch(() => {
+        if (isStale(gen, activeProfileId)) return;
         setInvalid(codeInput, true);
         showError(t('vault.errors.requestFailed'));
       });
@@ -597,9 +669,22 @@ function buildSection() {
   return node;
 }
 
+function buildBridgeNoticeSection() {
+  const previous = document.getElementById(PANEL_ID);
+  if (previous) previous.remove();
+  const node = make('section', 'vault-panel vault-panel-bridge');
+  node.id = PANEL_ID;
+  const heading = make('h3', 'vault-heading', t('vault.title'));
+  const notice = make('p', 'vault-hint vault-bridge-notice', t('vault.bridge.desktopOnly'));
+  node.append(heading, notice);
+  return node;
+}
+
 /** Renders the vault panel into the details dialog for one profile. */
 export function render(profile) {
   if (typeof document === 'undefined' || !profile?.id) return;
+  renderGeneration += 1;
+  refreshGeneration += 1;
   panelId = profile.id;
   pairMode = 'bot';
   loginStep = '';
@@ -612,14 +697,17 @@ export function render(profile) {
   lastMessage = '';
   const dialog = document.getElementById('profile-details-dialog');
   if (!dialog) return;
-  section = buildSection();
+  const invoke = getInvoke();
+  section = invoke ? buildSection() : buildBridgeNoticeSection();
   const anchor = dialog.querySelector('form[method="dialog"]');
   if (anchor?.parentElement) {
     dialog.insertBefore(section, anchor.parentElement === dialog ? anchor : anchor.parentElement);
   } else {
     dialog.appendChild(section);
   }
-  refresh();
+  if (invoke) {
+    refresh();
+  }
 }
 
 const api = { render, applyStatus, refresh };

@@ -111,6 +111,8 @@ jobs:
         run: |
           node --test desktop-instance-manager/apps/desktop/ui/tests/i18n.test.mjs \
             desktop-instance-manager/apps/desktop/ui/tests/ui-contracts.test.mjs \
+            desktop-instance-manager/apps/desktop/ui/tests/vault-ui-contracts.test.mjs \
+            desktop-instance-manager/apps/desktop/ui/tests/vault-ui-parity.test.mjs \
             desktop-instance-manager/tests/brand-release-gates.mjs \
             desktop-instance-manager/tests/macos-release-gates.test.mjs
 

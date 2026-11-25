@@ -11,7 +11,7 @@ use grammers_client::{Client, SignInError};
 use tokio::runtime::Runtime;
 
 use crate::transport::{RemoteRef, TelegramTransport};
-use crate::watch::sha256_file;
+use crate::watch::verify_opened_file;
 use crate::{error::VaultError, Result};
 
 /// Credentials used to authorize a Telegram account on its first session use.
@@ -172,16 +172,22 @@ impl TelegramTransport for LiveTransport {
                 self.profile_id
             )));
         }
-        let actual_sha256 = sha256_file(path)?;
-        if actual_sha256 != sha256 {
-            return Err(VaultError::Transport(format!(
-                "source file changed after enqueue: {}",
-                path.display()
-            )));
-        }
+        let mut file = std::fs::File::open(path).map_err(|error| VaultError::io(path, error))?;
+        let size = verify_opened_file(&mut file, path, sha256)?;
+        let size_usize = usize::try_from(size).map_err(|_| VaultError::IntegerRange)?;
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("file")
+            .to_owned();
+        let mut tokio_file = tokio::fs::File::from_std(file);
         let upload = self
             .runtime
-            .block_on(self.client.upload_file(path))
+            .block_on(
+                self.client
+                    .upload_stream(&mut tokio_file, size_usize, file_name),
+            )
             .map_err(|error| VaultError::Transport(error.to_string()))?;
         let me = self
             .runtime

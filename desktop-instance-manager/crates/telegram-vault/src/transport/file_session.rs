@@ -12,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use dim_core::write_bytes_atomic_private;
 use grammers_session::types::{
     ChannelState, DcOption, PeerId, PeerInfo, UpdateState, UpdatesState,
 };
@@ -50,6 +51,15 @@ impl From<std::io::Error> for FileSessionError {
 impl From<serde_json::Error> for FileSessionError {
     fn from(error: serde_json::Error) -> Self {
         Self::Serde(error)
+    }
+}
+
+impl From<dim_core::DimError> for FileSessionError {
+    fn from(error: dim_core::DimError) -> Self {
+        match error {
+            dim_core::DimError::Io(io_error) => Self::Io(io_error),
+            other => Self::Io(std::io::Error::other(other.to_string())),
+        }
     }
 }
 
@@ -114,15 +124,12 @@ impl FileSession {
         self.data.lock().map_err(|_| FileSessionError::Poisoned)
     }
 
-    /// Atomically writes the current state: serialize, write a temp sibling, rename over.
+    /// Atomically writes the current state with owner-only (`0o600` on Unix) temp file creation.
     fn persist(&self, data: &SessionData) -> Result<(), FileSessionError> {
         let bytes = serde_json::to_vec(&FileSessionData::from(data))?;
-        let temp = self.path.with_extension("session.tmp");
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&temp, bytes)?;
-        fs::rename(&temp, &self.path)?;
+        let legacy_temp = self.path.with_extension("session.tmp");
+        let _ = fs::remove_file(&legacy_temp);
+        write_bytes_atomic_private(&self.path, &bytes)?;
         Ok(())
     }
 }
@@ -156,7 +163,25 @@ impl Session for FileSession {
     }
 
     fn peer(&self, peer: PeerId) -> BoxFuture<'_, Result<Option<PeerInfo>, Self::Error>> {
-        Box::pin(async move { Ok(self.data()?.peer_infos.get(&peer).cloned()) })
+        Box::pin(async move {
+            let data = self.data()?;
+            if peer == PeerId::self_user() {
+                return Ok(data
+                    .peer_infos
+                    .values()
+                    .find(|info| {
+                        matches!(
+                            info,
+                            PeerInfo::User {
+                                is_self: Some(true),
+                                ..
+                            }
+                        )
+                    })
+                    .cloned());
+            }
+            Ok(data.peer_infos.get(&peer).cloned())
+        })
     }
 
     fn cache_peer(&self, peer: PeerInfo) -> BoxFuture<'_, Result<(), Self::Error>> {
@@ -240,5 +265,33 @@ mod tests {
         assert!(cached.is_some());
         // The temp sibling must never linger after a successful persist.
         assert!(!path.with_extension("session.tmp").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "session file must be owner-only");
+        }
+    }
+
+    #[test]
+    fn file_session_resolves_self_user_peer_sentinel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("profile-self.session");
+        let session = FileSession::open(&path).unwrap();
+        let missing = block_on(async { session.peer(PeerId::self_user()).await.unwrap() });
+        assert!(missing.is_none());
+
+        let self_peer = PeerInfo::User {
+            id: 987_654,
+            auth: None,
+            bot: Some(false),
+            is_self: Some(true),
+        };
+        block_on(async {
+            session.cache_peer(self_peer.clone()).await.unwrap();
+        });
+        let reopened = FileSession::open(&path).unwrap();
+        let resolved = block_on(async { reopened.peer(PeerId::self_user()).await.unwrap() });
+        assert_eq!(resolved, Some(self_peer));
     }
 }

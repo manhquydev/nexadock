@@ -156,7 +156,5 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 app_handle.state::<AppState>().vault.shutdown();
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = (app_handle, event);
         });
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { initI18n } from '../i18n/index.js';
 
@@ -140,10 +140,21 @@ const documentMock = {
 };
 
 const { default: panel, stateFor, PANEL_ID } = await import(
-  path.join('file://', uiDir, 'vault-panel.js')
+  pathToFileURL(path.join(uiDir, 'vault-panel.js')).href
 );
 
 const profile = { id: 'work_1', name: 'Work' };
+const stubDesktopInvoke = () => new Promise(() => {});
+
+function collectByTag(node, tag) {
+  const found = [];
+  if (!node) return found;
+  if (node.tagName === tag) found.push(node);
+  for (const child of node.children || []) {
+    found.push(...collectByTag(child, tag));
+  }
+  return found;
+}
 
 function statuses() {
   return [
@@ -163,7 +174,9 @@ function renderSection() {
 
 test('vault panel renders unpaired, syncing, and offline states', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     for (const status of statuses()) {
       const section = renderSection();
@@ -210,19 +223,44 @@ test('vault panel renders unpaired, syncing, and offline states', () => {
     assert.notEqual(section.querySelector('.vault-state')?.textContent, '');
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });
 
-test('stateFor maps the three lifecycle states deterministically', () => {
+test('stateFor maps the lifecycle states deterministically', () => {
   assert.equal(stateFor(null), 'unpaired');
   assert.equal(stateFor({ paired: true, enabled: true, engineRunning: true, uploading: 0 }), 'paired');
   assert.equal(stateFor({ paired: true, enabled: true, engineRunning: true, uploading: 1 }), 'syncing');
   assert.equal(stateFor({ paired: true, enabled: false }), 'offline');
+  assert.equal(stateFor({ paired: true, transport: 'mtproto', sessionExists: false, enabled: true }), 'session-missing');
+});
+
+test('bridge mode without Tauri invoke renders a localized desktop-only notice and no interactive forms', () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  globalThis.document = documentMock;
+  globalThis.window = {};
+  try {
+    const section = renderSection();
+    const notice = section.querySelector('.vault-bridge-notice');
+    assert.ok(notice, 'bridge mode must render a desktop-only notice');
+    assert.equal(notice.textContent, viLocale.vault.bridge.desktopOnly);
+    assert.equal(collectByTag(section, 'FORM').length, 0, 'bridge mode must render zero forms');
+    assert.equal(collectByTag(section, 'INPUT').length, 0, 'bridge mode must render zero inputs');
+    assert.equal(collectByTag(section, 'BUTTON').length, 0, 'bridge mode must render zero buttons');
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
 });
 
 test('unpaired panel defaults to the bot tier with a two-option mode chooser', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     const section = renderSection();
     panel.applyStatus(statuses()[0], '');
@@ -254,12 +292,16 @@ test('unpaired panel defaults to the bot tier with a two-option mode chooser', (
     assert.equal(section.querySelector('.vault-bot-link')?.hidden, true, 'bot link step must hide until paired');
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });
 
 test('switching to the advanced tier reveals the existing login flow', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     const section = renderSection();
     panel.applyStatus(statuses()[0], '');
@@ -279,6 +321,8 @@ test('switching to the advanced tier reveals the existing login flow', () => {
     assert.equal(section.querySelector('.vault-actions').children.length, 0);
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });
 
@@ -368,7 +412,9 @@ test('bot pairing flow: token -> deep link -> retry wait -> paired', async () =>
 
 test('paired panel labels the active transport tier, defaulting legacy status to mtproto', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     const section = renderSection();
     panel.applyStatus({ paired: true, enabled: true, engineRunning: false, transport: 'mtproto' }, '');
@@ -385,5 +431,7 @@ test('paired panel labels the active transport tier, defaulting legacy status to
     assert.equal(section.querySelector('.vault-transport')?.hidden, true, 'unpaired status hides the tier label');
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });

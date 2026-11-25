@@ -80,6 +80,19 @@ pub struct VaultLogEntry {
     pub error: Option<String>,
 }
 
+/// Per-profile aggregate counts across all durable queue states.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProfileQueueCounts {
+    /// Items waiting to be claimed.
+    pub pending: u64,
+    /// Items currently marked uploading.
+    pub uploading: u64,
+    /// Items that failed on their most recent attempt.
+    pub failed: u64,
+    /// Items uploaded successfully.
+    pub done: u64,
+}
+
 /// Durable upload queue stored in a SQLite database.
 pub struct VaultQueue {
     connection: Connection,
@@ -143,6 +156,18 @@ impl VaultQueue {
         u64::try_from(changed).map_err(|_| VaultError::IntegerRange)
     }
 
+    /// Requeues items left in `uploading` state for a single profile.
+    ///
+    /// Safe only when the caller guarantees no active consumer for `profile_id`
+    /// is currently uploading.
+    pub fn recover_interrupted_for_profile(&self, profile_id: &str) -> Result<u64> {
+        let changed = self.connection.execute(
+            "UPDATE vault_queue SET status='pending' WHERE profile_id=?1 AND status='uploading'",
+            [profile_id],
+        )?;
+        u64::try_from(changed).map_err(|_| VaultError::IntegerRange)
+    }
+
     /// Adds a newly discovered file unless the same profile and digest already
     /// has a queue row. Deduplication is intentionally digest-based: a second
     /// copy of identical content under a different file name is not uploaded
@@ -156,7 +181,7 @@ impl VaultQueue {
         sha256: &str,
         size: u64,
     ) -> Result<bool> {
-        validate_digest(sha256)?;
+        let sha256 = normalize_digest(sha256)?;
         let size = i64::try_from(size).map_err(|_| VaultError::IntegerRange)?;
         let path_text = path.to_string_lossy().into_owned();
         let tx = self
@@ -207,7 +232,7 @@ impl VaultQueue {
         for row in rows {
             let item = row?;
             if item.status == QueueStatus::Pending
-                || retry_is_due(&tx, item.id, item.attempts, now)?
+                || retry_is_due(&tx, &item.profile_id, &item.sha256, item.attempts, now)?
             {
                 candidate = Some(item);
                 break;
@@ -327,30 +352,82 @@ impl VaultQueue {
             "SELECT ts,profile_id,file,sha256,size,outcome,error FROM vault_log
              ORDER BY ts DESC,id DESC LIMIT ?1",
         )?;
-        let rows = statement.query_map([limit], |row| {
-            let size: i64 = row.get(4)?;
-            let size = u64::try_from(size)
-                .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, size))?;
-            Ok(VaultLogEntry {
-                ts: row.get(0)?,
-                profile_id: row.get(1)?,
-                file: PathBuf::from(row.get::<_, String>(2)?),
-                sha256: row.get(3)?,
-                size,
-                outcome: row.get(5)?,
-                error: row.get(6)?,
-            })
-        })?;
+        let rows = statement.query_map([limit], decode_log_entry)?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Returns the most recent log rows for a single profile, newest first.
+    pub fn log_for_profile(&self, profile_id: &str, limit: usize) -> Result<Vec<VaultLogEntry>> {
+        let limit = i64::try_from(limit).map_err(|_| VaultError::IntegerRange)?;
+        let mut statement = self.connection.prepare(
+            "SELECT ts,profile_id,file,sha256,size,outcome,error FROM vault_log
+             WHERE profile_id=?1 ORDER BY ts DESC,id DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![profile_id, limit], decode_log_entry)?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Returns aggregate queue item counts for a single profile.
+    pub fn profile_counts(&self, profile_id: &str) -> Result<ProfileQueueCounts> {
+        let mut statement = self.connection.prepare(
+            "SELECT status, COUNT(*) FROM vault_queue WHERE profile_id=?1 GROUP BY status",
+        )?;
+        let mut rows = statement.query([profile_id])?;
+        let mut counts = ProfileQueueCounts::default();
+        while let Some(row) = rows.next()? {
+            let status_text: String = row.get(0)?;
+            let count_i64: i64 = row.get(1)?;
+            let count = u64::try_from(count_i64).map_err(|_| VaultError::IntegerRange)?;
+            match QueueStatus::parse(&status_text)? {
+                QueueStatus::Pending => counts.pending = count,
+                QueueStatus::Uploading => counts.uploading = count,
+                QueueStatus::Failed => counts.failed = count,
+                QueueStatus::Done => counts.done = count,
+            }
+        }
+        Ok(counts)
+    }
+
+    /// Returns the timestamp of the most recent successful upload for `profile_id`.
+    pub fn last_done_ts(&self, profile_id: &str) -> Result<Option<i64>> {
+        self.connection
+            .query_row(
+                "SELECT ts FROM vault_log WHERE profile_id=?1 AND outcome='done'
+                 ORDER BY ts DESC,id DESC LIMIT 1",
+                [profile_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
     }
 }
 
-fn retry_is_due(connection: &Connection, id: i64, attempts: u32, now: i64) -> Result<bool> {
+fn decode_log_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<VaultLogEntry> {
+    let size: i64 = row.get(4)?;
+    let size =
+        u64::try_from(size).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, size))?;
+    Ok(VaultLogEntry {
+        ts: row.get(0)?,
+        profile_id: row.get(1)?,
+        file: PathBuf::from(row.get::<_, String>(2)?),
+        sha256: row.get(3)?,
+        size,
+        outcome: row.get(5)?,
+        error: row.get(6)?,
+    })
+}
+
+fn retry_is_due(
+    connection: &Connection,
+    profile_id: &str,
+    sha256: &str,
+    attempts: u32,
+    now: i64,
+) -> Result<bool> {
     let last_attempt: Option<i64> = connection.query_row(
-        "SELECT MAX(ts) FROM vault_log WHERE outcome='failed' AND file=(
-                SELECT path FROM vault_queue WHERE id=?1
-            ) AND profile_id=(SELECT profile_id FROM vault_queue WHERE id=?1)",
-        [id],
+        "SELECT MAX(ts) FROM vault_log
+         WHERE outcome='failed' AND profile_id=?1 AND lower(sha256)=lower(?2)",
+        params![profile_id, sha256],
         |row| row.get(0),
     )?;
     let Some(last_attempt) = last_attempt else {
@@ -386,13 +463,13 @@ fn decode_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueItem> {
     })
 }
 
-fn validate_digest(sha256: &str) -> Result<()> {
+fn normalize_digest(sha256: &str) -> Result<String> {
     if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(VaultError::InvalidRecord(
             "SHA-256 must be 64 hexadecimal characters".into(),
         ));
     }
-    Ok(())
+    Ok(sha256.to_ascii_lowercase())
 }
 
 fn to_i64(value: u64) -> Result<i64> {

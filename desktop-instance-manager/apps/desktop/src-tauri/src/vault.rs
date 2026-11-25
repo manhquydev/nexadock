@@ -19,9 +19,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use dim_telegram_vault::queue::{QueueItem, QueueStatus, VaultLogEntry, VaultQueue};
+use dim_telegram_vault::queue::{QueueItem, VaultQueue};
 use dim_telegram_vault::store::{Transport, TransportKind, VaultConfig, VaultConfigStore};
 use dim_telegram_vault::transport::{
     BotTransport, LiveTransport, TelegramCredentials, TelegramTransport,
@@ -37,6 +37,10 @@ const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 const CONSUMER_IDLE_WAIT: Duration = Duration::from_secs(1);
 /// Wall-clock limit of one `vault_pair_bot_wait` chat-capture wait.
 const BOT_CHAT_WAIT_SECS: u64 = 60;
+/// Maximum time `stop_engine` waits for an active upload thread before detaching.
+const ENGINE_STOP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Maximum time `RunEvent::Exit` waits for vault threads so app exit never hangs.
+pub const EXIT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Wake signal shared between command handlers and engine threads.
 #[derive(Debug)]
@@ -111,28 +115,106 @@ enum ConsumerTransport {
     None,
 }
 
+/// Signals when a background engine thread has finished executing so teardown
+/// can join with a bounded deadline instead of hanging on uncancellable I/O.
+#[derive(Debug, Default)]
+struct ExitSignal {
+    done: Mutex<bool>,
+    cond: Condvar,
+}
+
+impl ExitSignal {
+    fn mark_done(&self) {
+        let mut done = match self.done.lock() {
+            Ok(done) => done,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *done = true;
+        self.cond.notify_all();
+    }
+
+    fn wait_until(&self, deadline: Option<Instant>) -> bool {
+        let mut done = match self.done.lock() {
+            Ok(done) => done,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        while !*done {
+            match deadline {
+                None => {
+                    done = match self.cond.wait(done) {
+                        Ok(done) => done,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+                }
+                Some(dl) => {
+                    let remaining = dl.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return false;
+                    }
+                    let (next, timed_out) = match self.cond.wait_timeout(done, remaining) {
+                        Ok(result) => result,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+                    done = next;
+                    if timed_out.timed_out() && !*done {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+}
+
+struct ExitGuard(Arc<ExitSignal>);
+
+impl Drop for ExitGuard {
+    fn drop(&mut self) {
+        self.0.mark_done();
+    }
+}
+
 /// Joinable worker handles for one profile's sync engine.
+///
+/// Separate wake signals prevent one thread from consuming a notification
+/// meant for the other (or for shutdown).
 struct ProfileEngine {
     stop: Arc<AtomicBool>,
-    wake: Arc<WakeSignal>,
+    watcher_wake: Arc<WakeSignal>,
+    consumer_wake: Arc<WakeSignal>,
+    watcher_done: Arc<ExitSignal>,
+    consumer_done: Arc<ExitSignal>,
     watcher_handle: Mutex<Option<JoinHandle<()>>>,
     consumer_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl ProfileEngine {
-    fn stop_and_join(&self) {
+    fn signal_stop(&self) {
         self.stop.store(true, Ordering::Release);
-        self.wake.notify();
-        if let Ok(mut slot) = self.watcher_handle.lock() {
-            if let Some(handle) = slot.take() {
-                let _ = handle.join();
+        self.watcher_wake.notify();
+        self.consumer_wake.notify();
+    }
+
+    fn join_until(&self, deadline: Option<Instant>) {
+        if self.watcher_done.wait_until(deadline) {
+            if let Ok(mut slot) = self.watcher_handle.lock() {
+                if let Some(handle) = slot.take() {
+                    let _ = handle.join();
+                }
             }
         }
-        if let Ok(mut slot) = self.consumer_handle.lock() {
-            if let Some(handle) = slot.take() {
-                let _ = handle.join();
+        if self.consumer_done.wait_until(deadline) {
+            if let Ok(mut slot) = self.consumer_handle.lock() {
+                if let Some(handle) = slot.take() {
+                    let _ = handle.join();
+                }
             }
         }
+    }
+
+    fn stop_and_join_until(&self, deadline: Option<Instant>) {
+        self.signal_stop();
+        self.join_until(deadline);
     }
 }
 
@@ -145,12 +227,16 @@ pub struct VaultStatus {
     pub session_exists: bool,
     pub engine_running: bool,
     pub queue_db_exists: bool,
+    /// Telegram application credentials are available (stored pairing or env).
+    pub credentials_available: bool,
     /// Active pairing transport: `"bot"` or `"mtproto"`.
     pub transport: String,
     /// The bot pairing is fully configured (token stored, chat captured).
     pub bot_configured: bool,
     /// Public username of the bot, available while the owner is still connecting it.
     pub bot_username: Option<String>,
+    /// Deep link (`https://t.me/<username>?start=<nonce>`) for continuing half-paired bots.
+    pub bot_deep_link: Option<String>,
     pub pending: u64,
     pub uploading: u64,
     pub failed: u64,
@@ -245,6 +331,7 @@ pub struct VaultManager {
     queue_path: Arc<Path>,
     pending_logins: Arc<Mutex<HashMap<String, PendingLogin>>>,
     engines: Arc<Mutex<HashMap<String, Arc<ProfileEngine>>>>,
+    config_lock: Arc<Mutex<()>>,
     profile_dir_for: ProfileDirResolver,
 }
 
@@ -272,6 +359,7 @@ impl VaultManager {
             queue_path,
             pending_logins: Arc::new(Mutex::new(HashMap::new())),
             engines: Arc::new(Mutex::new(HashMap::new())),
+            config_lock: Arc::new(Mutex::new(())),
             profile_dir_for,
         })
     }
@@ -282,20 +370,25 @@ impl VaultManager {
     pub fn resume_all(&self) {
         // Requeue items left `uploading` by an unclean exit before any
         // consumer can claim work; plain `open()` never touches row state.
-        // A failed recovery is surfaced (never swallowed): items stuck in
-        // `uploading` would never retry otherwise.
-        match VaultQueue::open(&self.queue_path) {
-            Ok(queue) => {
-                if let Err(error) = queue.recover_interrupted() {
-                    eprintln!("NexaDock vault crash recovery failed: {error}");
-                }
-            }
+        // If opening or crash recovery fails, do not start consumers with
+        // unrecovered `uploading` rows or an unusable queue database.
+        let queue = match VaultQueue::open(&self.queue_path) {
+            Ok(queue) => queue,
             Err(error) => {
                 eprintln!("NexaDock vault queue unavailable during startup: {error}");
+                return;
             }
-        }
-        let Ok(configs) = self.config_store.list() else {
+        };
+        if let Err(error) = queue.recover_interrupted() {
+            eprintln!("NexaDock vault crash recovery failed: {error}");
             return;
+        }
+        let configs = match self.config_store.list() {
+            Ok(configs) => configs,
+            Err(error) => {
+                eprintln!("NexaDock vault failed to list configs during startup: {error}");
+                return;
+            }
         };
         for config in configs {
             if !config.enabled || !self.pairing_is_runnable(&config) {
@@ -306,6 +399,24 @@ impl VaultManager {
                     self.spawn_engine(&config, self.consumer_transport_for(&config), received_dir);
             }
         }
+    }
+
+    /// Restarts the sync engine for a single profile if it is paired, enabled,
+    /// and runnable (e.g. after a cancelled profile deletion).
+    pub fn resume_profile(&self, profile_id: &str) {
+        let Ok(_guard) = self.config_lock.lock() else {
+            return;
+        };
+        if let Ok(Some(config)) = self.config_store.load(profile_id) {
+            if config.enabled && self.pairing_is_runnable(&config) {
+                let _ = self.ensure_engine(&config);
+            }
+        }
+    }
+
+    /// Stops only the active engine for `profile_id` without removing config or session.
+    pub fn stop_profile_engine(&self, profile_id: &str) {
+        self.stop_engine(profile_id);
     }
 
     /// Whether a pairing config has everything its transport needs to run:
@@ -328,28 +439,54 @@ impl VaultManager {
         }
     }
 
-    /// Shuts down every engine thread (used by teardown paths).
+    /// Shuts down every engine thread with a bounded teardown timeout.
     pub fn shutdown(&self) {
-        let engines: Vec<String> = {
-            let Ok(map) = self.engines.lock() else {
+        self.shutdown_with_timeout(EXIT_SHUTDOWN_TIMEOUT);
+    }
+
+    /// Signals all engine threads to stop in parallel and waits up to `timeout`
+    /// total before detaching any thread still stuck in uncancellable network I/O.
+    pub fn shutdown_with_timeout(&self, timeout: Duration) {
+        let engines: Vec<Arc<ProfileEngine>> = {
+            let Ok(mut map) = self.engines.lock() else {
                 return;
             };
-            map.keys().cloned().collect()
+            map.drain().map(|(_, engine)| engine).collect()
         };
-        for profile_id in engines {
-            self.stop_engine(&profile_id);
+        for engine in &engines {
+            engine.signal_stop();
+        }
+        let deadline = Instant::now() + timeout;
+        for engine in engines {
+            engine.join_until(Some(deadline));
         }
     }
 
     /// Returns the current pairing/sync status snapshot for one profile.
     pub fn status(&self, profile_id: &str) -> VaultManagerResult<VaultStatus> {
         let config = self.config_store.load(profile_id)?;
+        let credentials_available = config.as_ref().and_then(config_credentials).is_some()
+            || self.env_credentials().is_some();
+        let bot_deep_link = config.as_ref().and_then(|value| {
+            if value.transport == Transport::Bot && value.telegram_chat_id.is_none() {
+                let username = value.telegram_bot_username.as_deref()?;
+                match value.telegram_bot_pair_nonce.as_deref() {
+                    Some(nonce) if !nonce.is_empty() => {
+                        Some(format!("https://t.me/{username}?start={nonce}"))
+                    }
+                    _ => Some(format!("https://t.me/{username}")),
+                }
+            } else {
+                None
+            }
+        });
         let mut snapshot = VaultStatus {
             paired: config.is_some(),
             enabled: config.as_ref().is_some_and(|value| value.enabled),
             session_exists: self.session_file_exists(profile_id),
             engine_running: self.engine_running(profile_id),
             queue_db_exists: self.queue_path.exists(),
+            credentials_available,
             transport: config
                 .as_ref()
                 .map(|value| match value.transport {
@@ -364,6 +501,7 @@ impl VaultManager {
             bot_username: config
                 .as_ref()
                 .and_then(|value| value.telegram_bot_username.clone()),
+            bot_deep_link,
             pending: 0,
             uploading: 0,
             failed: 0,
@@ -374,35 +512,21 @@ impl VaultManager {
             return Ok(snapshot);
         }
         let queue = VaultQueue::open(self.queue_path.as_ref())?;
-        for item in queue.list()? {
-            if item.profile_id != profile_id {
-                continue;
-            }
-            match item.status {
-                QueueStatus::Pending => snapshot.pending += 1,
-                QueueStatus::Uploading => snapshot.uploading += 1,
-                QueueStatus::Failed => snapshot.failed += 1,
-                QueueStatus::Done => snapshot.done += 1,
-            }
-        }
-        let entries: Vec<VaultLogEntry> = queue.log(500)?;
-        for entry in entries {
-            if entry.profile_id == profile_id && entry.outcome == "done" {
-                snapshot.last_synced_at = Some(entry.ts);
-                break;
-            }
-        }
+        let counts = queue.profile_counts(profile_id)?;
+        snapshot.pending = counts.pending;
+        snapshot.uploading = counts.uploading;
+        snapshot.failed = counts.failed;
+        snapshot.done = counts.done;
+        snapshot.last_synced_at = queue.last_done_ts(profile_id)?;
         Ok(snapshot)
     }
 
     /// Starts or resumes pairing. Returns the login requirements for the UI.
     pub fn pair(&self, profile_id: &str) -> VaultManagerResult<PairFlow> {
-        let stored = self
-            .config_store
-            .load(profile_id)?
-            .and_then(|config| config_credentials(&config));
+        let config = self.config_store.load(profile_id)?;
+        let stored = config.as_ref().and_then(config_credentials);
         let credentials_available = stored.is_some() || self.env_credentials().is_some();
-        if let Some(config) = self.config_store.load(profile_id)? {
+        if let Some(config) = config {
             // Bot pairings never use the phone-login flow.
             if config.transport == Transport::Bot && self.pairing_is_runnable(&config) {
                 self.ensure_engine(&config)?;
@@ -412,8 +536,11 @@ impl VaultManager {
                     credentials_available,
                 });
             }
-            if self.session_file_exists(profile_id) {
-                // Already paired with a usable session; make sure the engine runs.
+            if config.transport == Transport::Mtproto
+                && self.session_file_exists(profile_id)
+                && self.credentials_for(&config).is_some()
+            {
+                // Already paired MTProto with a usable session and credentials.
                 self.ensure_engine(&config)?;
                 return Ok(PairFlow {
                     paired: true,
@@ -467,6 +594,9 @@ impl VaultManager {
         let resolved_api_id = resolved.api_id;
         let resolved_api_hash = resolved.api_hash.clone();
         let received_dir = self.received_dir_for(profile_id)?;
+        // Stop any running engine for this profile before opening FileSession
+        // so two FileSession instances never race on the session file.
+        self.stop_engine(profile_id);
         let pending = LiveTransport::begin_phone_login(
             self.data_dir.as_ref(),
             profile_id,
@@ -522,7 +652,12 @@ impl VaultManager {
             telegram_bot_token: None,
             telegram_chat_id: None,
             telegram_bot_username: None,
+            telegram_bot_pair_nonce: None,
         };
+        let _guard = self
+            .config_lock
+            .lock()
+            .map_err(|_| Self::lock_poisoned("config"))?;
         self.config_store.save(&config)?;
         self.spawn_engine(
             &config,
@@ -532,8 +667,8 @@ impl VaultManager {
         Ok(())
     }
 
-    /// Validates a bot token and stores a bot transport pairing for the
-    /// profile. The chat is not captured yet; `pair_bot_wait` completes it.
+    /// Validates a bot token, generates a per-pair `/start <nonce>` token, stops
+    /// any existing engine, and stores the bot transport pairing.
     pub fn pair_bot(&self, profile_id: &str, token: &str) -> VaultManagerResult<BotPairFlow> {
         // Reject unknown/invalid profile identifiers through the resolver.
         self.received_dir_for(profile_id)?;
@@ -544,6 +679,7 @@ impl VaultManager {
             ));
         }
         let info = BotTransport::validate_token(token)?;
+        let nonce = BotTransport::generate_pair_nonce();
         let config = VaultConfig {
             profile_id: profile_id.to_owned(),
             telegram_session_dir: self.session_file_for(profile_id),
@@ -555,55 +691,137 @@ impl VaultManager {
             telegram_bot_token: Some(token.to_owned()),
             telegram_chat_id: None,
             telegram_bot_username: Some(info.username.clone()),
+            telegram_bot_pair_nonce: Some(nonce.clone()),
         };
-        self.config_store.save(&config)?;
+        {
+            let _guard = self
+                .config_lock
+                .lock()
+                .map_err(|_| Self::lock_poisoned("config"))?;
+            self.stop_engine(profile_id);
+            if let Ok(mut logins) = self.pending_logins.lock() {
+                logins.remove(profile_id);
+            }
+            self.config_store.save(&config)?;
+        }
         Ok(BotPairFlow {
             bot_username: info.username.clone(),
-            deep_link: format!("https://t.me/{}", info.username),
+            deep_link: format!("https://t.me/{}?start={nonce}", info.username),
         })
     }
 
-    /// Waits for the vault owner to message the bot, captures the private
-    /// chat id, persists it, and starts the sync engine.
+    /// Waits for the vault owner to message the bot with `/start <nonce>`,
+    /// captures the private chat id, persists it cleanly against fresh state,
+    /// and starts the sync engine only if still enabled.
     ///
     /// Blocking (long-polls the Bot API); run it off the UI thread, e.g. via
     /// `tauri::async_runtime::spawn_blocking`.
     pub fn pair_bot_wait(&self, profile_id: &str) -> VaultManagerResult<BotWaitOutcome> {
-        let mut config = self.config_store.load(profile_id)?.ok_or_else(|| {
-            VaultManagerError::Vault("profile is not paired with a bot yet".into())
-        })?;
-        if config.transport != Transport::Bot {
-            return Err(VaultManagerError::Vault(
-                "this profile is not paired with a bot token".into(),
-            ));
-        }
-        let token = config
-            .telegram_bot_token
-            .as_deref()
-            .map(str::trim)
-            .filter(|token| !token.is_empty())
-            .ok_or_else(|| {
-                VaultManagerError::Vault("this profile is not paired with a bot token".into())
-            })?
-            .to_owned();
-        if config.telegram_chat_id.is_none() {
-            let chat_id = match BotTransport::wait_for_chat(&token, BOT_CHAT_WAIT_SECS) {
-                Ok(chat_id) => chat_id,
-                Err(dim_telegram_vault::VaultError::Timeout(_)) => {
-                    return Ok(BotWaitOutcome::TimedOut);
+        self.pair_bot_wait_with(profile_id, |token, nonce| {
+            BotTransport::wait_for_chat(token, nonce, BOT_CHAT_WAIT_SECS)
+        })
+    }
+
+    fn pair_bot_wait_with<F>(
+        &self,
+        profile_id: &str,
+        wait_fn: F,
+    ) -> VaultManagerResult<BotWaitOutcome>
+    where
+        F: FnOnce(&str, &str) -> dim_telegram_vault::Result<i64>,
+    {
+        let (token, nonce) = {
+            let _guard = self
+                .config_lock
+                .lock()
+                .map_err(|_| Self::lock_poisoned("config"))?;
+            let config = self.config_store.load(profile_id)?.ok_or_else(|| {
+                VaultManagerError::Vault("profile is not paired with a bot yet".into())
+            })?;
+            if config.transport != Transport::Bot {
+                return Err(VaultManagerError::Vault(
+                    "this profile is not paired with a bot token".into(),
+                ));
+            }
+            let token = config
+                .telegram_bot_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| {
+                    VaultManagerError::Vault("this profile is not paired with a bot token".into())
+                })?
+                .to_owned();
+            if config.telegram_chat_id.is_some() {
+                if config.enabled {
+                    self.ensure_engine(&config)?;
                 }
-                Err(error) => return Err(error.into()),
-            };
-            config.telegram_chat_id = Some(chat_id);
-            self.config_store.save(&config)?;
+                drop(_guard);
+                return Ok(BotWaitOutcome::Captured(self.status(profile_id)?));
+            }
+            let nonce = config
+                .telegram_bot_pair_nonce
+                .as_deref()
+                .map(str::trim)
+                .filter(|nonce| !nonce.is_empty())
+                .ok_or_else(|| {
+                    VaultManagerError::Vault(
+                        "bot pairing link expired; submit the bot token again".into(),
+                    )
+                })?
+                .to_owned();
+            (token, nonce)
+        };
+
+        let chat_id = match wait_fn(&token, &nonce) {
+            Ok(chat_id) => chat_id,
+            Err(dim_telegram_vault::VaultError::Timeout(_)) => {
+                return Ok(BotWaitOutcome::TimedOut);
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+        {
+            let _guard = self
+                .config_lock
+                .lock()
+                .map_err(|_| Self::lock_poisoned("config"))?;
+            let mut fresh = self.config_store.load(profile_id)?.ok_or_else(|| {
+                VaultManagerError::Vault(
+                    "vault pairing was removed before bot confirmation completed".into(),
+                )
+            })?;
+            if fresh.transport != Transport::Bot
+                || fresh.telegram_bot_token.as_deref().map(str::trim) != Some(token.as_str())
+            {
+                return Err(VaultManagerError::Vault(
+                    "bot pairing changed before confirmation completed".into(),
+                ));
+            }
+            if fresh.telegram_chat_id.is_none() {
+                if fresh.telegram_bot_pair_nonce.as_deref() != Some(nonce.as_str()) {
+                    return Err(VaultManagerError::Vault(
+                        "bot pairing link was replaced; confirm with the latest link".into(),
+                    ));
+                }
+                fresh.telegram_chat_id = Some(chat_id);
+                fresh.telegram_bot_pair_nonce = None;
+                self.config_store.save(&fresh)?;
+            }
+            if fresh.enabled {
+                self.ensure_engine(&fresh)?;
+            }
         }
-        self.ensure_engine(&config)?;
         Ok(BotWaitOutcome::Captured(self.status(profile_id)?))
     }
 
     /// Removes the pairing; the persisted MTProto session file is only deleted
     /// when explicitly requested, and Telegram Desktop `tdata` is never touched.
     pub fn unpair(&self, profile_id: &str, delete_session: bool) -> VaultManagerResult<bool> {
+        let _guard = self
+            .config_lock
+            .lock()
+            .map_err(|_| Self::lock_poisoned("config"))?;
         self.stop_engine(profile_id);
         {
             let mut logins = self
@@ -630,6 +848,10 @@ impl VaultManager {
 
     /// Enables or disables synchronization for one profile.
     pub fn set_enabled(&self, profile_id: &str, enabled: bool) -> VaultManagerResult<()> {
+        let _guard = self
+            .config_lock
+            .lock()
+            .map_err(|_| Self::lock_poisoned("config"))?;
         let mut config = self
             .config_store
             .load(profile_id)?
@@ -644,11 +866,12 @@ impl VaultManager {
         Ok(())
     }
 
-    /// Wakes the consumer thread and returns the resulting queue snapshot.
+    /// Wakes both watcher and consumer threads and returns the resulting queue snapshot.
     pub fn sync_now(&self, profile_id: &str) -> VaultManagerResult<VaultStatus> {
         if let Ok(map) = self.engines.lock() {
             if let Some(engine) = map.get(profile_id) {
-                engine.wake.notify();
+                engine.watcher_wake.notify();
+                engine.consumer_wake.notify();
             }
         }
         self.status(profile_id)
@@ -661,10 +884,7 @@ impl VaultManager {
             return Ok(rows);
         }
         let queue = VaultQueue::open(self.queue_path.as_ref())?;
-        for entry in queue.log(limit.saturating_mul(10).max(limit))? {
-            if entry.profile_id != profile_id {
-                continue;
-            }
+        for entry in queue.log_for_profile(profile_id, limit)? {
             rows.push(VaultLogRow {
                 ts: entry.ts,
                 file: entry.file.display().to_string(),
@@ -672,9 +892,6 @@ impl VaultManager {
                 outcome: entry.outcome,
                 error: entry.error,
             });
-            if rows.len() >= limit {
-                break;
-            }
         }
         Ok(rows)
     }
@@ -810,45 +1027,55 @@ impl VaultManager {
         self.stop_engine(&profile_id);
 
         let stop = Arc::new(AtomicBool::new(false));
-        let wake = Arc::new(WakeSignal::default());
+        let watcher_wake = Arc::new(WakeSignal::default());
+        let consumer_wake = Arc::new(WakeSignal::default());
+        let watcher_done = Arc::new(ExitSignal::default());
+        let consumer_done = Arc::new(ExitSignal::default());
 
         let watcher_stop = Arc::clone(&stop);
-        let watcher_wake = Arc::clone(&wake);
+        let watcher_self_wake = Arc::clone(&watcher_wake);
+        let watcher_consumer_wake = Arc::clone(&consumer_wake);
+        let watcher_done_signal = Arc::clone(&watcher_done);
         let watcher_profile = profile_id.clone();
         let watcher_received = received_dir.clone();
         let watcher_queue = Arc::clone(&self.queue_path);
         let watcher_thread = std::thread::Builder::new()
             .name(format!("vault-watch-{watcher_profile}"))
             .spawn(move || {
+                let _exit_guard = ExitGuard(watcher_done_signal);
                 run_watcher_loop(
                     watcher_profile,
                     watcher_received,
                     watcher_queue,
                     watcher_stop,
-                    watcher_wake,
+                    watcher_self_wake,
+                    watcher_consumer_wake,
                 );
             })
             .map_err(|error| VaultManagerError::Vault(format!("spawn watcher failed: {error}")))?;
 
         let consumer_stop = Arc::clone(&stop);
-        let consumer_wake = Arc::clone(&wake);
+        let consumer_self_wake = Arc::clone(&consumer_wake);
+        let consumer_done_signal = Arc::clone(&consumer_done);
         let consumer_profile = profile_id.clone();
         let consumer_queue = Arc::clone(&self.queue_path);
         let consumer_data = Arc::clone(&self.data_dir);
         let consumer_thread = std::thread::Builder::new()
             .name(format!("vault-sync-{consumer_profile}"))
             .spawn(move || {
+                let _exit_guard = ExitGuard(consumer_done_signal);
                 run_consumer_loop(
                     consumer_profile,
                     consumer_data,
                     consumer_queue,
                     transport,
                     consumer_stop,
-                    consumer_wake,
+                    consumer_self_wake,
                 );
             })
             .map_err(|error| {
                 stop.store(true, Ordering::Release);
+                watcher_wake.notify();
                 VaultManagerError::Vault(format!("spawn consumer failed: {error}"))
             })?;
 
@@ -857,7 +1084,10 @@ impl VaultManager {
                 profile_id,
                 Arc::new(ProfileEngine {
                     stop,
-                    wake,
+                    watcher_wake,
+                    consumer_wake,
+                    watcher_done,
+                    consumer_done,
                     watcher_handle: Mutex::new(Some(watcher_thread)),
                     consumer_handle: Mutex::new(Some(consumer_thread)),
                 }),
@@ -873,7 +1103,7 @@ impl VaultManager {
             .ok()
             .and_then(|mut map| map.remove(profile_id));
         if let Some(engine) = engine {
-            engine.stop_and_join();
+            engine.stop_and_join_until(Some(Instant::now() + ENGINE_STOP_TIMEOUT));
         }
     }
 }
@@ -884,14 +1114,15 @@ fn run_watcher_loop(
     received_dir: PathBuf,
     queue_path: Arc<Path>,
     stop: Arc<AtomicBool>,
-    wake: Arc<WakeSignal>,
+    watcher_wake: Arc<WakeSignal>,
+    consumer_wake: Arc<WakeSignal>,
 ) {
     while !stop.load(Ordering::Acquire) {
         let mut watcher = match ZaloReceivedWatcher::new(&received_dir) {
             Ok(watcher) => watcher,
             // Directory not created yet (profile never launched); retry later.
             Err(_) => {
-                wake.wait(RECONNECT_DELAY);
+                watcher_wake.wait(RECONNECT_DELAY);
                 continue;
             }
         };
@@ -900,38 +1131,41 @@ fn run_watcher_loop(
                 return;
             }
             match watcher.poll() {
-                Ok(files) => {
-                    if !files.is_empty() {
-                        let enqueued = enqueue_files(&profile_id, &queue_path, &files);
-                        if enqueued > 0 {
-                            wake.notify();
+                Ok(files) if !files.is_empty() => {
+                    match enqueue_files(&profile_id, &queue_path, &mut watcher, &files) {
+                        Ok(enqueued) if enqueued > 0 => consumer_wake.notify(),
+                        Ok(_) => {}
+                        Err(error) => {
+                            eprintln!("NexaDock vault enqueue failed for {profile_id}: {error}");
                         }
                     }
                 }
+                Ok(_) => {}
                 // Watcher died (directory replaced mid-session); recreate it.
                 Err(_) => break,
             }
-            wake.wait(WATCH_INTERVAL);
+            watcher_wake.wait(WATCH_INTERVAL);
         }
     }
 }
 
-/// Enqueues newly stable files into the durable queue.
-fn enqueue_files(profile_id: &str, queue_path: &Path, files: &[StableFile]) -> usize {
-    let mut queue = match VaultQueue::open(queue_path) {
-        Ok(queue) => queue,
-        Err(_) => return 0,
-    };
+/// Enqueues newly stable files into the durable queue, marking each path emitted
+/// in `watcher` only after SQLite durably stores it.
+fn enqueue_files(
+    profile_id: &str,
+    queue_path: &Path,
+    watcher: &mut ZaloReceivedWatcher,
+    files: &[StableFile],
+) -> dim_telegram_vault::Result<usize> {
+    let mut queue = VaultQueue::open(queue_path)?;
     let mut enqueued = 0_usize;
     for file in files {
-        if queue
-            .enqueue(profile_id, &file.path, &file.sha256, file.size)
-            .unwrap_or(false)
-        {
+        if queue.enqueue(profile_id, &file.path, &file.sha256, file.size)? {
             enqueued += 1;
         }
+        watcher.mark_emitted(&file.path);
     }
-    enqueued
+    Ok(enqueued)
 }
 
 /// Drains the upload queue through whichever transport the pairing provides.
@@ -947,9 +1181,10 @@ fn run_consumer_loop(
     queue_path: Arc<Path>,
     transport: ConsumerTransport,
     stop: Arc<AtomicBool>,
-    wake: Arc<WakeSignal>,
+    consumer_wake: Arc<WakeSignal>,
 ) {
     let mut transport = Some(transport);
+    let mut recover_needed = false;
     while !stop.load(Ordering::Acquire) {
         let client: Box<dyn TelegramTransport> = match transport.take() {
             Some(ConsumerTransport::Ready(transport)) => transport,
@@ -959,7 +1194,7 @@ fn run_consumer_loop(
                     Err(_) => {
                         // Connect failed with credentials present: retry after the delay.
                         transport = Some(ConsumerTransport::MtprotoReconnect(credentials));
-                        wake.wait(RECONNECT_DELAY);
+                        consumer_wake.wait(RECONNECT_DELAY);
                         continue;
                     }
                 }
@@ -968,27 +1203,45 @@ fn run_consumer_loop(
                 // No credentials available: wait; a resumed manager spawns a
                 // fresh engine once pairing provides them.
                 transport = Some(ConsumerTransport::None);
-                wake.wait(RECONNECT_DELAY);
+                consumer_wake.wait(RECONNECT_DELAY);
                 continue;
             }
         };
         let mut queue = match VaultQueue::open(queue_path.as_ref()) {
             Ok(queue) => queue,
             Err(_) => {
-                wake.wait(RECONNECT_DELAY);
+                transport = Some(ConsumerTransport::Ready(client));
+                consumer_wake.wait(RECONNECT_DELAY);
                 continue;
             }
         };
+        if recover_needed {
+            match queue.recover_interrupted_for_profile(&profile_id) {
+                Ok(_) => recover_needed = false,
+                Err(error) => {
+                    eprintln!(
+                        "NexaDock vault profile queue recovery failed for {profile_id}: {error}"
+                    );
+                    transport = Some(ConsumerTransport::Ready(client));
+                    consumer_wake.wait(RECONNECT_DELAY);
+                    continue;
+                }
+            }
+        }
         loop {
             if stop.load(Ordering::Acquire) {
                 return;
             }
             match queue.claim_next(&profile_id, current_unix_seconds()) {
                 Ok(Some(item)) => {
-                    upload_item(&mut queue, client.as_ref(), &item);
+                    if let Err(error) = upload_item(&mut queue, client.as_ref(), &item) {
+                        eprintln!("NexaDock vault queue update failed for {profile_id}: {error}");
+                        recover_needed = true;
+                        break;
+                    }
                 }
                 Ok(None) => {
-                    wake.wait(CONSUMER_IDLE_WAIT);
+                    consumer_wake.wait(CONSUMER_IDLE_WAIT);
                 }
                 // Storage failure: reopen the queue on the next pass.
                 Err(_) => break,
@@ -996,7 +1249,7 @@ fn run_consumer_loop(
         }
         // The transport stays usable; reuse it across queue reopen attempts.
         transport = Some(ConsumerTransport::Ready(client));
-        wake.wait(RECONNECT_DELAY);
+        consumer_wake.wait(RECONNECT_DELAY);
     }
 }
 
@@ -1017,19 +1270,22 @@ fn config_credentials(config: &VaultConfig) -> Option<TelegramCredentials> {
 
 /// Uploads one claimed item through the live transport and records the outcome.
 ///
-/// Queue state failures are never swallowed silently: a `mark_done` that finds
-/// the row no longer `uploading` demotes the item to `failed` with the reason
-/// so it becomes visible in the sync log instead of re-uploading forever.
-fn upload_item(queue: &mut VaultQueue, client: &dyn TelegramTransport, item: &QueueItem) {
+/// Queue state failures are never swallowed silently: both `mark_done` and
+/// `mark_failed` errors propagate to the consumer loop so it reopens the queue
+/// and recovers any stranded `uploading` row for this profile.
+fn upload_item(
+    queue: &mut VaultQueue,
+    client: &dyn TelegramTransport,
+    item: &QueueItem,
+) -> dim_telegram_vault::Result<()> {
     match upload_with_caption(client, item) {
         Ok(()) => {
             if let Err(error) = queue.mark_done(item) {
-                let _ = queue.mark_failed(item, &format!("mark_done failed: {error}"));
+                queue.mark_failed(item, &format!("mark_done failed: {error}"))?;
             }
+            Ok(())
         }
-        Err(detail) => {
-            let _ = queue.mark_failed(item, &detail);
-        }
+        Err(detail) => queue.mark_failed(item, &detail),
     }
 }
 
@@ -1106,6 +1362,7 @@ mod tests {
             telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
             telegram_chat_id: Some(987_654_321),
             telegram_bot_username: Some("vault_bot".into()),
+            telegram_bot_pair_nonce: None,
         };
         manager
             .config_store
@@ -1115,6 +1372,7 @@ mod tests {
         assert!(status.paired);
         assert_eq!(status.transport, "bot");
         assert_eq!(status.bot_username.as_deref(), Some("vault_bot"));
+        assert_eq!(status.bot_deep_link, None);
         assert!(status.bot_configured);
         assert!(!status.session_exists);
     }
@@ -1135,6 +1393,7 @@ mod tests {
             telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
             telegram_chat_id: None,
             telegram_bot_username: Some("vault_bot".into()),
+            telegram_bot_pair_nonce: Some("nonce42".into()),
         };
         manager
             .config_store
@@ -1143,6 +1402,329 @@ mod tests {
         let status = manager.status("work_1").expect("status");
         assert_eq!(status.transport, "bot");
         assert!(!status.bot_configured);
+        assert_eq!(
+            status.bot_deep_link.as_deref(),
+            Some("https://t.me/vault_bot?start=nonce42")
+        );
+    }
+
+    #[test]
+    fn status_reports_credentials_available_for_stored_mtproto_config() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        let config = VaultConfig {
+            profile_id: "work_1".into(),
+            telegram_session_dir: tmp.path().join("TelegramVault/sessions/work_1.session"),
+            destination: Default::default(),
+            enabled: true,
+            transport: Transport::Mtproto,
+            telegram_api_id: Some(12345),
+            telegram_api_hash: Some("api-hash-secret".into()),
+            telegram_bot_token: None,
+            telegram_chat_id: None,
+            telegram_bot_username: None,
+            telegram_bot_pair_nonce: None,
+        };
+        manager.config_store.save(&config).expect("save config");
+        let status = manager.status("work_1").expect("status");
+        assert!(status.credentials_available);
+        assert!(!status.session_exists);
+    }
+
+    #[test]
+    fn pair_ignores_leftover_session_when_active_transport_is_half_paired_bot() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        let session_path = manager.session_file_for("work_1");
+        std::fs::create_dir_all(session_path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&session_path, b"{}").expect("dummy session");
+        let config = VaultConfig {
+            profile_id: "work_1".into(),
+            telegram_session_dir: session_path,
+            destination: Default::default(),
+            enabled: true,
+            transport: Transport::Bot,
+            telegram_api_id: None,
+            telegram_api_hash: None,
+            telegram_bot_token: Some("123456789:AAE_abc-DEFxyz".into()),
+            telegram_chat_id: None,
+            telegram_bot_username: Some("vault_bot".into()),
+            telegram_bot_pair_nonce: Some("nonce_bot".into()),
+        };
+        manager.config_store.save(&config).expect("save bot config");
+
+        let flow = manager.pair("work_1").expect("pair flow");
+        assert!(!flow.paired);
+        assert!(flow.requires_login);
+        assert!(!manager.engine_running("work_1"));
+    }
+
+    #[test]
+    fn pair_bot_wait_respects_concurrent_unpair_disable_and_nonce_replacement() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        std::fs::create_dir_all(tmp.path().join("Profiles/work_1/Zalo Received Files"))
+            .expect("received dir");
+
+        let save_bot = |nonce: &str| {
+            let config = VaultConfig {
+                profile_id: "work_1".into(),
+                telegram_session_dir: manager.session_file_for("work_1"),
+                destination: Default::default(),
+                enabled: true,
+                transport: Transport::Bot,
+                telegram_api_id: None,
+                telegram_api_hash: None,
+                telegram_bot_token: Some("123456:secret".into()),
+                telegram_chat_id: None,
+                telegram_bot_username: Some("vault_bot".into()),
+                telegram_bot_pair_nonce: Some(nonce.to_owned()),
+            };
+            manager.config_store.save(&config).expect("save");
+        };
+
+        // 1. Concurrent unpair aborts save.
+        save_bot("nonce_unpair");
+        let err = manager
+            .pair_bot_wait_with("work_1", |_, _| {
+                manager.unpair("work_1", false).expect("unpair");
+                Ok(999)
+            })
+            .unwrap_err();
+        assert!(err.to_string().contains("removed"));
+        assert!(manager.config_store.load("work_1").unwrap().is_none());
+
+        // 2. Concurrent set_enabled(false) preserves enabled=false and skips engine spawn.
+        save_bot("nonce_disable");
+        let outcome = manager
+            .pair_bot_wait_with("work_1", |_, _| {
+                manager.set_enabled("work_1", false).expect("disable");
+                Ok(777)
+            })
+            .expect("wait");
+        match outcome {
+            BotWaitOutcome::Captured(status) => {
+                assert!(!status.enabled);
+                assert!(status.bot_configured);
+                assert!(!status.engine_running);
+            }
+            BotWaitOutcome::TimedOut => panic!("expected Captured"),
+        }
+        assert!(!manager.engine_running("work_1"));
+
+        // 3. Concurrent nonce replacement aborts stale waiter.
+        save_bot("nonce_old");
+        let err = manager
+            .pair_bot_wait_with("work_1", |_, _| {
+                save_bot("nonce_new");
+                Ok(888)
+            })
+            .unwrap_err();
+        assert!(err.to_string().contains("replaced"));
+        let latest = manager.config_store.load("work_1").unwrap().unwrap();
+        assert_eq!(latest.telegram_chat_id, None);
+        assert_eq!(latest.telegram_bot_pair_nonce.as_deref(), Some("nonce_new"));
+    }
+
+    #[test]
+    fn separate_wake_signals_never_swallow_sibling_or_shutdown_wakeups() {
+        let watcher_wake = Arc::new(WakeSignal::default());
+        let consumer_wake = Arc::new(WakeSignal::default());
+        let stop = Arc::new(AtomicBool::new(false));
+        let w_done = Arc::new(ExitSignal::default());
+        let c_done = Arc::new(ExitSignal::default());
+
+        let w_wake = Arc::clone(&watcher_wake);
+        let w_stop = Arc::clone(&stop);
+        let w_exit = Arc::clone(&w_done);
+        let w_handle = std::thread::spawn(move || {
+            let _g = ExitGuard(w_exit);
+            while !w_stop.load(Ordering::Acquire) {
+                w_wake.wait(Duration::from_secs(30));
+            }
+        });
+
+        let c_wake = Arc::clone(&consumer_wake);
+        let c_stop = Arc::clone(&stop);
+        let c_exit = Arc::clone(&c_done);
+        let c_handle = std::thread::spawn(move || {
+            let _g = ExitGuard(c_exit);
+            while !c_stop.load(Ordering::Acquire) {
+                c_wake.wait(Duration::from_secs(30));
+            }
+        });
+
+        let engine = ProfileEngine {
+            stop,
+            watcher_wake,
+            consumer_wake,
+            watcher_done: w_done,
+            consumer_done: c_done,
+            watcher_handle: Mutex::new(Some(w_handle)),
+            consumer_handle: Mutex::new(Some(c_handle)),
+        };
+
+        let start = Instant::now();
+        engine.stop_and_join_until(Some(start + Duration::from_secs(2)));
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "both threads must wake immediately without waiting on timeout"
+        );
+    }
+
+    #[test]
+    fn shutdown_with_timeout_returns_promptly_when_worker_is_blocked() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let watcher_wake = Arc::new(WakeSignal::default());
+        let consumer_wake = Arc::new(WakeSignal::default());
+        let watcher_done = Arc::new(ExitSignal::default());
+        let consumer_done = Arc::new(ExitSignal::default());
+        watcher_done.mark_done();
+        let c_done = Arc::clone(&consumer_done);
+        let handle = std::thread::spawn(move || {
+            let _g = ExitGuard(c_done);
+            let _ = rx.recv_timeout(Duration::from_secs(10));
+        });
+        manager.engines.lock().expect("lock").insert(
+            "blocked".into(),
+            Arc::new(ProfileEngine {
+                stop,
+                watcher_wake,
+                consumer_wake,
+                watcher_done,
+                consumer_done,
+                watcher_handle: Mutex::new(None),
+                consumer_handle: Mutex::new(Some(handle)),
+            }),
+        );
+
+        let start = Instant::now();
+        manager.shutdown_with_timeout(Duration::from_millis(60));
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "shutdown_with_timeout must bound app exit instead of blocking on uncancellable I/O"
+        );
+        let _ = tx.send(());
+    }
+
+    #[test]
+    fn enqueue_files_returns_err_without_marking_emitted_when_queue_open_fails() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let received = tmp.path().join("received");
+        std::fs::create_dir_all(&received).expect("mkdir");
+        let file = received.join("item.bin");
+        std::fs::write(&file, b"payload").expect("write");
+        let mut watcher =
+            ZaloReceivedWatcher::with_debounce(&received, Duration::from_millis(5)).expect("watch");
+        assert!(watcher.poll().expect("poll 1").is_empty());
+        let stable = watcher.poll().expect("poll 2");
+        assert_eq!(stable.len(), 1);
+
+        // Point queue_path at a directory so VaultQueue::open fails.
+        let bad_queue_path = tmp.path().join("not_a_db_file");
+        std::fs::create_dir_all(&bad_queue_path).expect("mkdir");
+        let err = enqueue_files("work_1", &bad_queue_path, &mut watcher, &stable).unwrap_err();
+        let _ = err;
+        // Because enqueue failed, the watcher must still emit the file on the next poll.
+        assert_eq!(watcher.poll().expect("retry poll").len(), 1);
+    }
+
+    #[test]
+    fn resume_all_skips_spawning_when_queue_unavailable() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = test_manager(tmp.path());
+        std::fs::create_dir_all(tmp.path().join("Profiles/work_1/Zalo Received Files"))
+            .expect("mkdir");
+        std::fs::create_dir_all(manager.queue_path.as_ref()).expect("block queue path with dir");
+        let config = VaultConfig {
+            profile_id: "work_1".into(),
+            telegram_session_dir: manager.session_file_for("work_1"),
+            destination: Default::default(),
+            enabled: true,
+            transport: Transport::Bot,
+            telegram_api_id: None,
+            telegram_api_hash: None,
+            telegram_bot_token: Some("123456:secret".into()),
+            telegram_chat_id: Some(42),
+            telegram_bot_username: Some("vault_bot".into()),
+            telegram_bot_pair_nonce: None,
+        };
+        manager.config_store.save(&config).expect("save");
+        manager.resume_all();
+        assert!(!manager.engine_running("work_1"));
+    }
+
+    #[test]
+    fn consumer_loop_retains_transport_after_transient_queue_open_failure() {
+        use dim_telegram_vault::transport::MockTransport;
+        use dim_telegram_vault::watch::sha256_file;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let queue_path = tmp.path().join("queue.db");
+        // Block queue_path with a directory so the first VaultQueue::open fails.
+        std::fs::create_dir_all(&queue_path).expect("create blocking dir");
+
+        let file = tmp.path().join("doc.bin");
+        std::fs::write(&file, b"important-doc").expect("write file");
+        let digest = sha256_file(&file).expect("digest");
+
+        #[derive(Clone)]
+        struct SharedMock(Arc<MockTransport>);
+        impl TelegramTransport for SharedMock {
+            fn upload_document(
+                &self,
+                profile_id: &str,
+                path: &Path,
+                sha256: &str,
+                caption: &str,
+            ) -> dim_telegram_vault::Result<dim_telegram_vault::transport::RemoteRef> {
+                self.0.upload_document(profile_id, path, sha256, caption)
+            }
+        }
+
+        let mock = Arc::new(MockTransport::default());
+        let transport = ConsumerTransport::Ready(Box::new(SharedMock(Arc::clone(&mock))));
+        let stop = Arc::new(AtomicBool::new(false));
+        let wake = Arc::new(WakeSignal::default());
+
+        let t_stop = Arc::clone(&stop);
+        let t_wake = Arc::clone(&wake);
+        let t_data: Arc<Path> = Arc::from(tmp.path().to_path_buf());
+        let t_queue: Arc<Path> = Arc::from(queue_path.clone());
+        let handle = std::thread::spawn(move || {
+            run_consumer_loop("work_1".into(), t_data, t_queue, transport, t_stop, t_wake);
+        });
+
+        // Wait briefly so the consumer hits the VaultQueue::open Err branch and sleeps.
+        std::thread::sleep(Duration::from_millis(80));
+        std::fs::remove_dir(&queue_path).expect("remove blocking dir");
+        let mut queue = VaultQueue::open(&queue_path).expect("open real queue");
+        queue
+            .enqueue("work_1", &file, &digest, 13)
+            .expect("enqueue item");
+        wake.notify();
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if mock.uploads().expect("uploads").len() == 1 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        stop.store(true, Ordering::Release);
+        wake.notify();
+        handle.join().expect("consumer thread join");
+
+        let uploads = mock.uploads().expect("uploads");
+        assert_eq!(
+            uploads.len(),
+            1,
+            "transport must survive transient queue open failure"
+        );
+        assert_eq!(uploads[0].sha256, digest);
     }
 
     #[test]

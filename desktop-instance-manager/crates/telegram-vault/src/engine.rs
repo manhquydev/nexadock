@@ -65,6 +65,7 @@ impl<T: TelegramTransport> SyncEngine<T> {
             {
                 enqueued = enqueued.checked_add(1).ok_or(VaultError::IntegerRange)?;
             }
+            watcher.mark_emitted(&file.path);
         }
         Ok(enqueued)
     }

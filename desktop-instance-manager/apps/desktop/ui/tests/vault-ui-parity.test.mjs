@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { initI18n } from '../i18n/index.js';
 
@@ -94,10 +94,11 @@ const documentMock = {
 };
 
 const { default: panel, PANEL_ID } = await import(
-  path.join('file://', uiDir, 'vault-panel.js')
+  pathToFileURL(path.join(uiDir, 'vault-panel.js')).href
 );
 
 const profile = { id: 'work_1', name: 'Work' };
+const stubDesktopInvoke = () => new Promise(() => {});
 
 function pairedStatus(transport) {
   return {
@@ -136,7 +137,9 @@ function actionFingerprint(section) {
 //    surface; only the tier label (vault.transport.*) may differ.
 test('paired bot and mtproto tiers render the same action surface', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     const fingerprints = {};
     const transports = {};
@@ -172,6 +175,8 @@ test('paired bot and mtproto tiers render the same action surface', () => {
     assert.notEqual(transports.bot, transports.mtproto);
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });
 
@@ -312,7 +317,9 @@ test('switching tiers mid-flow never strands a stale error or broken form', asyn
 // 4. Legacy paired status (pre-upgrade, no transport field) labels mtproto.
 test('legacy paired status without a transport field labels mtproto', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     const section = renderSection();
     panel.applyStatus({ paired: true, enabled: true, engineRunning: false, pending: 0, failed: 0, done: 0 }, '');
@@ -322,6 +329,8 @@ test('legacy paired status without a transport field labels mtproto', () => {
     assert.notEqual(transport?.textContent, viLocale.vault.transport.bot);
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });
 
@@ -356,7 +365,9 @@ test('tier i18n keys (mode/bot/transport) exist in vi and en', () => {
 // radio buttons sharing one name.
 test('mode chooser follows the fieldset/legend + native radio guidance', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     const section = renderSection();
     const chooser = section.querySelector('.vault-mode-chooser');
@@ -376,6 +387,8 @@ test('mode chooser follows the fieldset/legend + native radio guidance', () => {
     }
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });
 
@@ -433,7 +446,9 @@ test('both tiers announce errors through the same role=alert region', async () =
 // panel already complies (token/apiHash gaps are reported, not asserted).
 test('visible tier inputs keep label association and guide-compliant autocomplete', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     const section = renderSection();
 
@@ -460,6 +475,8 @@ test('visible tier inputs keep label association and guide-compliant autocomplet
     assert.doesNotMatch(panelSource, /onpaste|paste'/, 'panel must not block paste on authentication fields');
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });
 
@@ -519,17 +536,19 @@ test('validation failures set aria-invalid and describedby, cleared on success',
 });
 
 // B1: a token-only config is persisted as paired but not configured. Restore
-// the continuation UI so a restart cannot strand the owner after token entry.
-test('half-paired bot status resumes deep-link and Start flow without paired actions', async () => {
+// the continuation UI so a restart cannot strand the owner after token entry,
+// while exposing an Unpair button to cancel/reset a half-paired bot.
+test('half-paired bot status resumes deep-link and Start flow with unpair button only', async () => {
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   const calls = [];
   const invoke = (command, args) => {
     calls.push([command, args]);
-    if (command === 'vault_get_status') return Promise.resolve({ ok: true, data: { paired: true, transport: 'bot', botConfigured: false, botUsername: 'saved_bot', enabled: true, engineRunning: false, pending: 0, failed: 0, done: 0 } });
+    if (command === 'vault_get_status') return Promise.resolve({ ok: true, data: { paired: true, transport: 'bot', botConfigured: false, botUsername: 'saved_bot', botDeepLink: 'https://t.me/saved_bot?start=nonce123', enabled: true, engineRunning: false, pending: 0, failed: 0, done: 0 } });
     if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
     if (command === 'vault_pair_bot_wait') return Promise.resolve({ ok: true, message: 'No bot chat captured yet; ask again later.', data: { chatCaptured: false } });
+    if (command === 'vault_unpair') return Promise.resolve({ ok: true, data: { removed: true } });
     return Promise.resolve({ ok: false, message: `unexpected command: ${command}` });
   };
   globalThis.document = documentMock;
@@ -549,7 +568,17 @@ test('half-paired bot status resumes deep-link and Start flow without paired act
     assert.equal(anchor?.textContent, 'saved_bot');
     assert.equal(linkStep.querySelector('.vault-bot-start-hint')?.textContent, viLocale.vault.bot.continuationHint);
     assert.equal(linkStep.querySelector('.vault-bot-wait')?.textContent, viLocale.vault.bot.continuationConfirm);
-    assert.equal(section.querySelector('.vault-actions')?.children.length, 0, 'sync/enable/unpair actions must not render before chat capture');
+    const fingerprint = actionFingerprint(section);
+    assert.deepEqual(
+      fingerprint.buttons,
+      [viLocale.vault.actions.unpair],
+      'bot-continuation must expose only the unpair action (no sync/enable buttons)'
+    );
+    assert.equal(fingerprint.deleteSessionCheckbox, null, 'bot-continuation must not show delete-session checkbox');
+
+    // When backend supplies botDeepLink with ?start=<nonce>, continuation uses it.
+    panel.applyStatus({ paired: true, transport: 'bot', botConfigured: false, botUsername: 'saved_bot', botDeepLink: 'https://t.me/saved_bot?start=nonce123', enabled: true, engineRunning: false, pending: 0, failed: 0, done: 0 }, '');
+    assert.equal(anchor?.getAttribute('href'), 'https://t.me/saved_bot?start=nonce123');
 
     const waitButton = linkStep.querySelector('.vault-bot-wait');
     waitButton.listeners.get('click')();
@@ -557,6 +586,117 @@ test('half-paired bot status resumes deep-link and Start flow without paired act
     assert.ok(calls.some(([command]) => command === 'vault_pair_bot_wait'), 'continuation action must resume the normal wait command');
     assert.equal(section.querySelector('.vault-error')?.textContent, viLocale.vault.bot.notCaptured);
     assert.equal(waitButton.disabled, false, 'retry button must remain usable after timeout');
+
+    const unpairBtn = section.querySelector('.vault-actions').children[0];
+    unpairBtn.listeners.get('click')();
+    await flush();
+    assert.ok(calls.some(([command]) => command === 'vault_unpair'), 'continuation unpair button must call vault_unpair');
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('async generation guard prevents stale responses across profile switches and log failure keeps paired status', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  let resolveProfileA;
+  const invoke = (command, args) => {
+    if (command === 'vault_get_status' && args.profileId === 'prof_a') {
+      return new Promise((resolve) => {
+        resolveProfileA = resolve;
+      });
+    }
+    if (command === 'vault_get_status' && args.profileId === 'prof_b') {
+      return Promise.resolve({
+        ok: true,
+        data: { paired: true, transport: 'bot', botConfigured: true, enabled: true, engineRunning: false, pending: 0, failed: 0, done: 2 },
+      });
+    }
+    if (command === 'vault_get_log') {
+      return Promise.reject(new Error('sqlite busy'));
+    }
+    return Promise.resolve({ ok: false, message: 'unexpected' });
+  };
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke } };
+  try {
+    panel.render({ id: 'prof_a', name: 'Profile A' });
+    panel.render({ id: 'prof_b', name: 'Profile B' });
+    const section = dialog.children.at(-1);
+    await flush();
+    // Even though vault_get_log rejected, prof_b stays paired (never reverted to unpaired).
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.paired);
+
+    // Late response for prof_a arriving after switching to prof_b must be ignored.
+    resolveProfileA({ ok: true, data: { paired: false, enabled: false, engineRunning: false, pending: 0, failed: 0, done: 0 } });
+    await flush();
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.paired);
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('failed actions and failed login code preserve error messages instead of refreshing over them', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const invoke = (command) => {
+    if (command === 'vault_get_status') {
+      return Promise.resolve({
+        ok: true,
+        data: { paired: true, transport: 'bot', botConfigured: true, enabled: true, engineRunning: false, pending: 0, failed: 0, done: 0 },
+      });
+    }
+    if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
+    if (command === 'vault_sync_now') return Promise.resolve({ ok: false, message: 'sync failed explicitly' });
+    if (command === 'vault_login_code') return Promise.resolve({ ok: false, message: 'invalid 2FA password' });
+    return Promise.resolve({ ok: false, message: 'unexpected' });
+  };
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke } };
+  try {
+    const section = renderSection();
+    await flush();
+    const syncBtn = section.querySelector('.vault-actions').children[0];
+    syncBtn.listeners.get('click')();
+    await flush();
+    assert.equal(section.querySelector('.vault-error')?.textContent, 'sync failed explicitly');
+    assert.equal(section.querySelector('.vault-error')?.hidden, false);
+
+    // Failed vault_login_code also preserves its error.
+    section.querySelector('#vault-code-input')?.setAttribute?.('data-test', '1');
+    const codeForm = section.querySelector('.vault-form-code');
+    codeForm.children[1].value = '123456';
+    codeForm.listeners.get('submit')({ preventDefault() {} });
+    await flush();
+    assert.equal(section.querySelector('.vault-error')?.textContent, 'invalid 2FA password');
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('MTProto status with sessionExists false renders session-missing re-auth path while keeping mock compatibility', () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
+  try {
+    const section = renderSection();
+    panel.applyStatus(
+      { paired: true, transport: 'mtproto', sessionExists: false, credentialsAvailable: true, enabled: true, engineRunning: false, pending: 0, failed: 0, done: 0 },
+      ''
+    );
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.sessionMissing);
+    assert.equal(section.querySelector('.vault-form-phone')?.hidden, false, 'phone re-auth form must be visible when session is missing');
+    assert.equal(section.querySelector('.vault-credentials-fields')?.hidden, true, 'stored credentials hide API ID/Hash inputs');
+    assert.deepEqual(actionFingerprint(section).buttons, [viLocale.vault.actions.unpair]);
   } finally {
     globalThis.document = originalDocument;
     if (originalWindow === undefined) delete globalThis.window;
@@ -566,7 +706,9 @@ test('half-paired bot status resumes deep-link and Start flow without paired act
 
 test('bot token and API hash visibility toggles are native pressed buttons and restore focus', () => {
   const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
   globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
   try {
     const section = renderSection();
     const tokenForm = section.querySelector('.vault-form-bot');
@@ -593,5 +735,7 @@ test('bot token and API hash visibility toggles are native pressed buttons and r
     assert.equal(apiHash.focused, true);
   } finally {
     globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });

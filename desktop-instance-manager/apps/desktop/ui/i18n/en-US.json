@@ -361,7 +361,11 @@
       "paired": "Paired",
       "syncing": "Syncing...",
       "offline": "Paired · Paused",
-      "continuingBot": "Bot connection needed"
+      "continuingBot": "Bot connection needed",
+      "sessionMissing": "Sign in again"
+    },
+    "bridge": {
+      "desktopOnly": "Telegram Vault is only available in the NexaDock desktop app and is disabled in browser bridge mode."
     },
     "stats": {
       "summary": "{pending} waiting · {failed} failed · {done} synced"
