@@ -464,6 +464,7 @@ pub fn ensure_macos_user_symlinks_with_options(
             if fs::symlink_metadata(&src).is_err() {
                 continue;
             }
+            validate_opt_in_source_dir(&src, real_home)?;
             if let Ok(existing_meta) = fs::symlink_metadata(&dst) {
                 // Replace an empty (or .DS_Store-only for Library/Keychains) placeholder directory with the requested opt-in symlink.
                 if existing_meta.is_dir()
@@ -488,9 +489,35 @@ pub fn ensure_macos_user_symlinks_with_options(
     }
 }
 
+/// Validates that an opt-in symlink source/target `<real_home>/<rel>` is an existing,
+/// accessible directory (never a broken symlink or non-directory) whose path and resolved
+/// canonical path do not overlap `real_home` itself or primary `ZaloData`.
+fn validate_opt_in_source_dir(src: &Path, real_home: &Path) -> Result<(), DimError> {
+    ensure_not_macos_primary_path(src, Some(real_home))?;
+    let meta = fs::metadata(src).map_err(|err| {
+        DimError::PathTraversal(format!(
+            "opt-in directory '{}' is missing or a broken symlink: {err}",
+            src.display()
+        ))
+    })?;
+    if !meta.is_dir() {
+        return Err(DimError::PathTraversal(format!(
+            "opt-in target '{}' is not a directory",
+            src.display()
+        )));
+    }
+    if let Ok(canonical) = fs::canonicalize(src) {
+        ensure_not_macos_primary_path(&canonical, Some(real_home))?;
+        if let Ok(canonical_home) = fs::canonicalize(real_home) {
+            ensure_not_macos_primary_path(&canonical, Some(&canonical_home))?;
+        }
+    }
+    Ok(())
+}
+
 /// Verifies an existing opt-in symlink at `dst` resolves directly to `<real_home>/<rel>`
 /// without overlapping primary `ZaloData`. Fails closed with [`DimError::PathTraversal`]
-/// when `real_home` is unavailable, `<real_home>/<rel>` is absent, or the target mismatches.
+/// when `real_home` is unavailable, `<real_home>/<rel>` is absent/broken, or the target mismatches.
 pub(crate) fn verify_opt_in_symlink_target(
     dst: &Path,
     rel: &str,
@@ -529,13 +556,7 @@ pub(crate) fn verify_opt_in_symlink_target(
         )));
     }
     ensure_not_macos_primary_path(&resolved_target, Some(home))?;
-    if fs::symlink_metadata(&expected).is_err() {
-        return Err(DimError::PathTraversal(format!(
-            "opt-in symlink '{}' points to missing target '{}'",
-            dst.display(),
-            expected.display()
-        )));
-    }
+    validate_opt_in_source_dir(&expected, home)?;
     Ok(())
 }
 
@@ -1552,6 +1573,108 @@ mod tests {
         symlink(&evil_dir, p_dl.join("Downloads")).unwrap();
         assert_eq!(
             ensure_macos_user_symlinks_with_options(&p_dl, &real_home, dl_opts)
+                .unwrap_err()
+                .code(),
+            "PATH_TRAVERSAL"
+        );
+    }
+
+    #[test]
+    fn opt_in_symlinks_reject_broken_intermediate_targets_and_primary_redirects_before_mutating_dst(
+    ) {
+        use std::os::unix::fs::symlink;
+
+        use super::{macos_zalo_data_dir, verify_no_forbidden_isolation_symlinks_with_home};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let kc_opts = MacOsLayoutOptions::default().with_keychain_symlink(true);
+
+        // 1. `src` (`real_home/Library/Keychains`) symlinked into primary ZaloData must fail
+        //    BEFORE removing a placeholder directory at `dst`.
+        let home_primary = tmp.path().join("home_primary");
+        let primary_zalo = macos_zalo_data_dir(&home_primary);
+        fs::create_dir_all(&primary_zalo).unwrap();
+        let src_primary = home_primary.join("Library").join("Keychains");
+        symlink(&primary_zalo, &src_primary).unwrap();
+
+        let p_placeholder = tmp.path().join("p_placeholder");
+        let dst_placeholder = p_placeholder.join("Library").join("Keychains");
+        fs::create_dir_all(&dst_placeholder).unwrap();
+        let err_primary =
+            ensure_macos_user_symlinks_with_options(&p_placeholder, &home_primary, kc_opts)
+                .unwrap_err();
+        assert_eq!(err_primary.code(), "PROTECTED_PRIMARY_PATH");
+        let dst_meta = fs::symlink_metadata(&dst_placeholder).unwrap();
+        assert!(
+            dst_meta.is_dir() && !dst_meta.file_type().is_symlink(),
+            "placeholder dst must remain untouched when src validation fails"
+        );
+
+        //    A pre-existing `dst` symlink pointing to `src_primary` also fails closed via canonicalize check.
+        fs::remove_dir(&dst_placeholder).unwrap();
+        symlink(&src_primary, &dst_placeholder).unwrap();
+        assert_eq!(
+            verify_no_forbidden_isolation_symlinks_with_home(
+                &p_placeholder,
+                kc_opts,
+                Some(&home_primary),
+            )
+            .unwrap_err()
+            .code(),
+            "PROTECTED_PRIMARY_PATH"
+        );
+
+        // 2. Broken symlink (and non-directory file) at `src` rejects before modifying `dst`.
+        let home_broken = tmp.path().join("home_broken");
+        let src_broken = home_broken.join("Library").join("Keychains");
+        fs::create_dir_all(src_broken.parent().unwrap()).unwrap();
+        symlink(tmp.path().join("does_not_exist"), &src_broken).unwrap();
+
+        let p_broken = tmp.path().join("p_broken");
+        let dst_broken = p_broken.join("Library").join("Keychains");
+        fs::create_dir_all(&dst_broken).unwrap();
+        assert_eq!(
+            ensure_macos_user_symlinks_with_options(&p_broken, &home_broken, kc_opts)
+                .unwrap_err()
+                .code(),
+            "PATH_TRAVERSAL"
+        );
+        assert!(fs::symlink_metadata(&dst_broken).unwrap().is_dir());
+
+        // 3. Pre-existing `dst` symlink pointing to `home/Library/Keychains` fails closed when
+        //    `home/Library/Keychains` itself is a broken symlink or has a broken intermediate dir.
+        fs::remove_dir(&dst_broken).unwrap();
+        symlink(&src_broken, &dst_broken).unwrap();
+        assert_eq!(
+            verify_no_forbidden_isolation_symlinks_with_home(
+                &p_broken,
+                kc_opts,
+                Some(&home_broken),
+            )
+            .unwrap_err()
+            .code(),
+            "PATH_TRAVERSAL"
+        );
+        assert_eq!(
+            ensure_macos_user_symlinks_with_options(&p_broken, &home_broken, kc_opts)
+                .unwrap_err()
+                .code(),
+            "PATH_TRAVERSAL"
+        );
+
+        let home_bad_mid = tmp.path().join("home_bad_mid");
+        fs::create_dir_all(&home_bad_mid).unwrap();
+        symlink(
+            tmp.path().join("missing_mid_dir"),
+            home_bad_mid.join("Library"),
+        )
+        .unwrap();
+        let p_mid = tmp.path().join("p_mid");
+        let dst_mid = p_mid.join("Library").join("Keychains");
+        fs::create_dir_all(dst_mid.parent().unwrap()).unwrap();
+        symlink(home_bad_mid.join("Library").join("Keychains"), &dst_mid).unwrap();
+        assert_eq!(
+            verify_no_forbidden_isolation_symlinks_with_home(&p_mid, kc_opts, Some(&home_bad_mid))
                 .unwrap_err()
                 .code(),
             "PATH_TRAVERSAL"
