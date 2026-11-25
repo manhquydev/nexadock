@@ -904,3 +904,36 @@ test('bot token submit blocks concurrent in-flight submits and ignores stale res
     else globalThis.window = originalWindow;
   }
 });
+
+test('render mounts into custom container and setAdvancedMode(false) resets unpaired MTProto back to bot', () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
+  try {
+    const customMount = documentMock.createElement('div');
+    panel.render(profile, customMount);
+    const section = customMount.children[0];
+    assert.ok(section, 'vault panel must mount directly inside custom targetContainer');
+    assert.equal(section.id, PANEL_ID);
+    assert.equal(section.getAttribute('data-profile-id'), profile.id);
+
+    panel.applyStatus({ paired: false, credentialsAvailable: true, pending: 0, failed: 0, done: 0 }, '');
+    const mtpRadio = section.querySelector('.vault-mode-radio-mtp');
+    const botRadio = section.querySelector('.vault-mode-radio-bot');
+    mtpRadio.checked = true;
+    mtpRadio.listeners.get('change')();
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, true);
+    assert.equal(section.querySelector('.vault-hint')?.hidden, false);
+
+    panel.setAdvancedMode(false);
+    assert.equal(botRadio.checked, true);
+    assert.equal(mtpRadio.checked, false);
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, false, 'collapsing Advanced mode restores Everyday bot form');
+    assert.equal(section.querySelector('.vault-hint')?.hidden, true);
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});

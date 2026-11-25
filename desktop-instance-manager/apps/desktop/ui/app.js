@@ -15,6 +15,10 @@ import {
   LEGACY_LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES
 } from './i18n/index.js';
+import {
+  render as renderVaultPanel,
+  setAdvancedMode as setVaultAdvancedMode
+} from './vault-panel.js';
 
 const UI_VERSION = '0.1.0';
 const THEME_STORAGE_KEY = 'nexadock.theme';
@@ -48,8 +52,9 @@ const state = {
   backups: [],
   diagnostics: null,
   isolation: null,
-  activeView: 'profiles', // 'profiles' | 'backups' | 'settings' | 'diagnostics' | 'help' | 'desktop-stage' | 'web-stage'
+  activeView: 'profiles', // 'profiles' | 'backups' | 'vault' | 'settings' | 'diagnostics' | 'help' | 'desktop-stage' | 'web-stage'
   activeAccount: null, // { id, kind }
+  selectedVaultProfileId: null,
   lastActivationResult: null,
   railFilterQuery: '',
   searchQuery: '',
@@ -757,6 +762,17 @@ export function formatShortcut(key) {
   return isMacPlatform() ? `⌘${normalized}` : `Ctrl+${normalized}`;
 }
 
+function updateRailToggleAttrs(expanded) {
+  if (typeof document === 'undefined') return;
+  const railToggle = document.getElementById('btn-rail-toggle');
+  if (!railToggle) return;
+  const isExpanded = Boolean(expanded);
+  const baseRail = isExpanded ? t('rail.collapse') : t('rail.expand');
+  railToggle.setAttribute('aria-pressed', String(isExpanded));
+  railToggle.setAttribute('aria-label', baseRail);
+  railToggle.setAttribute('title', `${baseRail} (${formatShortcut('B')})`);
+}
+
 function updateShortcutHints() {
   if (typeof document === 'undefined') return;
   const mac = isMacPlatform();
@@ -770,12 +786,8 @@ function updateShortcutHints() {
     qsBtn.setAttribute('aria-label', formatted);
     qsBtn.setAttribute('title', formatted);
   }
-  const railToggle = document.getElementById('btn-rail-toggle');
-  if (railToggle) {
-    const expanded = document.getElementById('workspace-shell')?.dataset.railExpanded === 'true';
-    const baseRail = expanded ? t('rail.collapse') : t('rail.expand');
-    railToggle.setAttribute('title', `${baseRail} (${formatShortcut('B')})`);
-  }
+  const expanded = document.getElementById('workspace-shell')?.dataset.railExpanded === 'true';
+  updateRailToggleAttrs(expanded);
   const openCreateBtn = document.getElementById('btn-open-create');
   if (openCreateBtn) {
     openCreateBtn.setAttribute('title', `${t('accounts.add')} (${formatShortcut('N')})`);
@@ -792,7 +804,8 @@ export function applyAdvancedMode(enabled) {
     // Ignore storage errors
   }
 
-  if (typeof document !== 'undefined' && document.documentElement) {
+  if (typeof document === 'undefined') return;
+  if (document.documentElement) {
     document.documentElement.dataset.advancedMode = String(isAdvanced);
   }
 
@@ -810,6 +823,8 @@ export function applyAdvancedMode(enabled) {
       selectView('settings');
     }
   }
+
+  setVaultAdvancedMode(isAdvanced);
 
   if (state.banner) {
     renderBanner();
@@ -852,6 +867,7 @@ function updateDocumentTitle(viewName = state.activeView) {
   const viewTitles = {
     profiles: t('nav.accounts'),
     backups: t('nav.backups'),
+    vault: t('vault.title'),
     settings: t('nav.settings'),
     diagnostics: t('diagnostics.title'),
     help: t('help.title'),
@@ -1404,6 +1420,8 @@ function selectView(viewName, { triggerEl = null, returnView = null } = {}) {
 
   if (viewName === 'diagnostics') {
     updateDiagnosticsBackBar();
+  } else if (viewName === 'vault') {
+    renderVaultView({ forceRender: true });
   }
 
   const isStage = viewName === 'web-stage' || viewName === 'desktop-stage';
@@ -3225,6 +3243,67 @@ function refreshOpenDialogTranslations() {
   }
 }
 
+function renderVaultView({ forceRender = false } = {}) {
+  if (typeof document === 'undefined') return;
+  if (state.activeView !== 'vault' && !forceRender) return;
+  if (!forceRender && document.getElementById('profile-details-dialog')?.open) return;
+
+  const emptyEl = document.getElementById('vault-empty');
+  const hintEl = document.getElementById('vault-desktop-only-hint');
+  const barEl = document.getElementById('vault-account-bar');
+  const selectEl = document.getElementById('vault-profile-select');
+  const mountEl = document.getElementById('vault-view-mount');
+  if (!mountEl) return;
+
+  if (!getTauriInvoke()) {
+    if (hintEl) hintEl.hidden = false;
+    if (emptyEl) emptyEl.hidden = true;
+    if (barEl) barEl.hidden = true;
+    mountEl.hidden = true;
+    return;
+  }
+
+  if (hintEl) hintEl.hidden = true;
+  const profiles = Array.isArray(state.status?.profiles) ? state.status.profiles : [];
+  if (profiles.length === 0) {
+    if (emptyEl) emptyEl.hidden = false;
+    if (barEl) barEl.hidden = true;
+    mountEl.hidden = true;
+    mountEl.replaceChildren();
+    return;
+  }
+
+  if (emptyEl) emptyEl.hidden = true;
+  if (barEl) barEl.hidden = false;
+  mountEl.hidden = false;
+
+  let chosen = profiles.find((p) => p.id === state.selectedVaultProfileId);
+  if (!chosen && state.activeAccount?.kind === 'desktop_isolated') {
+    chosen = profiles.find((p) => p.id === state.activeAccount.id);
+  }
+  if (!chosen) {
+    chosen = profiles[0];
+  }
+  state.selectedVaultProfileId = chosen.id;
+
+  if (selectEl) {
+    selectEl.replaceChildren();
+    for (const p of profiles) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name || p.id;
+      opt.selected = p.id === chosen.id;
+      selectEl.appendChild(opt);
+    }
+  }
+
+  const mountedPanel = mountEl.querySelector('#vault-panel');
+  const alreadyMounted = mountedPanel?.getAttribute('data-profile-id') === chosen.id;
+  if (forceRender || !alreadyMounted) {
+    renderVaultPanel(chosen, mountEl);
+  }
+}
+
 function renderAll() {
   updateConnectionBadge();
   renderBanner();
@@ -3234,6 +3313,7 @@ function renderAll() {
   renderProfiles();
   renderPrimaryZalo();
   renderBackups();
+  renderVaultView();
   renderDiagnostics();
   renderSettingsAbout();
   renderCreateColorPalette();
@@ -3841,7 +3921,7 @@ function wireLightDismissFallback() {
 function wireDialogsAndFallbacks() {
   wireLightDismissFallback();
 
-  for (const btnId of ['btn-open-create', 'btn-overview-create', 'btn-empty-create']) {
+  for (const btnId of ['btn-open-create', 'btn-overview-create', 'btn-empty-create', 'btn-vault-create-account']) {
     document.getElementById(btnId)?.addEventListener('click', () => {
       clearCreateStep1Error();
       renderCreateColorPalette(pickNextAvailableColorId(getAllColorTrackedAccounts()));
@@ -4257,6 +4337,9 @@ function wireDialogsAndFallbacks() {
   detailsDialog?.addEventListener('close', (e) => {
     e.currentTarget.returnValue = '';
     state.openDialogContext = null;
+    if (state.activeView === 'vault') {
+      renderVaultView({ forceRender: true });
+    }
     restoreDialogFocus(detailsDialog);
   });
 
@@ -4552,6 +4635,13 @@ function wireDesktopStageControls() {
     if (prof) openDetailsDialog(prof);
   });
 
+  document.getElementById('btn-desktop-vault')?.addEventListener('click', (event) => {
+    if (state.activeAccount?.kind === 'desktop_isolated') {
+      state.selectedVaultProfileId = state.activeAccount.id;
+    }
+    selectView('vault', { triggerEl: event.currentTarget });
+  });
+
   document.getElementById('btn-desktop-delete')?.addEventListener('click', () => {
     if (!state.activeAccount) return;
     const prof = (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id);
@@ -4710,17 +4800,15 @@ export async function initApp() {
   const railToggle = document.getElementById('btn-rail-toggle');
   if (readMigratedStorage(RAIL_EXPANDED_KEY, LEGACY_RAIL_EXPANDED_KEY) === 'true' && shell) {
     shell.dataset.railExpanded = 'true';
-    railToggle?.setAttribute('aria-pressed', 'true');
   }
+  updateRailToggleAttrs(shell?.dataset.railExpanded === 'true');
 
   railToggle?.addEventListener('click', () => {
     if (!shell) return;
     const expanded = shell.dataset.railExpanded === 'true';
     const next = !expanded;
     shell.dataset.railExpanded = String(next);
-    railToggle.setAttribute('aria-pressed', String(next));
-    railToggle.setAttribute('aria-label', next ? t('rail.collapse') : t('rail.expand'));
-    railToggle.setAttribute('title', next ? t('rail.collapse') : t('rail.expand'));
+    updateRailToggleAttrs(next);
     try {
       if (typeof localStorage !== 'undefined') localStorage.setItem(RAIL_EXPANDED_KEY, String(next));
     } catch (_err) {
@@ -4739,6 +4827,15 @@ export async function initApp() {
   wireDesktopStageControls();
   wireBoundsObservers();
   wireGlobalShortcuts();
+
+  document.getElementById('vault-profile-select')?.addEventListener('change', (event) => {
+    state.selectedVaultProfileId = event.target.value || null;
+    renderVaultView({ forceRender: true });
+  });
+
+  document.getElementById('view-vault')?.addEventListener('toggle', () => {
+    scheduleClampScrollPosition(document.getElementById('view-vault'));
+  }, true);
 
   document.getElementById('btn-brand-home')?.addEventListener('click', () => {
     selectView('profiles');
@@ -4908,6 +5005,9 @@ export async function initApp() {
     applyDomTranslations();
     updateShortcutHints();
     renderAll();
+    if (state.activeView === 'vault') {
+      renderVaultView({ forceRender: true });
+    }
     const invoke = getTauriInvoke();
     if (invoke) {
       invoke('set_tray_locale', { locale: nextLocale }).catch(() => {});
@@ -4983,7 +5083,7 @@ export async function initApp() {
     if (typeof tauriListen === 'function') {
       tauriListen('nexadock://navigate', (event) => {
         const target = event?.payload;
-        if (target === 'profiles' || target === 'settings' || target === 'backups' || target === 'help' || target === 'diagnostics') {
+        if (target === 'profiles' || target === 'settings' || target === 'backups' || target === 'vault' || target === 'help' || target === 'diagnostics') {
           selectView(target);
         }
       }).catch(() => {});

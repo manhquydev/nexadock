@@ -12,7 +12,8 @@ import {
   saveAccountColor,
   removeAccountColor,
   pickNextAvailableColorId,
-  classifyErrorBehavior
+  classifyErrorBehavior,
+  applyAdvancedMode
 } from '../app.js';
 import { initI18n, setLocale, getLocale, LOCALE_STORAGE_KEY } from '../i18n/index.js';
 
@@ -25,6 +26,7 @@ const html = fs.readFileSync(path.join(uiDir, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(uiDir, 'styles.css'), 'utf8');
 const appJs = fs.readFileSync(path.join(uiDir, 'app.js'), 'utf8');
 const themeInitJs = fs.readFileSync(path.join(uiDir, 'theme-init.js'), 'utf8');
+const vaultPanelJs = fs.readFileSync(path.join(uiDir, 'vault-panel.js'), 'utf8');
 const i18nJs = fs.readFileSync(path.join(uiDir, 'i18n', 'index.js'), 'utf8');
 
 test('HTML adheres to Modern Web Guidance, native radio groups, & CSP rules', () => {
@@ -441,4 +443,74 @@ test('classifyErrorBehavior distinguishes security guards, action-required, non-
   assert.equal(proc.category, 'retryable');
   assert.equal(proc.retryable, true);
   assert.equal(proc.liveRole, 'alert');
+});
+
+test('theme-init reads nexadock.advancedMode synchronously before first paint', () => {
+  assert.match(themeInitJs, /localStorage\.getItem\(\s*['"]nexadock\.advancedMode['"]\s*\)\s*===\s*['"]true['"]/);
+  assert.match(themeInitJs, /setAttribute\(\s*['"]data-advanced-mode['"]/);
+});
+
+test('applyAdvancedMode is safe when document is undefined', () => {
+  const prevStorage = globalThis.localStorage;
+  const prevDocument = globalThis.document;
+  const backing = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (backing.has(k) ? backing.get(k) : null),
+    setItem: (k, v) => backing.set(k, String(v)),
+    removeItem: (k) => backing.delete(k)
+  };
+  delete globalThis.document;
+  try {
+    applyAdvancedMode(false);
+    assert.equal(backing.get('nexadock.advancedMode'), 'false');
+    applyAdvancedMode(true);
+    assert.equal(backing.get('nexadock.advancedMode'), 'true');
+  } finally {
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+    if (prevDocument !== undefined) globalThis.document = prevDocument;
+  }
+});
+
+test('Everyday Vault nav/view stays accessible while diagnostics and MTProto vault controls stay Advanced-only', () => {
+  const vaultNavMatch = html.match(/<button[^>]*id="btn-nav-vault"[^>]*>/i);
+  assert.ok(vaultNavMatch, '#btn-nav-vault must exist in navigation');
+  assert.doesNotMatch(vaultNavMatch[0], /\badvanced-only\b/, '#btn-nav-vault must remain visible in Everyday mode');
+
+  const vaultViewMatch = html.match(/<section[^>]*id="view-vault"[^>]*>/i);
+  assert.ok(vaultViewMatch, '#view-vault section must exist');
+  assert.doesNotMatch(vaultViewMatch[0], /\badvanced-only\b/, '#view-vault must remain visible in Everyday mode');
+
+  const desktopVaultMatch = html.match(/<button[^>]*id="btn-desktop-vault"[^>]*>/i);
+  assert.ok(desktopVaultMatch, '#btn-desktop-vault shortcut must exist');
+  assert.doesNotMatch(desktopVaultMatch[0], /\badvanced-only\b/, '#btn-desktop-vault must remain visible in Everyday mode');
+
+  const diagNavMatch = html.match(/<button[^>]*data-view="diagnostics"[^>]*>/i);
+  assert.ok(diagNavMatch, 'Diagnostics nav button must exist');
+  assert.match(diagNavMatch[0], /\badvanced-only\b/, 'Diagnostics nav button must remain gated by .advanced-only');
+
+  assert.match(vaultPanelJs, /vault-mode-option-mtp\b[^'"]*advanced-only/);
+  assert.match(vaultPanelJs, /'vault-hint advanced-only'/);
+  assert.match(vaultPanelJs, /'vault-form vault-form-phone advanced-only'/);
+  assert.match(vaultPanelJs, /'vault-form vault-form-code advanced-only'/);
+  assert.match(vaultPanelJs, /'vault-delete-session advanced-only'/);
+  assert.match(vaultPanelJs, /'btn btn-primary advanced-only'/);
+  assert.match(vaultPanelJs, /details\.className\s*=\s*['"]advanced-details vault-log-details['"]/);
+});
+
+test('styles.css defines .btn-subtle, valid danger-fg, single [hidden] block, and accessible sidebar/ok contrast', () => {
+  assert.match(css, /\.btn-subtle\s*\{/);
+  assert.doesNotMatch(css, /--text-danger\b/, 'Undefined --text-danger must not be referenced');
+  assert.match(css, /\.vault-error\s*\{[^}]*var\(--danger-fg/s);
+  const hiddenRuleCount = (css.match(/^\s*\[hidden\],/gm) || []).length;
+  assert.equal(hiddenRuleCount, 1, 'Duplicate [hidden] reset blocks must stay consolidated');
+
+  const vars = new Map();
+  for (const match of css.matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;/g)) {
+    vars.set(match[1], match[2]);
+  }
+  const sidebarRatio = contrastRatio(vars.get('--text-secondary-light'), vars.get('--bg-sidebar-light'));
+  assert.ok(sidebarRatio >= 4.5, `--text-secondary-light on --bg-sidebar-light contrast ${sidebarRatio.toFixed(2)}:1 < 4.5:1`);
+  const okRatio = contrastRatio(vars.get('--ok-fg-light'), vars.get('--ok-bg-light'));
+  assert.ok(okRatio >= 4.5, `--ok-fg-light on --ok-bg-light contrast ${okRatio.toFixed(2)}:1 < 4.5:1`);
 });

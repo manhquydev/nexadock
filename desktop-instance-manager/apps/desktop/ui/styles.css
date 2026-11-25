@@ -30,7 +30,7 @@
   --border-strong-light: #d1d1d6;
   --divider-light: #ebebf0;
   --text-primary-light: #1d1d1f;
-  --text-secondary-light: #6e6e73;
+  --text-secondary-light: #5f5f65;
   --text-muted-light: #636368;
   --accent-light: #0071e3;
   --accent-hover-light: #0062c4;
@@ -41,7 +41,7 @@
   --dot-ok-light: #248a3d;
   --dot-warn-light: #d97706;
   --dot-danger-light: #c81e1e;
-  --ok-fg-light: #248a3d;
+  --ok-fg-light: #1e7a3a;
   --ok-bg-light: #eaf7ed;
   --ok-border-light: #b6e3c2;
   --warn-fg-light: #a35200;
@@ -760,8 +760,20 @@ body {
 }
 
 .btn-secondary:active:not(:disabled),
+.btn-subtle:active:not(:disabled),
 .icon-btn:active:not(:disabled) {
   background: var(--bg-active);
+}
+
+.btn-subtle {
+  background: var(--bg-subtle);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.btn-subtle:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .btn-danger {
@@ -1743,12 +1755,6 @@ dialog::backdrop {
 /* ========================================================================
  * NexaDock Phase 3 Upgrade Additions (Grid/List, Recovery, Protected Badge)
  * ======================================================================== */
-[hidden],
-:root[data-advanced-mode="false"] .advanced-only,
-:root[data-advanced-mode="false"] #status-banner-details {
-  display: none !important;
-}
-
 .account-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 18.5rem), 1fr));
   align-items: stretch;
@@ -3476,13 +3482,25 @@ dialog.modal[open] {
   }
 }
 
-/* Telegram Vault panel (account-details dialog) */
+/* Telegram Vault panel (Everyday view + account-details dialog) */
+.vault-account-bar {
+  display: grid;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
 .vault-panel {
   margin-block-start: var(--sp-4);
   padding-block-start: var(--sp-4);
-  border-block-start: 1px solid var(--border-strong, currentcolor);
+  border-block-start: 1px solid var(--divider);
   display: grid;
   gap: var(--sp-3);
+}
+
+.vault-view-mount .vault-panel {
+  margin-block-start: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
 }
 
 .vault-heading {
@@ -3504,8 +3522,9 @@ dialog.modal[open] {
 }
 
 .vault-stats {
-  color: var(--text-muted, inherit);
-  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .vault-error {
@@ -3525,13 +3544,13 @@ dialog.modal[open] {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
 }
 
 .vault-hint {
   margin: 0;
-  font-size: 0.9375rem;
-  color: var(--text-muted, inherit);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 .vault-form {
@@ -3548,26 +3567,44 @@ dialog.modal[open] {
   font: inherit;
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong, currentcolor);
-  background: var(--bg-surface, transparent);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
   color: inherit;
 }
 
-.vault-log-heading {
-  margin: var(--sp-2) 0 0;
+.vault-input:focus-visible {
+  outline: 2px solid var(--apple-blue);
+  outline-offset: 1px;
+}
+
+.vault-password-toggle {
+  justify-self: start;
+}
+
+.vault-log-details {
+  margin-block-start: var(--sp-1);
+}
+
+.vault-log-heading,
+.vault-log-summary {
+  margin: 0;
   font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .vault-log-table {
   inline-size: 100%;
   border-collapse: collapse;
-  font-size: 0.9375rem;
+  margin-block-start: var(--sp-2);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .vault-log-table caption {
   text-align: start;
-  font-size: 0.875rem;
-  color: var(--text-muted, inherit);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
   padding-block-end: var(--sp-1);
 }
 
@@ -3575,14 +3612,14 @@ dialog.modal[open] {
 .vault-log-table td {
   text-align: start;
   padding: var(--sp-1) var(--sp-2);
-  border-block-end: 1px solid var(--border, currentcolor);
+  border-block-end: 1px solid var(--divider);
   overflow-wrap: anywhere;
 }
 
 .vault-log-empty {
-  margin: 0;
-  font-size: 0.9375rem;
-  color: var(--text-muted, inherit);
+  margin: var(--sp-2) 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 /* Vault pairing mode chooser (bot vs advanced full-account) */
@@ -3611,18 +3648,18 @@ dialog.modal[open] {
   column-gap: var(--sp-2);
   align-items: start;
   padding: var(--sp-2) var(--sp-3);
-  border: 1px solid var(--border, currentcolor);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .vault-mode-option:has(input:checked) {
-  border-color: var(--border-strong, currentcolor);
-  background: var(--bg-subtle, transparent);
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
 }
 
 .vault-mode-option input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--apple-blue);
   outline-offset: 1px;
 }
 
@@ -3632,8 +3669,8 @@ dialog.modal[open] {
 
 .vault-mode-desc {
   grid-column: 2;
-  font-size: 0.875rem;
-  color: var(--text-muted, inherit);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 /* Vault bot pairing surfaces */
@@ -3652,18 +3689,18 @@ dialog.modal[open] {
 }
 
 .vault-bot-link-anchor {
-  color: var(--accent-tonal-fg, currentcolor);
+  color: var(--accent-tonal-fg);
   overflow-wrap: anywhere;
 }
 
 .vault-bot-hint {
   margin: 0;
-  font-size: 0.9375rem;
-  color: var(--text-muted, inherit);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 .vault-transport {
-  color: var(--text-muted, inherit);
-  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
 }
 
