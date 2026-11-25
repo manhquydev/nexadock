@@ -742,13 +742,24 @@ function updateLanguageControls() {
   }
 }
 
-export function getSavedAdvancedMode() {
+function readAdvancedModeFromStorage() {
   try {
     if (typeof localStorage === 'undefined') return false;
     return localStorage.getItem(ADVANCED_MODE_STORAGE_KEY) === 'true';
   } catch (_err) {
     return false;
   }
+}
+
+let currentAdvancedMode = readAdvancedModeFromStorage();
+
+export function syncAdvancedModeFromStorage() {
+  currentAdvancedMode = readAdvancedModeFromStorage();
+  return currentAdvancedMode;
+}
+
+export function getSavedAdvancedMode() {
+  return currentAdvancedMode;
 }
 
 export function isMacPlatform() {
@@ -797,6 +808,7 @@ function updateShortcutHints() {
 
 export function applyAdvancedMode(enabled) {
   const isAdvanced = Boolean(enabled);
+  currentAdvancedMode = isAdvanced;
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(ADVANCED_MODE_STORAGE_KEY, String(isAdvanced));
@@ -1380,27 +1392,36 @@ function getActiveStageScroll() {
   return document.querySelector('.view.stage-scroll:not([hidden]), .stage.stage-scroll:not([hidden])');
 }
 
-function selectView(viewName, { triggerEl = null, returnView = null } = {}) {
+export function selectView(viewName, { triggerEl = null, returnView = null } = {}) {
+  let targetView = viewName;
+  let blockedDiagnostics = false;
+  if (targetView === 'diagnostics' && !getSavedAdvancedMode()) {
+    targetView = 'settings';
+    blockedDiagnostics = true;
+    triggerEl = null;
+    returnView = null;
+  }
   const wasWebStage = state.activeView === 'web-stage';
-  if (viewName === 'diagnostics') {
+  if (targetView === 'diagnostics') {
     state.diagnosticsReturnView = returnView || 'settings';
   }
   state.lastNavTriggerEl = triggerEl || null;
-  state.activeView = viewName;
-  if (wasWebStage && viewName !== 'web-stage') {
+  state.activeView = targetView;
+  if (typeof document === 'undefined') return state.activeView;
+  if (wasWebStage && targetView !== 'web-stage') {
     closeWebHeaderPopovers();
   }
   closeAccountContextMenu({ restoreFocus: false });
 
   for (const btn of document.querySelectorAll('.top-nav-btn[data-view]')) {
-    const active = btn.getAttribute('data-view') === viewName;
+    const active = btn.getAttribute('data-view') === targetView;
     btn.classList.toggle('is-active', active);
     if (active) btn.setAttribute('aria-current', 'page');
     else btn.removeAttribute('aria-current');
   }
 
   for (const view of document.querySelectorAll('.view')) {
-    const isActiveView = view.id === `view-${viewName}`;
+    const isActiveView = view.id === `view-${targetView}`;
     view.hidden = !isActiveView;
     if (isActiveView && view.classList.contains('stage-scroll')) {
       view.scrollTop = 0;
@@ -1408,32 +1429,36 @@ function selectView(viewName, { triggerEl = null, returnView = null } = {}) {
   }
 
   const webStage = document.getElementById('stage-web-session');
-  if (webStage) webStage.hidden = viewName !== 'web-stage';
+  if (webStage) webStage.hidden = targetView !== 'web-stage';
 
   const desktopStage = document.getElementById('stage-desktop-session');
   if (desktopStage) {
-    const isDesktopStage = viewName === 'desktop-stage';
+    const isDesktopStage = targetView === 'desktop-stage';
     desktopStage.hidden = !isDesktopStage;
     if (isDesktopStage && desktopStage.classList.contains('stage-scroll')) {
       desktopStage.scrollTop = 0;
     }
   }
 
-  if (viewName === 'diagnostics') {
+  if (targetView === 'diagnostics') {
     updateDiagnosticsBackBar();
-  } else if (viewName === 'vault') {
+  } else if (targetView === 'vault') {
     renderVaultView({ forceRender: true });
   }
 
-  const isStage = viewName === 'web-stage' || viewName === 'desktop-stage';
+  const isStage = targetView === 'web-stage' || targetView === 'desktop-stage';
   if (!isStage) {
     for (const btn of document.querySelectorAll('.rail-account-btn')) {
       btn.setAttribute('aria-pressed', 'false');
     }
   }
 
-  updateDocumentTitle(viewName);
-  syncNativeWebViewState({ forceHide: viewName !== 'web-stage' });
+  updateDocumentTitle(targetView);
+  syncNativeWebViewState({ forceHide: targetView !== 'web-stage' });
+  if (blockedDiagnostics) {
+    document.getElementById('toggle-advanced-mode')?.focus();
+  }
+  return state.activeView;
 }
 
 function makeBadge(text, variant = 'neutral') {
@@ -4796,7 +4821,7 @@ export async function initApp() {
   await initI18n();
   applyDomTranslations();
   applyThemePreference(getSavedThemePreference());
-  applyAdvancedMode(getSavedAdvancedMode());
+  applyAdvancedMode(syncAdvancedModeFromStorage());
   updateShortcutHints();
 
   const shell = document.getElementById('workspace-shell');
@@ -5128,8 +5153,8 @@ export async function initApp() {
     window.addEventListener('storage', (event) => {
       if (event.key === THEME_STORAGE_KEY) {
         applyThemePreference(getSavedThemePreference());
-      } else if (event.key === ADVANCED_MODE_STORAGE_KEY) {
-        applyAdvancedMode(getSavedAdvancedMode());
+      } else if (!event.key || event.key === ADVANCED_MODE_STORAGE_KEY) {
+        applyAdvancedMode(syncAdvancedModeFromStorage());
       }
     });
   }

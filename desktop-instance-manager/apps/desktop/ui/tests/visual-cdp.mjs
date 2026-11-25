@@ -834,7 +834,7 @@ try {
   const everydayGate = await evalJs(`({
     advAttr: document.documentElement.dataset.advancedMode,
     diagNavHidden: getComputedStyle(document.querySelector('.top-nav-btn[data-view="diagnostics"]')).display === 'none',
-    helpDiagHidden: getComputedStyle(document.getElementById('btn-help-diagnostics')).display === 'none'
+    helpDiagHidden: getComputedStyle(document.getElementById('btn-help-diagnostics')?.closest('.advanced-only')).display === 'none'
   })`);
   assert.deepEqual(everydayGate, {
     advAttr: 'false',

@@ -434,6 +434,7 @@ function buildBotForms() {
         botLink = envelope.data?.deepLink || '';
         botUsername = envelope.data?.botUsername || '';
         botStep = 'link';
+        refreshGeneration += 1;
         tokenInput.value = '';
         updatePairUi();
       })
@@ -721,15 +722,19 @@ function hasDescendant(root, target) {
 
 /** Switches between Everyday (bot-first) and Advanced vault controls. */
 export function setAdvancedMode(isAdvanced) {
-  if (!isAdvanced && section && lastState === 'unpaired' && pairMode !== 'bot') {
-    pairMode = 'bot';
-    loginStep = '';
-    botStep = 'token';
-    const botRadio = section.querySelector('.vault-mode-radio-bot');
-    if (botRadio) botRadio.checked = true;
-    const mtpRadio = section.querySelector('.vault-mode-radio-mtp');
-    if (mtpRadio) mtpRadio.checked = false;
-    applyStatus(lastStatus, '');
+  if (!isAdvanced && section) {
+    const deleteCheck = section.querySelector('.vault-delete-session-check');
+    if (deleteCheck) deleteCheck.checked = false;
+    if (lastState === 'unpaired' && pairMode !== 'bot') {
+      pairMode = 'bot';
+      loginStep = '';
+      botStep = 'token';
+      const botRadio = section.querySelector('.vault-mode-radio-bot');
+      if (botRadio) botRadio.checked = true;
+      const mtpRadio = section.querySelector('.vault-mode-radio-mtp');
+      if (mtpRadio) mtpRadio.checked = false;
+      applyStatus(lastStatus, '');
+    }
   }
 }
 

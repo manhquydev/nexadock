@@ -13,7 +13,10 @@ import {
   removeAccountColor,
   pickNextAvailableColorId,
   classifyErrorBehavior,
-  applyAdvancedMode
+  applyAdvancedMode,
+  getSavedAdvancedMode,
+  syncAdvancedModeFromStorage,
+  selectView
 } from '../app.js';
 import { initI18n, setLocale, getLocale, LOCALE_STORAGE_KEY } from '../i18n/index.js';
 
@@ -513,4 +516,39 @@ test('styles.css defines .btn-subtle, valid danger-fg, single [hidden] block, an
   assert.ok(sidebarRatio >= 4.5, `--text-secondary-light on --bg-sidebar-light contrast ${sidebarRatio.toFixed(2)}:1 < 4.5:1`);
   const okRatio = contrastRatio(vars.get('--ok-fg-light'), vars.get('--ok-bg-light'));
   assert.ok(okRatio >= 4.5, `--ok-fg-light on --ok-bg-light contrast ${okRatio.toFixed(2)}:1 < 4.5:1`);
+});
+
+test('applyAdvancedMode keeps in-memory state synced on storage failures and selectView blocks diagnostics in Everyday mode', () => {
+  const prevStorage = globalThis.localStorage;
+  const prevDocument = globalThis.document;
+  globalThis.localStorage = {
+    getItem: () => 'false',
+    setItem: () => {
+      throw new Error('QuotaExceededError');
+    },
+    removeItem: () => {}
+  };
+  delete globalThis.document;
+  try {
+    syncAdvancedModeFromStorage();
+    assert.equal(getSavedAdvancedMode(), false);
+    assert.equal(selectView('diagnostics'), 'settings', 'Everyday mode must reroute diagnostics navigation to settings');
+
+    // Even when localStorage.setItem throws, in-memory state tracks Advanced mode cleanly.
+    applyAdvancedMode(true);
+    assert.equal(getSavedAdvancedMode(), true);
+    assert.equal(selectView('diagnostics'), 'diagnostics');
+
+    applyAdvancedMode(false);
+    assert.equal(getSavedAdvancedMode(), false);
+    assert.equal(selectView('diagnostics'), 'settings');
+  } finally {
+    applyAdvancedMode(false);
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+    if (prevDocument !== undefined) globalThis.document = prevDocument;
+  }
+
+  const cdpJs = fs.readFileSync(path.join(__dirname, 'visual-cdp.mjs'), 'utf8');
+  assert.match(cdpJs, /getElementById\(['"]btn-help-diagnostics['"]\)\?\.closest\(['"]\.advanced-only['"]\)/);
 });

@@ -1037,3 +1037,62 @@ test('Everyday mode resets unpaired after session-missing back to Bot form and r
     else globalThis.window = originalWindow;
   }
 });
+
+test('setAdvancedMode(false) clears checked delete-session box when paired and pair_bot invalidates stale refresh', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const statusResolvers = [];
+  const invoke = (command) => {
+    if (command === 'vault_get_status') {
+      return new Promise((resolve) => {
+        statusResolvers.push(resolve);
+      });
+    }
+    if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
+    if (command === 'vault_pair_bot') {
+      return Promise.resolve({
+        ok: true,
+        data: { botUsername: 'fresh_bot', deepLink: 'https://t.me/fresh_bot?start=xyz' },
+      });
+    }
+    return Promise.resolve({ ok: false, message: `unexpected command: ${command}` });
+  };
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke } };
+  try {
+    const section = renderSection();
+    // 1. Paired MTProto with deleteSession checked -> collapsing Advanced mode clears checkbox.
+    panel.applyStatus(
+      { paired: true, transport: 'mtproto', enabled: true, engineRunning: true, pending: 0, failed: 0, done: 0 },
+      ''
+    );
+    const deleteCheck = section.querySelector('.vault-delete-session-check');
+    assert.ok(deleteCheck);
+    deleteCheck.checked = true;
+    panel.setAdvancedMode(false);
+    assert.equal(deleteCheck.checked, false, 'collapsing Advanced mode must clear hidden delete-session checkbox');
+
+    // 2. Stale in-flight refresh() cannot overwrite botStep = link after vault_pair_bot succeeds.
+    panel.applyStatus({ paired: false, pending: 0, failed: 0, done: 0 }, '');
+    panel.refresh();
+    assert.ok(statusResolvers.length >= 2);
+    section.querySelector('.vault-bot-token').value = '123456:race';
+    section.querySelector('.vault-form-bot').listeners.get('submit')({ preventDefault() {} });
+    await flush();
+    assert.equal(section.querySelector('.vault-bot-link')?.hidden, false);
+    assert.equal(section.querySelector('.vault-bot-link-anchor')?.getAttribute('href'), 'https://t.me/fresh_bot?start=xyz');
+
+    // Resolve all earlier pending status calls with unpaired; link step must remain intact.
+    while (statusResolvers.length > 0) {
+      statusResolvers.shift()({ ok: true, data: { paired: false, pending: 0, failed: 0, done: 0 } });
+    }
+    await flush();
+    assert.equal(section.querySelector('.vault-bot-link')?.hidden, false, 'stale refresh must not revert botStep back to token');
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, true);
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
