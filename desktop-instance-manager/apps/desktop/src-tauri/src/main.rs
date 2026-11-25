@@ -5,6 +5,7 @@ mod commands;
 mod preferences;
 mod state;
 mod tray;
+mod vault;
 mod web_workspace;
 
 use preferences::DesktopPrefsState;
@@ -73,6 +74,7 @@ fn main() {
             let prefs = app.state::<DesktopPrefsState>().snapshot();
             tray::init_tray(app.handle(), tray::TrayLocale::parse(&prefs.locale))?;
             tray::refresh_tray_accounts(app.handle());
+            st.vault.resume_all();
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -133,6 +135,16 @@ fn main() {
             commands::web_session_reset,
             commands::web_session_delete,
             commands::web_session_rename,
+            commands::vault_get_status,
+            commands::vault_pair,
+            commands::vault_pair_bot,
+            commands::vault_pair_bot_wait,
+            commands::vault_login_phone,
+            commands::vault_login_code,
+            commands::vault_unpair,
+            commands::vault_set_enabled,
+            commands::vault_sync_now,
+            commands::vault_get_log,
         ])
         .build(tauri::generate_context!())
         .expect("error while building NexaDock Tauri application")
@@ -141,7 +153,8 @@ fn main() {
             if let tauri::RunEvent::Reopen { .. } = event {
                 tray::show_main_window(app_handle);
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = (app_handle, event);
+            if let tauri::RunEvent::Exit = event {
+                app_handle.state::<AppState>().vault.shutdown();
+            }
         });
 }

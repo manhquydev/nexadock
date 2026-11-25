@@ -354,6 +354,86 @@
       ]
     }
   },
+  "vault": {
+    "title": "Telegram Vault",
+    "states": {
+      "unpaired": "Not paired",
+      "paired": "Paired",
+      "syncing": "Syncing...",
+      "offline": "Paired · Paused",
+      "continuingBot": "Bot connection needed",
+      "sessionMissing": "Sign in again"
+    },
+    "bridge": {
+      "desktopOnly": "Telegram Vault is only available in the NexaDock desktop app and is disabled in browser bridge mode."
+    },
+    "stats": {
+      "summary": "{pending} waiting · {failed} failed · {done} synced"
+    },
+    "actions": {
+      "pair": "Pair Telegram",
+      "unpair": "Unpair",
+      "enable": "Enable sync",
+      "disable": "Disable sync",
+      "syncNow": "Sync now",
+      "deleteSession": "Delete the stored Telegram session"
+    },
+    "transport": {
+      "bot": "Telegram bot (≤50 MB)",
+      "mtproto": "Full account (≤2 GB)"
+    },
+    "mode": {
+      "legend": "Choose how to pair Telegram",
+      "botTitle": "Telegram bot — easiest",
+      "botDesc": "Just create a bot via @BotFather — no my.telegram.org needed. Best for files up to 50 MB.",
+      "mtpTitle": "Full Telegram account (advanced)",
+      "mtpDesc": "Upload up to 2 GB into Saved Messages. Requires an API ID/Hash from my.telegram.org."
+    },
+    "bot": {
+      "tokenLabel": "Bot token (from @BotFather)",
+      "tokenPlaceholder": "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ",
+      "tokenHint": "Open @BotFather on Telegram, send /newbot, then paste the token here (format 123456789:string-of-characters). The token is stored only in the vault config on this machine.",
+      "pairButton": "Create bot & link",
+      "linkHeading": "Bot created. Open this link in Telegram:",
+      "startHint": "Press START in Telegram, then come back here.",
+      "startConfirm": "I pressed Start — connect",
+      "waiting": "Waiting for Telegram...",
+      "waitAgain": "Try connecting again",
+      "notCaptured": "We haven't seen your message to the bot yet — open the link, press Start, then try again.",
+      "show": "Show token",
+      "hide": "Hide token",
+      "continuationHeading": "Bot paired. Open this link in Telegram:",
+      "continuationHint": "Press START in Telegram, then press the connect button below to finish.",
+      "continuationConfirm": "I pressed Start — connect"
+    },
+    "login": {
+      "phoneLabel": "Telegram phone number",
+      "phonePlaceholder": "+84...",
+      "phoneSubmit": "Request code",
+      "apiIdLabel": "Telegram API ID",
+      "apiHashLabel": "Telegram API Hash",
+      "codeLabel": "Confirmation code",
+      "codePlaceholder": "Code from Telegram",
+      "passwordLabel": "Two-step verification password (if set)",
+      "codeSubmit": "Finish pairing",
+      "credentialsHint": "Enter your API ID and API Hash once from my.telegram.org. The app stores them locally in the vault config, readable only by your user account for reconnecting; they are not sent anywhere else.",
+      "show": "Show password",
+      "hide": "Hide password"
+    },
+    "log": {
+      "heading": "Recent sync",
+      "caption": "Five most recent files synced through Telegram Vault",
+      "colFile": "File",
+      "colTime": "Time",
+      "colResult": "Result",
+      "done": "Success",
+      "failed": "Failed",
+      "empty": "No files synced yet."
+    },
+    "errors": {
+      "requestFailed": "Could not reach Telegram Vault. Try again."
+    }
+  },
   "colors": {
     "blue": "Blue",
     "teal": "Teal",
