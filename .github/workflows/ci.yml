@@ -58,7 +58,11 @@ jobs:
 
       - name: Run core, profile-store, process-manager & fixture unit tests
         timeout-minutes: 5
-        run: cargo test -p dim-core -p dim-profile-store -p dim-process-manager -p dim-test-fixture --all-targets --locked -- --test-threads=1
+        run: cargo test -p dim-core -p dim-profile-store -p dim-process-manager -p dim-telegram-vault -p dim-test-fixture --all-targets --locked -- --test-threads=1
+
+      - name: Run telegram-vault live-feature tests
+        timeout-minutes: 5
+        run: cargo test -p dim-telegram-vault --all-features --all-targets --locked -- --test-threads=1
 
       - name: Run platform adapter unit & integration tests
         timeout-minutes: 8
@@ -132,6 +136,7 @@ jobs:
           node --check fixtures/test-desktop-app/fixture-app.mjs
           node --check apps/desktop/ui-server.mjs
           node --check apps/desktop/ui/app.js
+          node --check apps/desktop/ui/vault-panel.js
           node --check tests/run-fixture-tests.mjs
           node --check tests/run-contract-parity-tests.mjs
           node --check tests/brand-release-gates.mjs
@@ -141,6 +146,7 @@ jobs:
         run: |
           node tests/brand-release-gates.mjs
           node --test tests/macos-release-gates.test.mjs
+          node --test apps/desktop/ui/tests/i18n.test.mjs apps/desktop/ui/tests/ui-contracts.test.mjs apps/desktop/ui/tests/vault-ui-contracts.test.mjs apps/desktop/ui/tests/vault-ui-parity.test.mjs
 
       - name: Run cross-platform fixture smoke check
         shell: bash

@@ -7,6 +7,7 @@ members = [
     "crates/platform-windows",
     "crates/platform-macos",
     "crates/platform-linux",
+    "crates/telegram-vault",
     "fixtures/test-desktop-app",
 ]
 exclude = [
@@ -16,7 +17,7 @@ exclude = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
@@ -26,14 +27,20 @@ thiserror = "2.0"
 sha2 = "0.10"
 libc = "0.2"
 tempfile = "3.14"
-
+notify = "6.1"
+notify-debouncer-full = "0.3"
+rusqlite = { version = "0.41", features = ["bundled"] }
+grammers-client = "0.12"
+grammers-session = { version = "0.12", default-features = false, features = ["serde"] }
+ureq = { version = "2", features = ["json"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "time", "net", "fs", "io-util"] }
 dim-core = { path = "crates/core", version = "0.1.0" }
 dim-profile-store = { path = "crates/profile-store", version = "0.1.0" }
 dim-process-manager = { path = "crates/process-manager", version = "0.1.0" }
 dim-platform-windows = { path = "crates/platform-windows", version = "0.1.0" }
 dim-platform-macos = { path = "crates/platform-macos", version = "0.1.0" }
 dim-platform-linux = { path = "crates/platform-linux", version = "0.1.0" }
-
+dim-telegram-vault = { path = "crates/telegram-vault", version = "0.1.0" }
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 missing_docs = "warn"

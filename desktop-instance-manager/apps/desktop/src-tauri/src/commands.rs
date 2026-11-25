@@ -291,6 +291,49 @@ pub async fn rename_profile(
     Ok(res)
 }
 
+fn delete_profile_core(
+    app: &AppState,
+    prefs_inner: &DesktopPrefsState,
+    id: &str,
+    confirmed: bool,
+) -> ApiEnvelope<serde_json::Value> {
+    let canonical_id = app
+        .store
+        .get_profile(id)
+        .map(|p| p.id)
+        .unwrap_or_else(|_| id.to_owned());
+    if confirmed {
+        // Stop any active vault watcher before deleting the profile directory
+        // so directory handles (e.g. ReadDirectoryChangesW on Windows) release cleanly.
+        app.vault.stop_profile_engine(&canonical_id);
+    }
+    match app.coordinator.delete_profile(id, confirmed) {
+        Ok(()) => {
+            if let Err(err) = app.vault.unpair(&canonical_id, true) {
+                eprintln!("NexaDock vault cleanup warning for {canonical_id}: {err}");
+            }
+            let _ = prefs_inner.set_account_pinned(&canonical_id, false);
+            if canonical_id != id {
+                let _ = prefs_inner.set_account_pinned(id, false);
+            }
+            if let Ok(mut guard) = app.companion_snapped.lock() {
+                guard.remove(&canonical_id);
+                guard.remove(id);
+            }
+            ApiEnvelope::ok(
+                "Deleted profile.",
+                serde_json::json!({ "deleted_profile_id": canonical_id }),
+            )
+        }
+        Err(err) => {
+            if confirmed {
+                app.vault.resume_profile(&canonical_id);
+            }
+            ApiEnvelope::err(&err)
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn delete_profile(
     app_handle: AppHandle,
@@ -302,31 +345,7 @@ pub async fn delete_profile(
     let app = state.inner().clone();
     let prefs_inner = prefs.inner().clone();
     let res = tauri::async_runtime::spawn_blocking(move || {
-        let canonical_id = app
-            .store
-            .get_profile(&id)
-            .map(|p| p.id)
-            .unwrap_or_else(|_| id.clone());
-        match app
-            .coordinator
-            .delete_profile(&id, confirm.unwrap_or(false))
-        {
-            Ok(()) => {
-                let _ = prefs_inner.set_account_pinned(&canonical_id, false);
-                if canonical_id != id {
-                    let _ = prefs_inner.set_account_pinned(&id, false);
-                }
-                if let Ok(mut guard) = app.companion_snapped.lock() {
-                    guard.remove(&canonical_id);
-                    guard.remove(&id);
-                }
-                ApiEnvelope::ok(
-                    "Deleted profile.",
-                    serde_json::json!({ "deleted_profile_id": canonical_id }),
-                )
-            }
-            Err(err) => ApiEnvelope::err(&err),
-        }
+        delete_profile_core(&app, &prefs_inner, &id, confirm.unwrap_or(false))
     })
     .await
     .unwrap_or_else(join_err_envelope);
@@ -1388,5 +1407,256 @@ mod tests {
             parsed["permissions"],
             serde_json::json!(["core:event:allow-listen", "core:event:allow-unlisten"])
         );
+    }
+
+    #[test]
+    fn delete_profile_cleans_up_vault_pairing_and_session() {
+        let data_dir =
+            std::env::temp_dir().join(format!("nexadock-cmd-del-vault-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&data_dir);
+        fs::create_dir_all(&data_dir).expect("create temp dir");
+
+        let state = AppState::from_data_dir(Some(&data_dir)).expect("init AppState");
+        let prefs = DesktopPrefsState::initialize(&data_dir);
+        let prof = state
+            .store
+            .create_profile("Vault Cleanup Profile", "")
+            .expect("create profile");
+        let prof_dir = state.store.profile_dir_for(&prof).expect("profile dir");
+        fs::create_dir_all(prof_dir.join("Zalo Received Files")).expect("mkdir received");
+
+        let sessions_dir = data_dir.join("TelegramVault").join("sessions");
+        fs::create_dir_all(&sessions_dir).expect("mkdir sessions");
+        let session_path = sessions_dir.join(format!("{}.session", prof.id));
+        fs::write(&session_path, b"{\"home_dc\":1}").expect("write session");
+        let store = dim_telegram_vault::store::VaultConfigStore::new(&data_dir).expect("store");
+        store
+            .save(&dim_telegram_vault::store::VaultConfig {
+                profile_id: prof.id.clone(),
+                telegram_session_dir: session_path.clone(),
+                destination: Default::default(),
+                enabled: true,
+                transport: dim_telegram_vault::store::Transport::Mtproto,
+                telegram_api_id: Some(12345),
+                telegram_api_hash: Some("hash".into()),
+                telegram_bot_token: None,
+                telegram_chat_id: None,
+                telegram_bot_username: None,
+                telegram_bot_pair_nonce: None,
+            })
+            .expect("save vault config");
+
+        // Unconfirmed delete must keep vault config and session intact.
+        let denied = delete_profile_core(&state, &prefs, &prof.id, false);
+        assert!(!denied.ok);
+        assert!(state.vault.status(&prof.id).expect("status").paired);
+        assert!(session_path.exists());
+
+        // Confirmed delete removes the profile, vault config, and session file.
+        let deleted = delete_profile_core(&state, &prefs, &prof.id, true);
+        assert!(deleted.ok, "delete failed: {}", deleted.message);
+        assert!(store.load(&prof.id).expect("load").is_none());
+        assert!(!session_path.exists());
+
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+}
+
+// =========================================================================
+// Telegram Vault
+// =========================================================================
+
+use std::sync::Arc;
+
+use crate::vault::{
+    BotPairFlow, BotWaitOutcome, PairFlow, VaultLogRow, VaultManagerError, VaultStatus,
+};
+
+fn vault_err<T: Serialize>(error: VaultManagerError) -> ApiEnvelope<T> {
+    ApiEnvelope::err(&DimError::ProcessError(format!("vault: {error}")))
+}
+
+#[tauri::command]
+pub async fn vault_get_status(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<ApiEnvelope<VaultStatus>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || vault.status(&profile_id))
+        .await
+        .map_err(|error| format!("vault status task failed: {error}"))?;
+    match outcome {
+        Ok(status) => Ok(ApiEnvelope::ok("Vault status loaded.", status)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_pair(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<ApiEnvelope<PairFlow>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || vault.pair(&profile_id))
+        .await
+        .map_err(|error| format!("vault pair task failed: {error}"))?;
+    match outcome {
+        Ok(flow) => Ok(ApiEnvelope::ok("Vault pairing flow ready.", flow)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_pair_bot(
+    state: State<'_, AppState>,
+    profile_id: String,
+    token: String,
+) -> Result<ApiEnvelope<BotPairFlow>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || vault.pair_bot(&profile_id, &token))
+        .await
+        .map_err(|error| format!("vault bot pairing task failed: {error}"))?;
+    match outcome {
+        Ok(flow) => Ok(ApiEnvelope::ok("Bot token validated.", flow)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_pair_bot_wait(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    // The wait long-polls the Bot API for up to a minute; keep it off the main
+    // thread by running the blocking manager call on a worker.
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || vault.pair_bot_wait(&profile_id))
+        .await
+        .map_err(|error| format!("vault bot wait task failed: {error}"))?;
+    match outcome {
+        Ok(BotWaitOutcome::Captured(status)) => {
+            let data = serde_json::to_value(status).unwrap_or(serde_json::Value::Null);
+            Ok(ApiEnvelope::ok("Bot chat captured.", data))
+        }
+        Ok(BotWaitOutcome::TimedOut) => Ok(ApiEnvelope::ok(
+            "No bot chat captured yet; ask again later.",
+            serde_json::json!({ "chatCaptured": false }),
+        )),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_login_phone(
+    state: State<'_, AppState>,
+    profile_id: String,
+    phone: String,
+    api_id: Option<i32>,
+    api_hash: Option<String>,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        vault.login_phone(&profile_id, &phone, api_id, api_hash.as_deref())
+    })
+    .await
+    .map_err(|error| format!("vault phone login task failed: {error}"))?;
+    match outcome {
+        Ok(()) => Ok(ApiEnvelope::ok(
+            "Telegram login code requested.",
+            serde_json::json!({ "codeRequested": true }),
+        )),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_login_code(
+    state: State<'_, AppState>,
+    profile_id: String,
+    code: String,
+    password: Option<String>,
+) -> Result<ApiEnvelope<VaultStatus>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        vault.login_code(&profile_id, &code, password.as_deref())?;
+        vault.status(&profile_id)
+    })
+    .await
+    .map_err(|error| format!("vault code login task failed: {error}"))?;
+    match outcome {
+        Ok(status) => Ok(ApiEnvelope::ok("Telegram account paired.", status)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_unpair(
+    state: State<'_, AppState>,
+    profile_id: String,
+    delete_session: Option<bool>,
+) -> Result<ApiEnvelope<serde_json::Value>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        vault.unpair(&profile_id, delete_session.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| format!("vault unpair task failed: {error}"))?;
+    match outcome {
+        Ok(removed) => Ok(ApiEnvelope::ok(
+            "Vault unpaired.",
+            serde_json::json!({ "removed": removed }),
+        )),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_set_enabled(
+    state: State<'_, AppState>,
+    profile_id: String,
+    enabled: bool,
+) -> Result<ApiEnvelope<VaultStatus>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        vault.set_enabled(&profile_id, enabled)?;
+        vault.status(&profile_id)
+    })
+    .await
+    .map_err(|error| format!("vault set_enabled task failed: {error}"))?;
+    match outcome {
+        Ok(status) => Ok(ApiEnvelope::ok("Vault setting updated.", status)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_sync_now(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<ApiEnvelope<VaultStatus>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome = tauri::async_runtime::spawn_blocking(move || vault.sync_now(&profile_id))
+        .await
+        .map_err(|error| format!("vault sync_now task failed: {error}"))?;
+    match outcome {
+        Ok(status) => Ok(ApiEnvelope::ok("Sync triggered.", status)),
+        Err(error) => Ok(vault_err(error)),
+    }
+}
+
+#[tauri::command]
+pub async fn vault_get_log(
+    state: State<'_, AppState>,
+    profile_id: String,
+    limit: Option<usize>,
+) -> Result<ApiEnvelope<Vec<VaultLogRow>>, String> {
+    let vault = Arc::clone(&state.vault);
+    let outcome =
+        tauri::async_runtime::spawn_blocking(move || vault.log(&profile_id, limit.unwrap_or(20)))
+            .await
+            .map_err(|error| format!("vault log task failed: {error}"))?;
+    match outcome {
+        Ok(rows) => Ok(ApiEnvelope::ok("Vault log loaded.", rows)),
+        Err(error) => Ok(vault_err(error)),
     }
 }

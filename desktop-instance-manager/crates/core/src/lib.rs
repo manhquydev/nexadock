@@ -15,7 +15,7 @@ pub use error::{DimError, OperationOutcome};
 pub use fs_lock::{
     clean_stale_temp_files, is_existing_lock_contended, launch_admission_lock_path,
     profile_lock_file_path, remove_dir_with_retry, unique_temp_file_path, write_bytes_atomic,
-    AdvisoryFileLock, DEFAULT_ADVISORY_LOCK_TIMEOUT,
+    write_bytes_atomic_private, AdvisoryFileLock, DEFAULT_ADVISORY_LOCK_TIMEOUT,
 };
 pub use lease::{
     build_runtime_lease, check_profile_lockfile_activity, query_process_identity,
@@ -269,5 +269,23 @@ mod tests {
 
         let err = resolve_safe_child(&root, "sub/new_file.txt").unwrap_err();
         assert_eq!(err.code(), "PATH_TRAVERSAL");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_bytes_atomic_private_creates_owner_only_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("secret.json");
+        fs::write(&target, b"old").unwrap();
+        let mut perms = fs::metadata(&target).unwrap().permissions();
+        perms.set_mode(0o644);
+        fs::set_permissions(&target, perms).unwrap();
+
+        write_bytes_atomic_private(&target, b"top-secret").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"top-secret");
+        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }

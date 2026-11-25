@@ -1,0 +1,31 @@
+[package]
+name = "dim-telegram-vault"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Zalo received-file queue and Telegram vault sync engine"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+live = ["dep:grammers-client", "dep:grammers-session", "dep:tokio"]
+[dependencies]
+dim-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-full = { workspace = true }
+rusqlite = { workspace = true }
+grammers-client = { workspace = true, optional = true }
+grammers-session = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+ureq = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

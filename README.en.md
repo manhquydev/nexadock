@@ -99,7 +99,7 @@ Download installers (**`v0.1.1-beta.3`**) from **[GitHub Releases](https://githu
 
 ## Building & Testing from Source
 
-Requires **Rust `>= 1.85`** and **Node.js `22+`** (plus MSVC + WebView2 on Windows, or `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf` on Ubuntu).
+Requires **Rust `>= 1.89`** and **Node.js `22+`** (plus MSVC + WebView2 on Windows, or `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf` on Ubuntu).
 
 ```bash
 cd desktop-instance-manager

@@ -3609,6 +3609,8 @@ function populateDetailsDialog(prof) {
     t('accounts.details.staleLockfile'),
     prof.stale_lockfile_detected ? t('accounts.details.lockfileFound') : t('accounts.details.lockfileClean')
   );
+
+  window.__nexadockVault?.render(prof);
 }
 
 function openDetailsDialog(prof) {
