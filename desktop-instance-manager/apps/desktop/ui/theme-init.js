@@ -19,6 +19,8 @@
       if (meta) meta.setAttribute('content', 'light dark');
       document.documentElement.removeAttribute('data-theme');
     }
+    var savedAdv = localStorage.getItem('nexadock.advancedMode') === 'true';
+    document.documentElement.setAttribute('data-advanced-mode', savedAdv ? 'true' : 'false');
   } catch (_err) {
     // Ignore storage access errors in restricted contexts
   }

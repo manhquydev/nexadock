@@ -211,6 +211,18 @@ export function applyStatus(status, message) {
   lastState = state;
   if (state === 'session-missing') {
     pairMode = 'mtproto';
+  } else if (
+    state === 'unpaired'
+    && typeof document !== 'undefined'
+    && document.documentElement?.dataset?.advancedMode === 'false'
+  ) {
+    pairMode = 'bot';
+    loginStep = '';
+    botStep = 'token';
+    const botRadio = section.querySelector('.vault-mode-radio-bot');
+    if (botRadio) botRadio.checked = true;
+    const mtpRadio = section.querySelector('.vault-mode-radio-mtp');
+    if (mtpRadio) mtpRadio.checked = false;
   }
   const stateNode = section.querySelector('.vault-state');
   if (stateNode) stateNode.textContent = t(STATE_KEYS[state]);
@@ -243,7 +255,7 @@ export function applyStatus(status, message) {
   actions.replaceChildren();
   if (state === 'unpaired') {
     if (pairMode === 'mtproto') {
-      const pairButton = make('button', 'btn btn-primary', t('vault.actions.pair'));
+      const pairButton = make('button', 'btn btn-primary advanced-only', t('vault.actions.pair'));
       pairButton.type = 'button';
       pairButton.addEventListener('click', () => {
         const invoke = getInvoke();
@@ -291,7 +303,7 @@ export function applyStatus(status, message) {
   let deleteLabel = null;
   let checkbox = null;
   if (status.transport !== 'bot') {
-    deleteLabel = make('label', 'vault-delete-session');
+    deleteLabel = make('label', 'vault-delete-session advanced-only');
     checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.className = 'vault-delete-session-check';
@@ -344,7 +356,7 @@ function buildPairModeChooser() {
     },
     {
       value: 'mtproto',
-      optionClass: 'vault-mode-option-mtp',
+      optionClass: 'vault-mode-option-mtp advanced-only',
       radioClass: 'vault-mode-radio-mtp',
       titleKey: 'vault.mode.mtpTitle',
       descKey: 'vault.mode.mtpDesc',
@@ -422,6 +434,7 @@ function buildBotForms() {
         botLink = envelope.data?.deepLink || '';
         botUsername = envelope.data?.botUsername || '';
         botStep = 'link';
+        refreshGeneration += 1;
         tokenInput.value = '';
         updatePairUi();
       })
@@ -488,11 +501,11 @@ function buildBotForms() {
 }
 
 function buildForms() {
-  const hint = make('p', 'vault-hint', t('vault.login.credentialsHint'));
+  const hint = make('p', 'vault-hint advanced-only', t('vault.login.credentialsHint'));
   hint.hidden = true;
 
   const phoneForm = document.createElement('form');
-  phoneForm.className = 'vault-form vault-form-phone';
+  phoneForm.className = 'vault-form vault-form-phone advanced-only';
   phoneForm.hidden = true;
   const phoneLabel = make('label', undefined, t('vault.login.phoneLabel'));
   phoneLabel.setAttribute('for', 'vault-phone-input');
@@ -569,7 +582,7 @@ function buildForms() {
   });
 
   const codeForm = document.createElement('form');
-  codeForm.className = 'vault-form vault-form-code';
+  codeForm.className = 'vault-form vault-form-code advanced-only';
   codeForm.hidden = true;
   const codeLabel = make('label', undefined, t('vault.login.codeLabel'));
   codeLabel.setAttribute('for', 'vault-code-input');
@@ -630,7 +643,9 @@ function buildForms() {
 }
 
 function buildLogTable() {
-  const heading = make('h4', 'vault-log-heading', t('vault.log.heading'));
+  const details = document.createElement('details');
+  details.className = 'advanced-details vault-log-details advanced-only';
+  const summary = make('summary', 'vault-log-summary vault-log-heading', t('vault.log.heading'));
   const table = document.createElement('table');
   table.className = 'vault-log-table';
   const caption = document.createElement('caption');
@@ -650,7 +665,8 @@ function buildLogTable() {
   table.append(thead, tbody);
   const empty = make('p', 'vault-log-empty', t('vault.log.empty'));
   empty.hidden = true;
-  return [heading, table, empty];
+  details.append(summary, table, empty);
+  return [details];
 }
 
 function buildSection() {
@@ -658,6 +674,7 @@ function buildSection() {
   if (previous) previous.remove();
   const node = make('section', 'vault-panel');
   node.id = PANEL_ID;
+  node.setAttribute('data-profile-id', panelId);
   const heading = make('h3', 'vault-heading', t('vault.title'));
   const stateNode = make('strong', 'vault-state');
   const statsNode = make('span', 'vault-stats');
@@ -688,14 +705,51 @@ function buildBridgeNoticeSection() {
   if (previous) previous.remove();
   const node = make('section', 'vault-panel vault-panel-bridge');
   node.id = PANEL_ID;
+  node.setAttribute('data-profile-id', panelId);
   const heading = make('h3', 'vault-heading', t('vault.title'));
   const notice = make('p', 'vault-hint vault-bridge-notice', t('vault.bridge.desktopOnly'));
   node.append(heading, notice);
   return node;
 }
 
-/** Renders the vault panel into the details dialog for one profile. */
-export function render(profile) {
+function hasDescendant(root, target) {
+  if (!root || !target) return false;
+  if (typeof root.contains === 'function') return root.contains(target);
+  if (root === target) return true;
+  if (!Array.isArray(root.children)) return false;
+  return root.children.some((child) => hasDescendant(child, target));
+}
+
+/** Switches between Everyday (bot-first) and Advanced vault controls. */
+export function setAdvancedMode(isAdvanced) {
+  if (!isAdvanced && section) {
+    const deleteCheck = section.querySelector('.vault-delete-session-check');
+    if (deleteCheck) deleteCheck.checked = false;
+    if (lastState === 'unpaired' && pairMode !== 'bot') {
+      pairMode = 'bot';
+      loginStep = '';
+      botStep = 'token';
+      const botRadio = section.querySelector('.vault-mode-radio-bot');
+      if (botRadio) botRadio.checked = true;
+      const mtpRadio = section.querySelector('.vault-mode-radio-mtp');
+      if (mtpRadio) mtpRadio.checked = false;
+      applyStatus(lastStatus, '');
+    }
+  }
+}
+
+/** Refreshes the mounted panel when idle (neither focused nor mid-pairing). */
+export function refreshMounted(targetContainer = null) {
+  if (typeof document === 'undefined' || !section || !panelId) return false;
+  if (targetContainer && !hasDescendant(targetContainer, section)) return false;
+  if (hasDescendant(section, document.activeElement)) return false;
+  if (botPairing || botWaiting || botStep !== 'token' || loginStep !== '') return false;
+  refresh();
+  return true;
+}
+
+/** Renders the vault panel into targetContainer or the details dialog for one profile. */
+export function render(profile, targetContainer = null) {
   if (typeof document === 'undefined' || !profile?.id) return;
   renderGeneration += 1;
   refreshGeneration += 1;
@@ -711,22 +765,22 @@ export function render(profile) {
   lastState = 'unpaired';
   lastStatus = null;
   lastMessage = '';
-  const dialog = document.getElementById('profile-details-dialog');
-  if (!dialog) return;
+  const container = targetContainer || document.getElementById('profile-details-dialog');
+  if (!container) return;
   const invoke = getInvoke();
   section = invoke ? buildSection() : buildBridgeNoticeSection();
-  const anchor = dialog.querySelector('form[method="dialog"]');
+  const anchor = !targetContainer ? container.querySelector('form[method="dialog"]') : null;
   if (anchor?.parentElement) {
-    dialog.insertBefore(section, anchor.parentElement === dialog ? anchor : anchor.parentElement);
+    container.insertBefore(section, anchor.parentElement === container ? anchor : anchor.parentElement);
   } else {
-    dialog.appendChild(section);
+    container.appendChild(section);
   }
   if (invoke) {
     refresh();
   }
 }
 
-const api = { render, applyStatus, refresh };
+const api = { render, applyStatus, refresh, refreshMounted, setAdvancedMode };
 
 if (typeof window !== 'undefined') {
   window.__nexadockVault = api;

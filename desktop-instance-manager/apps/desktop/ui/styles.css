@@ -1,102 +1,116 @@
 :root {
   color-scheme: light dark;
 
-  /* Spacing scale: 4 / 8 / 12 / 16 / 24 / 32 */
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-6: 24px;
-  --sp-8: 32px;
+  /* Spacing scale: 4 / 8 / 12 / 16 / 24 / 32 (rem for OS text-scale) */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-6: 1.5rem;
+  --sp-8: 2rem;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-card: var(--radius-lg);
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-card: 0.625rem;
+  --radius-squircle: 0.5625rem;
   --radius-pill: 999px;
 
-  --font-sans: "Be Vietnam Pro", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Be Vietnam Pro", "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
 
-  /* NexaDock Calm Precision — Light theme tokens (Locked Palette) */
-  --bg-app-light: #f6f5f2;
+  /* Apple macOS Sequoia & 1Password 8 — Light theme tokens */
+  --bg-app-light: #f5f5f7;
+  --bg-sidebar-light: #ececef;
   --bg-surface-light: #ffffff;
-  --bg-subtle-light: #efece5;
-  --bg-hover-light: #eae6dd;
-  --bg-active-light: #dfd9cd;
-  --border-light: #e2ddd3;
-  --border-strong-light: #c7c0b3;
-  --text-primary-light: #192a26;
-  --text-secondary-light: #57534e;
-  --text-muted-light: #6e6a63;
-  --accent-light: #17675f;
-  --accent-hover-light: #12544d;
+  --bg-subtle-light: #e5e5ea;
+  --bg-hover-light: #d8d8de;
+  --bg-active-light: #ceced6;
+  --border-light: #e2e2e6;
+  --border-strong-light: #d1d1d6;
+  --divider-light: #ebebf0;
+  --text-primary-light: #1d1d1f;
+  --text-secondary-light: #5f5f65;
+  --text-muted-light: #636368;
+  --accent-light: #0071e3;
+  --accent-hover-light: #0062c4;
   --accent-text-light: #ffffff;
-  --accent-soft-light: #bce5d8;
-  --accent-tonal-fg-light: #17675f;
-  --accent-mint: #bce5d8;
-  --ok-fg-light: #15683a;
-  --ok-bg-light: #e9f5ee;
-  --ok-border-light: #b7dfc6;
-  --warn-fg-light: #9a4d06;
-  --warn-bg-light: #fef3c7;
-  --warn-border-light: #e5a93c;
-  --danger-fg-light: #b91c1c;
+  --accent-soft-light: #e5f1ff;
+  --accent-tonal-fg-light: #005bb5;
+  --apple-blue-light: #007aff;
+  --dot-ok-light: #248a3d;
+  --dot-warn-light: #d97706;
+  --dot-danger-light: #c81e1e;
+  --ok-fg-light: #1e7a3a;
+  --ok-bg-light: #eaf7ed;
+  --ok-border-light: #b6e3c2;
+  --warn-fg-light: #a35200;
+  --warn-bg-light: #fff4e0;
+  --warn-border-light: #e6b875;
+  --danger-fg-light: #c81e1e;
   --danger-bg-light: #fee2e2;
   --danger-border-light: #fca5a5;
-  --danger-solid-light: #b91c1c;
-  --danger-solid-hover-light: #991b1b;
-  --shadow-card-light: 0 1px 2px rgba(25, 42, 38, 0.04);
-  --shadow-menu-light: 0 8px 24px rgba(25, 42, 38, 0.12);
+  --danger-solid-light: #c81e1e;
+  --danger-solid-hover-light: #a51616;
+  --shadow-card-light: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-menu-light: 0 10px 28px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
 
-  /* NexaDock Calm Precision — Dark theme tokens (Locked Palette) */
-  --bg-app-dark: #121210;
-  --bg-surface-dark: #1b1b18;
-  --bg-subtle-dark: #23231f;
-  --bg-hover-dark: #2a2a25;
-  --bg-active-dark: #32322c;
-  --border-dark: #2f2f2a;
-  --border-strong-dark: #44443d;
-  --text-primary-dark: #f2f0ea;
-  --text-secondary-dark: #b5b0a6;
-  --text-muted-dark: #918c82;
-  --accent-dark: #1d8278;
-  --accent-hover-dark: #26998e;
+  /* Apple macOS Sequoia & 1Password 8 — Dark theme tokens */
+  --bg-app-dark: #141416;
+  --bg-sidebar-dark: #1c1c1e;
+  --bg-surface-dark: #1e1e21;
+  --bg-subtle-dark: #2c2c2e;
+  --bg-hover-dark: #36363a;
+  --bg-active-dark: #404046;
+  --border-dark: #2c2c30;
+  --border-strong-dark: #3a3a40;
+  --divider-dark: #2a2a2e;
+  --text-primary-dark: #f5f5f7;
+  --text-secondary-dark: #98989d;
+  --text-muted-dark: #8e8e93;
+  --accent-dark: #006ee6;
+  --accent-hover-dark: #0a7cff;
   --accent-text-dark: #ffffff;
-  --accent-soft-dark: #142e2c;
-  --accent-tonal-fg-dark: #5fd1c2;
-  --ok-fg-dark: #4ade80;
-  --ok-bg-dark: #132a1c;
-  --ok-border-dark: #225438;
-  --warn-fg-dark: #fbbf24;
-  --warn-bg-dark: #2d220b;
-  --warn-border-dark: #855812;
-  --danger-fg-dark: #f87171;
-  --danger-bg-dark: #2e1414;
-  --danger-border-dark: #7f1d1d;
-  --danger-solid-dark: #b91c1c;
-  --danger-solid-hover-dark: #991b1b;
-  --shadow-card-dark: 0 1px 2px rgba(0, 0, 0, 0.28);
-  --shadow-menu-dark: 0 10px 28px rgba(0, 0, 0, 0.48);
+  --accent-soft-dark: #16283d;
+  --accent-tonal-fg-dark: #66b2ff;
+  --apple-blue-dark: #0a84ff;
+  --dot-ok-dark: #30d158;
+  --dot-warn-dark: #ff9f0a;
+  --dot-danger-dark: #ff453a;
+  --ok-fg-dark: #30d158;
+  --ok-bg-dark: #16291c;
+  --ok-border-dark: #245732;
+  --warn-fg-dark: #ff9f0a;
+  --warn-bg-dark: #2b2110;
+  --warn-border-dark: #6b4c1c;
+  --danger-fg-dark: #ff6961;
+  --danger-bg-dark: #2e1515;
+  --danger-border-dark: #6e2323;
+  --danger-solid-dark: #c92a2a;
+  --danger-solid-hover-dark: #e03131;
+  --shadow-card-dark: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-menu-dark: 0 12px 32px rgba(0, 0, 0, 0.56), 0 0 0 1px rgba(255, 255, 255, 0.06);
 
-  /* Curated account identity palette (WCAG 2.2 AA >= 4.5:1 against #ffffff) */
-  --id-blue: #1e56a0;
-  --id-teal: #0f6b66;
-  --id-green: #1c6e3b;
-  --id-amber: #a14a0a;
-  --id-coral: #a92b5b;
-  --id-plum: #6d3b9e;
-  --id-indigo: #4b468e;
-  --id-slate: #0e6488;
+  /* Muted Apple-calibrated account identity palette (WCAG 2.2 AA >= 4.5:1 against #ffffff) */
+  --id-blue: #0066cc;
+  --id-teal: #0a6b73;
+  --id-green: #1e7a3a;
+  --id-amber: #a34e00;
+  --id-coral: #b82d4a;
+  --id-plum: #72369c;
+  --id-indigo: #42409e;
+  --id-slate: #3c5a78;
 
   /* Default resolved tokens (light) */
   --bg-app: var(--bg-app-light);
+  --bg-sidebar: var(--bg-sidebar-light);
   --bg-surface: var(--bg-surface-light);
   --bg-subtle: var(--bg-subtle-light);
   --bg-hover: var(--bg-hover-light);
   --bg-active: var(--bg-active-light);
   --border: var(--border-light);
   --border-strong: var(--border-strong-light);
+  --divider: var(--divider-light);
   --text-primary: var(--text-primary-light);
   --text-secondary: var(--text-secondary-light);
   --text-muted: var(--text-muted-light);
@@ -105,6 +119,10 @@
   --accent-text: var(--accent-text-light);
   --accent-soft: var(--accent-soft-light);
   --accent-tonal-fg: var(--accent-tonal-fg-light);
+  --apple-blue: var(--apple-blue-light);
+  --dot-ok: var(--dot-ok-light);
+  --dot-warn: var(--dot-warn-light);
+  --dot-danger: var(--dot-danger-light);
   --ok-fg: var(--ok-fg-light);
   --ok-bg: var(--ok-bg-light);
   --ok-border: var(--ok-border-light);
@@ -118,9 +136,9 @@
   --danger-solid-hover: var(--danger-solid-hover-light);
   --shadow-card: var(--shadow-card-light);
   --shadow-menu: var(--shadow-menu-light);
-  --focus-ring: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+  --focus-ring: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--apple-blue);
 
-  accent-color: var(--accent);
+  accent-color: var(--apple-blue);
 
   &:has(> head > meta[name="color-scheme"][content="dark"]) {
     color-scheme: dark;
@@ -134,12 +152,14 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg-app: var(--bg-app-dark);
+    --bg-sidebar: var(--bg-sidebar-dark);
     --bg-surface: var(--bg-surface-dark);
     --bg-subtle: var(--bg-subtle-dark);
     --bg-hover: var(--bg-hover-dark);
     --bg-active: var(--bg-active-dark);
     --border: var(--border-dark);
     --border-strong: var(--border-strong-dark);
+    --divider: var(--divider-dark);
     --text-primary: var(--text-primary-dark);
     --text-secondary: var(--text-secondary-dark);
     --text-muted: var(--text-muted-dark);
@@ -148,6 +168,10 @@
     --accent-text: var(--accent-text-dark);
     --accent-soft: var(--accent-soft-dark);
     --accent-tonal-fg: var(--accent-tonal-fg-dark);
+    --apple-blue: var(--apple-blue-dark);
+    --dot-ok: var(--dot-ok-dark);
+    --dot-warn: var(--dot-warn-dark);
+    --dot-danger: var(--dot-danger-dark);
     --ok-fg: var(--ok-fg-dark);
     --ok-bg: var(--ok-bg-dark);
     --ok-border: var(--ok-border-dark);
@@ -171,12 +195,14 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg-app: var(--bg-app-dark);
+  --bg-sidebar: var(--bg-sidebar-dark);
   --bg-surface: var(--bg-surface-dark);
   --bg-subtle: var(--bg-subtle-dark);
   --bg-hover: var(--bg-hover-dark);
   --bg-active: var(--bg-active-dark);
   --border: var(--border-dark);
   --border-strong: var(--border-strong-dark);
+  --divider: var(--divider-dark);
   --text-primary: var(--text-primary-dark);
   --text-secondary: var(--text-secondary-dark);
   --text-muted: var(--text-muted-dark);
@@ -185,6 +211,10 @@
   --accent-text: var(--accent-text-dark);
   --accent-soft: var(--accent-soft-dark);
   --accent-tonal-fg: var(--accent-tonal-fg-dark);
+  --apple-blue: var(--apple-blue-dark);
+  --dot-ok: var(--dot-ok-dark);
+  --dot-warn: var(--dot-warn-dark);
+  --dot-danger: var(--dot-danger-dark);
   --ok-fg: var(--ok-fg-dark);
   --ok-bg: var(--ok-bg-dark);
   --ok-border: var(--ok-border-dark);
@@ -203,12 +233,14 @@
 @supports (color: light-dark(white, black)) {
   :root {
     --bg-app: light-dark(var(--bg-app-light), var(--bg-app-dark));
+    --bg-sidebar: light-dark(var(--bg-sidebar-light), var(--bg-sidebar-dark));
     --bg-surface: light-dark(var(--bg-surface-light), var(--bg-surface-dark));
     --bg-subtle: light-dark(var(--bg-subtle-light), var(--bg-subtle-dark));
     --bg-hover: light-dark(var(--bg-hover-light), var(--bg-hover-dark));
     --bg-active: light-dark(var(--bg-active-light), var(--bg-active-dark));
     --border: light-dark(var(--border-light), var(--border-dark));
     --border-strong: light-dark(var(--border-strong-light), var(--border-strong-dark));
+    --divider: light-dark(var(--divider-light), var(--divider-dark));
     --text-primary: light-dark(var(--text-primary-light), var(--text-primary-dark));
     --text-secondary: light-dark(var(--text-secondary-light), var(--text-secondary-dark));
     --text-muted: light-dark(var(--text-muted-light), var(--text-muted-dark));
@@ -217,6 +249,10 @@
     --accent-text: light-dark(var(--accent-text-light), var(--accent-text-dark));
     --accent-soft: light-dark(var(--accent-soft-light), var(--accent-soft-dark));
     --accent-tonal-fg: light-dark(var(--accent-tonal-fg-light), var(--accent-tonal-fg-dark));
+    --apple-blue: light-dark(var(--apple-blue-light), var(--apple-blue-dark));
+    --dot-ok: light-dark(var(--dot-ok-light), var(--dot-ok-dark));
+    --dot-warn: light-dark(var(--dot-warn-light), var(--dot-warn-dark));
+    --dot-danger: light-dark(var(--dot-danger-light), var(--dot-danger-dark));
     --ok-fg: light-dark(var(--ok-fg-light), var(--ok-fg-dark));
     --ok-bg: light-dark(var(--ok-bg-light), var(--ok-bg-dark));
     --ok-border: light-dark(var(--ok-border-light), var(--ok-border-dark));
@@ -235,7 +271,9 @@
   box-sizing: border-box;
 }
 
-[hidden] {
+[hidden],
+:root[data-advanced-mode="false"] .advanced-only,
+:root[data-advanced-mode="false"] #status-banner-details {
   display: none !important;
 }
 
@@ -243,12 +281,14 @@ html {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  overscroll-behavior: none;
 }
 
 body {
   margin: 0;
   padding: 0;
   min-block-size: 100dvb;
+  overscroll-behavior: none;
   background: var(--bg-app);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -371,21 +411,22 @@ body {
 .conn-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
+  gap: 0.375rem;
+  padding: 0.1875rem 0.625rem;
   border-radius: var(--radius-pill);
-  border: 1px solid var(--warn-border);
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   font-size: 0.75rem;
   font-weight: 500;
 }
 
 .conn-dot {
-  width: 7px;
-  height: 7px;
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--dot-warn);
+  flex-shrink: 0;
 }
 
 .topbar-nav {
@@ -558,11 +599,13 @@ body {
 /* Banners */
 .banner {
   margin-bottom: var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
-  border-radius: var(--radius-md);
+  padding: 0.625rem var(--sp-4);
+  border-radius: var(--radius-card);
   border: 1px solid var(--border);
   background: var(--bg-surface);
+  color: var(--text-primary);
   font-size: 0.8125rem;
+  box-shadow: var(--shadow-card);
 }
 
 .banner-row {
@@ -572,22 +615,39 @@ body {
   gap: var(--sp-3);
 }
 
-.banner.banner-success {
-  border-color: var(--ok-border);
-  background: var(--ok-bg);
-  color: var(--ok-fg);
+#status-banner-text {
+  flex: 1 1 auto;
+  min-inline-size: 0;
 }
 
-.banner.banner-error {
-  border-color: var(--danger-border);
-  background: var(--danger-bg);
-  color: var(--danger-fg);
+#zalo-install-alert {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
-.banner.banner-warn {
-  border-color: var(--warn-border);
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+.banner.banner-success .banner-row::before,
+.banner.banner-error .banner-row::before,
+.banner.banner-warn .banner-row::before,
+#zalo-install-alert::before {
+  content: "";
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.banner.banner-success .banner-row::before {
+  background: var(--dot-ok);
+}
+
+.banner.banner-error .banner-row::before {
+  background: var(--dot-danger);
+}
+
+.banner.banner-warn .banner-row::before,
+#zalo-install-alert::before {
+  background: var(--dot-warn);
 }
 
 .banner-details {
@@ -689,18 +749,31 @@ body {
 }
 
 .btn-secondary {
-  background: var(--bg-surface);
-  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+  border-color: var(--border);
   color: var(--text-primary);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--bg-subtle);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .btn-secondary:active:not(:disabled),
+.btn-subtle:active:not(:disabled),
 .icon-btn:active:not(:disabled) {
   background: var(--bg-active);
+}
+
+.btn-subtle {
+  background: var(--bg-subtle);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.btn-subtle:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .btn-danger {
@@ -731,6 +804,7 @@ body {
   align-items: center;
   justify-content: center;
   min-block-size: 1.5rem;
+  min-inline-size: 1.5rem;
   padding: 0.25rem 0.375rem;
   border: 0;
   border-radius: var(--radius-sm);
@@ -770,7 +844,7 @@ body {
   border: 1px solid var(--border);
   background: var(--bg-surface);
   box-shadow: var(--shadow-card);
-  transition: border-color 140ms ease;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 
 .account-card:hover {
@@ -778,7 +852,7 @@ body {
 }
 
 .account-card.is-running {
-  border-color: var(--ok-border);
+  border-color: var(--border);
 }
 
 .account-card-head {
@@ -791,7 +865,7 @@ body {
 .account-avatar {
   inline-size: 2.625rem;
   block-size: 2.625rem;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-squircle);
   display: grid;
   place-items: center;
   font-size: 0.9375rem;
@@ -843,7 +917,7 @@ body {
 }
 
 .account-state-row.is-running {
-  color: var(--ok-fg);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
@@ -853,8 +927,8 @@ body {
 }
 
 .state-dot {
-  width: 8px;
-  height: 8px;
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
   border-radius: 50%;
   background: var(--text-muted);
   flex-shrink: 0;
@@ -862,29 +936,23 @@ body {
 
 .account-state-row.is-running .state-dot {
   background: var(--ok-fg);
-  box-shadow: 0 0 0 2px var(--ok-bg);
 }
 
 .account-state-row.is-stopped .state-dot {
-  background: transparent;
-  border: 2px solid var(--text-muted);
+  background: var(--text-muted);
 }
 
 .account-state-row.is-pending .state-dot {
-  background: var(--accent);
-  border: 0;
-  border-radius: 2px;
+  background: var(--apple-blue);
 }
 
 .account-state-row.is-error .state-dot {
   background: var(--danger-fg);
-  border-radius: 1.5px;
-  transform: rotate(45deg);
 }
 
 .account-state-row.is-unknown .state-dot {
-  background: transparent;
-  border: 1.5px dashed var(--text-muted);
+  background: var(--text-muted);
+  opacity: 0.65;
 }
 
 .account-note {
@@ -906,7 +974,7 @@ body {
   gap: var(--sp-3);
   flex-wrap: wrap;
   padding-top: var(--sp-3);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 
 .account-actions-primary {
@@ -1032,9 +1100,10 @@ body {
 /* Empty States */
 .empty-state {
   padding: var(--sp-8) var(--sp-6);
-  border-radius: var(--radius-lg);
-  border: 1px dashed var(--border-strong);
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
   background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
   text-align: center;
 }
 
@@ -1044,12 +1113,13 @@ body {
 }
 
 .empty-icon {
-  width: 56px;
-  height: 56px;
+  inline-size: 3.25rem;
+  block-size: 3.25rem;
   margin: 0 auto var(--sp-4);
-  border-radius: var(--radius-lg);
-  background: var(--accent-soft);
-  color: var(--accent);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
   display: grid;
   place-items: center;
 }
@@ -1069,9 +1139,10 @@ body {
 /* Panels, Tables, Settings & Diagnostics */
 .panel {
   padding: var(--sp-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   border: 1px solid var(--border);
   background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
 }
 
 .panel-title,
@@ -1121,10 +1192,29 @@ body {
   margin-bottom: var(--sp-2);
 }
 
+@media (min-width: 40rem) {
+  .segmented-fieldset {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--sp-4);
+    align-items: center;
+  }
+
+  .segmented-fieldset > .settings-desc {
+    grid-column: 1;
+    margin-bottom: 0;
+  }
+
+  .segmented-fieldset > .segmented-control {
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+
 .segmented-control {
   display: inline-flex;
-  padding: 3px;
-  border-radius: var(--radius-sm);
+  padding: 2px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-subtle);
   gap: 2px;
@@ -1147,12 +1237,12 @@ body {
 .seg-option span {
   display: inline-flex;
   align-items: center;
-  min-block-size: 1.875rem;
+  min-block-size: 1.75rem;
   padding: 0.25rem var(--sp-3);
-  border-radius: calc(var(--radius-sm) - 2px);
+  border-radius: 6px;
   font-size: 0.8125rem;
   color: var(--text-secondary);
-  transition: background-color 140ms ease, color 140ms ease;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
 .seg-option:hover input:not(:disabled):not(:checked) + span {
@@ -1167,9 +1257,10 @@ body {
 
 .seg-option input:checked + span {
   background: var(--bg-surface);
+  background: light-dark(#ffffff, #3a3a3e);
   color: var(--text-primary);
   font-weight: 500;
-  box-shadow: var(--shadow-card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .seg-option input:focus-visible + span {
@@ -1178,13 +1269,31 @@ body {
 }
 
 .notice-box {
+  position: relative;
   margin-bottom: var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--warn-border);
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+  padding: 0.75rem var(--sp-4) 0.75rem 1.875rem;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   font-size: 0.8125rem;
+  box-shadow: var(--shadow-card);
+}
+
+.notice-box strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.notice-box::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 1.0625rem;
+  inset-inline-start: 0.875rem;
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
+  border-radius: 50%;
+  background: var(--dot-warn);
 }
 
 .table-wrap {
@@ -1258,9 +1367,9 @@ body {
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-1);
+  gap: 0.375rem;
   max-inline-size: 100%;
-  padding: 0.125rem 0.5rem;
+  padding: 0.125rem 0.5625rem;
   border-radius: var(--radius-pill);
   font-size: 0.75rem;
   font-weight: 500;
@@ -1269,7 +1378,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   border: 1px solid var(--border);
-  background: var(--bg-subtle);
+  background: transparent;
   color: var(--text-secondary);
 }
 
@@ -1284,27 +1393,55 @@ body {
 }
 
 .badge-neutral {
-  border-color: var(--border-strong);
-  background: var(--bg-surface);
+  border-color: var(--border);
+  background: transparent;
   color: var(--text-secondary);
 }
 
-.badge-pass {
-  border-color: var(--ok-border);
-  background: var(--ok-bg);
-  color: var(--ok-fg);
-}
-
-.badge-warn {
-  border-color: var(--warn-border);
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-}
-
+.badge-pass,
+.badge-warn,
 .badge-fail {
-  border-color: var(--danger-border);
-  background: var(--danger-bg);
-  color: var(--danger-fg);
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.badge-pass::before,
+.badge-warn::before,
+.badge-fail::before {
+  content: "";
+  inline-size: 0.375rem;
+  block-size: 0.375rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.badge-pass::before {
+  background: var(--dot-ok);
+}
+
+.badge-warn::before {
+  background: var(--dot-warn);
+}
+
+.badge-fail::before {
+  background: var(--dot-danger);
+}
+
+.web-session-badge,
+.badge.web-session-badge {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.web-session-badge::before {
+  content: "";
+  inline-size: 0.375rem;
+  block-size: 0.375rem;
+  border-radius: 50%;
+  background: var(--dot-warn);
+  flex-shrink: 0;
 }
 
 .inline-toggle {
@@ -1413,8 +1550,9 @@ dialog::backdrop {
 }
 
 .chip-btn {
-  min-height: 26px;
-  padding: 2px 10px;
+  min-inline-size: 1.5rem;
+  min-block-size: 1.625rem;
+  padding: 0.125rem 0.625rem;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border);
   background: var(--bg-subtle);
@@ -1617,10 +1755,6 @@ dialog::backdrop {
 /* ========================================================================
  * NexaDock Phase 3 Upgrade Additions (Grid/List, Recovery, Protected Badge)
  * ======================================================================== */
-[hidden] {
-  display: none !important;
-}
-
 .account-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 18.5rem), 1fr));
   align-items: stretch;
@@ -1693,9 +1827,9 @@ dialog::backdrop {
 
 .view-segmented {
   display: inline-flex;
-  padding: 3px;
+  padding: 2px;
   gap: 2px;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-subtle);
 }
@@ -1704,17 +1838,17 @@ dialog::backdrop {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  min-block-size: 1.875rem;
+  min-block-size: 1.75rem;
   padding: 0 var(--sp-2);
   border: 1px solid transparent;
-  border-radius: calc(var(--radius-sm) - 2px);
+  border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
   font-family: inherit;
   font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
 .view-seg-btn:hover:not(:disabled):not([aria-pressed="true"]) {
@@ -1729,9 +1863,10 @@ dialog::backdrop {
 
 .view-seg-btn[aria-pressed="true"] {
   background: var(--bg-surface);
+  background: light-dark(#ffffff, #3a3a3e);
   color: var(--text-primary);
-  border-color: var(--border);
-  box-shadow: var(--shadow-card);
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
   font-weight: 600;
 }
 
@@ -1761,17 +1896,66 @@ dialog::backdrop {
 .settings-toggle-stack {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: 0;
 }
 
 .settings-toggle-row {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  min-height: 1.75rem;
+  justify-content: space-between;
+  flex-direction: row-reverse;
+  gap: var(--sp-3);
+  min-block-size: 2.5rem;
+  padding-block: var(--sp-2);
   font-size: 0.875rem;
   color: var(--text-primary);
   cursor: pointer;
+}
+
+.settings-toggle-stack > .settings-toggle-row + .settings-toggle-row {
+  border-top: 1px solid var(--divider);
+}
+
+.settings-toggle-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  inline-size: 2.375rem;
+  block-size: 1.375rem;
+  margin: 0;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-subtle);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.settings-toggle-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 1px;
+  inset-inline-start: 1px;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+  transition: transform 160ms ease;
+}
+
+.settings-toggle-row input[type="checkbox"]:checked {
+  background: var(--apple-blue);
+  border-color: var(--apple-blue);
+}
+
+.settings-toggle-row input[type="checkbox"]:checked::after {
+  transform: translateX(1rem);
+}
+
+.settings-toggle-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--apple-blue);
+  outline-offset: 2px;
 }
 
 .settings-toggle-row:has(input:disabled) {
@@ -1811,7 +1995,7 @@ dialog::backdrop {
   flex-direction: column;
   min-block-size: 0;
   min-inline-size: 0;
-  background: var(--bg-surface);
+  background: var(--bg-sidebar);
   border-inline-end: 1px solid var(--border);
   padding: var(--sp-2);
   gap: var(--sp-2);
@@ -2085,8 +2269,9 @@ dialog::backdrop {
 }
 
 .rail-account-btn[aria-pressed="true"] {
-  background: var(--accent-soft);
-  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+  background: light-dark(rgba(0, 0, 0, 0.06), rgba(255, 255, 255, 0.08));
+  border-color: transparent;
 }
 
 .rail-account-btn[aria-pressed="true"]::before {
@@ -2096,7 +2281,7 @@ dialog::backdrop {
   inset-block: 0.375rem;
   inline-size: 3px;
   border-radius: var(--radius-pill);
-  background: var(--accent);
+  background: var(--apple-blue);
 }
 
 .rail-account-btn[aria-disabled="true"] {
@@ -2115,6 +2300,7 @@ dialog::backdrop {
 .rail-avatar {
   inline-size: 2.25rem;
   block-size: 2.25rem;
+  border-radius: 8px;
   font-size: 0.8125rem;
 }
 
@@ -2134,12 +2320,12 @@ dialog::backdrop {
 
 .rail-state-dot {
   position: absolute;
-  inset-block-end: -1px;
+  inset-block-end: -2px;
   inset-inline-end: -2px;
-  inline-size: 0.625rem;
-  block-size: 0.625rem;
+  inline-size: 0.5625rem;
+  block-size: 0.5625rem;
   border-radius: 50%;
-  border: 2px solid var(--bg-surface);
+  border: 2px solid var(--bg-sidebar);
   background: var(--text-muted);
 }
 
@@ -2148,8 +2334,7 @@ dialog::backdrop {
 }
 
 .rail-state-dot.is-stopped {
-  background: var(--bg-surface);
-  border-color: var(--text-muted);
+  background: var(--text-muted);
 }
 
 .rail-state-dot.is-pending {
@@ -2264,9 +2449,10 @@ dialog::backdrop {
 }
 
 .rail-util-btn.is-active {
-  background: var(--accent-soft);
+  background: var(--bg-subtle);
+  background: light-dark(rgba(0, 0, 0, 0.06), rgba(255, 255, 255, 0.08));
   color: var(--text-primary);
-  border-color: var(--border-strong);
+  border-color: transparent;
   font-weight: 600;
 }
 
@@ -2340,12 +2526,14 @@ dialog::backdrop {
 .account-avatar-sm {
   inline-size: 1.75rem;
   block-size: 1.75rem;
+  border-radius: 7px;
   font-size: 0.75rem;
 }
 
 .account-avatar-lg {
   inline-size: 3.5rem;
   block-size: 3.5rem;
+  border-radius: 10px;
   font-size: 1.25rem;
 }
 
@@ -2851,7 +3039,7 @@ dialog.modal-switcher {
 }
 
 .rail-account-btn.is-running .rail-avatar {
-  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 3.5px var(--ok-border);
+  box-shadow: none;
 }
 
 .rail-tooltip.is-floating-open {
@@ -2880,7 +3068,7 @@ dialog.modal-switcher {
 
 .btn-primary.btn-tonal {
   background: var(--accent-soft);
-  color: light-dark(var(--accent-tonal-fg-light), var(--accent-tonal-fg-dark));
+  color: var(--accent-tonal-fg);
   border-color: var(--border-strong);
 }
 
@@ -2934,6 +3122,7 @@ dialog.modal-switcher {
 }
 
 .btn-xs {
+  min-inline-size: 1.5rem;
   min-block-size: 1.75rem;
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
@@ -3186,6 +3375,88 @@ dialog.modal-switcher {
   }
 }
 
+/* ========================================================================
+ * macOS-Native App-Shell Feel, Tabular Numbers & Tactile Press Polish
+ * ======================================================================== */
+.workspace-shell {
+  overscroll-behavior: none;
+}
+
+.account-rail,
+.page-header,
+.btn,
+.rail-util-btn,
+.view-seg-btn,
+.segmented-control,
+.overflow-menu {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+pre,
+code,
+.account-note,
+.kv-value,
+.kv-list dd,
+.diag-table,
+.banner-raw {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.accounts-count-summary,
+.backups-table,
+.data-table,
+.kv-value,
+.kv-list dd,
+kbd,
+.switcher-shortcut {
+  font-variant-numeric: tabular-nums;
+}
+
+.btn:not(:disabled):active,
+.rail-util-btn:active,
+.rail-add-btn:active {
+  transform: scale(0.985);
+}
+
+@keyframes modal-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+dialog.modal[open] {
+  animation: modal-pop-in 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .btn:not(:disabled):active,
+  .rail-util-btn:active,
+  .rail-add-btn:active {
+    transform: none;
+  }
+
+  dialog.modal[open] {
+    animation: none;
+  }
+}
+
 @media (forced-colors: active) {
   .rail-account-btn[aria-pressed="true"],
   .rail-util-btn.is-active,
@@ -3211,13 +3482,25 @@ dialog.modal-switcher {
   }
 }
 
-/* Telegram Vault panel (account-details dialog) */
+/* Telegram Vault panel (Everyday view + account-details dialog) */
+.vault-account-bar {
+  display: grid;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
 .vault-panel {
   margin-block-start: var(--sp-4);
   padding-block-start: var(--sp-4);
-  border-block-start: 1px solid var(--border-strong, currentcolor);
+  border-block-start: 1px solid var(--divider);
   display: grid;
   gap: var(--sp-3);
+}
+
+.vault-view-mount .vault-panel {
+  margin-block-start: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
 }
 
 .vault-heading {
@@ -3239,8 +3522,9 @@ dialog.modal-switcher {
 }
 
 .vault-stats {
-  color: var(--text-muted, inherit);
-  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .vault-error {
@@ -3260,13 +3544,13 @@ dialog.modal-switcher {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
 }
 
 .vault-hint {
   margin: 0;
-  font-size: 0.9375rem;
-  color: var(--text-muted, inherit);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 .vault-form {
@@ -3283,26 +3567,44 @@ dialog.modal-switcher {
   font: inherit;
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong, currentcolor);
-  background: var(--bg-surface, transparent);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
   color: inherit;
 }
 
-.vault-log-heading {
-  margin: var(--sp-2) 0 0;
+.vault-input:focus-visible {
+  outline: 2px solid var(--apple-blue);
+  outline-offset: 1px;
+}
+
+.vault-password-toggle {
+  justify-self: start;
+}
+
+.vault-log-details {
+  margin-block-start: var(--sp-1);
+}
+
+.vault-log-heading,
+.vault-log-summary {
+  margin: 0;
   font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .vault-log-table {
   inline-size: 100%;
   border-collapse: collapse;
-  font-size: 0.9375rem;
+  margin-block-start: var(--sp-2);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .vault-log-table caption {
   text-align: start;
-  font-size: 0.875rem;
-  color: var(--text-muted, inherit);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
   padding-block-end: var(--sp-1);
 }
 
@@ -3310,14 +3612,14 @@ dialog.modal-switcher {
 .vault-log-table td {
   text-align: start;
   padding: var(--sp-1) var(--sp-2);
-  border-block-end: 1px solid var(--border, currentcolor);
+  border-block-end: 1px solid var(--divider);
   overflow-wrap: anywhere;
 }
 
 .vault-log-empty {
-  margin: 0;
-  font-size: 0.9375rem;
-  color: var(--text-muted, inherit);
+  margin: var(--sp-2) 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 /* Vault pairing mode chooser (bot vs advanced full-account) */
@@ -3346,18 +3648,18 @@ dialog.modal-switcher {
   column-gap: var(--sp-2);
   align-items: start;
   padding: var(--sp-2) var(--sp-3);
-  border: 1px solid var(--border, currentcolor);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .vault-mode-option:has(input:checked) {
-  border-color: var(--border-strong, currentcolor);
-  background: var(--bg-subtle, transparent);
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
 }
 
 .vault-mode-option input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--apple-blue);
   outline-offset: 1px;
 }
 
@@ -3367,8 +3669,8 @@ dialog.modal-switcher {
 
 .vault-mode-desc {
   grid-column: 2;
-  font-size: 0.875rem;
-  color: var(--text-muted, inherit);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 /* Vault bot pairing surfaces */
@@ -3387,18 +3689,18 @@ dialog.modal-switcher {
 }
 
 .vault-bot-link-anchor {
-  color: var(--accent-tonal-fg, currentcolor);
+  color: var(--accent-tonal-fg);
   overflow-wrap: anywhere;
 }
 
 .vault-bot-hint {
   margin: 0;
-  font-size: 0.9375rem;
-  color: var(--text-muted, inherit);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 .vault-transport {
-  color: var(--text-muted, inherit);
-  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
 }
 

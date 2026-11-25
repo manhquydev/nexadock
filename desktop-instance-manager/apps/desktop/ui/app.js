@@ -15,6 +15,11 @@ import {
   LEGACY_LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES
 } from './i18n/index.js';
+import {
+  render as renderVaultPanel,
+  refreshMounted as refreshMountedVaultPanel,
+  setAdvancedMode as setVaultAdvancedMode
+} from './vault-panel.js';
 
 const UI_VERSION = '0.1.0';
 const THEME_STORAGE_KEY = 'nexadock.theme';
@@ -29,6 +34,7 @@ const ACTIVE_ACCOUNT_KEY = 'nexadock.activeAccountId';
 const LEGACY_ACTIVE_ACCOUNT_KEY = 'khoang.activeAccountId';
 const VIEW_MODE_KEY = 'nexadock.viewMode';
 const LEGACY_VIEW_MODE_KEY = 'khoang.viewMode';
+const ADVANCED_MODE_STORAGE_KEY = 'nexadock.advancedMode';
 
 const ACCOUNT_COLORS = [
   { id: 'blue', cssVar: '--id-blue' },
@@ -47,8 +53,9 @@ const state = {
   backups: [],
   diagnostics: null,
   isolation: null,
-  activeView: 'profiles', // 'profiles' | 'backups' | 'settings' | 'diagnostics' | 'help' | 'desktop-stage' | 'web-stage'
+  activeView: 'profiles', // 'profiles' | 'backups' | 'vault' | 'settings' | 'diagnostics' | 'help' | 'desktop-stage' | 'web-stage'
   activeAccount: null, // { id, kind }
+  selectedVaultProfileId: null,
   lastActivationResult: null,
   railFilterQuery: '',
   searchQuery: '',
@@ -366,7 +373,7 @@ function renderBanner() {
       rawLines.push(`${t('errors.rawMessageLabel')}: ${info.rawDetail}`);
     }
     rawEl.textContent = rawLines.join('\n');
-    detailsEl.hidden = false;
+    detailsEl.hidden = !getSavedAdvancedMode();
   } else {
     textEl.textContent = state.banner.messageKey
       ? t(state.banner.messageKey, state.banner.messageParams || {})
@@ -735,6 +742,108 @@ function updateLanguageControls() {
   }
 }
 
+function readAdvancedModeFromStorage() {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(ADVANCED_MODE_STORAGE_KEY) === 'true';
+  } catch (_err) {
+    return false;
+  }
+}
+
+let currentAdvancedMode = readAdvancedModeFromStorage();
+
+export function syncAdvancedModeFromStorage() {
+  currentAdvancedMode = readAdvancedModeFromStorage();
+  return currentAdvancedMode;
+}
+
+export function getSavedAdvancedMode() {
+  return currentAdvancedMode;
+}
+
+export function isMacPlatform() {
+  if (typeof navigator === 'undefined') return false;
+  const platform = navigator.platform || '';
+  const ua = navigator.userAgent || '';
+  return /mac/i.test(platform) || /macintosh|mac os x/i.test(ua);
+}
+
+export function formatShortcut(key) {
+  const normalized = String(key || '').trim();
+  return isMacPlatform() ? `⌘${normalized}` : `Ctrl+${normalized}`;
+}
+
+function updateRailToggleAttrs(expanded) {
+  if (typeof document === 'undefined') return;
+  const railToggle = document.getElementById('btn-rail-toggle');
+  if (!railToggle) return;
+  const isExpanded = Boolean(expanded);
+  const baseRail = isExpanded ? t('rail.collapse') : t('rail.expand');
+  railToggle.setAttribute('aria-pressed', String(isExpanded));
+  railToggle.setAttribute('aria-label', baseRail);
+  railToggle.setAttribute('title', `${baseRail} (${formatShortcut('B')})`);
+}
+
+function updateShortcutHints() {
+  if (typeof document === 'undefined') return;
+  const mac = isMacPlatform();
+  if (document.documentElement) {
+    document.documentElement.dataset.platform = mac ? 'macos' : 'default';
+  }
+  const qsBtn = document.getElementById('btn-quick-switcher');
+  if (qsBtn) {
+    const baseLabel = t('quickSwitcher.triggerAria');
+    const formatted = mac ? baseLabel.replace('Ctrl+K', '⌘K') : baseLabel;
+    qsBtn.setAttribute('aria-label', formatted);
+    qsBtn.setAttribute('title', formatted);
+  }
+  const expanded = document.getElementById('workspace-shell')?.dataset.railExpanded === 'true';
+  updateRailToggleAttrs(expanded);
+  const openCreateBtn = document.getElementById('btn-open-create');
+  if (openCreateBtn) {
+    openCreateBtn.setAttribute('title', `${t('accounts.add')} (${formatShortcut('N')})`);
+  }
+}
+
+export function applyAdvancedMode(enabled) {
+  const isAdvanced = Boolean(enabled);
+  currentAdvancedMode = isAdvanced;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(ADVANCED_MODE_STORAGE_KEY, String(isAdvanced));
+    }
+  } catch (_err) {
+    // Ignore storage errors
+  }
+
+  if (typeof document === 'undefined') return;
+  if (document.documentElement) {
+    document.documentElement.dataset.advancedMode = String(isAdvanced);
+  }
+
+  const toggle = document.getElementById('toggle-advanced-mode');
+  if (toggle) {
+    toggle.checked = isAdvanced;
+  }
+
+  if (!isAdvanced) {
+    const desktopRadio = document.querySelector('input[name="create-session-mode"][value="desktop_isolated"]');
+    if (desktopRadio) desktopRadio.checked = true;
+    const notesField = document.getElementById('create-notes-field');
+    if (notesField) notesField.hidden = false;
+    if (state.activeView === 'diagnostics') {
+      selectView('settings');
+    }
+  }
+
+  setVaultAdvancedMode(isAdvanced);
+
+  if (state.banner) {
+    renderBanner();
+  }
+}
+
 function updatePendingControls() {
   const isRefreshing = state.pendingGlobalActions.has('refresh');
   const isVerifying = state.pendingGlobalActions.has('verify');
@@ -771,6 +880,7 @@ function updateDocumentTitle(viewName = state.activeView) {
   const viewTitles = {
     profiles: t('nav.accounts'),
     backups: t('nav.backups'),
+    vault: t('vault.title'),
     settings: t('nav.settings'),
     diagnostics: t('diagnostics.title'),
     help: t('help.title'),
@@ -1282,27 +1392,36 @@ function getActiveStageScroll() {
   return document.querySelector('.view.stage-scroll:not([hidden]), .stage.stage-scroll:not([hidden])');
 }
 
-function selectView(viewName, { triggerEl = null, returnView = null } = {}) {
+export function selectView(viewName, { triggerEl = null, returnView = null } = {}) {
+  let targetView = viewName;
+  let blockedDiagnostics = false;
+  if (targetView === 'diagnostics' && !getSavedAdvancedMode()) {
+    targetView = 'settings';
+    blockedDiagnostics = true;
+    triggerEl = null;
+    returnView = null;
+  }
   const wasWebStage = state.activeView === 'web-stage';
-  if (viewName === 'diagnostics') {
+  if (targetView === 'diagnostics') {
     state.diagnosticsReturnView = returnView || 'settings';
   }
   state.lastNavTriggerEl = triggerEl || null;
-  state.activeView = viewName;
-  if (wasWebStage && viewName !== 'web-stage') {
+  state.activeView = targetView;
+  if (typeof document === 'undefined') return state.activeView;
+  if (wasWebStage && targetView !== 'web-stage') {
     closeWebHeaderPopovers();
   }
   closeAccountContextMenu({ restoreFocus: false });
 
   for (const btn of document.querySelectorAll('.top-nav-btn[data-view]')) {
-    const active = btn.getAttribute('data-view') === viewName;
+    const active = btn.getAttribute('data-view') === targetView;
     btn.classList.toggle('is-active', active);
     if (active) btn.setAttribute('aria-current', 'page');
     else btn.removeAttribute('aria-current');
   }
 
   for (const view of document.querySelectorAll('.view')) {
-    const isActiveView = view.id === `view-${viewName}`;
+    const isActiveView = view.id === `view-${targetView}`;
     view.hidden = !isActiveView;
     if (isActiveView && view.classList.contains('stage-scroll')) {
       view.scrollTop = 0;
@@ -1310,30 +1429,36 @@ function selectView(viewName, { triggerEl = null, returnView = null } = {}) {
   }
 
   const webStage = document.getElementById('stage-web-session');
-  if (webStage) webStage.hidden = viewName !== 'web-stage';
+  if (webStage) webStage.hidden = targetView !== 'web-stage';
 
   const desktopStage = document.getElementById('stage-desktop-session');
   if (desktopStage) {
-    const isDesktopStage = viewName === 'desktop-stage';
+    const isDesktopStage = targetView === 'desktop-stage';
     desktopStage.hidden = !isDesktopStage;
     if (isDesktopStage && desktopStage.classList.contains('stage-scroll')) {
       desktopStage.scrollTop = 0;
     }
   }
 
-  if (viewName === 'diagnostics') {
+  if (targetView === 'diagnostics') {
     updateDiagnosticsBackBar();
+  } else if (targetView === 'vault') {
+    renderVaultView({ forceRender: true });
   }
 
-  const isStage = viewName === 'web-stage' || viewName === 'desktop-stage';
+  const isStage = targetView === 'web-stage' || targetView === 'desktop-stage';
   if (!isStage) {
     for (const btn of document.querySelectorAll('.rail-account-btn')) {
       btn.setAttribute('aria-pressed', 'false');
     }
   }
 
-  updateDocumentTitle(viewName);
-  syncNativeWebViewState({ forceHide: viewName !== 'web-stage' });
+  updateDocumentTitle(targetView);
+  syncNativeWebViewState({ forceHide: targetView !== 'web-stage' });
+  if (blockedDiagnostics) {
+    document.getElementById('toggle-advanced-mode')?.focus();
+  }
+  return state.activeView;
 }
 
 function makeBadge(text, variant = 'neutral') {
@@ -3100,13 +3225,18 @@ function updateCreateSessionModeControls() {
   const webRadio = document.getElementById('create-mode-web-radio');
   const webDesc = document.getElementById('create-mode-web-desc');
   if (!webRadio || !webDesc) return;
+  const desktopRadio = document.querySelector('input[name="create-session-mode"][value="desktop_isolated"]');
+  if (!getSavedAdvancedMode()) {
+    if (desktopRadio && webRadio.checked) desktopRadio.checked = true;
+    const notesField = document.getElementById('create-notes-field');
+    if (notesField) notesField.hidden = false;
+  }
   const supported = Boolean(state.workspace?.web_workspace?.supported);
   const invoke = getTauriInvoke();
   if (invoke && !supported) {
     webRadio.disabled = true;
     const code = state.workspace?.web_workspace?.reason_code;
     webDesc.textContent = code ? resolveErrorInfo(code).userMessage : t('dialogs.create.modeWebUnsupported');
-    const desktopRadio = document.querySelector('input[name="create-session-mode"][value="desktop_isolated"]');
     if (desktopRadio && webRadio.checked) desktopRadio.checked = true;
   } else {
     webRadio.disabled = false;
@@ -3139,6 +3269,69 @@ function refreshOpenDialogTranslations() {
   }
 }
 
+function renderVaultView({ forceRender = false } = {}) {
+  if (typeof document === 'undefined') return;
+  if (state.activeView !== 'vault' && !forceRender) return;
+  if (!forceRender && document.getElementById('profile-details-dialog')?.open) return;
+
+  const emptyEl = document.getElementById('vault-empty');
+  const hintEl = document.getElementById('vault-desktop-only-hint');
+  const barEl = document.getElementById('vault-account-bar');
+  const selectEl = document.getElementById('vault-profile-select');
+  const mountEl = document.getElementById('vault-view-mount');
+  if (!mountEl) return;
+
+  if (!getTauriInvoke()) {
+    if (hintEl) hintEl.hidden = false;
+    if (emptyEl) emptyEl.hidden = true;
+    if (barEl) barEl.hidden = true;
+    mountEl.hidden = true;
+    return;
+  }
+
+  if (hintEl) hintEl.hidden = true;
+  const profiles = Array.isArray(state.status?.profiles) ? state.status.profiles : [];
+  if (profiles.length === 0) {
+    if (emptyEl) emptyEl.hidden = false;
+    if (barEl) barEl.hidden = true;
+    mountEl.hidden = true;
+    mountEl.replaceChildren();
+    return;
+  }
+
+  if (emptyEl) emptyEl.hidden = true;
+  if (barEl) barEl.hidden = false;
+  mountEl.hidden = false;
+
+  let chosen = profiles.find((p) => p.id === state.selectedVaultProfileId);
+  if (!chosen && state.activeAccount?.kind === 'desktop_isolated') {
+    chosen = profiles.find((p) => p.id === state.activeAccount.id);
+  }
+  if (!chosen) {
+    chosen = profiles[0];
+  }
+  state.selectedVaultProfileId = chosen.id;
+
+  if (selectEl) {
+    selectEl.replaceChildren();
+    for (const p of profiles) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name || p.id;
+      opt.selected = p.id === chosen.id;
+      selectEl.appendChild(opt);
+    }
+  }
+
+  const mountedPanel = mountEl.querySelector('#vault-panel');
+  const alreadyMounted = mountedPanel?.getAttribute('data-profile-id') === chosen.id;
+  if (forceRender || !alreadyMounted) {
+    renderVaultPanel(chosen, mountEl);
+  } else if (!mountEl.contains?.(document.activeElement)) {
+    refreshMountedVaultPanel(mountEl);
+  }
+}
+
 function renderAll() {
   updateConnectionBadge();
   renderBanner();
@@ -3148,6 +3341,7 @@ function renderAll() {
   renderProfiles();
   renderPrimaryZalo();
   renderBackups();
+  renderVaultView();
   renderDiagnostics();
   renderSettingsAbout();
   renderCreateColorPalette();
@@ -3704,7 +3898,9 @@ function renderQuickSwitcherList() {
       const kbd = document.createElement('span');
       kbd.className = 'switcher-shortcut';
       kbd.setAttribute('aria-hidden', 'true');
-      kbd.textContent = t('quickSwitcher.shortcutHint', { num: String(globalIdx + 1) });
+      kbd.textContent = isMacPlatform()
+        ? formatShortcut(globalIdx + 1)
+        : t('quickSwitcher.shortcutHint', { num: String(globalIdx + 1) });
       opt.appendChild(kbd);
     }
 
@@ -3753,7 +3949,7 @@ function wireLightDismissFallback() {
 function wireDialogsAndFallbacks() {
   wireLightDismissFallback();
 
-  for (const btnId of ['btn-open-create', 'btn-overview-create', 'btn-empty-create']) {
+  for (const btnId of ['btn-open-create', 'btn-overview-create', 'btn-empty-create', 'btn-vault-create-account']) {
     document.getElementById(btnId)?.addEventListener('click', () => {
       clearCreateStep1Error();
       renderCreateColorPalette(pickNextAvailableColorId(getAllColorTrackedAccounts()));
@@ -4169,6 +4365,9 @@ function wireDialogsAndFallbacks() {
   detailsDialog?.addEventListener('close', (e) => {
     e.currentTarget.returnValue = '';
     state.openDialogContext = null;
+    if (state.activeView === 'vault') {
+      renderVaultView({ forceRender: true });
+    }
     restoreDialogFocus(detailsDialog);
   });
 
@@ -4464,6 +4663,13 @@ function wireDesktopStageControls() {
     if (prof) openDetailsDialog(prof);
   });
 
+  document.getElementById('btn-desktop-vault')?.addEventListener('click', (event) => {
+    if (state.activeAccount?.kind === 'desktop_isolated') {
+      state.selectedVaultProfileId = state.activeAccount.id;
+    }
+    selectView('vault', { triggerEl: event.currentTarget });
+  });
+
   document.getElementById('btn-desktop-delete')?.addEventListener('click', () => {
     if (!state.activeAccount) return;
     const prof = (state.status?.profiles || []).find((p) => p.id === state.activeAccount.id);
@@ -4573,8 +4779,12 @@ function wireGlobalShortcuts() {
       return;
     }
     if (mod && event.key === ',') {
-      event.preventDefault();
-      selectView('settings');
+      const active = document.activeElement;
+      const inInput = active && active.matches?.('input, textarea, select, [contenteditable="true"]');
+      if (!inInput) {
+        event.preventDefault();
+        selectView('settings');
+      }
       return;
     }
     if (mod && /^[1-9]$/.test(event.key)) {
@@ -4611,22 +4821,22 @@ export async function initApp() {
   await initI18n();
   applyDomTranslations();
   applyThemePreference(getSavedThemePreference());
+  applyAdvancedMode(syncAdvancedModeFromStorage());
+  updateShortcutHints();
 
   const shell = document.getElementById('workspace-shell');
   const railToggle = document.getElementById('btn-rail-toggle');
   if (readMigratedStorage(RAIL_EXPANDED_KEY, LEGACY_RAIL_EXPANDED_KEY) === 'true' && shell) {
     shell.dataset.railExpanded = 'true';
-    railToggle?.setAttribute('aria-pressed', 'true');
   }
+  updateRailToggleAttrs(shell?.dataset.railExpanded === 'true');
 
   railToggle?.addEventListener('click', () => {
     if (!shell) return;
     const expanded = shell.dataset.railExpanded === 'true';
     const next = !expanded;
     shell.dataset.railExpanded = String(next);
-    railToggle.setAttribute('aria-pressed', String(next));
-    railToggle.setAttribute('aria-label', next ? t('rail.collapse') : t('rail.expand'));
-    railToggle.setAttribute('title', next ? t('rail.collapse') : t('rail.expand'));
+    updateRailToggleAttrs(next);
     try {
       if (typeof localStorage !== 'undefined') localStorage.setItem(RAIL_EXPANDED_KEY, String(next));
     } catch (_err) {
@@ -4645,6 +4855,15 @@ export async function initApp() {
   wireDesktopStageControls();
   wireBoundsObservers();
   wireGlobalShortcuts();
+
+  document.getElementById('vault-profile-select')?.addEventListener('change', (event) => {
+    state.selectedVaultProfileId = event.target.value || null;
+    renderVaultView({ forceRender: true });
+  });
+
+  document.getElementById('view-vault')?.addEventListener('toggle', () => {
+    scheduleClampScrollPosition(document.getElementById('view-vault'));
+  }, true);
 
   document.getElementById('btn-brand-home')?.addEventListener('click', () => {
     selectView('profiles');
@@ -4812,7 +5031,11 @@ export async function initApp() {
 
   onLocaleChange((nextLocale) => {
     applyDomTranslations();
+    updateShortcutHints();
     renderAll();
+    if (state.activeView === 'vault') {
+      renderVaultView({ forceRender: true });
+    }
     const invoke = getTauriInvoke();
     if (invoke) {
       invoke('set_tray_locale', { locale: nextLocale }).catch(() => {});
@@ -4888,7 +5111,7 @@ export async function initApp() {
     if (typeof tauriListen === 'function') {
       tauriListen('nexadock://navigate', (event) => {
         const target = event?.payload;
-        if (target === 'profiles' || target === 'settings' || target === 'backups' || target === 'help' || target === 'diagnostics') {
+        if (target === 'profiles' || target === 'settings' || target === 'backups' || target === 'vault' || target === 'help' || target === 'diagnostics') {
           selectView(target);
         }
       }).catch(() => {});
@@ -4922,10 +5145,16 @@ export async function initApp() {
     });
   }
 
+  document.getElementById('toggle-advanced-mode')?.addEventListener('change', (event) => {
+    applyAdvancedMode(Boolean(event.target.checked));
+  });
+
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (event) => {
       if (event.key === THEME_STORAGE_KEY) {
         applyThemePreference(getSavedThemePreference());
+      } else if (!event.key || event.key === ADVANCED_MODE_STORAGE_KEY) {
+        applyAdvancedMode(syncAdvancedModeFromStorage());
       }
     });
   }

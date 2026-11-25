@@ -904,3 +904,195 @@ test('bot token submit blocks concurrent in-flight submits and ignores stale res
     else globalThis.window = originalWindow;
   }
 });
+
+test('render mounts into custom container and setAdvancedMode(false) resets unpaired MTProto back to bot', () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: stubDesktopInvoke } };
+  try {
+    const customMount = documentMock.createElement('div');
+    panel.render(profile, customMount);
+    const section = customMount.children[0];
+    assert.ok(section, 'vault panel must mount directly inside custom targetContainer');
+    assert.equal(section.id, PANEL_ID);
+    assert.equal(section.getAttribute('data-profile-id'), profile.id);
+
+    panel.applyStatus({ paired: false, credentialsAvailable: true, pending: 0, failed: 0, done: 0 }, '');
+    const mtpRadio = section.querySelector('.vault-mode-radio-mtp');
+    const botRadio = section.querySelector('.vault-mode-radio-bot');
+    mtpRadio.checked = true;
+    mtpRadio.listeners.get('change')();
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, true);
+    assert.equal(section.querySelector('.vault-hint')?.hidden, false);
+
+    panel.setAdvancedMode(false);
+    assert.equal(botRadio.checked, true);
+    assert.equal(mtpRadio.checked, false);
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, false, 'collapsing Advanced mode restores Everyday bot form');
+    assert.equal(section.querySelector('.vault-hint')?.hidden, true);
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('Everyday mode resets unpaired after session-missing back to Bot form and refreshMounted skips active/mid-pairing', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  let isPaired = true;
+  let statusCalls = 0;
+  let pairBotResolve = null;
+  const invoke = (command) => {
+    if (command === 'vault_get_status') {
+      statusCalls += 1;
+      return Promise.resolve({
+        ok: true,
+        data: isPaired
+          ? {
+            paired: true,
+            transport: 'mtproto',
+            sessionExists: false,
+            credentialsAvailable: true,
+            enabled: true,
+            engineRunning: false,
+            pending: 0,
+            failed: 0,
+            done: 0,
+          }
+          : {
+            paired: false,
+            transport: 'mtproto',
+            credentialsAvailable: false,
+            enabled: false,
+            engineRunning: false,
+            pending: 0,
+            failed: 0,
+            done: 0,
+          },
+      });
+    }
+    if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
+    if (command === 'vault_unpair') {
+      isPaired = false;
+      return Promise.resolve({ ok: true, data: { removed: true } });
+    }
+    if (command === 'vault_pair_bot') {
+      return new Promise((resolve) => {
+        pairBotResolve = resolve;
+      });
+    }
+    return Promise.resolve({ ok: false, message: `unexpected command: ${command}` });
+  };
+  const everydayDoc = {
+    createElement: (tag) => new FakeNode(tag),
+    getElementById: (id) => registry.get(id) || null,
+    documentElement: { dataset: { advancedMode: 'false' } },
+    activeElement: null,
+  };
+  globalThis.document = everydayDoc;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke } };
+  try {
+    const mount = everydayDoc.createElement('div');
+    panel.render(profile, mount);
+    await flush();
+    const section = mount.children[0];
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.sessionMissing);
+
+    // Unpairing a session-missing MTProto profile in Everyday mode must restore the Bot form immediately.
+    const unpairBtn = section.querySelector('.vault-actions').children[0];
+    unpairBtn.listeners.get('click')();
+    await flush();
+    await flush();
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.unpaired);
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, false, 'Bot token form must be shown immediately in Everyday mode after unpairing session-missing');
+    assert.equal(section.querySelector('.vault-mode-radio-bot')?.checked, true);
+    assert.equal(section.querySelector('.vault-actions').children.length, 0, 'MTProto Pair button must not render when reset to Bot mode');
+
+    // Idle mounted panel refreshes normally when activeElement is outside mount.
+    const callsBeforeIdleRefresh = statusCalls;
+    assert.equal(panel.refreshMounted(mount), true);
+    await flush();
+    assert.equal(statusCalls, callsBeforeIdleRefresh + 1);
+
+    // Focused input inside mount skips refreshMounted.
+    const tokenInput = section.querySelector('.vault-bot-token');
+    everydayDoc.activeElement = tokenInput;
+    assert.equal(panel.refreshMounted(mount), false);
+    assert.equal(statusCalls, callsBeforeIdleRefresh + 1);
+
+    // Mid-pairing (`vault_pair_bot` in flight or `botStep === 'link'`) skips refreshMounted even after blur.
+    tokenInput.value = '123456:in-flight';
+    section.querySelector('.vault-form-bot').listeners.get('submit')({ preventDefault() {} });
+    everydayDoc.activeElement = null;
+    assert.equal(panel.refreshMounted(mount), false, 'in-flight bot pairing must skip refreshMounted');
+    pairBotResolve({ ok: true, data: { botUsername: 'link_bot', deepLink: 'https://t.me/link_bot?start=abc' } });
+    await flush();
+    assert.equal(panel.refreshMounted(mount), false, 'botStep === link must skip refreshMounted');
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('setAdvancedMode(false) clears checked delete-session box when paired and pair_bot invalidates stale refresh', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const statusResolvers = [];
+  const invoke = (command) => {
+    if (command === 'vault_get_status') {
+      return new Promise((resolve) => {
+        statusResolvers.push(resolve);
+      });
+    }
+    if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
+    if (command === 'vault_pair_bot') {
+      return Promise.resolve({
+        ok: true,
+        data: { botUsername: 'fresh_bot', deepLink: 'https://t.me/fresh_bot?start=xyz' },
+      });
+    }
+    return Promise.resolve({ ok: false, message: `unexpected command: ${command}` });
+  };
+  globalThis.document = documentMock;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke } };
+  try {
+    const section = renderSection();
+    // 1. Paired MTProto with deleteSession checked -> collapsing Advanced mode clears checkbox.
+    panel.applyStatus(
+      { paired: true, transport: 'mtproto', enabled: true, engineRunning: true, pending: 0, failed: 0, done: 0 },
+      ''
+    );
+    const deleteCheck = section.querySelector('.vault-delete-session-check');
+    assert.ok(deleteCheck);
+    deleteCheck.checked = true;
+    panel.setAdvancedMode(false);
+    assert.equal(deleteCheck.checked, false, 'collapsing Advanced mode must clear hidden delete-session checkbox');
+
+    // 2. Stale in-flight refresh() cannot overwrite botStep = link after vault_pair_bot succeeds.
+    panel.applyStatus({ paired: false, pending: 0, failed: 0, done: 0 }, '');
+    panel.refresh();
+    assert.ok(statusResolvers.length >= 2);
+    section.querySelector('.vault-bot-token').value = '123456:race';
+    section.querySelector('.vault-form-bot').listeners.get('submit')({ preventDefault() {} });
+    await flush();
+    assert.equal(section.querySelector('.vault-bot-link')?.hidden, false);
+    assert.equal(section.querySelector('.vault-bot-link-anchor')?.getAttribute('href'), 'https://t.me/fresh_bot?start=xyz');
+
+    // Resolve all earlier pending status calls with unpaired; link step must remain intact.
+    while (statusResolvers.length > 0) {
+      statusResolvers.shift()({ ok: true, data: { paired: false, pending: 0, failed: 0, done: 0 } });
+    }
+    await flush();
+    assert.equal(section.querySelector('.vault-bot-link')?.hidden, false, 'stale refresh must not revert botStep back to token');
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, true);
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});

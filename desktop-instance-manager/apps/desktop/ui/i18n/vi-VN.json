@@ -16,6 +16,7 @@
     "skipToMain": "Chuyển đến nội dung chính",
     "accounts": "Tài khoản",
     "backups": "Sao lưu",
+    "vault": "Telegram Vault",
     "settings": "Cài đặt",
     "help": "Trợ giúp",
     "backNavAria": "Điều hướng quay lại",
@@ -258,7 +259,8 @@
     },
     "advanced": {
       "heading": "Nâng cao",
-      "description": "Dành cho trường hợp cần kiểm tra lỗi, dung lượng đĩa hoặc nhật ký kỹ thuật.",
+      "toggleLabel": "Chế độ nâng cao",
+      "description": "Mở khóa mục Kiểm tra sự cố, thông tin tiến trình/thư mục kỹ thuật và tùy chọn tạo Zalo Web (Thử nghiệm).",
       "openDiagnostics": "Kiểm tra sự cố"
     }
   },
@@ -356,6 +358,10 @@
   },
   "vault": {
     "title": "Telegram Vault",
+    "pageSubtitle": "Đồng bộ các tệp Zalo nhận được về bot Telegram hoặc Saved Messages của bạn.",
+    "accountSelectLabel": "Tài khoản Zalo",
+    "emptyTitle": "Chưa có tài khoản Zalo Desktop nào",
+    "emptyHint": "Thêm một tài khoản Zalo Desktop trước để bật đồng bộ Telegram Vault.",
     "states": {
       "unpaired": "Chưa ghép",
       "paired": "Đã ghép",
@@ -526,6 +532,7 @@
     "snapOsUnsupported": "Tính năng đặt cạnh cửa sổ chỉ hỗ trợ trên Windows 10/11.",
     "sessionDetailsSummary": "Chi tiết phiên & lưu trữ",
     "pinAction": "Ghim lên thanh",
+    "vaultAction": "Đồng bộ Telegram",
     "unpinAction": "Bỏ ghim"
   },
   "quickSwitcher": {
