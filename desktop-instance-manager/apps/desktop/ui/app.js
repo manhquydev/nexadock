@@ -17,6 +17,7 @@ import {
 } from './i18n/index.js';
 import {
   render as renderVaultPanel,
+  refreshMounted as refreshMountedVaultPanel,
   setAdvancedMode as setVaultAdvancedMode
 } from './vault-panel.js';
 
@@ -3301,6 +3302,8 @@ function renderVaultView({ forceRender = false } = {}) {
   const alreadyMounted = mountedPanel?.getAttribute('data-profile-id') === chosen.id;
   if (forceRender || !alreadyMounted) {
     renderVaultPanel(chosen, mountEl);
+  } else if (!mountEl.contains?.(document.activeElement)) {
+    refreshMountedVaultPanel(mountEl);
   }
 }
 

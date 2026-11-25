@@ -495,7 +495,7 @@ test('Everyday Vault nav/view stays accessible while diagnostics and MTProto vau
   assert.match(vaultPanelJs, /'vault-form vault-form-code advanced-only'/);
   assert.match(vaultPanelJs, /'vault-delete-session advanced-only'/);
   assert.match(vaultPanelJs, /'btn btn-primary advanced-only'/);
-  assert.match(vaultPanelJs, /details\.className\s*=\s*['"]advanced-details vault-log-details['"]/);
+  assert.match(vaultPanelJs, /details\.className\s*=\s*['"]advanced-details vault-log-details advanced-only['"]/);
 });
 
 test('styles.css defines .btn-subtle, valid danger-fg, single [hidden] block, and accessible sidebar/ok contrast', () => {

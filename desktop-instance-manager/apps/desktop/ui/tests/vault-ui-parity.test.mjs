@@ -937,3 +937,103 @@ test('render mounts into custom container and setAdvancedMode(false) resets unpa
     else globalThis.window = originalWindow;
   }
 });
+
+test('Everyday mode resets unpaired after session-missing back to Bot form and refreshMounted skips active/mid-pairing', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  let isPaired = true;
+  let statusCalls = 0;
+  let pairBotResolve = null;
+  const invoke = (command) => {
+    if (command === 'vault_get_status') {
+      statusCalls += 1;
+      return Promise.resolve({
+        ok: true,
+        data: isPaired
+          ? {
+            paired: true,
+            transport: 'mtproto',
+            sessionExists: false,
+            credentialsAvailable: true,
+            enabled: true,
+            engineRunning: false,
+            pending: 0,
+            failed: 0,
+            done: 0,
+          }
+          : {
+            paired: false,
+            transport: 'mtproto',
+            credentialsAvailable: false,
+            enabled: false,
+            engineRunning: false,
+            pending: 0,
+            failed: 0,
+            done: 0,
+          },
+      });
+    }
+    if (command === 'vault_get_log') return Promise.resolve({ ok: true, data: [] });
+    if (command === 'vault_unpair') {
+      isPaired = false;
+      return Promise.resolve({ ok: true, data: { removed: true } });
+    }
+    if (command === 'vault_pair_bot') {
+      return new Promise((resolve) => {
+        pairBotResolve = resolve;
+      });
+    }
+    return Promise.resolve({ ok: false, message: `unexpected command: ${command}` });
+  };
+  const everydayDoc = {
+    createElement: (tag) => new FakeNode(tag),
+    getElementById: (id) => registry.get(id) || null,
+    documentElement: { dataset: { advancedMode: 'false' } },
+    activeElement: null,
+  };
+  globalThis.document = everydayDoc;
+  globalThis.window = { __TAURI_INTERNALS__: { invoke } };
+  try {
+    const mount = everydayDoc.createElement('div');
+    panel.render(profile, mount);
+    await flush();
+    const section = mount.children[0];
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.sessionMissing);
+
+    // Unpairing a session-missing MTProto profile in Everyday mode must restore the Bot form immediately.
+    const unpairBtn = section.querySelector('.vault-actions').children[0];
+    unpairBtn.listeners.get('click')();
+    await flush();
+    await flush();
+    assert.equal(section.querySelector('.vault-state')?.textContent, viLocale.vault.states.unpaired);
+    assert.equal(section.querySelector('.vault-form-bot')?.hidden, false, 'Bot token form must be shown immediately in Everyday mode after unpairing session-missing');
+    assert.equal(section.querySelector('.vault-mode-radio-bot')?.checked, true);
+    assert.equal(section.querySelector('.vault-actions').children.length, 0, 'MTProto Pair button must not render when reset to Bot mode');
+
+    // Idle mounted panel refreshes normally when activeElement is outside mount.
+    const callsBeforeIdleRefresh = statusCalls;
+    assert.equal(panel.refreshMounted(mount), true);
+    await flush();
+    assert.equal(statusCalls, callsBeforeIdleRefresh + 1);
+
+    // Focused input inside mount skips refreshMounted.
+    const tokenInput = section.querySelector('.vault-bot-token');
+    everydayDoc.activeElement = tokenInput;
+    assert.equal(panel.refreshMounted(mount), false);
+    assert.equal(statusCalls, callsBeforeIdleRefresh + 1);
+
+    // Mid-pairing (`vault_pair_bot` in flight or `botStep === 'link'`) skips refreshMounted even after blur.
+    tokenInput.value = '123456:in-flight';
+    section.querySelector('.vault-form-bot').listeners.get('submit')({ preventDefault() {} });
+    everydayDoc.activeElement = null;
+    assert.equal(panel.refreshMounted(mount), false, 'in-flight bot pairing must skip refreshMounted');
+    pairBotResolve({ ok: true, data: { botUsername: 'link_bot', deepLink: 'https://t.me/link_bot?start=abc' } });
+    await flush();
+    assert.equal(panel.refreshMounted(mount), false, 'botStep === link must skip refreshMounted');
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});

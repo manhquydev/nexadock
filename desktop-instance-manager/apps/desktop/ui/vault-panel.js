@@ -211,6 +211,18 @@ export function applyStatus(status, message) {
   lastState = state;
   if (state === 'session-missing') {
     pairMode = 'mtproto';
+  } else if (
+    state === 'unpaired'
+    && typeof document !== 'undefined'
+    && document.documentElement?.dataset?.advancedMode === 'false'
+  ) {
+    pairMode = 'bot';
+    loginStep = '';
+    botStep = 'token';
+    const botRadio = section.querySelector('.vault-mode-radio-bot');
+    if (botRadio) botRadio.checked = true;
+    const mtpRadio = section.querySelector('.vault-mode-radio-mtp');
+    if (mtpRadio) mtpRadio.checked = false;
   }
   const stateNode = section.querySelector('.vault-state');
   if (stateNode) stateNode.textContent = t(STATE_KEYS[state]);
@@ -631,7 +643,7 @@ function buildForms() {
 
 function buildLogTable() {
   const details = document.createElement('details');
-  details.className = 'advanced-details vault-log-details';
+  details.className = 'advanced-details vault-log-details advanced-only';
   const summary = make('summary', 'vault-log-summary vault-log-heading', t('vault.log.heading'));
   const table = document.createElement('table');
   table.className = 'vault-log-table';
@@ -699,6 +711,14 @@ function buildBridgeNoticeSection() {
   return node;
 }
 
+function hasDescendant(root, target) {
+  if (!root || !target) return false;
+  if (typeof root.contains === 'function') return root.contains(target);
+  if (root === target) return true;
+  if (!Array.isArray(root.children)) return false;
+  return root.children.some((child) => hasDescendant(child, target));
+}
+
 /** Switches between Everyday (bot-first) and Advanced vault controls. */
 export function setAdvancedMode(isAdvanced) {
   if (!isAdvanced && section && lastState === 'unpaired' && pairMode !== 'bot') {
@@ -711,6 +731,16 @@ export function setAdvancedMode(isAdvanced) {
     if (mtpRadio) mtpRadio.checked = false;
     applyStatus(lastStatus, '');
   }
+}
+
+/** Refreshes the mounted panel when idle (neither focused nor mid-pairing). */
+export function refreshMounted(targetContainer = null) {
+  if (typeof document === 'undefined' || !section || !panelId) return false;
+  if (targetContainer && !hasDescendant(targetContainer, section)) return false;
+  if (hasDescendant(section, document.activeElement)) return false;
+  if (botPairing || botWaiting || botStep !== 'token' || loginStep !== '') return false;
+  refresh();
+  return true;
 }
 
 /** Renders the vault panel into targetContainer or the details dialog for one profile. */
@@ -745,7 +775,7 @@ export function render(profile, targetContainer = null) {
   }
 }
 
-const api = { render, applyStatus, refresh, setAdvancedMode };
+const api = { render, applyStatus, refresh, refreshMounted, setAdvancedMode };
 
 if (typeof window !== 'undefined') {
   window.__nexadockVault = api;

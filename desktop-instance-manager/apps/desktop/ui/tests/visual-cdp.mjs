@@ -830,6 +830,26 @@ try {
   });
   await snap('account-dock-help-vi-light.png');
 
+  // Verify Everyday defaults hide Advanced diagnostics controls before unlocking Advanced mode.
+  const everydayGate = await evalJs(`({
+    advAttr: document.documentElement.dataset.advancedMode,
+    diagNavHidden: getComputedStyle(document.querySelector('.top-nav-btn[data-view="diagnostics"]')).display === 'none',
+    helpDiagHidden: getComputedStyle(document.getElementById('btn-help-diagnostics')).display === 'none'
+  })`);
+  assert.deepEqual(everydayGate, {
+    advAttr: 'false',
+    diagNavHidden: true,
+    helpDiagHidden: true
+  });
+  await evalJs(`(() => {
+    const toggle = document.getElementById('toggle-advanced-mode');
+    if (toggle && !toggle.checked) {
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  })()`);
+  assert.equal(await evalJs(`document.documentElement.dataset.advancedMode`), 'true');
+
   await evalJs(`document.getElementById('btn-help-diagnostics').click()`);
   assert.equal(await evalJs(`!document.getElementById('view-diagnostics').hidden`), true);
   assert.equal(await evalJs(`document.getElementById('view-help').hidden`), true);
