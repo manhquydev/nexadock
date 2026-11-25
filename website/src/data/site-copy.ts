@@ -75,6 +75,22 @@ export const SITE_COPY = {
           actionLabel: 'Xem cơ chế bảo vệ dữ liệu',
           actionHref: '#safety',
           footnote: 'Nội dung trên trang là minh họa tĩnh; không chạy thao tác trên thiết bị của bạn.'
+        },
+        {
+          id: 'telegram-vault',
+          label: 'Telegram Vault',
+          stateLabel: 'Bot API + MTProto',
+          state: 'running',
+          title: 'Đồng bộ file Zalo đã nhận sang Telegram',
+          body: 'Theo dõi thư mục Zalo Received Files của từng hồ sơ để gửi bản sao lưu tệp sang Telegram cá nhân theo thời gian thực, hỗ trợ Bot API (≤50 MB) ở chế độ Everyday và MTProto (≤2 GB) ở chế độ nâng cao.',
+          steps: [
+            'Mở mục Telegram Vault ngay trên thanh điều hướng ở chế độ Everyday.',
+            'Dán Bot Token từ @BotFather, bấm link ?start= để xác thực qua nonce riêng tư (hoặc bật Chế độ nâng cao cho MTProto ≤2 GB).',
+            'Tệp mới nhận trong Zalo được băm SHA-256, đưa vào hàng đợi SQLite cục bộ và tải lên an toàn không trùng lặp.'
+          ],
+          actionLabel: 'Xem câu hỏi về Telegram Vault',
+          actionHref: '#faq',
+          footnote: 'Cấu hình và phiên Telegram chỉ lưu cục bộ trên máy bạn (quyền 0600 trên Unix); không qua máy chủ trung gian.'
         }
       ]
     },
@@ -119,6 +135,10 @@ export const SITE_COPY = {
         {
           name: 'Sao lưu nguyên tử và khôi phục không ghi đè',
           body: 'Sao lưu tạo gói .zip kèm mã băm SHA-256 sau khi kiểm tra tối thiểu 5 GiB trống. Khi khôi phục luôn tạo một không gian tài khoản mới, không ghi đè dữ liệu hiện có.'
+        },
+        {
+          name: 'Chế độ Everyday tinh gọn & Telegram Vault cục bộ',
+          body: 'Giao diện mặc định Everyday tập trung vào tài khoản, Telegram Vault (Bot API), sao lưu và cài đặt; bật Chế độ nâng cao khi cần chẩn đoán hệ thống, WebIsolated (Thử nghiệm) hoặc đồng bộ MTProto ≤2 GB.'
         }
       ]
     },
@@ -146,7 +166,7 @@ export const SITE_COPY = {
           zalo: 'Có (/Applications/Zalo.app)',
           status: 'Chưa ký số / Chưa Notarized',
           kind: 'warn',
-          note: 'Đã đóng gói .dmg và đạt build/fixture CI; chưa ký Developer ID/Notarized (chờ cấu hình Apple secrets) và chưa test đăng nhập Zalo.app thật. Chưa hỗ trợ macOS Intel.'
+          note: 'Đã đóng gói .dmg, đạt build/fixture CI và hỗ trợ nối symlink Library/Keychains giữ phiên đăng nhập Zalo qua các lần mở lại; chưa ký Developer ID/Notarized (chờ cấu hình Apple secrets) và chưa hỗ trợ macOS Intel.'
         },
         {
           os: 'Linux (Ubuntu 24.04 x64)',
@@ -185,6 +205,10 @@ export const SITE_COPY = {
         {
           q: 'Tại sao Windows SmartScreen hoặc macOS Gatekeeper cảnh báo khi mở bộ cài?',
           a: 'Vì bản pre-release chưa được ký số thương mại (Authenticode / Apple Developer ID). Hãy kiểm tra SHA-256 khớp với SHA256SUMS.txt, hoặc dùng Signed-Host Bridge từ mã nguồn nếu máy bật Smart App Control.'
+        },
+        {
+          q: 'Telegram Vault hoạt động thế nào và có an toàn cho tài khoản Zalo không?',
+          a: 'Telegram Vault chỉ đọc thư mục Zalo Received Files của hồ sơ phụ để sao lưu song song sang bot hoặc tài khoản Telegram của chính bạn, hoàn toàn không chạm vào Zalo chính hay gửi dữ liệu qua máy chủ bên thứ ba.'
         }
       ]
     },
@@ -269,6 +293,22 @@ export const SITE_COPY = {
           actionLabel: 'Review data protection',
           actionHref: '#safety',
           footnote: 'This page is a static illustration; it does not run actions on your device.'
+        },
+        {
+          id: 'telegram-vault',
+          label: 'Telegram Vault',
+          stateLabel: 'Bot API + MTProto',
+          state: 'running',
+          title: 'Mirror received Zalo files to Telegram',
+          body: 'Watch each profile’s Zalo Received Files folder and back up new files to your own Telegram chat with deduplicated SHA-256 tracking—Bot API (≤50 MB) in Everyday mode, or optional MTProto (≤2 GB) in Advanced mode.',
+          steps: [
+            'Open Telegram Vault directly from the main navigation rail in Everyday mode.',
+            'Enter your @BotFather token and confirm the private /start nonce link (or enable Advanced mode for MTProto ≤2 GB).',
+            'New files are hashed locally, persisted in an atomic SQLite queue, and uploaded safely without duplicates.'
+          ],
+          actionLabel: 'Read Telegram Vault FAQ',
+          actionHref: '#faq',
+          footnote: 'Tokens and Telegram sessions stay strictly local (0600 permissions on Unix) with no third-party relay server.'
         }
       ]
     },
@@ -313,6 +353,10 @@ export const SITE_COPY = {
         {
           name: 'Atomic SHA-256 backups and non-destructive restore',
           body: 'Backups require at least 5 GiB free space and write SHA-256 verified archives. Restoring always creates a brand-new profile instead of overwriting existing data.'
+        },
+        {
+          name: 'Calm Everyday mode & local-first Telegram Vault',
+          body: 'Everyday mode keeps only Accounts, Telegram Vault (Bot API), Backups, and Settings in view; toggle Advanced mode to unlock Diagnostics, WebIsolated (Experimental), and optional MTProto ≤2 GB sync.'
         }
       ]
     },
@@ -340,7 +384,7 @@ export const SITE_COPY = {
           zalo: 'Yes (/Applications/Zalo.app)',
           status: 'Unsigned until Apple secrets configured',
           kind: 'warn',
-          note: 'Packaged .dmg passes fixture and native CI builds; unsigned/unnotarized until Apple Developer secrets are configured, and live Zalo.app login is not yet tested. Intel macOS is omitted.'
+          note: 'Packaged .dmg passes fixture and native CI builds with opt-in Library/Keychains symlink persistence across restarts; unsigned/unnotarized until Apple Developer secrets are configured, and Intel macOS is omitted.'
         },
         {
           os: 'Linux (Ubuntu 24.04 x64)',
@@ -379,6 +423,10 @@ export const SITE_COPY = {
         {
           q: 'Why do Windows SmartScreen or macOS Gatekeeper show a warning?',
           a: 'Because these pre-release artifacts are unsigned development builds. Verify the file hash against SHA256SUMS.txt, or use the Signed-Host Bridge from source on Smart App Control machines.'
+        },
+        {
+          q: 'How does Telegram Vault work, and does it touch primary Zalo?',
+          a: 'Telegram Vault watches only your secondary profile’s Zalo Received Files directory and mirrors files directly to your own Telegram Bot or account using a local SQLite queue—never touching primary Zalo or any third-party relay.'
         }
       ]
     },
