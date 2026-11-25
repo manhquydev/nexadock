@@ -193,7 +193,7 @@ pub fn ensure_macos_profile_layout_with_ops(
     }
 
     ops.ensure_private_dir(profile_dir)?;
-    verify_no_forbidden_isolation_symlinks_with_options(profile_dir, options)?;
+    verify_no_forbidden_isolation_symlinks_with_home(profile_dir, options, real_home.as_deref())?;
 
     // Create all 12 isolated macOS profile storage surfaces with `0o700` owner-only permissions.
     let isolated_subdirs = [
@@ -428,7 +428,7 @@ pub fn ensure_macos_user_symlinks_with_options(
     options: MacOsLayoutOptions,
 ) -> Result<(), DimError> {
     ensure_not_macos_primary_path(profile_dir, Some(real_home))?;
-    verify_no_forbidden_isolation_symlinks_with_options(profile_dir, options)?;
+    verify_no_forbidden_isolation_symlinks_with_home(profile_dir, options, Some(real_home))?;
 
     if !options.symlink_keychain && !options.symlink_user_dirs {
         return Ok(());
@@ -453,15 +453,18 @@ pub fn ensure_macos_user_symlinks_with_options(
         }
 
         for rel in rels {
+            let dst = profile_dir.join(rel);
+            if let Ok(existing_meta) = fs::symlink_metadata(&dst) {
+                if is_symlink_or_reparse(&existing_meta) {
+                    verify_opt_in_symlink_target(&dst, rel, Some(real_home))?;
+                    continue;
+                }
+            }
             let src = real_home.join(rel);
             if fs::symlink_metadata(&src).is_err() {
                 continue;
             }
-            let dst = profile_dir.join(rel);
             if let Ok(existing_meta) = fs::symlink_metadata(&dst) {
-                if is_symlink_or_reparse(&existing_meta) {
-                    continue;
-                }
                 // Replace an empty (or .DS_Store-only for Library/Keychains) placeholder directory with the requested opt-in symlink.
                 if existing_meta.is_dir()
                     && remove_empty_or_ds_store_placeholder_dir(&dst, rel == "Library/Keychains")
@@ -485,6 +488,57 @@ pub fn ensure_macos_user_symlinks_with_options(
     }
 }
 
+/// Verifies an existing opt-in symlink at `dst` resolves directly to `<real_home>/<rel>`
+/// without overlapping primary `ZaloData`. Fails closed with [`DimError::PathTraversal`]
+/// when `real_home` is unavailable, `<real_home>/<rel>` is absent, or the target mismatches.
+pub(crate) fn verify_opt_in_symlink_target(
+    dst: &Path,
+    rel: &str,
+    real_home: Option<&Path>,
+) -> Result<(), DimError> {
+    let Some(home) = real_home else {
+        return Err(DimError::PathTraversal(format!(
+            "cannot verify pre-existing opt-in symlink '{}' without real home directory",
+            dst.display()
+        )));
+    };
+    let expected = home.join(rel);
+    ensure_not_macos_primary_path(&expected, Some(home))?;
+
+    let raw_target = fs::read_link(dst).map_err(|err| {
+        DimError::PathTraversal(format!(
+            "failed to read opt-in symlink '{}' target: {err}",
+            dst.display()
+        ))
+    })?;
+    let resolved_target = if raw_target.is_absolute() {
+        raw_target
+    } else {
+        dst.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(raw_target)
+    };
+    let actual_key = normalize_macos_path_key(&resolved_target);
+    let expected_key = normalize_macos_path_key(&expected);
+    if actual_key.is_empty() || actual_key != expected_key {
+        return Err(DimError::PathTraversal(format!(
+            "opt-in symlink '{}' points to '{}' instead of expected '{}'",
+            dst.display(),
+            resolved_target.display(),
+            expected.display()
+        )));
+    }
+    ensure_not_macos_primary_path(&resolved_target, Some(home))?;
+    if fs::symlink_metadata(&expected).is_err() {
+        return Err(DimError::PathTraversal(format!(
+            "opt-in symlink '{}' points to missing target '{}'",
+            dst.display(),
+            expected.display()
+        )));
+    }
+    Ok(())
+}
+
 /// Verifies none of the isolated `Library/*` or `Documents`/`Downloads` directories inside `profile_dir` are symlinks.
 pub fn verify_no_forbidden_isolation_symlinks(profile_dir: &Path) -> Result<(), DimError> {
     verify_no_forbidden_isolation_symlinks_with_options(profile_dir, MacOsLayoutOptions::default())
@@ -495,6 +549,26 @@ pub fn verify_no_forbidden_isolation_symlinks(profile_dir: &Path) -> Result<(), 
 pub fn verify_no_forbidden_isolation_symlinks_with_options(
     profile_dir: &Path,
     options: MacOsLayoutOptions,
+) -> Result<(), DimError> {
+    verify_no_forbidden_isolation_symlinks_inner(profile_dir, options, None, false)
+}
+
+/// Home-aware variant of [`verify_no_forbidden_isolation_symlinks_with_options`] that also validates
+/// any pre-existing opt-in symlink (`Library/Keychains` or opt-in user folders) against `<real_home>/<rel>`,
+/// failing closed with [`DimError::PathTraversal`] if `real_home`/`src` is unavailable or the target mismatches.
+pub fn verify_no_forbidden_isolation_symlinks_with_home(
+    profile_dir: &Path,
+    options: MacOsLayoutOptions,
+    real_home: Option<&Path>,
+) -> Result<(), DimError> {
+    verify_no_forbidden_isolation_symlinks_inner(profile_dir, options, real_home, true)
+}
+
+fn verify_no_forbidden_isolation_symlinks_inner(
+    profile_dir: &Path,
+    options: MacOsLayoutOptions,
+    real_home: Option<&Path>,
+    verify_opt_in_targets: bool,
 ) -> Result<(), DimError> {
     if let Ok(root_meta) = fs::symlink_metadata(profile_dir) {
         if is_symlink_or_reparse(&root_meta) {
@@ -515,27 +589,33 @@ pub fn verify_no_forbidden_isolation_symlinks_with_options(
             }
         }
     }
-    if !options.symlink_user_dirs {
-        for rel in MACOS_OPT_IN_USER_SYMLINKS {
-            let cand = profile_dir.join(rel);
-            if let Ok(meta) = fs::symlink_metadata(&cand) {
-                if is_symlink_or_reparse(&meta) {
+    for rel in MACOS_OPT_IN_USER_SYMLINKS {
+        let cand = profile_dir.join(rel);
+        if let Ok(meta) = fs::symlink_metadata(&cand) {
+            if is_symlink_or_reparse(&meta) {
+                if !options.symlink_user_dirs {
                     return Err(DimError::PathTraversal(format!(
                         "unexpected symlink on isolated user folder '{}' while symlink_user_dirs=false",
                         cand.display()
                     )));
                 }
+                if verify_opt_in_targets {
+                    verify_opt_in_symlink_target(&cand, rel, real_home)?;
+                }
             }
         }
     }
-    if !options.symlink_keychain {
-        let kc = profile_dir.join("Library").join("Keychains");
-        if let Ok(meta) = fs::symlink_metadata(&kc) {
-            if is_symlink_or_reparse(&meta) {
+    let kc = profile_dir.join("Library").join("Keychains");
+    if let Ok(meta) = fs::symlink_metadata(&kc) {
+        if is_symlink_or_reparse(&meta) {
+            if !options.symlink_keychain {
                 return Err(DimError::PathTraversal(format!(
                     "unexpected symlink on '{}' while symlink_keychain=false",
                     kc.display()
                 )));
+            }
+            if verify_opt_in_targets {
+                verify_opt_in_symlink_target(&kc, "Library/Keychains", real_home)?;
             }
         }
     }
@@ -1403,5 +1483,78 @@ mod tests {
         assert!(meta_real.is_dir());
         assert!(Path::new(&custom_db).is_file());
         assert!(kc_real.join(".DS_Store").is_file());
+    }
+
+    #[test]
+    fn opt_in_symlinks_validate_preexisting_targets_and_fail_closed_when_invalid_or_missing() {
+        use std::os::unix::fs::symlink;
+
+        use super::{macos_zalo_data_dir, verify_no_forbidden_isolation_symlinks_with_home};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let real_home = tmp.path().join("real_home");
+        let real_kc = real_home.join("Library").join("Keychains");
+        let real_dl = real_home.join("Downloads");
+        fs::create_dir_all(&real_kc).unwrap();
+        fs::create_dir_all(&real_dl).unwrap();
+
+        let kc_opts = MacOsLayoutOptions::default().with_keychain_symlink(true);
+
+        // 1. Pre-existing symlink pointing to an unintended external path fails closed.
+        let p_bad_target = tmp.path().join("p_bad_target");
+        let bad_kc = p_bad_target.join("Library").join("Keychains");
+        let evil_dir = tmp.path().join("evil_dir");
+        fs::create_dir_all(bad_kc.parent().unwrap()).unwrap();
+        fs::create_dir_all(&evil_dir).unwrap();
+        symlink(&evil_dir, &bad_kc).unwrap();
+        let err = ensure_macos_user_symlinks_with_options(&p_bad_target, &real_home, kc_opts)
+            .unwrap_err();
+        assert_eq!(err.code(), "PATH_TRAVERSAL");
+
+        // 2. Pre-existing symlink redirected into primary ZaloData fails closed.
+        let p_primary = tmp.path().join("p_primary");
+        let primary_kc = p_primary.join("Library").join("Keychains");
+        let primary_zalo = macos_zalo_data_dir(&real_home);
+        fs::create_dir_all(primary_kc.parent().unwrap()).unwrap();
+        fs::create_dir_all(&primary_zalo).unwrap();
+        symlink(&primary_zalo, &primary_kc).unwrap();
+        let err_primary =
+            ensure_macos_user_symlinks_with_options(&p_primary, &real_home, kc_opts).unwrap_err();
+        assert_eq!(err_primary.code(), "PATH_TRAVERSAL");
+
+        // 3. Valid symlink passes when real_home/Library/Keychains exists, fails when real_home is None
+        //    or when the expected target directory disappears.
+        let p_valid = tmp.path().join("p_valid");
+        let valid_kc = p_valid.join("Library").join("Keychains");
+        fs::create_dir_all(valid_kc.parent().unwrap()).unwrap();
+        symlink(&real_kc, &valid_kc).unwrap();
+        ensure_macos_user_symlinks_with_options(&p_valid, &real_home, kc_opts).unwrap();
+        verify_no_forbidden_isolation_symlinks_with_home(&p_valid, kc_opts, Some(&real_home))
+            .unwrap();
+        assert_eq!(
+            verify_no_forbidden_isolation_symlinks_with_home(&p_valid, kc_opts, None)
+                .unwrap_err()
+                .code(),
+            "PATH_TRAVERSAL"
+        );
+        fs::remove_dir(&real_kc).unwrap();
+        assert_eq!(
+            ensure_macos_user_symlinks_with_options(&p_valid, &real_home, kc_opts)
+                .unwrap_err()
+                .code(),
+            "PATH_TRAVERSAL"
+        );
+
+        // 4. Opt-in user folders (e.g. Downloads) enforce the same pre-existing target check.
+        let dl_opts = MacOsLayoutOptions::default().with_user_dir_symlinks(true);
+        let p_dl = tmp.path().join("p_dl");
+        fs::create_dir_all(&p_dl).unwrap();
+        symlink(&evil_dir, p_dl.join("Downloads")).unwrap();
+        assert_eq!(
+            ensure_macos_user_symlinks_with_options(&p_dl, &real_home, dl_opts)
+                .unwrap_err()
+                .code(),
+            "PATH_TRAVERSAL"
+        );
     }
 }

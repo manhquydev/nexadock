@@ -322,14 +322,19 @@ fn save_web_sessions(data_dir: &Path, doc: &WebSessionsDocument) -> Result<(), D
     write_bytes_atomic(&target, payload.as_bytes())
 }
 
+#[cfg(target_os = "macos")]
+fn build_macos_adapter_with_ops(ops: Arc<dyn dim_platform_macos::MacOsSystemOps>) -> ActiveAdapter {
+    ActiveAdapter::with_system_ops(ops)
+        .with_pinned_publisher("com.vng.zalo", "CVB6BX97VM")
+        .with_layout_options(
+            dim_platform_macos::MacOsLayoutOptions::default().with_keychain_symlink(true),
+        )
+}
+
 fn build_active_adapter() -> ActiveAdapter {
     #[cfg(target_os = "macos")]
     {
-        ActiveAdapter::new()
-            .with_pinned_publisher("com.vng.zalo", "CVB6BX97VM")
-            .with_layout_options(
-                dim_platform_macos::MacOsLayoutOptions::default().with_keychain_symlink(true),
-            )
+        build_macos_adapter_with_ops(Arc::new(dim_platform_macos::NativeMacOsSystemOps))
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -775,27 +780,36 @@ mod tests {
         let kc_path = profile_dir.join("Library").join("Keychains");
         fs::create_dir_all(&kc_path).expect("create legacy empty Keychains placeholder");
 
-        state
-            .adapter
+        // Exercise the exact production macOS adapter configuration over a deterministic simulated
+        // home (`HostFixtureMacOsOps`) so migration is always verified regardless of host ~/Library/Keychains.
+        let sim_home = data_dir.join("sim-home");
+        let real_kc = sim_home.join("Library").join("Keychains");
+        let short_tmp = data_dir.join("short-tmp");
+        fs::create_dir_all(&real_kc).expect("create simulated Keychains dir");
+        fs::create_dir_all(&short_tmp).expect("create simulated short tmp dir");
+        let ops = Arc::new(dim_platform_macos::HostFixtureMacOsOps::new(
+            sim_home, short_tmp,
+        ));
+        let fixture_adapter = build_macos_adapter_with_ops(ops)
+            .with_layout_options(state.adapter.config().layout_options);
+        assert_eq!(
+            fixture_adapter.config().layout_options,
+            state.adapter.config().layout_options
+        );
+
+        fixture_adapter
             .ensure_profile_layout(&profile, &profile_dir)
             .expect("ensure macOS profile layout with keychain symlink");
 
-        let real_home = std::env::var_os("HOME").map(PathBuf::from);
-        if let Some(real_kc) = real_home
-            .as_deref()
-            .map(|h| h.join("Library").join("Keychains"))
-            .filter(|p| fs::symlink_metadata(p).is_ok())
-        {
-            let kc_meta = fs::symlink_metadata(&kc_path).expect("Keychains metadata");
-            assert!(
-                kc_meta.file_type().is_symlink(),
-                "Library/Keychains must be upgraded to a symlink"
-            );
-            assert_eq!(
-                fs::read_link(&kc_path).expect("read Keychains symlink target"),
-                real_kc
-            );
-        }
+        let kc_meta = fs::symlink_metadata(&kc_path).expect("Keychains metadata");
+        assert!(
+            kc_meta.file_type().is_symlink(),
+            "Library/Keychains must be upgraded to a symlink"
+        );
+        assert_eq!(
+            fs::read_link(&kc_path).expect("read Keychains symlink target"),
+            real_kc
+        );
 
         let meta_raw = fs::read_to_string(profile_dir.join(".macos-profile-meta.json"))
             .expect("read .macos-profile-meta.json");

@@ -38,6 +38,7 @@ use crate::layout::{
     ensure_macos_profile_layout_with_ops, ensure_macos_user_symlinks_with_options,
     ensure_not_macos_primary_path, inspect_call_socket_owners, inspect_call_sockets_at,
     macos_zalo_data_dir, normalize_macos_path_key, verify_external_db_path_isolated,
+    verify_no_forbidden_isolation_symlinks_with_home, verify_opt_in_symlink_target,
     MacOsLayoutOptions, DARWIN_SUN_PATH_MAX, MACOS_12_ISOLATED_SURFACES, MACOS_CALL_SOCKETS,
     MACOS_PROFILE_META_FILE, MACOS_SAFE_TMPDIR_MAX_BYTES,
 };
@@ -485,6 +486,12 @@ impl InstanceLauncher for MacOsPlatformAdapter {
                 &real_home,
                 self.config.layout_options,
             )?;
+        } else {
+            verify_no_forbidden_isolation_symlinks_with_home(
+                profile_dir,
+                self.config.layout_options,
+                None,
+            )?;
         }
         Ok(())
     }
@@ -513,6 +520,12 @@ impl InstanceLauncher for MacOsPlatformAdapter {
         )?;
         if let Some(ref home) = real_home {
             ensure_macos_user_symlinks_with_options(profile_dir, home, self.config.layout_options)?;
+        } else {
+            verify_no_forbidden_isolation_symlinks_with_home(
+                profile_dir,
+                self.config.layout_options,
+                None,
+            )?;
         }
 
         let _op_guard = ProfileOperationGuard::acquire(
@@ -931,6 +944,10 @@ pub fn verify_12_surface_runtime_isolation(
         let meta_path = pdir.join(MACOS_PROFILE_META_FILE);
         let meta_raw = fs::read_to_string(&meta_path)?;
         let meta_json: serde_json::Value = serde_json::from_str(&meta_raw)?;
+        let symlink_keychain = meta_json
+            .get("symlink_keychain")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let eff_tmp = meta_json
             .get("effective_tmpdir")
             .and_then(serde_json::Value::as_str)
@@ -966,6 +983,11 @@ pub fn verify_12_surface_runtime_isolation(
                 ))
             })?;
             if is_symlink_or_reparse(&meta) {
+                if surface_name == "keychain_dir" && symlink_keychain {
+                    verify_opt_in_symlink_target(&surface_dir, rel_path, real_home)?;
+                    surface_counts.insert(surface_name.to_owned(), 0);
+                    continue;
+                }
                 return Err(DimError::PathTraversal(format!(
                     "unintended symlink detected on isolated surface '{surface_name}' at '{}'",
                     surface_dir.display()

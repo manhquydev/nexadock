@@ -1755,3 +1755,83 @@ fn focus_primary_window_never_creates_focus_signal_in_primary_zalo_data() {
         "focus_primary_window must NEVER write .focus-signal into primary ZaloData!"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn p0_2_verify_12_surface_runtime_isolation_allows_verified_keychain_symlink_and_rejects_tampered()
+{
+    let tmp = tempfile::tempdir().unwrap();
+    let sim_home = tmp.path().join("sim_home");
+    let real_kc = sim_home.join("Library").join("Keychains");
+    fs::create_dir_all(&real_kc).unwrap();
+    fs::write(real_kc.join("login.keychain-db"), b"host-keychain").unwrap();
+
+    let store = JsonProfileStore::new(tmp.path().join("dim_data")).unwrap();
+    store.ensure_initialized().unwrap();
+    let adapter = MacOsPlatformAdapter::for_fixture_host(sim_home.clone(), tmp.path().join("stmp"))
+        .with_layout_options(MacOsLayoutOptions::default().with_keychain_symlink(true));
+
+    let p1 = store.create_profile("Keychain One", "K1").unwrap();
+    let p2 = store.create_profile("Keychain Two", "K2").unwrap();
+    let d1 = store.profile_dir_for(&p1).unwrap();
+    let d2 = store.profile_dir_for(&p2).unwrap();
+
+    let target = LaunchTarget::NodeFixture {
+        node_path: None,
+        script_path: locate_fixture_script(),
+        extra_args: vec![],
+    };
+    let rt1 = adapter.launch(&target, &p1, &d1).unwrap();
+    let rt2 = adapter.launch(&target, &p2, &d2).unwrap();
+    assert!(rt1.running && rt2.running);
+
+    let profiles = vec![(p1.id.clone(), d1.clone()), (p2.id.clone(), d2.clone())];
+
+    // 1. Authorized keychain symlinks (meta symlink_keychain=true, pointing to real_home/Library/Keychains) pass.
+    let report =
+        verify_12_surface_runtime_isolation(&**adapter.system_ops(), &profiles, Some(&sim_home))
+            .expect("verified keychain symlinks should satisfy 12-surface audit");
+    assert_eq!(
+        report["verified_surfaces_count"].as_u64(),
+        Some(MACOS_12_ISOLATED_SURFACES.len() as u64)
+    );
+    assert_eq!(report["primary_zalo_data_untouched"].as_bool(), Some(true));
+
+    // 2. Calling audit without `real_home` fails closed on the symlinked keychain surface.
+    assert_eq!(
+        verify_12_surface_runtime_isolation(&**adapter.system_ops(), &profiles, None)
+            .unwrap_err()
+            .code(),
+        "PATH_TRAVERSAL"
+    );
+
+    // 3. Flipping `symlink_keychain` to `false` in metadata while the symlink exists fails closed.
+    let meta1_path = d1.join(MACOS_PROFILE_META_FILE);
+    let orig_meta1 = fs::read_to_string(&meta1_path).unwrap();
+    let mut patched_meta1: serde_json::Value = serde_json::from_str(&orig_meta1).unwrap();
+    patched_meta1["symlink_keychain"] = serde_json::json!(false);
+    fs::write(&meta1_path, serde_json::to_vec(&patched_meta1).unwrap()).unwrap();
+    assert_eq!(
+        verify_12_surface_runtime_isolation(&**adapter.system_ops(), &profiles, Some(&sim_home))
+            .unwrap_err()
+            .code(),
+        "PATH_TRAVERSAL"
+    );
+    fs::write(&meta1_path, &orig_meta1).unwrap();
+
+    // 4. Redirecting `Library/Keychains` symlink away from `real_home/Library/Keychains` fails closed.
+    let kc1 = d1.join("Library").join("Keychains");
+    let evil_kc = tmp.path().join("evil_kc");
+    fs::create_dir_all(&evil_kc).unwrap();
+    fs::remove_file(&kc1).unwrap();
+    std::os::unix::fs::symlink(&evil_kc, &kc1).unwrap();
+    assert_eq!(
+        verify_12_surface_runtime_isolation(&**adapter.system_ops(), &profiles, Some(&sim_home))
+            .unwrap_err()
+            .code(),
+        "PATH_TRAVERSAL"
+    );
+
+    let _ = adapter.stop(&rt1, &[], 3_000);
+    let _ = adapter.stop(&rt2, &[], 3_000);
+}
