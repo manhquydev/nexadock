@@ -678,9 +678,106 @@ mod tests {
         assert!(first.len() >= 24);
     }
 
+    fn read_http_request_body(stream: &mut std::net::TcpStream) -> Vec<u8> {
+        use std::io::Read;
+
+        let mut raw = Vec::new();
+        let mut buf = [0_u8; 4096];
+        let header_end;
+        loop {
+            let n = stream.read(&mut buf).unwrap();
+            assert!(n > 0, "unexpected EOF reading request headers");
+            raw.extend_from_slice(&buf[..n]);
+            if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                header_end = pos + 4;
+                break;
+            }
+        }
+        let headers = String::from_utf8_lossy(&raw[..header_end]);
+        let is_chunked = headers.lines().any(|line| {
+            line.split_once(':').is_some_and(|(k, v)| {
+                k.trim().eq_ignore_ascii_case("transfer-encoding")
+                    && v.to_ascii_lowercase().contains("chunked")
+            })
+        });
+        if is_chunked {
+            let mut decoded = Vec::new();
+            let mut pos = header_end;
+            loop {
+                let line_rel = loop {
+                    if let Some(rel) = raw[pos..].windows(2).position(|w| w == b"\r\n") {
+                        break rel;
+                    }
+                    let n = stream.read(&mut buf).unwrap();
+                    assert!(n > 0, "unexpected EOF reading chunk size");
+                    raw.extend_from_slice(&buf[..n]);
+                };
+                let size_line = std::str::from_utf8(&raw[pos..pos + line_rel]).unwrap();
+                let size_hex = size_line.split(';').next().unwrap_or("").trim();
+                let chunk_size = usize::from_str_radix(size_hex, 16).unwrap();
+                pos += line_rel + 2;
+                if chunk_size == 0 {
+                    while raw.len() < pos + 2 {
+                        let n = stream.read(&mut buf).unwrap();
+                        assert!(n > 0, "unexpected EOF reading chunk terminator");
+                        raw.extend_from_slice(&buf[..n]);
+                    }
+                    if &raw[pos..pos + 2] != b"\r\n" {
+                        while raw[pos..]
+                            .windows(4)
+                            .position(|w| w == b"\r\n\r\n")
+                            .is_none()
+                        {
+                            let n = stream.read(&mut buf).unwrap();
+                            assert!(n > 0, "unexpected EOF reading chunk trailers");
+                            raw.extend_from_slice(&buf[..n]);
+                        }
+                    }
+                    break;
+                }
+                while raw.len() < pos + chunk_size + 2 {
+                    let n = stream.read(&mut buf).unwrap();
+                    assert!(n > 0, "unexpected EOF reading chunk payload");
+                    raw.extend_from_slice(&buf[..n]);
+                }
+                decoded.extend_from_slice(&raw[pos..pos + chunk_size]);
+                pos += chunk_size + 2;
+            }
+            return decoded;
+        }
+        let content_len = headers
+            .lines()
+            .find_map(|line| {
+                let (k, v) = line.split_once(':')?;
+                k.trim()
+                    .eq_ignore_ascii_case("content-length")
+                    .then(|| v.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or(0);
+        while raw.len() < header_end + content_len {
+            let n = stream.read(&mut buf).unwrap();
+            assert!(n > 0, "unexpected EOF reading request body");
+            raw.extend_from_slice(&buf[..n]);
+        }
+        raw[header_end..header_end + content_len].to_vec()
+    }
+
+    fn write_json_response(stream: &mut std::net::TcpStream, payload: &str) {
+        use std::io::Write;
+
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            payload.len(),
+            payload
+        );
+        stream.write_all(resp.as_bytes()).unwrap();
+        stream.flush().unwrap();
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+    }
+
     #[test]
     fn wait_for_chat_advances_offset_past_stale_updates_until_matching_nonce() {
-        use std::io::{Read, Write};
         use std::net::TcpListener;
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -690,36 +787,8 @@ mod tests {
             let mut seen_offsets = Vec::new();
             for step in 0..2 {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut raw = Vec::new();
-                let mut buf = [0_u8; 4096];
-                let header_end;
-                loop {
-                    let n = stream.read(&mut buf).unwrap();
-                    assert!(n > 0, "unexpected EOF reading request headers");
-                    raw.extend_from_slice(&buf[..n]);
-                    if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
-                        header_end = pos + 4;
-                        break;
-                    }
-                }
-                let headers = String::from_utf8_lossy(&raw[..header_end]);
-                let content_len = headers
-                    .lines()
-                    .find_map(|line| {
-                        let (k, v) = line.split_once(':')?;
-                        k.eq_ignore_ascii_case("content-length")
-                            .then(|| v.trim().parse::<usize>().ok())
-                            .flatten()
-                    })
-                    .unwrap_or(0);
-                while raw.len() < header_end + content_len {
-                    let n = stream.read(&mut buf).unwrap();
-                    assert!(n > 0, "unexpected EOF reading request body");
-                    raw.extend_from_slice(&buf[..n]);
-                }
-                let body_part =
-                    std::str::from_utf8(&raw[header_end..header_end + content_len]).unwrap();
-                let parsed: serde_json::Value = serde_json::from_str(body_part).unwrap();
+                let body = read_http_request_body(&mut stream);
+                let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
                 seen_offsets.push(parsed.get("offset").and_then(|v| v.as_i64()));
                 let payload = if step == 0 {
                     r#"{"ok":true,"result":[{"update_id":100,"message":{"chat":{"id":555,"type":"private"},"text":"/start wrong"}}]}"#.to_owned()
@@ -728,12 +797,7 @@ mod tests {
                         r#"{{"ok":true,"result":[{{"update_id":101,"message":{{"chat":{{"id":777888,"type":"private"}},"text":"/start {nonce}"}}}}]}}"#
                     )
                 };
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    payload.len(),
-                    payload
-                );
-                stream.write_all(resp.as_bytes()).unwrap();
+                write_json_response(&mut stream, &payload);
             }
             seen_offsets
         });
@@ -749,35 +813,17 @@ mod tests {
 
     #[test]
     fn multipart_upload_sends_chat_id_over_http() {
-        use std::io::{Read, Write};
         use std::net::TcpListener;
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut raw = Vec::new();
-            let mut buf = [0_u8; 4096];
-            loop {
-                let n = stream.read(&mut buf).unwrap();
-                if n == 0 {
-                    break;
-                }
-                raw.extend_from_slice(&buf[..n]);
-                let text = String::from_utf8_lossy(&raw);
-                if text.contains("--\r\n") {
-                    break;
-                }
-            }
+            let body = read_http_request_body(&mut stream);
             let payload =
                 r#"{"ok":true,"result":{"message_id":99,"chat":{"id":4242,"type":"private"}}}"#;
-            let resp = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                payload.len(),
-                payload
-            );
-            stream.write_all(resp.as_bytes()).unwrap();
-            String::from_utf8_lossy(&raw).into_owned()
+            write_json_response(&mut stream, payload);
+            String::from_utf8_lossy(&body).into_owned()
         });
 
         let tmp = tempfile::tempdir().unwrap();
