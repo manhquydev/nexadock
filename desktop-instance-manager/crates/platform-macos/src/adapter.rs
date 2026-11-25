@@ -468,6 +468,31 @@ impl InstanceMonitor for MacOsPlatformAdapter {
     }
 }
 
+impl MacOsPlatformAdapter {
+    fn finalize_opt_in_symlinks(
+        &self,
+        profile_dir: &Path,
+        real_home: Option<&Path>,
+    ) -> Result<(), DimError> {
+        if let Some(home) = real_home {
+            ensure_macos_user_symlinks_with_options(profile_dir, home, self.config.layout_options)?;
+        } else {
+            verify_no_forbidden_isolation_symlinks_with_home(
+                profile_dir,
+                self.config.layout_options,
+                None,
+            )?;
+            if self.config.layout_options.symlink_keychain {
+                return Err(DimError::ProcessError(
+                    "cannot enable Library/Keychains symlink without a resolvable user home directory"
+                        .to_owned(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl InstanceLauncher for MacOsPlatformAdapter {
     fn ensure_profile_layout(
         &self,
@@ -480,19 +505,7 @@ impl InstanceLauncher for MacOsPlatformAdapter {
             profile_dir,
             self.config.layout_options,
         )?;
-        if let Some(real_home) = self.ops.user_home_dir() {
-            ensure_macos_user_symlinks_with_options(
-                profile_dir,
-                &real_home,
-                self.config.layout_options,
-            )?;
-        } else {
-            verify_no_forbidden_isolation_symlinks_with_home(
-                profile_dir,
-                self.config.layout_options,
-                None,
-            )?;
-        }
+        self.finalize_opt_in_symlinks(profile_dir, self.ops.user_home_dir().as_deref())?;
         Ok(())
     }
 
@@ -518,15 +531,7 @@ impl InstanceLauncher for MacOsPlatformAdapter {
             profile_dir,
             self.config.layout_options,
         )?;
-        if let Some(ref home) = real_home {
-            ensure_macos_user_symlinks_with_options(profile_dir, home, self.config.layout_options)?;
-        } else {
-            verify_no_forbidden_isolation_symlinks_with_home(
-                profile_dir,
-                self.config.layout_options,
-                None,
-            )?;
-        }
+        self.finalize_opt_in_symlinks(profile_dir, real_home.as_deref())?;
 
         let _op_guard = ProfileOperationGuard::acquire(
             &*self.ops,
@@ -1123,5 +1128,67 @@ impl WindowController for MacOsPlatformAdapter {
                 suggested_action: Some("click_primary_dock_icon".to_owned()),
             }),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use crate::ops::MockMacOsSystemOps;
+
+    #[test]
+    fn keychain_symlink_fails_closed_when_user_home_dir_is_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut mock = MockMacOsSystemOps::new_macos(
+            tmp.path().join("unused_home"),
+            tmp.path().join("short_tmp"),
+        );
+        mock.home_dir = None;
+
+        let profile = ProfileRecord {
+            id: "aabb1122".to_owned(),
+            name: "No Home Profile".to_owned(),
+            directory_name: "no-home_aabb1122".to_owned(),
+            created_at: "2026-11-25T00:00:00Z".to_owned(),
+            last_launched_at: None,
+            zalo_user_id: None,
+            notes: String::new(),
+        };
+
+        let opts_keychain = MacOsLayoutOptions::default().with_keychain_symlink(true);
+        let adapter = MacOsPlatformAdapter::with_system_ops(Arc::new(mock))
+            .with_signature_enforcement(false)
+            .with_layout_options(opts_keychain);
+
+        let pdir = tmp.path().join("Profiles").join(&profile.directory_name);
+        let layout_err = adapter.ensure_profile_layout(&profile, &pdir).expect_err(
+            "ensure_profile_layout must fail closed when symlink_keychain=true and home_dir=None",
+        );
+        assert_eq!(layout_err.code(), "PROCESS_ERROR");
+        assert!(layout_err.to_string().contains("Library/Keychains"));
+
+        let target = LaunchTarget::NodeFixture {
+            node_path: None,
+            script_path: tmp.path().join("unused-fixture.mjs"),
+            extra_args: vec![],
+        };
+        let launch_err = adapter
+            .launch(&target, &profile, &pdir)
+            .expect_err("launch must fail closed when symlink_keychain=true and home_dir=None");
+        assert_eq!(launch_err.code(), "PROCESS_ERROR");
+        assert!(launch_err.to_string().contains("Library/Keychains"));
+
+        #[cfg(unix)]
+        {
+            let kc = pdir.join("Library").join("Keychains");
+            fs::create_dir_all(kc.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(tmp.path().join("other"), &kc).unwrap();
+            let sym_err = adapter.ensure_profile_layout(&profile, &pdir).unwrap_err();
+            assert_eq!(sym_err.code(), "PATH_TRAVERSAL");
+            let sym_launch_err = adapter.launch(&target, &profile, &pdir).unwrap_err();
+            assert_eq!(sym_launch_err.code(), "PATH_TRAVERSAL");
+        }
     }
 }
