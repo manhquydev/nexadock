@@ -1953,7 +1953,7 @@ fn parse_elf64_from_source(
         let mut runpath_offsets: Vec<u64> = Vec::new();
         let mut soname_offset: Option<u64> = None;
 
-        for entry in dyn_buf.chunks_exact(16) {
+        for entry in dyn_buf.as_chunks::<16>().0 {
             let d_tag = read_u64_endian(&entry[0..8], ehdr.is_little_endian);
             let d_val = read_u64_endian(&entry[8..16], ehdr.is_little_endian);
             if d_tag == DT_NULL {

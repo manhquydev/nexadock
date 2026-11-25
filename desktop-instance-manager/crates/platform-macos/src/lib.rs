@@ -37,10 +37,12 @@ pub use layout::{
     extract_plist_short_version, inspect_call_socket_owners, inspect_call_sockets_at,
     macos_zalo_data_dir, normalize_macos_path_key, normalize_macos_unicode_key,
     parse_lsof_socket_owners, parse_singleton_lock_target, resolve_effective_tmpdir,
-    verify_external_db_path_isolated, MacOsLayoutOptions, MacOsResolvedLayout, DARWIN_SUN_PATH_MAX,
-    MACOS_12_ISOLATED_SURFACES, MACOS_CALL_SOCKETS, MACOS_OPT_IN_USER_SYMLINKS,
-    MACOS_PROFILE_META_FILE, MACOS_SAFE_TMPDIR_MAX_BYTES, MACOS_SUN_PATH_MAX, MACOS_SYMLINK_DIRS,
-    MAC_CHROMIUM_TMPDIR_MAX_BYTES,
+    verify_external_db_path_isolated, verify_no_forbidden_isolation_symlinks,
+    verify_no_forbidden_isolation_symlinks_with_home,
+    verify_no_forbidden_isolation_symlinks_with_options, MacOsLayoutOptions, MacOsResolvedLayout,
+    DARWIN_SUN_PATH_MAX, MACOS_12_ISOLATED_SURFACES, MACOS_CALL_SOCKETS,
+    MACOS_OPT_IN_USER_SYMLINKS, MACOS_PROFILE_META_FILE, MACOS_SAFE_TMPDIR_MAX_BYTES,
+    MACOS_SUN_PATH_MAX, MACOS_SYMLINK_DIRS, MAC_CHROMIUM_TMPDIR_MAX_BYTES,
 };
 pub use ops::{
     CommandOutput, HostFixtureMacOsOps, MacOsSystemOps, MockMacOsSystemOps, MockSigtermHandler,

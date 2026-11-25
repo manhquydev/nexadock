@@ -37,7 +37,7 @@ cargo clippy --manifest-path tests/cross-platform/Cargo.toml --all-targets --loc
 cargo check --manifest-path tests/cross-platform/Cargo.toml --tests --locked
 
 # 4. UI, i18n, and brand release gates
-node --test apps/desktop/ui/tests/i18n.test.mjs apps/desktop/ui/tests/ui-contracts.test.mjs tests/brand-release-gates.mjs
+node --test apps/desktop/ui/tests/i18n.test.mjs apps/desktop/ui/tests/ui-contracts.test.mjs apps/desktop/ui/tests/vault-ui-contracts.test.mjs apps/desktop/ui/tests/vault-ui-parity.test.mjs tests/brand-release-gates.mjs
 ```
 
 ### Cross-OS `#[cfg]` & Clippy Hygiene

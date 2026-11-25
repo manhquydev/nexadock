@@ -355,6 +355,86 @@
       ]
     }
   },
+  "vault": {
+    "title": "Telegram Vault",
+    "states": {
+      "unpaired": "Chưa ghép",
+      "paired": "Đã ghép",
+      "syncing": "Đang đồng bộ...",
+      "offline": "Đã ghép · Tạm tắt",
+      "continuingBot": "Cần kết nối bot",
+      "sessionMissing": "Cần đăng nhập lại"
+    },
+    "bridge": {
+      "desktopOnly": "Telegram Vault chỉ khả dụng trong ứng dụng NexaDock trên máy tính và không hỗ trợ qua cầu nối trình duyệt."
+    },
+    "stats": {
+      "summary": "{pending} đang chờ · {failed} lỗi · {done} đã đồng bộ"
+    },
+    "actions": {
+      "pair": "Ghép Telegram",
+      "unpair": "Đóng ghép",
+      "enable": "Bật đồng bộ",
+      "disable": "Tắt đồng bộ",
+      "syncNow": "Đồng bộ ngay",
+      "deleteSession": "Xóa phiên Telegram đã lưu"
+    },
+    "transport": {
+      "bot": "Bot Telegram (≤50 MB)",
+      "mtproto": "Tài khoản đầy đủ (≤2 GB)"
+    },
+    "mode": {
+      "legend": "Chọn cách ghép Telegram",
+      "botTitle": "Bot Telegram — dễ nhất",
+      "botDesc": "Chỉ cần tạo bot qua @BotFather, không cần my.telegram.org. Phù hợp file ≤ 50 MB.",
+      "mtpTitle": "Tài khoản Telegram đầy đủ (nâng cao)",
+      "mtpDesc": "Upload tới 2 GB, gửi vào Saved Messages. Cần API ID/Hash từ my.telegram.org."
+    },
+    "bot": {
+      "tokenLabel": "Bot token (từ @BotFather)",
+      "tokenPlaceholder": "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ",
+      "tokenHint": "Mở @BotFather trên Telegram, gửi lệnh /newbot, rồi dán token vào đây (dạng 123456789:chuỗi-ký-tự). Token chỉ được lưu trong cấu hình vault trên máy bạn.",
+      "pairButton": "Tạo bot & liên kết",
+      "linkHeading": "Đã tạo bot. Mở liên kết sau trong Telegram:",
+      "startHint": "Bấm START trong Telegram rồi quay lại đây.",
+      "startConfirm": "Tôi đã bấm Start — kết nối",
+      "waiting": "Đang chờ Telegram...",
+      "waitAgain": "Thử kết nối lại",
+      "notCaptured": "Chưa thấy bạn nhắn bot — hãy mở link và bấm Start rồi thử lại.",
+      "show": "Hiện token",
+      "hide": "Ẩn token",
+      "continuationHeading": "Bot đã ghép. Mở liên kết này trong Telegram:",
+      "continuationHint": "Bấm START trong Telegram rồi bấm nút kết nối bên dưới để hoàn tất.",
+      "continuationConfirm": "Tôi đã bấm Start — kết nối"
+    },
+    "login": {
+      "phoneLabel": "Số điện thoại Telegram",
+      "phonePlaceholder": "+84...",
+      "phoneSubmit": "Nhận mã",
+      "apiIdLabel": "Telegram API ID",
+      "apiHashLabel": "Telegram API Hash",
+      "codeLabel": "Mã xác nhận",
+      "codePlaceholder": "Mã từ Telegram",
+      "passwordLabel": "Mật khẩu xác minh hai bước (nếu có)",
+      "codeSubmit": "Hoàn tất ghép",
+      "credentialsHint": "Nhập API ID và API Hash một lần từ my.telegram.org. Ứng dụng lưu chúng cục bộ trong cấu hình vault, chỉ tài khoản người dùng của bạn đọc được để kết nối lại; thông tin này không được gửi đi nơi khác.",
+      "show": "Hiện mật khẩu",
+      "hide": "Ẩn mật khẩu"
+    },
+    "log": {
+      "heading": "Đồng bộ gần nhất",
+      "caption": "Năm tệp đồng bộ gần nhất qua Telegram Vault",
+      "colFile": "Tệp",
+      "colTime": "Thời gian",
+      "colResult": "Kết quả",
+      "done": "Thành công",
+      "failed": "Thất bại",
+      "empty": "Chưa đồng bộ tệp nào."
+    },
+    "errors": {
+      "requestFailed": "Không thể liên hệ Telegram Vault. Thử lại."
+    }
+  },
   "colors": {
     "blue": "Xanh dương",
     "teal": "Xanh ngọc",

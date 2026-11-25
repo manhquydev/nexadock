@@ -134,6 +134,20 @@ pub fn unique_temp_file_path(target_path: &Path) -> PathBuf {
 ///
 /// On any failure, removes the unique `.tmp` file and leaves any existing `target_path` untouched.
 pub fn write_bytes_atomic(target_path: &Path, bytes: &[u8]) -> Result<(), DimError> {
+    write_bytes_atomic_impl(target_path, bytes, None)
+}
+
+/// Atomically replaces `target_path` using a temporary file created with `0o600` permissions on
+/// Unix (`OpenOptionsExt::mode(0o600)`) before any secret bytes are written or renamed into place.
+pub fn write_bytes_atomic_private(target_path: &Path, bytes: &[u8]) -> Result<(), DimError> {
+    write_bytes_atomic_impl(target_path, bytes, Some(0o600))
+}
+
+fn write_bytes_atomic_impl(
+    target_path: &Path,
+    bytes: &[u8],
+    #[cfg_attr(not(unix), allow(unused_variables))] unix_mode: Option<u32>,
+) -> Result<(), DimError> {
     if let Some(parent) = target_path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
@@ -143,11 +157,14 @@ pub fn write_bytes_atomic(target_path: &Path, bytes: &[u8]) -> Result<(), DimErr
     let mut tmp_path = unique_temp_file_path(target_path);
     let mut file_opt = None;
     for _ in 0..8 {
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp_path)
-        {
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        if let Some(mode) = unix_mode {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(mode);
+        }
+        match opts.open(&tmp_path) {
             Ok(f) => {
                 file_opt = Some(f);
                 break;

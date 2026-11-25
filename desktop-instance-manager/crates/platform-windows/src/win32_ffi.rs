@@ -874,8 +874,10 @@ pub fn read_raw_user_shell_appdata() -> Option<String> {
     }
 
     let words: Vec<u16> = buf[..byte_len as usize]
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[a, b]| u16::from_le_bytes([a, b]))
         .take_while(|&w| w != 0)
         .collect();
     Some(String::from_utf16_lossy(&words))

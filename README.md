@@ -155,7 +155,7 @@ Tải gói cài đặt mới nhất (**`v0.1.1-beta.3`**) tại trang **[GitHub 
 
 ## Biên dịch & Kiểm thử từ mã nguồn (Dành cho nhà phát triển)
 
-Yêu cầu: **Rust `>= 1.85`** (Tauri 2 crate dùng `1.85+`), **Node.js `22+`**, trên Windows cần Visual Studio Build Tools (MSVC) & WebView2, trên Ubuntu cần `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf`.
+Yêu cầu: **Rust `>= 1.89`** (Tauri 2 crate dùng `1.85+`; `rusqlite 0.41` của vault cần `1.89+`), **Node.js `22+`**, trên Windows cần Visual Studio Build Tools (MSVC) & WebView2, trên Ubuntu cần `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf`.
 
 ```bash
 cd desktop-instance-manager
